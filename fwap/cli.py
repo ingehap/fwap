@@ -44,6 +44,7 @@ _DEMOS: dict[str, Callable[..., None]] = {
     "dip":         _demos.demo_dip,
     "attenuation": _demos.demo_attenuation,
     "alford":      _demos.demo_alford,
+    "lwd":         _demos.demo_lwd,
     "las":         _demos.demo_las_roundtrip,
     "dlis":        _demos.demo_dlis_roundtrip,
     "segy":        _demos.demo_segy_roundtrip,

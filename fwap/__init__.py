@@ -32,6 +32,17 @@ Modules outside the scope of the 1994 book (added for completeness):
 * :mod:`fwap.cylindrical` -- Rayleigh-speed surface-wave
                               calculation and a physics-grounded
                               flexural-mode dispersion law
+* :mod:`fwap.geomechanics` -- brittleness / fracability / closure
+                              stress / UCS / sand-stability indices
+                              on top of :class:`ElasticModuli`
+                              (Rickman 2008; Eaton 1969; Lacy 1997)
+* :mod:`fwap.lwd`         -- LWD (logging-while-drilling)
+                              phenomenological layer: steel-collar
+                              :class:`Mode` factory, slowness-band
+                              notch for collar rejection, quadrupole-
+                              source ring synthesis, and m=2
+                              receiver-side stacker
+                              (Tang & Cheng 2004 sect. 2.4-2.5)
 * :mod:`fwap.io`          -- LAS reader/writer (``lasio``), DLIS
                               reader/writer (``dlisio`` +
                               ``dliswriter``), and SEG-Y reader/writer
@@ -212,6 +223,20 @@ from fwap.geomechanics import (
 # Cylindrical / surface-wave speeds
 from fwap.cylindrical import flexural_dispersion_physical, rayleigh_speed
 
+# LWD (logging-while-drilling) phenomenological layer
+from fwap.lwd import (
+    DEFAULT_COLLAR_FREQUENCY_HZ,
+    DEFAULT_COLLAR_GABOR_SIGMA_S,
+    DEFAULT_COLLAR_SLOWNESS_S_PER_M,
+    QuadrupoleRingGather,
+    lwd_collar_mode,
+    lwd_quadrupole_priors,
+    notch_slowness_band,
+    quadrupole_stack,
+    synthesize_lwd_gather,
+    synthesize_quadrupole_lwd_gather,
+)
+
 # File I/O (optional dependencies imported lazily inside each function)
 from fwap.io import (
     DlisCurves,
@@ -286,6 +311,14 @@ __all__ = [
     "GassmannResult", "gassmann_fluid_substitution",
     # Surface-wave speeds / cylindrical
     "rayleigh_speed", "flexural_dispersion_physical",
+    # LWD phenomenological layer
+    "lwd_collar_mode", "synthesize_lwd_gather", "notch_slowness_band",
+    "DEFAULT_COLLAR_SLOWNESS_S_PER_M",
+    "DEFAULT_COLLAR_FREQUENCY_HZ",
+    "DEFAULT_COLLAR_GABOR_SIGMA_S",
+    "QuadrupoleRingGather",
+    "synthesize_quadrupole_lwd_gather", "quadrupole_stack",
+    "lwd_quadrupole_priors",
     # Geomechanics
     "GeomechanicsIndices", "brittleness_index_rickman",
     "fracability_index", "closure_stress",
