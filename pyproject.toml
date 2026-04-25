@@ -1,0 +1,127 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fwap"
+version = "0.4.0"
+description = "Full-Waveform Acoustic Processing - Python implementation of the algorithms in Mari, Coppens, Gavin & Wicquart (1994), Full Waveform Acoustic Data Processing, Editions Technip."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Intended Audience :: Science/Research",
+]
+dependencies = [
+    # Upper bounds gate against major-version breaks (e.g. NumPy 2.0
+    # dropped legacy aliases; SciPy 2.x will reorganise scipy.signal).
+    # Bump the upper bound in a release commit after a smoke test.
+    "numpy>=1.22,<3",
+    "scipy>=1.8,<2",
+    "matplotlib>=3.5,<4",
+    # LAS / DLIS log I/O and SEG-Y waveform I/O are all first-class --
+    # the fwap.io API and demos assume every format round-trips out of
+    # the box.
+    "lasio>=0.30,<1",
+    "dlisio>=1.0,<2",
+    "dliswriter>=1.0,<2",
+    "segyio>=1.9,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7,<9",
+    "pytest-benchmark>=4,<6",
+    "pytest-cov>=4,<7",
+    "hypothesis>=6,<7",
+    "mypy>=1.8,<2",
+    "ruff>=0.6,<1",
+]
+docs = [
+    "sphinx>=7,<9",
+    "sphinx-rtd-theme>=2,<4",
+    "myst-nb>=1.0,<2",
+    "ipykernel>=6,<7",
+]
+
+[project.scripts]
+fwap = "fwap.cli:main"
+
+[tool.mypy]
+python_version = "3.9"
+# Strict enough to catch real bugs, permissive enough to not demand
+# stubs for every external call site.
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+# numpy / scipy / matplotlib / lasio / segyio ship partial or no
+# stubs; ignore them globally so fwap-internal call sites still get
+# checked. Ratcheting this further (per-module overrides + strict
+# checking on fwap/*) is tracked as future work -- doing it cleanly
+# requires backfilling a few dozen variable annotations first.
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+# By default exclude the perf-regression suite: those assertions are
+# wall-clock budgets tuned on a developer laptop, so they belong in
+# the dedicated ``bench`` CI job, not every local ``pytest`` run.
+# Run them explicitly with ``pytest tests/test_bench.py``.
+addopts = "--ignore=tests/test_bench.py"
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fwap*"]
+
+[tool.setuptools.package-data]
+fwap = ["py.typed"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+extend-exclude = ["docs/_build", "docs/generated", "docs/notebooks"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade -- PEP 604/585 modern type hints
+]
+ignore = [
+    "E501",   # long lines -- docstrings frequently exceed 88 cols
+    "E741",   # ambiguous variable name ("l", "I") -- common in math
+    "E702",   # multiple statements on one line -- style choice,
+              # used for lists like ``xs.append(x); src.append(j)``
+    "B008",   # function call in default arg -- used for np.deg2rad(...)
+    "B028",   # allow warnings.warn without stacklevel=2 (we set it
+              # explicitly where needed)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests intentionally import inside functions and use wildcard helpers.
+"tests/*" = ["F401", "F811", "E402"]
+# __init__.py re-exports a lot, which ruff flags as unused imports;
+# it also reorders the import block around module-level docstrings.
+"fwap/__init__.py" = ["F401", "E402", "I001"]
+# These modules declare module-level Literal type aliases or a
+# hoisted ``logger`` between the imports and the functions, which
+# ruff sees as imports below module-level code.
+"fwap/attenuation.py" = ["E402"]
+"fwap/dispersion.py" = ["E402"]
+"fwap/picker.py" = ["E402"]
+# io.py has module-level guarded imports that must stay below the
+# _require_* helpers.
+"fwap/io.py" = ["E402"]
+
+[tool.ruff.format]
+# Match the existing hand-formatted style where reasonable.
+quote-style = "double"

@@ -1,0 +1,61 @@
+"""Sphinx configuration for fwap.
+
+Run from the repo root::
+
+    pip install -e .[docs]
+    sphinx-build -b html docs docs/_build/html
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+
+# Make the package importable for autodoc without requiring install.
+sys.path.insert(0, os.path.abspath(".."))
+
+import fwap  # noqa: E402
+
+project = "fwap"
+author = "fwap contributors"
+copyright = "2026, fwap contributors"
+release = fwap.__version__
+version = release
+
+extensions = [
+    "sphinx.ext.autodoc",
+    "sphinx.ext.autosummary",
+    "sphinx.ext.napoleon",          # NumPy-style docstrings
+    "sphinx.ext.intersphinx",
+    "sphinx.ext.viewcode",
+    "sphinx.ext.mathjax",
+    "myst_nb",                       # Jupyter notebook rendering
+]
+
+# myst-nb: don't re-execute notebooks at build time (too expensive
+# for CI); rely on the committed cell outputs.
+nb_execution_mode = "off"
+
+autosummary_generate = True
+autodoc_default_options = {
+    "members": True,
+    "undoc-members": False,
+    "show-inheritance": True,
+}
+autodoc_typehints = "description"
+
+napoleon_numpy_docstring = True
+napoleon_google_docstring = False
+
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
+    "numpy":  ("https://numpy.org/doc/stable", None),
+    "scipy":  ("https://docs.scipy.org/doc/scipy", None),
+}
+
+templates_path = ["_templates"]
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+
+html_theme = "sphinx_rtd_theme"
+html_static_path = ["_static"]
+html_title = f"fwap {release}"

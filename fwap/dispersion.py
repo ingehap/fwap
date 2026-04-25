@@ -1,0 +1,522 @@
+"""
+Dipole flexural processing: dispersion estimation and dispersive STC.
+
+Implements the dipole-sonic algorithms of Part 3 of the book. Because
+the borehole flexural mode is dispersive, ordinary STC biases shear
+slowness high; this module provides three remedies:
+narrow-band STC (:func:`narrow_band_stc`), per-frequency phase-slowness
+estimation (:func:`phase_slowness_from_f_k`,
+:func:`phase_slowness_matrix_pencil`), and dispersion-corrected STC
+(:func:`dispersive_stc`).
+
+References
+----------
+* Mari, J.-L., Coppens, F., Gavin, P., & Wicquart, E. (1994).
+  *Full Waveform Acoustic Data Processing*, Part 3. Editions Technip,
+  Paris. ISBN 978-2-7108-0664-6.
+* Kimball, C. V. (1998). Shear slowness measurement by dispersive
+  processing of the borehole flexural mode. *Geophysics* 63(2),
+  337-344.
+* Ekstrom, M. P. (1995). Dispersion estimation from borehole acoustic
+  arrays using a modified matrix pencil algorithm. *29th Asilomar
+  Conference on Signals, Systems and Computers*, 449-453.
+* Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in Boreholes*,
+  Chapter 4. CRC Press.
+* Schmitt, D. P. (1988). Shear-wave logging in elastic formations.
+  *Journal of the Acoustical Society of America* 84(6), 2230-2244.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Callable, Literal
+
+PhaseSlownessMethod = Literal["frequency_unwrap", "spatial_unwrap"]
+
+import numpy as np
+from scipy.signal import butter, sosfiltfilt
+
+from fwap._common import logger
+from fwap.coherence import STCResult, stc
+
+
+def _batched_wls_phase_slope(phase_block: np.ndarray,
+                             amp_block: np.ndarray,
+                             x: np.ndarray,
+                             f_out: np.ndarray,
+                             amp_norm: np.ndarray
+                             ) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Solve a weighted least-squares ``phi = slope * x + b`` at every
+    frequency in one vectorised pass and return (slowness, quality).
+
+    The per-frequency ``numpy.linalg.lstsq`` loop in the older code
+    spent almost all its time in Python-call overhead. The closed-form
+    WLS solution is inexpensive to batch across the frequency axis
+    because the design matrix depends only on ``x`` (receiver offsets),
+    which is constant.
+
+    Parameters
+    ----------
+    phase_block : ndarray, shape (n_rec, n_f)
+        Unwrapped (or wrapped; caller's choice) phase vs (receiver,
+        frequency).
+    amp_block : ndarray, shape (n_rec, n_f)
+        Amplitude spectrum at the same (receiver, frequency) grid.
+        Per-frequency weights are ``amp_block[:, j] / amp_block[:, j].max()``.
+    x : ndarray, shape (n_rec,)
+        Receiver offset axis (m), typically ``offsets - offsets[0]``.
+    f_out : ndarray, shape (n_f,)
+        Frequency axis (Hz); frequencies <= 0 produce ``NaN`` slowness.
+    amp_norm : ndarray, shape (n_f,)
+        Band-normalised amplitude weight used to modulate the per-
+        frequency fit quality.
+
+    Returns
+    -------
+    slow : ndarray, shape (n_f,)
+        ``-slope / (2 pi f)`` at each in-band frequency.
+    qual : ndarray, shape (n_f,)
+        ``exp(-(rmse/pi)^2) * amp_norm``.
+    """
+    n_rec, n_f = phase_block.shape
+    slow = np.zeros(n_f, dtype=float)
+    qual = np.zeros(n_f, dtype=float)
+
+    col_max = amp_block.max(axis=0)                    # (n_f,)
+    valid = col_max > 1e-12
+    if not valid.any():
+        return slow, qual
+
+    # Per-column weights (n_rec, n_f); columns with zero max stay 0.
+    w = np.zeros_like(amp_block)
+    w[:, valid] = amp_block[:, valid] / col_max[valid]
+
+    # Weighted sums along the receiver axis -- closed-form WLS.
+    S_w   = w.sum(axis=0)                              # (n_f,)
+    S_wx  = (w * x[:, None]).sum(axis=0)
+    S_wxx = (w * (x[:, None] ** 2)).sum(axis=0)
+    S_wy  = (w * phase_block).sum(axis=0)
+    S_wxy = (w * x[:, None] * phase_block).sum(axis=0)
+    denom = S_w * S_wxx - S_wx ** 2
+    safe = valid & (np.abs(denom) > 1e-30)
+    slope = np.zeros(n_f, dtype=float)
+    intercept = np.zeros(n_f, dtype=float)
+    slope[safe] = (S_w[safe] * S_wxy[safe] - S_wx[safe] * S_wy[safe]) \
+                  / denom[safe]
+    intercept[safe] = (S_wy[safe] - slope[safe] * S_wx[safe]) / S_w[safe]
+
+    # Residual RMSE per frequency.
+    fit = slope[None, :] * x[:, None] + intercept[None, :]
+    resid = phase_block - fit
+    num = (w * resid ** 2).sum(axis=0)
+    den = np.where(S_w > 0, S_w, 1.0)
+    rmse = np.sqrt(np.clip(num / den, 0.0, None))
+    q_fit = np.exp(-(rmse / np.pi) ** 2)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        slow = np.where(safe & (f_out > 0),
+                        -slope / (2.0 * np.pi * f_out),
+                        np.nan)
+    slow = np.where(valid & ~np.isfinite(slow) & (f_out > 0), 0.0, slow)
+    qual = np.where(valid, q_fit * amp_norm, 0.0)
+    return slow, qual
+
+
+def bandpass(data: np.ndarray, dt: float,
+             f_lo: float, f_hi: float, order: int = 4) -> np.ndarray:
+    """
+    Zero-phase Butterworth band-pass along the time axis.
+
+    Parameters
+    ----------
+    data : ndarray
+        Input gather; filtering is applied along ``axis=-1``.
+    dt : float
+        Sampling interval (s).
+    f_lo, f_hi : float
+        Lower and upper corner frequencies (Hz). Values are clipped
+        to the open interval ``(0, Nyquist)`` before designing the
+        filter.
+    order : int, default 4
+        Filter order per pass. The effective order is doubled by the
+        zero-phase forward-backward application (``sosfiltfilt``).
+
+    Returns
+    -------
+    ndarray
+        Filtered data, same shape as ``data``.
+    """
+    fs = 1.0 / dt
+    nyq = 0.5 * fs
+    low  = max(f_lo / nyq, 1.0e-6)
+    high = min(f_hi / nyq, 0.999)
+    sos = butter(order, [low, high], btype="bandpass", output="sos")
+    return sosfiltfilt(sos, data, axis=-1)
+
+
+def narrow_band_stc(data: np.ndarray,
+                    dt: float,
+                    offsets: np.ndarray,
+                    f_lo: float = 1500.0,
+                    f_hi: float = 4000.0,
+                    **stc_kwargs) -> STCResult:
+    """
+    Band-pass the gather, then run STC -> lower-bias shear slowness.
+
+    Convenience wrapper that applies :func:`bandpass` to ``data`` and
+    forwards the result (together with ``dt`` and ``offsets``) to
+    :func:`fwap.coherence.stc`. Keyword arguments in ``stc_kwargs`` are
+    passed through unchanged to :func:`stc`.
+
+    Parameters
+    ----------
+    data : ndarray, shape (n_rec, n_samples)
+    dt : float
+        Sampling interval (s).
+    offsets : ndarray, shape (n_rec,)
+        Source-to-receiver offsets (m).
+    f_lo, f_hi : float
+        Band-pass corner frequencies (Hz); see :func:`bandpass`.
+    **stc_kwargs
+        Forwarded to :func:`fwap.coherence.stc` (e.g. ``slowness_range``,
+        ``n_slowness``, ``window_length``, ``time_step``).
+
+    Returns
+    -------
+    STCResult
+    """
+    return stc(bandpass(data, dt, f_lo, f_hi), dt=dt, offsets=offsets,
+               **stc_kwargs)
+
+
+@dataclass
+class DispersionCurve:
+    """
+    Phase-slowness dispersion curve.
+
+    Attributes
+    ----------
+    freq : ndarray, shape (n_f,)
+        Frequencies at which the curve is evaluated (Hz).
+    slowness : ndarray, shape (n_f,)
+        Estimated phase slowness (s/m) at each frequency. ``NaN`` /
+        ``0`` where the estimator was undefined (typically below the
+        source low-frequency cutoff).
+    quality : ndarray, shape (n_f,)
+        Fit-quality weight in ``[0, 1]`` -- the product of a phase-fit
+        residual score and a band-normalised amplitude weight.
+        Consumers of this curve (:func:`shear_slowness_from_dispersion`
+        and plotting code) should mask or weight by this value.
+    """
+    freq: np.ndarray
+    slowness: np.ndarray
+    quality: np.ndarray
+
+
+def phase_slowness_from_f_k(data: np.ndarray,
+                            dt: float,
+                            offsets: np.ndarray,
+                            f_range: tuple[float, float] = (500.0, 8000.0),
+                            method: PhaseSlownessMethod = "frequency_unwrap",
+                            ) -> DispersionCurve:
+    """
+    Estimate phase slowness vs frequency by weighted LS phase-vs-offset.
+
+    ``method``
+    ----------
+    ``"frequency_unwrap"`` (default)
+        Cross-correlate each trace against the reference (first) trace
+        in the frequency domain, then unwrap the cross-spectrum phase
+        along the **frequency** axis per trace. Because the cross
+        spectrum of trace 0 with itself is identically real, the
+        unwrap is anchored; trace-to-trace 2*pi ambiguities are
+        eliminated.
+    ``"spatial_unwrap"``
+        Unwrap across receivers at each frequency. Fails when the
+        total phase swing across the aperture exceeds pi, i.e. above
+        roughly ``1 / (2 * aperture * s)`` Hz; prefer
+        ``"frequency_unwrap"`` unless replicating a specific reference
+        output.
+
+    Validity band
+    -------------
+    The frequency-domain unwrap is itself valid provided
+    ``|dphi/df * df| < pi``, i.e. the arrival time is less than half
+    the record length. That holds for typical sonic data.
+    """
+    n_rec, n_samp = data.shape
+    spec = np.fft.rfft(data, axis=1)
+    freqs = np.fft.rfftfreq(n_samp, d=dt)
+    band = (freqs >= f_range[0]) & (freqs <= f_range[1])
+    f_out = freqs[band]
+    slow = np.zeros_like(f_out)
+    qual = np.zeros_like(f_out)
+    x = offsets - offsets[0]
+
+    if method == "frequency_unwrap":
+        # Cross-spectrum with trace 0 removes the per-trace DC phase.
+        # Then unwrap along frequency per trace -- but only within the
+        # range where the trace amplitude is a meaningful fraction of
+        # its peak. Below that threshold, quantisation noise produces
+        # spurious 2*pi branch jumps that propagate into every
+        # higher-frequency bin.
+        ref = 0
+        cross = spec * np.conj(spec[ref])
+        amp = np.abs(spec)
+        phase_rel = np.zeros_like(cross, dtype=float)
+        amp_thresh_frac = 0.05  # 5% of peak per trace
+        for i in range(n_rec):
+            a_i = amp[i]
+            if a_i.max() < 1e-12:
+                continue
+            strong = a_i > amp_thresh_frac * a_i.max()
+            # Unwrap only the strong-SNR run. Weak bins keep the raw
+            # wrapped phase -- they're amplitude-down-weighted anyway.
+            raw = np.angle(cross[i])
+            unwrapped = raw.copy()
+            if strong.any():
+                ks = np.where(strong)[0]
+                unwrapped[ks[0]:ks[-1] + 1] = np.unwrap(
+                    raw[ks[0]:ks[-1] + 1])
+            phase_rel[i] = unwrapped
+        phase_block = phase_rel[:, band]
+        amp_block = amp[:, band]
+        amp_mean = amp_block.mean(axis=0)
+        amp_norm = (amp_mean / (amp_mean.max() + 1e-30)) \
+            if amp_mean.size else amp_mean
+        slow, qual = _batched_wls_phase_slope(
+            phase_block, amp_block, x, f_out, amp_norm)
+
+    elif method == "spatial_unwrap":
+        amp_all = np.abs(spec)
+        spec_band = spec[:, band]
+        amp_block = amp_all[:, band]
+        amp_mean = amp_block.mean(axis=0)
+        amp_norm = (amp_mean / (amp_mean.max() + 1e-30)) \
+            if amp_mean.size else amp_mean
+        # Unwrap each frequency column along the receiver axis in one
+        # vectorised call instead of a Python loop over frequencies.
+        phase_block = np.unwrap(np.angle(spec_band), axis=0)
+        slow, qual = _batched_wls_phase_slope(
+            phase_block, amp_block, x, f_out, amp_norm)
+    else:
+        raise ValueError("method must be 'frequency_unwrap' or "
+                         "'spatial_unwrap'")
+
+    return DispersionCurve(freq=f_out, slowness=slow, quality=qual)
+
+
+def phase_slowness_matrix_pencil(data: np.ndarray,
+                                 dt: float,
+                                 offsets: np.ndarray,
+                                 f_range: tuple[float, float]
+                                 = (500.0, 8000.0),
+                                 ) -> DispersionCurve:
+    """
+    Single-mode phase slowness via a matrix-pencil / ESPRIT-style
+    estimator at each frequency.
+
+    At a given ``f`` the spatial samples ``X_i = A exp(2*pi*i*f*s*x_i)``
+    form a geometric progression along a uniform array. Stacking two
+    shifted windows and taking the generalised eigenvalue yields
+    ``exp(2*pi*i*f*s*dx)``; the slowness follows. Bypasses phase
+    unwrapping entirely (Ekstroem, 1995; related to Prony and MUSIC).
+
+    Caveats
+    -------
+    Requires a uniform receiver spacing; assumes a single dominant
+    spatial mode per frequency. For a two-mode problem one should use
+    a true matrix-pencil algorithm with pencil parameter ``L > 1``.
+    """
+    n_rec, n_samp = data.shape
+    if n_rec < 3:
+        raise ValueError("matrix pencil needs >= 3 receivers")
+    dx_samples = np.diff(offsets)
+    dx = float(dx_samples.mean())
+    if not np.allclose(dx_samples, dx, rtol=1e-3):
+        raise ValueError("matrix-pencil estimator requires uniform "
+                         "receiver spacing")
+
+    spec = np.fft.rfft(data, axis=1)
+    freqs = np.fft.rfftfreq(n_samp, d=dt)
+    band = (freqs >= f_range[0]) & (freqs <= f_range[1])
+    f_out = freqs[band]
+    slow = np.zeros_like(f_out)
+    qual = np.zeros_like(f_out)
+
+    spec_band = spec[:, band]                          # (n_rec, n_f)
+    amp_mean = np.abs(spec_band).mean(axis=0)
+    amp_norm = (amp_mean / (amp_mean.max() + 1e-30)) \
+        if amp_mean.size else amp_mean
+
+    # Pencil ratio at every frequency in one pass.
+    # For each column col of spec_band:
+    #     num_j = sum_i conj(col[i]) * col[i+1]
+    #     den_j = sum_i conj(col[i]) * col[i]
+    # and z_j = num_j / den_j encodes exp(-2 pi i f s dx) for a single
+    # +s mode. The frequency-dimension loop was one Python-level call
+    # per bin; here we stack them all as a (n_rec-1, n_f) inner product.
+    x0 = spec_band[:-1, :]                             # (n_rec-1, n_f)
+    x1 = spec_band[1:, :]
+    num = np.sum(np.conj(x0) * x1, axis=0)             # (n_f,)
+    den = np.sum(np.conj(x0) * x0, axis=0)             # (n_f,)
+    safe = np.abs(den) >= 1e-15
+    z = np.zeros_like(num)
+    z[safe] = num[safe] / den[safe]
+    mag = np.abs(z)
+    angle = np.angle(z)
+
+    positive_f = f_out > 0
+    valid = safe & positive_f & (mag >= 1e-12)
+    # col[i+1] / col[i] ~ exp(-2 pi i f s dx) for a +s mode, so
+    # s = -angle / (2 pi f dx). Bins that fail the validity mask keep
+    # the zero default.
+    slow[valid] = -angle[valid] / (2.0 * np.pi * f_out[valid] * dx)
+    q_circle = np.clip(1.0 - np.abs(mag - 1.0), 0.0, 1.0)
+    qual = np.where(valid, q_circle * amp_norm, 0.0)
+
+    return DispersionCurve(freq=f_out, slowness=slow, quality=qual)
+
+
+def shear_slowness_from_dispersion(curve: DispersionCurve,
+                                   f_lo: float = 500.0,
+                                   f_hi: float = 2500.0,
+                                   quality_threshold: float = 0.8) -> float:
+    """
+    Quality-weighted mean of ``s(f)`` in the low-frequency asymptote
+    band (Kimball, 1998, eq. 14).
+
+    If no dispersion points in ``[f_lo, f_hi]`` meet
+    ``quality_threshold`` the call falls back to the unweighted set of
+    finite points in the same band and emits a ``logging.warning`` so
+    the caller can see that their quality gate was dropped.
+    """
+    mask = ((curve.freq >= f_lo) & (curve.freq <= f_hi) &
+            (curve.quality >= quality_threshold) &
+            np.isfinite(curve.slowness))
+    if not mask.any():
+        logger.warning(
+            "shear_slowness_from_dispersion: no points pass "
+            "quality_threshold=%g in band [%g, %g] Hz; falling back to "
+            "finite points only.",
+            quality_threshold, f_lo, f_hi,
+        )
+        mask = ((curve.freq >= f_lo) & (curve.freq <= f_hi) &
+                np.isfinite(curve.slowness))
+        if not mask.any():
+            return float("nan")
+    w = np.clip(curve.quality[mask], 1e-3, 1.0)
+    s = curve.slowness[mask]
+    return float(np.sum(w * s) / np.sum(w))
+
+
+def dispersive_stc(data: np.ndarray,
+                   dt: float,
+                   offsets: np.ndarray,
+                   dispersion_family: Callable[
+                       [float], Callable[[np.ndarray], np.ndarray]],
+                   shear_slowness_range: tuple[float, float]
+                   = (150e-6, 600e-6),
+                   n_slowness: int = 91,
+                   f_range: tuple[float, float] = (500.0, 6000.0),
+                   window_length: float = 1.5e-3,
+                   time_step: int = 4,
+                   min_energy_fraction: float = 1.0e-8) -> STCResult:
+    """
+    Dispersive STC in the spirit of Kimball (1998).
+
+    For each trial shear slowness ``s_shear``, the expected phase
+    slowness ``s_phase(f) = dispersion_family(s_shear)(f)`` is computed
+    and used to back-project every frequency bin before windowed
+    semblance. A true flexural arrival is collapsed to zero relative
+    delay at the correct ``s_shear``, removing the high-frequency bias
+    that plagues ordinary STC on dispersive modes.
+
+    Parameters
+    ----------
+    dispersion_family
+        Callable that maps a candidate shear slowness to a phase-
+        slowness function ``s_phase(f)``. The returned callable **must
+        accept a NumPy array** of in-band frequencies and return a
+        same-shape array of slownesses (s/m). For the phenomenological
+        flexural model in this module::
+
+            lambda s: dipole_flexural_dispersion(vs=1/s, a_borehole=...)
+
+    Returns
+    -------
+    STCResult
+        ``slowness`` holds the *shear* slowness axis (not the phase
+        slowness -- the whole point of the transform).
+
+    References
+    ----------
+    Kimball, C. V. (1998). Shear slowness measurement by dispersive
+    processing of the borehole flexural mode. *Geophysics* 63(2),
+    337-344, eqs. 5-10.
+    """
+    n_rec, n_samp = data.shape
+    s_shear_axis = np.linspace(*shear_slowness_range, n_slowness)
+
+    spec = np.fft.rfft(data, axis=1)
+    freqs = np.fft.rfftfreq(n_samp, d=dt)
+    band = (freqs >= f_range[0]) & (freqs <= f_range[1])
+
+    L = max(2, int(round(window_length / dt)))
+    t_idx = np.arange(0, n_samp - L + 1, time_step)
+    time = t_idx * dt
+    n_t = t_idx.size
+
+    gather_rms2 = float(np.mean(data ** 2) + 1e-30)
+    den_floor = min_energy_fraction * n_rec * L * gather_rms2
+
+    rel_off = offsets - offsets[0]
+    rho = np.empty((n_slowness, n_t), dtype=float)
+    # Per-cell stack amplitude, same definition as fwap.coherence.stc
+    # (RMS of the per-trace stack contribution); see STCResult.
+    amp = np.empty((n_slowness, n_t), dtype=float)
+
+    # Pre-compute the constant factor shared across all slowness trials:
+    # tau_ij = rel_off[i] * s_phase(freqs[j]) is a rank-1 outer product,
+    # so the full per-receiver phase matrix is
+    #   phase[i, j] = exp(2*pi*i * freqs[j] * rel_off[i] * s_phase[j])
+    # We factor out the ``freqs[j] * rel_off[i]`` grid and multiply in
+    # s_phase(freqs) at each trial.
+    freq_off = 2.0 * np.pi * freqs[None, :] * rel_off[:, None]  # (n_rec, n_f)
+    band_mask = band[None, :]                                    # (1, n_f)
+    # freqs[0] == 0 is always masked out of the band, but guard anyway.
+    band_pos = band & (freqs > 0)
+
+    for k, s_shear in enumerate(s_shear_axis):
+        s_phase_fn = dispersion_family(s_shear)
+        tau_of_f = np.zeros_like(freqs)
+        tau_of_f[band_pos] = s_phase_fn(freqs[band_pos])
+        # shifted_spec = spec * exp(+2*pi*i * freq_off * s_phase), with
+        # out-of-band bins zeroed (double as leakage guard).
+        phase = np.exp(1j * freq_off * tau_of_f[None, :])
+        shifted_spec = np.where(band_mask, spec * phase, 0.0)
+        shifted = np.fft.irfft(shifted_spec, n=n_samp, axis=1)
+
+        windows = np.lib.stride_tricks.sliding_window_view(
+            shifted, window_shape=L, axis=-1)
+        if time_step != 1:
+            windows = windows[:, ::time_step]
+        windows = windows[:, :n_t]
+
+        stack = windows.sum(axis=0)
+        num = (stack * stack).sum(axis=-1)
+        den = n_rec * (windows * windows).sum(axis=(0, -1))
+        rho_k = np.full(n_t, np.nan, dtype=float)
+        mask = den > den_floor
+        rho_k[mask] = num[mask] / den[mask]
+        rho[k] = rho_k
+        amp_k = np.full(n_t, np.nan, dtype=float)
+        amp_k[mask] = np.sqrt(num[mask] / L) / n_rec
+        amp[k] = amp_k
+
+    return STCResult(slowness=s_shear_axis, time=time,
+                     coherence=rho, window_length=window_length,
+                     amplitude=amp)
+
+

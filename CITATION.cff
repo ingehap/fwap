@@ -1,0 +1,46 @@
+cff-version: 1.2.0
+message: >-
+  This package implements the algorithms described in Mari, Coppens,
+  Gavin & Wicquart (1994). Please cite both the software and the
+  original book.
+title: "fwap -- Full-Waveform Acoustic Processing"
+abstract: >-
+  A modern NumPy/SciPy implementation of the four chapter algorithms
+  in Mari, Coppens, Gavin & Wicquart (1994), Full Waveform Acoustic
+  Data Processing (Editions Technip): AI-style picking (Part 1),
+  multichannel wave separation (Part 2), intercept-time inversion and
+  dipole-flexural processing (Part 3), and dip estimation from an
+  azimuthal acoustic array (Part 4). Also includes two extensions:
+  cross-dipole Alford rotation and Q attenuation estimators.
+type: software
+version: "0.4.0"
+license: MIT
+references:
+  - type: book
+    authors:
+      - family-names: Mari
+        given-names: "Jean-Luc"
+      - family-names: Coppens
+        given-names: Franck
+      - family-names: Gavin
+        given-names: Philippe
+      - family-names: Wicquart
+        given-names: Edouard
+    title: "Full Waveform Acoustic Data Processing"
+    year: 1994
+    publisher:
+      name: "Editions Technip"
+    isbn: "978-2-7108-0664-6"
+  - type: article
+    authors:
+      - family-names: Coppens
+        given-names: Franck
+      - family-names: Mari
+        given-names: "Jean-Luc"
+    title: "Application of the intercept time method to full waveform acoustic data"
+    year: 1995
+    journal: "First Break"
+    volume: 13
+    issue: 1
+    start: 11
+    end: 20

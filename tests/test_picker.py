@@ -1,0 +1,831 @@
+"""Rule-based picker tests."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from fwap._common import US_PER_FT
+from fwap.coherence import stc
+from fwap.picker import DEFAULT_PRIORS, pick_modes, track_modes
+from fwap.synthetic import (
+    ArrayGeometry,
+    monopole_formation_modes,
+    synthesize_gather,
+)
+
+
+def _make_stc(seed=0, Vp=4500.0, Vs=2500.0, Vst=1400.0):
+    geom = ArrayGeometry(n_rec=8, tr_offset=3.0, dr=0.1524,
+                         dt=1.0e-5, n_samples=2048)
+    data = synthesize_gather(
+        geom, monopole_formation_modes(Vp, Vs, Vst),
+        noise=0.05, seed=seed)
+    return stc(data, dt=geom.dt, offsets=geom.offsets,
+               slowness_range=(30 * US_PER_FT, 360 * US_PER_FT),
+               n_slowness=121, window_length=4.0e-4, time_step=2)
+
+
+def test_pick_modes_returns_p_s_stoneley():
+    """The default priors recover all three monopole modes."""
+    Vp, Vs, Vst = 4500.0, 2500.0, 1400.0
+    picks = pick_modes(_make_stc(Vp=Vp, Vs=Vs, Vst=Vst), threshold=0.4)
+    assert set(picks) == {"P", "S", "Stoneley"}
+    # Slowness within 10 us/ft of truth.
+    tol = 10.0 * US_PER_FT
+    assert abs(picks["P"].slowness        - 1.0 / Vp)  < tol
+    assert abs(picks["S"].slowness        - 1.0 / Vs)  < tol
+    assert abs(picks["Stoneley"].slowness - 1.0 / Vst) < tol
+
+
+def test_pick_modes_respects_ordering():
+    """P is required to arrive no later than S, S no later than Stoneley."""
+    picks = pick_modes(_make_stc(), threshold=0.4)
+    assert picks["P"].time <= picks["S"].time <= picks["Stoneley"].time
+
+
+def test_pick_modes_populates_amplitude():
+    """ModePick.amplitude is populated and positive for the planted modes."""
+    picks = pick_modes(_make_stc(), threshold=0.4)
+    for name in ("P", "S", "Stoneley"):
+        assert picks[name].amplitude is not None
+        assert picks[name].amplitude > 0.0
+
+
+def test_track_modes_max_slow_jump_per_depth_alias_is_gone():
+    """The deprecated ``max_slow_jump_per_depth`` alias was removed.
+
+    Pre-0.5.0 breaking removal: callers that relied on the alias must
+    migrate to ``max_slow_jump``. Using the old name now raises
+    ``TypeError`` (unexpected keyword argument).
+    """
+    r = _make_stc()
+    with pytest.raises(TypeError, match="max_slow_jump_per_depth"):
+        track_modes([r, r], depths=np.array([0.0, 0.15]),
+                    max_slow_jump_per_depth=1.0e-4)
+
+
+def test_track_modes_continuity_cap_holds():
+    """The effective tolerance cap never exceeds cap_factor * max_slow_jump."""
+    # We can't directly probe the internal value, but we can verify that
+    # setting cap_factor=1 (no growth) matches the max_slow_jump=0
+    # behaviour: any pick must lie within max_slow_jump of the previous.
+    r = _make_stc()
+    picks = track_modes([r, r, r, r],
+                        depths=np.array([0.0, 0.15, 0.3, 0.45]),
+                        max_slow_jump=5.0 * US_PER_FT,
+                        continuity_tol_cap_factor=1.0,
+                        continuity_tol_growth=0.0)
+    p_depths = [dp.picks["P"].slowness for dp in picks if "P" in dp.picks]
+    if len(p_depths) > 1:
+        jumps = np.abs(np.diff(p_depths))
+        assert np.all(jumps <= 5.0 * US_PER_FT + 1e-12)
+
+
+def test_default_priors_units_are_s_per_m():
+    """DEFAULT_PRIORS stores s/m values (sanity check)."""
+    # 40 us/ft ~= 1.31e-4 s/m -- if the units were ever mixed this would
+    # catch it.
+    assert DEFAULT_PRIORS["P"]["slow_min"] == 40.0 * US_PER_FT
+    assert DEFAULT_PRIORS["P"]["slow_max"] > DEFAULT_PRIORS["P"]["slow_min"]
+
+
+# ---------------------------------------------------------------------
+# Viterbi picker
+# ---------------------------------------------------------------------
+
+
+def _stc_sequence(n_depth=10, Vp=4500.0, Vs=2500.0, Vst=1400.0, seed=0):
+    """Build a sequence of STC surfaces along a depth profile."""
+    from fwap.coherence import stc
+    from fwap.synthetic import ArrayGeometry
+    geom = ArrayGeometry(n_rec=8, tr_offset=3.0, dr=0.1524,
+                         dt=1.0e-5, n_samples=2048)
+    stcs = []
+    for d in range(n_depth):
+        data = synthesize_gather(
+            geom, monopole_formation_modes(Vp, Vs, Vst),
+            noise=0.05, seed=seed + d)
+        stcs.append(stc(data, dt=geom.dt, offsets=geom.offsets,
+                        slowness_range=(30 * US_PER_FT, 360 * US_PER_FT),
+                        n_slowness=121, window_length=4.0e-4, time_step=2))
+    return stcs
+
+
+def test_viterbi_pick_recovers_all_three_modes():
+    """Viterbi finds P, S, Stoneley on every depth of a clean sweep."""
+    from fwap.picker import viterbi_pick
+    Vp, Vs, Vst = 4500.0, 2500.0, 1400.0
+    stcs = _stc_sequence(n_depth=8, Vp=Vp, Vs=Vs, Vst=Vst)
+    depths = np.arange(8) * 0.1524
+    picks = viterbi_pick(stcs, depths=depths, threshold=0.4)
+    assert len(picks) == 8
+    # Every depth should have all three modes.
+    for dp in picks:
+        assert set(dp.picks) == {"P", "S", "Stoneley"}
+    # Slownesses within 10 us/ft of truth on every depth.
+    tol = 10.0 * US_PER_FT
+    for dp in picks:
+        assert abs(dp.picks["P"].slowness        - 1.0 / Vp)  < tol
+        assert abs(dp.picks["S"].slowness        - 1.0 / Vs)  < tol
+        assert abs(dp.picks["Stoneley"].slowness - 1.0 / Vst) < tol
+    # Amplitude is populated by the Viterbi path too.
+    for dp in picks:
+        for name in ("P", "S", "Stoneley"):
+            assert dp.picks[name].amplitude is not None
+            assert dp.picks[name].amplitude > 0.0
+
+
+def test_viterbi_pick_enforces_time_ordering_by_default():
+    """Default slack=0 keeps P time <= S time <= Stoneley time."""
+    from fwap.picker import viterbi_pick
+    stcs = _stc_sequence(n_depth=5, seed=3)
+    depths = np.arange(5) * 0.1524
+    picks = viterbi_pick(stcs, depths=depths, time_order_slack=0.0)
+    for dp in picks:
+        t = [dp.picks[n].time for n in ("P", "S", "Stoneley")
+             if n in dp.picks]
+        assert t == sorted(t)
+
+
+def test_viterbi_pick_absence_is_allowed():
+    """Modes with no in-prior-window candidates are marked absent, not mispicked."""
+    from fwap.picker import viterbi_pick
+    # Force every mode's prior window to a slowness range no real
+    # sonic mode falls into, so Viterbi should declare all modes
+    # absent rather than reaching for out-of-window noise peaks.
+    stcs = _stc_sequence(n_depth=4, seed=2)
+    depths = np.arange(4) * 0.1524
+    impossible_priors = {
+        "P": dict(slow_min=1.0e-7, slow_max=5.0e-7,
+                  coherence_min=0.4, order=0),
+        "S": dict(slow_min=1.0e-7, slow_max=5.0e-7,
+                  coherence_min=0.4, order=1),
+        "Stoneley": dict(slow_min=1.0e-7, slow_max=5.0e-7,
+                         coherence_min=0.4, order=2),
+    }
+    picks = viterbi_pick(stcs, depths=depths, priors=impossible_priors,
+                         threshold=0.4)
+    for dp in picks:
+        assert dp.picks == {}
+
+
+def test_viterbi_pick_rejects_length_mismatch():
+    """stc_results and depths must have the same length."""
+    import pytest
+
+    from fwap.picker import viterbi_pick
+    stcs = _stc_sequence(n_depth=3)
+    with pytest.raises(ValueError, match="same length"):
+        viterbi_pick(stcs, depths=np.array([0.0, 0.1]))
+
+
+def test_viterbi_pick_empty_input():
+    """Empty input returns an empty list."""
+    from fwap.picker import viterbi_pick
+    assert viterbi_pick([], depths=np.array([])) == []
+
+
+def test_viterbi_pick_joint_recovers_all_three_modes():
+    """Joint 3-mode Viterbi recovers P, S, Stoneley on a clean sweep."""
+    from fwap.picker import viterbi_pick_joint
+    Vp, Vs, Vst = 4500.0, 2500.0, 1400.0
+    stcs = _stc_sequence(n_depth=6, Vp=Vp, Vs=Vs, Vst=Vst)
+    depths = np.arange(6) * 0.1524
+    picks = viterbi_pick_joint(stcs, depths=depths, threshold=0.4)
+    assert len(picks) == 6
+    for dp in picks:
+        assert set(dp.picks) == {"P", "S", "Stoneley"}
+    tol = 10.0 * US_PER_FT
+    for dp in picks:
+        assert abs(dp.picks["P"].slowness - 1.0 / Vp) < tol
+        assert abs(dp.picks["S"].slowness - 1.0 / Vs) < tol
+        assert abs(dp.picks["Stoneley"].slowness - 1.0 / Vst) < tol
+
+
+def test_viterbi_pick_joint_enforces_time_order():
+    """Default slack=0 keeps P <= S <= Stoneley in every output depth."""
+    from fwap.picker import viterbi_pick_joint
+    stcs = _stc_sequence(n_depth=5, seed=11)
+    depths = np.arange(5) * 0.1524
+    picks = viterbi_pick_joint(stcs, depths=depths, time_order_slack=0.0)
+    for dp in picks:
+        times = [dp.picks[n].time for n in ("P", "S", "Stoneley")
+                 if n in dp.picks]
+        assert times == sorted(times)
+
+
+def test_viterbi_pick_joint_agrees_with_sequential_on_clean_data():
+    """On a clean synthetic the two picker flavours agree on Vp/Vs/Vst."""
+    from fwap.picker import viterbi_pick, viterbi_pick_joint
+    stcs = _stc_sequence(n_depth=4, seed=13)
+    depths = np.arange(4) * 0.1524
+    seq = viterbi_pick(stcs, depths=depths)
+    jnt = viterbi_pick_joint(stcs, depths=depths)
+    # Per-mode per-depth slownesses match to within 1 us/ft.
+    tol = 1.0 * US_PER_FT
+    for s, j in zip(seq, jnt):
+        for mode in ("P", "S", "Stoneley"):
+            if mode in s.picks and mode in j.picks:
+                assert abs(s.picks[mode].slowness
+                           - j.picks[mode].slowness) < tol
+
+
+def test_viterbi_pick_joint_empty_input():
+    """Empty input returns an empty list."""
+    from fwap.picker import viterbi_pick_joint
+    assert viterbi_pick_joint([], depths=np.array([])) == []
+
+
+def test_viterbi_pick_joint_rejects_length_mismatch():
+    """stc_results / depths length mismatch raises ValueError."""
+    import pytest
+
+    from fwap.picker import viterbi_pick_joint
+    stcs = _stc_sequence(n_depth=3)
+    with pytest.raises(ValueError, match="same length"):
+        viterbi_pick_joint(stcs, depths=np.array([0.0, 0.1]))
+
+
+def test_viterbi_pick_joint_raises_on_triple_explosion():
+    """An unreasonably loose threshold + max_triples_per_depth=1 raises."""
+    import pytest
+
+    from fwap.picker import viterbi_pick_joint
+    stcs = _stc_sequence(n_depth=2, seed=17)
+    with pytest.raises(ValueError, match="max_triples_per_depth"):
+        viterbi_pick_joint(
+            stcs, depths=np.array([0.0, 0.15]),
+            threshold=0.1,
+            max_triples_per_depth=1,
+        )
+
+
+def test_viterbi_pick_joint_top_k_keeps_overflow_working():
+    """top_k_per_mode bounds the trellis even when threshold is permissive."""
+    from fwap.picker import viterbi_pick_joint
+    stcs = _stc_sequence(n_depth=2, seed=17)
+    # Without top_k this would blow up (many peaks pass threshold 0.1);
+    # with top_k_per_mode=3 we only enumerate 4^3 = 64 triples per
+    # depth, well within the default cap.
+    picks = viterbi_pick_joint(
+        stcs, depths=np.array([0.0, 0.15]),
+        threshold=0.1,
+        top_k_per_mode=3,
+    )
+    assert len(picks) == 2
+
+
+def test_viterbi_pick_joint_top_k_agrees_with_full_on_clean_data():
+    """On clean data, top_k_per_mode=large has no effect."""
+    from fwap.picker import viterbi_pick_joint
+    Vp, Vs, Vst = 4500.0, 2500.0, 1400.0
+    stcs = _stc_sequence(n_depth=5, Vp=Vp, Vs=Vs, Vst=Vst, seed=19)
+    depths = np.arange(5) * 0.1524
+    full = viterbi_pick_joint(stcs, depths=depths)
+    trimmed = viterbi_pick_joint(stcs, depths=depths, top_k_per_mode=10)
+    for a, b in zip(full, trimmed):
+        for mode in ("P", "S", "Stoneley"):
+            if mode in a.picks and mode in b.picks:
+                assert abs(a.picks[mode].slowness
+                           - b.picks[mode].slowness) < 1.0e-12
+
+
+def test_viterbi_posterior_marginals_returns_valid_probabilities():
+    """Each depth/mode posterior sums (over candidates + absent) to 1."""
+    from fwap.picker import viterbi_posterior_marginals
+    stcs = _stc_sequence(n_depth=4, seed=23)
+    depths = np.arange(4) * 0.1524
+    map_picks, posteriors = viterbi_posterior_marginals(
+        stcs, depths=depths, threshold=0.4)
+    assert len(map_picks) == 4
+    assert len(posteriors) == 4
+    for d_post in posteriors:
+        for mode in ("P", "S", "Stoneley"):
+            entry = d_post[mode]
+            total = float(entry.probabilities.sum()) + entry.p_absent
+            assert abs(total - 1.0) < 1.0e-9
+            assert np.all(entry.probabilities >= 0.0)
+            assert 0.0 <= entry.p_absent <= 1.0
+
+
+def test_viterbi_posterior_marginals_agrees_with_map_on_clean_data():
+    """The MAP picks from forward-backward match viterbi_pick_joint."""
+    from fwap.picker import viterbi_pick_joint, viterbi_posterior_marginals
+    stcs = _stc_sequence(n_depth=5, seed=25)
+    depths = np.arange(5) * 0.1524
+    direct = viterbi_pick_joint(stcs, depths=depths)
+    map_picks, _ = viterbi_posterior_marginals(stcs, depths=depths)
+    assert len(direct) == len(map_picks)
+    for a, b in zip(direct, map_picks):
+        for mode in ("P", "S", "Stoneley"):
+            if mode in a.picks and mode in b.picks:
+                assert abs(a.picks[mode].slowness
+                           - b.picks[mode].slowness) < 1.0e-12
+
+
+def test_viterbi_posterior_marginals_shapes_match_candidates():
+    """PosteriorPick arrays line up with the per-mode candidate lists.
+
+    A structural check: for every mode at every depth, the
+    ``slownesses`` / ``times`` / ``coherences`` / ``probabilities``
+    arrays all have the same length, equal to the number of
+    candidates that passed the prior-window + threshold filter.
+    (The ``probabilities`` array does NOT include the absent state;
+    that's reported separately as ``p_absent``.)
+    """
+    from fwap.picker import viterbi_posterior_marginals
+    stcs = _stc_sequence(n_depth=3, seed=29)
+    depths = np.arange(3) * 0.1524
+    _, posteriors = viterbi_posterior_marginals(
+        stcs, depths=depths, threshold=0.4)
+    for d_post in posteriors:
+        for entry in d_post.values():
+            assert (entry.slownesses.shape
+                    == entry.times.shape
+                    == entry.coherences.shape
+                    == entry.probabilities.shape)
+
+
+def test_viterbi_posterior_marginals_empty_input():
+    """Empty input returns two empty lists."""
+    from fwap.picker import viterbi_posterior_marginals
+    map_picks, posteriors = viterbi_posterior_marginals(
+        [], depths=np.array([]))
+    assert map_picks == []
+    assert posteriors == []
+
+
+def test_viterbi_posterior_marginals_rejects_length_mismatch():
+    """stc_results / depths length mismatch raises ValueError."""
+    import pytest
+
+    from fwap.picker import viterbi_posterior_marginals
+    stcs = _stc_sequence(n_depth=3)
+    with pytest.raises(ValueError, match="same length"):
+        viterbi_posterior_marginals(stcs, depths=np.array([0.0, 0.1]))
+
+
+def test_viterbi_pick_joint_soft_time_order_allows_violation():
+    """With soft_time_order set, triples that violate the order are
+    kept with a penalty rather than filtered out.
+
+    We don't try to induce a real S-before-P synthetic (hard); we
+    only verify that ``soft_time_order=None`` (strict, default) and
+    ``soft_time_order=very_large`` produce the same results on a
+    clean sweep where no violations happen, and that an extremely
+    small ``soft_time_order`` doesn't crash.
+    """
+    from fwap.picker import viterbi_pick_joint
+    stcs = _stc_sequence(n_depth=4, seed=21)
+    depths = np.arange(4) * 0.1524
+
+    strict = viterbi_pick_joint(stcs, depths=depths,
+                                soft_time_order=None)
+    soft_inf = viterbi_pick_joint(stcs, depths=depths,
+                                  soft_time_order=1.0e12)
+    # Very large penalty converges to the strict constraint.
+    for a, b in zip(strict, soft_inf):
+        for mode in ("P", "S", "Stoneley"):
+            if mode in a.picks and mode in b.picks:
+                assert abs(a.picks[mode].slowness
+                           - b.picks[mode].slowness) < 1.0e-10
+
+    # A tiny penalty allows any ordering; the call should succeed.
+    loose = viterbi_pick_joint(stcs, depths=depths,
+                               soft_time_order=1.0e-6)
+    assert len(loose) == 4
+
+
+def test_viterbi_pick_continuity_penalty_smooths_slowness():
+    """Adjacent-depth slowness jumps are smaller than with pick_modes alone.
+
+    On a clean sweep the Viterbi path should never make an abrupt
+    slowness jump: the per-depth slowness should vary within the same
+    narrow band the underlying truth varies in (effectively zero here).
+    """
+    from fwap.picker import viterbi_pick
+    Vs = 2500.0
+    stcs = _stc_sequence(n_depth=10, Vs=Vs, seed=7)
+    depths = np.arange(10) * 0.1524
+    picks = viterbi_pick(stcs, depths=depths,
+                         slow_jump_sigma=10 * US_PER_FT)
+    s_series = np.array(
+        [dp.picks["S"].slowness for dp in picks if "S" in dp.picks]
+    )
+    if s_series.size > 1:
+        max_jump = np.max(np.abs(np.diff(s_series)))
+        assert max_jump < 5.0 * US_PER_FT, (
+            f"max adjacent-depth S slowness jump {max_jump/US_PER_FT:.2f} "
+            f"us/ft -- Viterbi continuity penalty not doing its job"
+        )
+
+
+# ---------------------------------------------------------------------
+# Pseudo-Rayleigh / guided mode
+# ---------------------------------------------------------------------
+
+
+def _make_stc_with_pseudo_rayleigh(seed=0,
+                                   Vp=4500.0,
+                                   Vs=2500.0,
+                                   Vst=1400.0,
+                                   v_fluid=1500.0):
+    """STC of a 4-mode gather: P + S + pseudo-Rayleigh + Stoneley."""
+    geom = ArrayGeometry(n_rec=8, tr_offset=3.0, dr=0.1524,
+                         dt=1.0e-5, n_samples=2048)
+    modes = monopole_formation_modes(
+        Vp, Vs, Vst,
+        v_fluid=v_fluid, f_pr=8_000.0, pr_amp=2.0)
+    data = synthesize_gather(geom, modes, noise=0.05, seed=seed)
+    return stc(data, dt=geom.dt, offsets=geom.offsets,
+               slowness_range=(30 * US_PER_FT, 360 * US_PER_FT),
+               n_slowness=121, window_length=4.0e-4, time_step=2)
+
+
+def test_pick_modes_recovers_pseudo_rayleigh_when_planted():
+    """When a pseudo-Rayleigh arrival is planted, pick_modes finds it."""
+    Vp, Vs, Vst = 4500.0, 2500.0, 1400.0
+    picks = pick_modes(_make_stc_with_pseudo_rayleigh(Vp=Vp, Vs=Vs, Vst=Vst),
+                       threshold=0.4)
+    assert "PseudoRayleigh" in picks
+    pr = picks["PseudoRayleigh"]
+    # Pseudo-Rayleigh phase slowness lives between the formation
+    # shear slowness (low-f cutoff) and the borehole-fluid slowness
+    # (high-f asymptote). For Vs=2500 m/s, v_fluid=1500 m/s that's
+    # roughly 122-200 us/ft.
+    assert 1.0 / Vs <= pr.slowness <= 1.0 / 1500.0 + 5e-6
+
+
+def test_pick_modes_pseudo_rayleigh_absent_on_3_mode_gather():
+    """The 3-mode default gather has no peak in the PseudoRayleigh window."""
+    picks = pick_modes(_make_stc(), threshold=0.4)
+    assert "PseudoRayleigh" not in picks
+    # P / S / Stoneley still recovered.
+    assert {"P", "S", "Stoneley"} <= set(picks)
+
+
+def test_pseudo_rayleigh_dispersion_rejects_slow_formations():
+    """vs <= v_fluid: pseudo-Rayleigh has no cutoff, factory must raise."""
+    from fwap.synthetic import pseudo_rayleigh_dispersion
+    with pytest.raises(ValueError, match="fast formation"):
+        pseudo_rayleigh_dispersion(vs=1200.0, v_fluid=1500.0)
+
+
+def test_pseudo_rayleigh_dispersion_endpoints():
+    """At f=0 phase slowness equals 1/vs; at f -> inf it asymptotes to 1/v_fluid."""
+    from fwap.synthetic import pseudo_rayleigh_dispersion
+    Vs = 2500.0
+    Vf = 1500.0
+    s_of_f = pseudo_rayleigh_dispersion(vs=Vs, v_fluid=Vf, a_borehole=0.1)
+    f = np.array([0.0, 1.0e8])
+    s = s_of_f(f)
+    assert abs(s[0] - 1.0 / Vs) < 1e-12
+    # The Lorentzian shape ensures we get within 0.1% of 1/v_fluid by
+    # 1e8 Hz (well above any physical sonic frequency).
+    assert abs(s[1] - 1.0 / Vf) / (1.0 / Vf) < 1.0e-3
+
+
+def test_viterbi_pick_joint_rejects_4_mode_priors():
+    """Joint Viterbi is hardcoded for (P, S, Stoneley) and should refuse
+    to silently mis-handle a 4-mode prior dict."""
+    from fwap.picker import viterbi_pick_joint
+    stcs = _stc_sequence(n_depth=3)
+    depths = np.arange(3) * 0.1524
+    with pytest.raises(ValueError, match="hardcoded"):
+        viterbi_pick_joint(stcs, depths=depths, priors=DEFAULT_PRIORS)
+
+
+def test_viterbi_pick_joint_default_priors_still_work():
+    """Default-priors path continues to work after PseudoRayleigh was
+    added: viterbi_pick_joint quietly subsets to (P, S, Stoneley)."""
+    from fwap.picker import viterbi_pick_joint
+    stcs = _stc_sequence(n_depth=4)
+    depths = np.arange(4) * 0.1524
+    picks = viterbi_pick_joint(stcs, depths=depths, threshold=0.4)
+    for dp in picks:
+        assert set(dp.picks) <= {"P", "S", "Stoneley"}
+
+
+# ---------------------------------------------------------------------
+# Wavelet-shape + onset-polarity expert rules
+# ---------------------------------------------------------------------
+
+
+def test_onset_polarity_basic_signs():
+    """Sign of the largest-absolute sample wins."""
+    from fwap.picker import onset_polarity
+    assert onset_polarity(np.array([0.0, 0.5, 1.0, 0.5, 0.0])) == +1
+    assert onset_polarity(np.array([0.0, -0.5, -1.0, -0.5, 0.0])) == -1
+    assert onset_polarity(np.zeros(8)) == 0
+    # Tie-breaks toward whichever extremum np.argmax picks first.
+    assert onset_polarity(np.array([])) == 0
+
+
+def test_wavelet_shape_score_perfect_match_is_one():
+    """A pure Ricker at f0 correlates 1.0 with itself."""
+    from fwap.picker import wavelet_shape_score
+    f0 = 8_000.0
+    dt = 1.0e-5
+    n = 64
+    # Build a centered Ricker.
+    t = (np.arange(n) - n // 2) * dt
+    a = (np.pi * f0 * t) ** 2
+    ricker = (1.0 - 2.0 * a) * np.exp(-a)
+    score = wavelet_shape_score(ricker, dt, f0)
+    assert score > 0.999
+
+
+def test_wavelet_shape_score_orthogonal_pulse_is_low():
+    """A pulse at a very different frequency correlates poorly."""
+    from fwap.picker import wavelet_shape_score
+    dt = 1.0e-5
+    n = 64
+    t = (np.arange(n) - n // 2) * dt
+    # Ricker at 1 kHz vs template at 15 kHz: very different shapes.
+    a = (np.pi * 1_000.0 * t) ** 2
+    low_f_ricker = (1.0 - 2.0 * a) * np.exp(-a)
+    score = wavelet_shape_score(low_f_ricker, dt, 15_000.0)
+    assert score < 0.5
+
+
+def test_wavelet_shape_score_polarity_blind():
+    """The score uses |corr|, so a flipped wavelet still matches."""
+    from fwap.picker import wavelet_shape_score
+    dt = 1.0e-5
+    n = 64
+    t = (np.arange(n) - n // 2) * dt
+    a = (np.pi * 8_000.0 * t) ** 2
+    ricker = (1.0 - 2.0 * a) * np.exp(-a)
+    score_pos = wavelet_shape_score(ricker, dt, 8_000.0)
+    score_neg = wavelet_shape_score(-ricker, dt, 8_000.0)
+    assert abs(score_pos - score_neg) < 1.0e-12
+
+
+def test_filter_picks_by_shape_default_priors_is_passthrough():
+    """With ``polarity=0`` and ``shape_match_min=0`` (the defaults),
+    the filter is a no-op and returns every input pick unchanged."""
+    from fwap.picker import filter_picks_by_shape
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    out = filter_picks_by_shape(picks, data, geom.dt, geom.offsets)
+    assert set(out) == set(picks)
+    for name in picks:
+        assert out[name] is picks[name]   # not mutated, same object
+
+
+def test_filter_picks_by_shape_polarity_drop():
+    """Setting ``polarity=-1`` on the canonical positive-Ricker P
+    drops the P pick (and only the P pick)."""
+    from fwap.picker import DEFAULT_PRIORS, filter_picks_by_shape
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    priors = dict(DEFAULT_PRIORS)
+    priors["P"] = dict(DEFAULT_PRIORS["P"], polarity=-1)
+    out = filter_picks_by_shape(picks, data, geom.dt, geom.offsets,
+                                priors=priors)
+    assert "P" not in out
+    assert {"S", "Stoneley"} <= set(out)
+
+
+def test_filter_picks_by_shape_shape_drop_when_min_too_high():
+    """A shape_match_min of 0.999 against the Stoneley f0 drops Stoneley
+    (Gabor has the same envelope but isn't an exact Ricker)."""
+    from fwap.picker import DEFAULT_PRIORS, filter_picks_by_shape
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    priors = dict(DEFAULT_PRIORS)
+    priors["Stoneley"] = dict(DEFAULT_PRIORS["Stoneley"],
+                              shape_match_min=0.999, f0=3_000.0)
+    out = filter_picks_by_shape(picks, data, geom.dt, geom.offsets,
+                                priors=priors)
+    assert "Stoneley" not in out
+
+
+def test_filter_picks_by_shape_requires_f0_when_shape_enabled():
+    """shape_match_min > 0 without an f0 in the prior is a
+    configuration error and must raise."""
+    import pytest
+
+    from fwap.picker import DEFAULT_PRIORS, filter_picks_by_shape
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    priors = dict(DEFAULT_PRIORS)
+    priors["P"] = dict(DEFAULT_PRIORS["P"], shape_match_min=0.5)
+    with pytest.raises(ValueError, match="f0"):
+        filter_picks_by_shape(picks, data, geom.dt, geom.offsets,
+                              priors=priors)
+
+
+def test_filter_track_by_shape_runs_per_depth():
+    """Multi-depth filter applies per-depth using the matching gather."""
+    from fwap.picker import (
+        DEFAULT_PRIORS,
+        filter_track_by_shape,
+        viterbi_pick,
+    )
+    Vp, Vs, Vst = 4500.0, 2500.0, 1400.0
+    n = 4
+    geom = ArrayGeometry(n_rec=8, tr_offset=3.0, dr=0.1524,
+                         dt=1.0e-5, n_samples=2048)
+    datas = [
+        synthesize_gather(geom, monopole_formation_modes(Vp, Vs, Vst),
+                          noise=0.05, seed=s)
+        for s in range(n)
+    ]
+    stcs = [_stc_from_gather(geom, d) for d in datas]
+    depths = np.arange(n) * 0.1524
+    track = viterbi_pick(stcs, depths=depths, threshold=0.4)
+
+    # Polarity=-1 on P should drop P at every depth.
+    priors = dict(DEFAULT_PRIORS)
+    priors["P"] = dict(DEFAULT_PRIORS["P"], polarity=-1)
+    out = filter_track_by_shape(track, datas, geom.dt, geom.offsets,
+                                priors=priors)
+    assert len(out) == n
+    for dp in out:
+        assert "P" not in dp.picks
+        assert {"S", "Stoneley"} <= set(dp.picks)
+
+
+def test_filter_track_by_shape_rejects_length_mismatch():
+    """track_picks and datas must have matching length."""
+    import pytest
+
+    from fwap.picker import filter_track_by_shape
+    geom, data, *_ = _gather()
+    track = []   # empty
+    datas = [data]
+    with pytest.raises(ValueError, match="same length"):
+        filter_track_by_shape(track, datas, geom.dt, geom.offsets)
+
+
+def _gather(seed=0):
+    """One canonical 3-mode monopole gather + its geometry."""
+    geom = ArrayGeometry(n_rec=8, tr_offset=3.0, dr=0.1524,
+                         dt=1.0e-5, n_samples=2048)
+    data = synthesize_gather(
+        geom, monopole_formation_modes(4500.0, 2500.0, 1400.0),
+        noise=0.05, seed=seed)
+    return geom, data, 4500.0, 2500.0, 1400.0
+
+
+def _stc_from_gather(geom, data):
+    """Run STC with the canonical settings used elsewhere in this file."""
+    from fwap.coherence import stc as _stc
+    return _stc(data, dt=geom.dt, offsets=geom.offsets,
+                slowness_range=(30 * US_PER_FT, 360 * US_PER_FT),
+                n_slowness=121, window_length=4.0e-4, time_step=2)
+
+
+# ---------------------------------------------------------------------
+# Cross-mode consistency QC
+# ---------------------------------------------------------------------
+
+
+def test_quality_control_picks_clean_passes():
+    """Canonical Vp=4500 / Vs=2500 / Vst=1400 picks (Vp/Vs=1.8) pass
+    every check."""
+    from fwap.picker import PickQualityFlags, quality_control_picks
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    qc = quality_control_picks(picks, depth=1000.0)
+    assert isinstance(qc, PickQualityFlags)
+    assert qc.depth == 1000.0
+    assert qc.vp_vs is not None
+    assert 1.7 < qc.vp_vs < 1.9
+    assert qc.vp_vs_in_band
+    assert qc.time_order_ok
+    assert not qc.flagged
+    assert qc.reasons == ()
+
+
+def test_quality_control_picks_vp_vs_out_of_band_flags():
+    """An S pick that drives Vp/Vs above the 2.6 cap is flagged."""
+    from fwap.picker import ModePick, quality_control_picks
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    # Make S 1.6x slower to push Vp/Vs to ~2.8 (well above the 2.6 cap).
+    picks["S"] = ModePick(
+        name="S",
+        slowness=picks["S"].slowness * 1.6,
+        time=picks["S"].time,
+        coherence=0.5,
+        amplitude=0.1,
+    )
+    qc = quality_control_picks(picks)
+    assert not qc.vp_vs_in_band
+    assert qc.flagged
+    assert any("Vp/Vs" in r for r in qc.reasons)
+
+
+def test_quality_control_picks_time_order_flags():
+    """Picks whose times violate the canonical t_P <= t_S <= ... order
+    are flagged."""
+    from fwap.picker import ModePick, quality_control_picks
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    # Force S to arrive before P.
+    picks["S"] = ModePick(
+        name="S",
+        slowness=picks["S"].slowness,
+        time=picks["P"].time - 1.0e-3,
+        coherence=picks["S"].coherence,
+        amplitude=picks["S"].amplitude,
+    )
+    qc = quality_control_picks(picks)
+    assert not qc.time_order_ok
+    assert qc.flagged
+    assert any("time order" in r for r in qc.reasons)
+
+
+def test_quality_control_picks_skips_vp_vs_when_either_missing():
+    """No Vp/Vs computed when only one of P/S is picked."""
+    from fwap.picker import quality_control_picks
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    del picks["P"]
+    qc = quality_control_picks(picks)
+    assert qc.vp_vs is None
+    # vp_vs_in_band stays True (no check applied), so flagged depends
+    # only on the time-order check (which still passes).
+    assert qc.vp_vs_in_band
+    assert not qc.flagged
+
+
+def test_quality_control_picks_accepts_depth_picks():
+    """Passing a DepthPicks uses its .depth field by default."""
+    from fwap.picker import DepthPicks, quality_control_picks
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    dp = DepthPicks(depth=2025.5, picks=picks)
+    qc = quality_control_picks(dp)
+    assert qc.depth == 2025.5
+    # Explicit depth kwarg overrides.
+    qc2 = quality_control_picks(dp, depth=999.0)
+    assert qc2.depth == 999.0
+
+
+def test_quality_control_picks_require_time_order_disable():
+    """``require_time_order=False`` skips the ordering check."""
+    from fwap.picker import ModePick, quality_control_picks
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    picks["S"] = ModePick(
+        name="S",
+        slowness=picks["S"].slowness,
+        time=picks["P"].time - 1.0e-3,    # violates ordering
+        coherence=picks["S"].coherence,
+    )
+    qc = quality_control_picks(picks, require_time_order=False)
+    assert qc.time_order_ok    # not actually checked
+    # And so the only remaining gate is the Vp/Vs one (which passes).
+    assert not qc.flagged
+
+
+def test_quality_control_picks_reports_both_failures_simultaneously():
+    """A pick set that fails both gates lists both reasons."""
+    from fwap.picker import ModePick, quality_control_picks
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    # Vp/Vs violation AND time-order violation in one go.
+    picks["S"] = ModePick(
+        name="S",
+        slowness=picks["S"].slowness * 1.6,
+        time=picks["P"].time - 1.0e-3,
+        coherence=0.5,
+    )
+    qc = quality_control_picks(picks)
+    assert qc.flagged
+    assert not qc.vp_vs_in_band
+    assert not qc.time_order_ok
+    assert len(qc.reasons) == 2
+
+
+def test_quality_control_track_runs_per_depth():
+    """quality_control_track returns one PickQualityFlags per depth."""
+    from fwap.picker import (
+        DepthPicks,
+        ModePick,
+        PickQualityFlags,
+        quality_control_track,
+    )
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    bad_picks = dict(picks)
+    bad_picks["S"] = ModePick(
+        name="S",
+        slowness=picks["S"].slowness * 1.6,   # Vp/Vs violation
+        time=picks["S"].time,
+        coherence=0.5,
+    )
+    track = [
+        DepthPicks(depth=1000.0, picks=picks),
+        DepthPicks(depth=1001.0, picks=bad_picks),
+        DepthPicks(depth=1002.0, picks=picks),
+    ]
+    qc = quality_control_track(track)
+    assert len(qc) == 3
+    assert all(isinstance(q, PickQualityFlags) for q in qc)
+    assert [q.flagged for q in qc] == [False, True, False]
+    assert [q.depth for q in qc] == [1000.0, 1001.0, 1002.0]
