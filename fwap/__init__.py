@@ -217,9 +217,13 @@ from fwap.lwd import (
     DEFAULT_COLLAR_FREQUENCY_HZ,
     DEFAULT_COLLAR_GABOR_SIGMA_S,
     DEFAULT_COLLAR_SLOWNESS_S_PER_M,
+    QuadrupoleRingGather,
     lwd_collar_mode,
+    lwd_quadrupole_priors,
     notch_slowness_band,
+    quadrupole_stack,
     synthesize_lwd_gather,
+    synthesize_quadrupole_lwd_gather,
 )
 
 # File I/O (optional dependencies imported lazily inside each function)
@@ -301,6 +305,9 @@ __all__ = [
     "DEFAULT_COLLAR_SLOWNESS_S_PER_M",
     "DEFAULT_COLLAR_FREQUENCY_HZ",
     "DEFAULT_COLLAR_GABOR_SIGMA_S",
+    "QuadrupoleRingGather",
+    "synthesize_quadrupole_lwd_gather", "quadrupole_stack",
+    "lwd_quadrupole_priors",
     # Geomechanics
     "GeomechanicsIndices", "brittleness_index_rickman",
     "fracability_index", "closure_stress",

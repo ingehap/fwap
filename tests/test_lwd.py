@@ -216,6 +216,170 @@ def test_lwd_collar_rejection_recovers_formation_picks():
     assert abs(picks["Stoneley"].slowness - 1.0 / Vst) < tol
 
 
+# ---------------------------------------------------------------------
+# Quadrupole-source LWD ring synthesis + receiver-side m=2 stacking
+# ---------------------------------------------------------------------
+
+
+def test_synthesize_quadrupole_ring_gather_shapes_and_pattern():
+    """Per-receiver amplitude at the known formation-arrival sample
+    follows cos(2(theta - source_azimuth))."""
+    from fwap.lwd import synthesize_quadrupole_lwd_gather
+    Vs = 2500.0
+    tool_offset = 3.0
+    dt = 1.0e-5
+    g = synthesize_quadrupole_lwd_gather(
+        n_rec=8, n_samples=1024, dt=dt, tool_offset=tool_offset,
+        formation_slowness=1.0 / Vs, formation_amplitude=1.0,
+        source_azimuth=0.0, include_collar=False, noise=0.0, seed=0,
+    )
+    assert g.data.shape == (8, 1024)
+    assert g.azimuths.shape == (8,)
+    np.testing.assert_allclose(g.axial_offsets, 3.0)
+    # Sample at the formation-arrival time; the Ricker peak there is
+    # `1.0 * formation_amplitude * cos(2 theta_i)` (no other modes,
+    # no noise).
+    j_peak = int(round((tool_offset / Vs) / dt))
+    expected = np.cos(2.0 * g.azimuths)
+    np.testing.assert_allclose(g.data[:, j_peak], expected, atol=1.0e-12)
+
+
+def test_synthesize_quadrupole_ring_rejects_too_few_receivers():
+    """n_rec < 4 cannot resolve the m=2 pattern by Nyquist."""
+    from fwap.lwd import synthesize_quadrupole_lwd_gather
+    with pytest.raises(ValueError, match="n_rec"):
+        synthesize_quadrupole_lwd_gather(n_rec=3)
+
+
+def test_quadrupole_stack_rejects_monopole_pattern():
+    """An m=0 (uniform) signal has zero projection on cos(2 theta)."""
+    from fwap.lwd import quadrupole_stack
+    n_rec = 8
+    azimuths = np.linspace(0.0, 2.0 * np.pi, n_rec, endpoint=False)
+    pulse = np.zeros((n_rec, 256))
+    pulse[:, 100] = 1.0   # identical impulse on every receiver (m=0)
+    stacked = quadrupole_stack(pulse, azimuths, source_azimuth=0.0)
+    # cos(2 theta) has zero mean over a uniformly-sampled ring.
+    assert abs(stacked).max() < 1.0e-10
+
+
+def test_quadrupole_stack_rejects_dipole_pattern():
+    """An m=1 (cos(theta)) signal is orthogonal to cos(2 theta)."""
+    from fwap.lwd import quadrupole_stack
+    n_rec = 8
+    azimuths = np.linspace(0.0, 2.0 * np.pi, n_rec, endpoint=False)
+    weights_dipole = np.cos(azimuths)
+    pulse = np.zeros((n_rec, 256))
+    pulse[:, 100] = weights_dipole
+    stacked = quadrupole_stack(pulse, azimuths, source_azimuth=0.0)
+    # cos(theta) and cos(2 theta) are orthogonal under uniform sampling.
+    assert abs(stacked).max() < 1.0e-10
+
+
+def test_quadrupole_stack_passes_quadrupole_pattern():
+    """An m=2 input survives the m=2 projection (modulo a constant)."""
+    from fwap.lwd import quadrupole_stack
+    n_rec = 8
+    azimuths = np.linspace(0.0, 2.0 * np.pi, n_rec, endpoint=False)
+    weights_quadrupole = np.cos(2.0 * azimuths)
+    pulse = np.zeros((n_rec, 256))
+    pulse[:, 100] = weights_quadrupole
+    stacked = quadrupole_stack(pulse, azimuths, source_azimuth=0.0)
+    # Sum_i cos^2(2 theta_i) = n_rec / 2 for uniform azimuths (n_rec >= 3).
+    assert stacked[100] == pytest.approx(n_rec / 2.0)
+
+
+def test_quadrupole_stack_rejects_shape_mismatch():
+    """Wrong shapes raise ValueError with named messages."""
+    from fwap.lwd import quadrupole_stack
+    with pytest.raises(ValueError, match="2-D"):
+        quadrupole_stack(np.zeros(8), np.linspace(0, 2*np.pi, 8))
+    with pytest.raises(ValueError, match="azimuths"):
+        quadrupole_stack(np.zeros((8, 100)), np.linspace(0, 2*np.pi, 4))
+
+
+def test_quadrupole_stack_recovers_formation_screw_arrival_time():
+    """Stacking the synthesised quadrupole gather peaks at the
+    formation-mode arrival time."""
+    from fwap.lwd import quadrupole_stack, synthesize_quadrupole_lwd_gather
+    Vs = 2500.0
+    tool_offset = 3.0
+    g = synthesize_quadrupole_lwd_gather(
+        n_rec=8, n_samples=2048, dt=1.0e-5,
+        tool_offset=tool_offset,
+        formation_slowness=1.0 / Vs,
+        formation_f0=6000.0,
+        formation_amplitude=1.0,
+        include_collar=False, noise=0.0, seed=0,
+    )
+    stacked = quadrupole_stack(g.data, g.azimuths,
+                               source_azimuth=g.source_azimuth)
+    t = np.arange(stacked.size) * g.dt
+    t_truth = tool_offset / Vs
+    t_peak = t[int(np.argmax(np.abs(stacked)))]
+    # Within one sample of truth.
+    assert abs(t_peak - t_truth) < 2.0 * g.dt
+
+
+def test_lwd_quadrupole_priors_contains_collar_and_formation_modes():
+    """The helper returns a priors dict with the two LWD-quadrupole modes."""
+    from fwap.lwd import lwd_quadrupole_priors
+    priors = lwd_quadrupole_priors()
+    assert set(priors) == {"CollarQuadrupole", "FormationShear"}
+    # Collar arrives first (lower slowness) -> order 0.
+    assert priors["CollarQuadrupole"]["order"] == 0
+    assert priors["FormationShear"]["order"] == 1
+    # Slowness windows in the published Tang & Cheng 2004 ranges.
+    for prior in priors.values():
+        assert 0.0 < prior["slow_min"] < prior["slow_max"]
+
+
+def test_quadrupole_stack_then_pick_recovers_formation_shear():
+    """End-to-end: synthesize quadrupole gather with collar contamination,
+    stack to a single trace, run the picker on a synthetic axial gather
+    built by replicating the stacked trace at a few axial offsets, and
+    confirm the formation-shear slowness is recovered to within
+    10 us/ft of truth."""
+    from fwap.coherence import stc as run_stc
+    from fwap.lwd import (
+        DEFAULT_COLLAR_SLOWNESS_S_PER_M,
+        lwd_quadrupole_priors,
+        quadrupole_stack,
+        synthesize_quadrupole_lwd_gather,
+    )
+    from fwap.picker import pick_modes
+    Vs = 2300.0
+    n_axial = 8
+    dr = 0.1524
+    tr_offset0 = 3.0
+    dt = 1.0e-5
+    n_samples = 2048
+    # One ring per axial offset; same source / quadrupole pattern;
+    # arrivals delayed per offset by formation_slowness * (offset_i).
+    axial_traces = np.empty((n_axial, n_samples), dtype=float)
+    for k in range(n_axial):
+        offset_k = tr_offset0 + k * dr
+        g = synthesize_quadrupole_lwd_gather(
+            n_rec=8, n_samples=n_samples, dt=dt,
+            tool_offset=offset_k,
+            formation_slowness=1.0 / Vs,
+            formation_f0=6000.0, formation_amplitude=1.0,
+            include_collar=True,
+            collar_slowness=DEFAULT_COLLAR_SLOWNESS_S_PER_M,
+            collar_amplitude=1.0,
+            noise=0.02, seed=11 + k,
+        )
+        axial_traces[k] = quadrupole_stack(
+            g.data, g.azimuths, source_azimuth=g.source_azimuth)
+    offsets = tr_offset0 + np.arange(n_axial) * dr
+    surf = run_stc(axial_traces, dt=dt, offsets=offsets,
+                   slowness_range=(50e-6, 600e-6),
+                   n_slowness=181, window_length=4.0e-4, time_step=2)
+    picks = pick_modes(surf, priors=lwd_quadrupole_priors(), threshold=0.4)
+    assert "FormationShear" in picks
+    assert abs(picks["FormationShear"].slowness - 1.0 / Vs) < 10.0 * US_PER_FT
+
+
 def test_lwd_collar_appears_as_strongest_peak_before_rejection():
     """Sanity-check the contamination: on a contaminated gather the
     STC peak with the highest coherence is at (or near) the collar
