@@ -13,6 +13,25 @@ SciPy, Matplotlib (Matplotlib only for the demos and CLI), and the
 log-format libraries ``lasio`` (LAS), ``dlisio`` + ``dliswriter``
 (DLIS), and ``segyio`` (SEG-Y).
 
+Documentation builds
+--------------------
+
+A pre-built PDF snapshot of this manual lives at
+:file:`docs/fwap.pdf`. To regenerate the HTML or PDF locally:
+
+.. code-block:: bash
+
+   pip install -e .[docs]
+   sphinx-build -b html docs docs/_build/html      # HTML
+
+   # PDF: needs a TeX Live install (xelatex + xindy + poppler-utils):
+   sphinx-build -b latex docs docs/_build/latex
+   make -C docs/_build/latex
+
+The LaTeX builder is pinned to ``xelatex`` in :file:`docs/conf.py`
+because some of the docstrings carry Unicode math glyphs that
+``pdflatex`` cannot typeset.
+
 Run the demos
 -------------
 

@@ -200,8 +200,8 @@ class StressAnisotropyEstimate:
         fast / slow pair that differ only in arrival time.
     fracture_indicator : float
         Heuristic flexural-wave fracture proxy in ``[0, 1]``:
-        :math:`\text{rotation_quality} \times
-        \text{anisotropy_strength}`. High values require both
+        :math:`\text{rotation\_quality} \times
+        \text{anisotropy\_strength}`. High values require both
         a clean rotation (so the anisotropy is well-resolved) and
         a strong fast/slow contrast (so the medium is genuinely
         anisotropic). Cannot distinguish stress-induced from

@@ -56,6 +56,13 @@ intersphinx_mapping = {
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
+# PDF / LaTeX build: use xelatex so docstrings with Unicode glyphs
+# (⇔ in fwap.dispersion's "<=>" notation, etc.) compile without
+# pdflatex's "Unicode character not set up for use" failure. The
+# xelatex driver also gives us a Unicode-capable text-mode by
+# default, removing the need for inputenc / utf8x shims.
+latex_engine = "xelatex"
+
 html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
 html_title = f"fwap {release}"
