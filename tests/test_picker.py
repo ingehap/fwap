@@ -829,3 +829,195 @@ def test_quality_control_track_runs_per_depth():
     assert all(isinstance(q, PickQualityFlags) for q in qc)
     assert [q.flagged for q in qc] == [False, True, False]
     assert [q.depth for q in qc] == [1000.0, 1001.0, 1002.0]
+
+
+# ---------------------------------------------------------------------
+# track_to_log_curves: picker -> LAS/DLIS bridge
+# ---------------------------------------------------------------------
+
+
+def _three_depth_track() -> list:
+    """Hand-built three-depth, three-mode track for bridge tests."""
+    from fwap.picker import DepthPicks, ModePick
+
+    Vp, Vs, Vst = 4500.0, 2500.0, 1400.0
+    return [
+        DepthPicks(depth=1000.0, picks={
+            "P":        ModePick("P",        1.0 / Vp,       2.0e-3, 0.92, amplitude=0.7),
+            "S":        ModePick("S",        1.0 / Vs,       3.0e-3, 0.85, amplitude=0.9),
+            "Stoneley": ModePick("Stoneley", 1.0 / Vst,      5.0e-3, 0.80, amplitude=1.1),
+        }),
+        DepthPicks(depth=1001.0, picks={
+            "P":        ModePick("P",        1.0 / (Vp + 50), 2.05e-3, 0.91, amplitude=0.71),
+            # S missing at this depth.
+            "Stoneley": ModePick("Stoneley", 1.0 / Vst,       5.05e-3, 0.79, amplitude=1.05),
+        }),
+        DepthPicks(depth=1002.0, picks={
+            "P":        ModePick("P",        1.0 / (Vp - 30), 2.10e-3, 0.93, amplitude=0.72),
+            "S":        ModePick("S",        1.0 / (Vs + 20), 3.10e-3, 0.86, amplitude=0.91),
+            "Stoneley": ModePick("Stoneley", 1.0 / Vst,       5.10e-3, 0.81, amplitude=1.10),
+        }),
+    ]
+
+
+def test_track_to_log_curves_basic_mnemonics_and_shapes():
+    """Default call emits DT/COH/AMP per mode plus VPVS, all (n_depth,)."""
+    from fwap.picker import track_to_log_curves
+
+    track = _three_depth_track()
+    depths, curves = track_to_log_curves(track)
+    assert depths.shape == (3,)
+    np.testing.assert_array_equal(depths, [1000.0, 1001.0, 1002.0])
+    expected = {"DTP", "DTS", "DTST",
+                "COHP", "COHS", "COHST",
+                "AMPP", "AMPS", "AMPST",
+                "VPVS"}
+    assert set(curves) == expected
+    for arr in curves.values():
+        assert arr.shape == (3,)
+
+
+def test_track_to_log_curves_slowness_unit_is_us_per_ft():
+    """DT* columns carry slowness in us/ft (LAS/DLIS unit)."""
+    from fwap.picker import track_to_log_curves
+
+    track = _three_depth_track()
+    _, curves = track_to_log_curves(track)
+    Vp = 4500.0
+    expected_dtp_d0 = (1.0 / Vp) / US_PER_FT
+    np.testing.assert_allclose(curves["DTP"][0], expected_dtp_d0, rtol=1e-12)
+
+
+def test_track_to_log_curves_missing_picks_become_nan():
+    """A mode missing at a depth fills that depth with NaN."""
+    from fwap.picker import track_to_log_curves
+
+    track = _three_depth_track()
+    _, curves = track_to_log_curves(track)
+    # S is absent at depth index 1.
+    assert np.isnan(curves["DTS"][1])
+    assert np.isnan(curves["COHS"][1])
+    assert np.isnan(curves["AMPS"][1])
+    # ...and present at indices 0 and 2.
+    assert np.all(np.isfinite(curves["DTS"][[0, 2]]))
+
+
+def test_track_to_log_curves_vpvs_propagates_nan_when_p_or_s_missing():
+    """VPVS requires both P and S; missing either yields NaN at that depth."""
+    from fwap.picker import track_to_log_curves
+
+    track = _three_depth_track()
+    _, curves = track_to_log_curves(track)
+    assert "VPVS" in curves
+    # Depth 1 has no S -> VPVS is NaN there.
+    assert np.isnan(curves["VPVS"][1])
+    # At depth 0, VPVS = s_S / s_P = Vp / Vs.
+    np.testing.assert_allclose(curves["VPVS"][0], 4500.0 / 2500.0, rtol=1e-12)
+
+
+def test_track_to_log_curves_skips_amplitude_when_all_none():
+    """AMP* columns are dropped for modes whose picks all have amplitude=None."""
+    from fwap.picker import DepthPicks, ModePick, track_to_log_curves
+
+    track = [
+        DepthPicks(depth=1000.0, picks={
+            "P": ModePick("P", 2.0e-4, 1.0e-3, 0.9, amplitude=None),
+        }),
+        DepthPicks(depth=1001.0, picks={
+            "P": ModePick("P", 2.0e-4, 1.0e-3, 0.9, amplitude=None),
+        }),
+    ]
+    _, curves = track_to_log_curves(track)
+    assert "DTP" in curves
+    assert "AMPP" not in curves
+
+
+def test_track_to_log_curves_include_time_emits_tim_columns():
+    """include_time=True adds TIM* columns (seconds)."""
+    from fwap.picker import track_to_log_curves
+
+    track = _three_depth_track()
+    _, curves = track_to_log_curves(track, include_time=True)
+    assert "TIMP" in curves and "TIMS" in curves and "TIMST" in curves
+    np.testing.assert_allclose(curves["TIMP"][0], 2.0e-3, rtol=1e-12)
+
+
+def test_track_to_log_curves_modes_filter():
+    """Passing modes=['P'] drops S/Stoneley columns and the VPVS column."""
+    from fwap.picker import track_to_log_curves
+
+    track = _three_depth_track()
+    _, curves = track_to_log_curves(track, modes=["P"])
+    assert "DTP" in curves
+    assert "DTS" not in curves and "DTST" not in curves
+    assert "VPVS" not in curves
+
+
+def test_track_to_log_curves_custom_null_value():
+    """A numeric sentinel replaces NaN at missing-pick depths."""
+    from fwap.picker import track_to_log_curves
+
+    track = _three_depth_track()
+    _, curves = track_to_log_curves(track, null_value=-999.25)
+    # S missing at depth 1.
+    assert curves["DTS"][1] == -999.25
+    # VPVS at depth 1 also gets the sentinel via the np.where cleanup.
+    assert curves["VPVS"][1] == -999.25
+
+
+def test_track_to_log_curves_pseudo_rayleigh_uses_pr_suffix():
+    """Mode 'PseudoRayleigh' maps to the DTPR / COHPR / AMPPR family."""
+    from fwap.picker import DepthPicks, ModePick, track_to_log_curves
+
+    track = [DepthPicks(depth=1000.0, picks={
+        "PseudoRayleigh": ModePick("PseudoRayleigh", 1.5e-4, 4.0e-3, 0.7,
+                                   amplitude=0.5),
+    })]
+    _, curves = track_to_log_curves(track)
+    assert "DTPR" in curves
+    assert "COHPR" in curves
+    assert "AMPPR" in curves
+
+
+def test_track_to_log_curves_unknown_mode_falls_back_to_uppercase_suffix():
+    """A non-canonical mode name uses ``mode.upper()`` as the suffix."""
+    from fwap.picker import DepthPicks, ModePick, track_to_log_curves
+
+    track = [DepthPicks(depth=1000.0, picks={
+        "leaky": ModePick("leaky", 2.0e-4, 1.0e-3, 0.6),
+    })]
+    _, curves = track_to_log_curves(track)
+    assert "DTLEAKY" in curves
+
+
+def test_track_to_log_curves_empty_track():
+    """An empty track yields an empty depth axis and an empty curves dict."""
+    from fwap.picker import track_to_log_curves
+
+    depths, curves = track_to_log_curves([])
+    assert depths.shape == (0,)
+    assert curves == {}
+
+
+def test_track_to_log_curves_round_trips_through_write_las(tmp_path):
+    """track_to_log_curves -> write_las -> read_las preserves columns."""
+    from fwap.io import read_las, write_las
+    from fwap.picker import track_to_log_curves
+
+    track = _three_depth_track()
+    depths, curves = track_to_log_curves(track)
+    path = str(tmp_path / "track.las")
+    write_las(path, depths, curves, well_name="TEST")
+    loaded = read_las(path)
+    np.testing.assert_allclose(loaded.depth, depths, rtol=0, atol=1e-9)
+    for name, arr in curves.items():
+        assert name in loaded.curves
+        # LAS writes ASCII with finite precision; the units round-trip
+        # exactly.
+        mask = np.isfinite(arr) & np.isfinite(loaded.curves[name])
+        np.testing.assert_allclose(loaded.curves[name][mask], arr[mask],
+                                   rtol=0, atol=1e-3)
+    # Slowness columns carry the us/ft unit from _FWAP_UNITS.
+    assert loaded.units["DTP"] == "us/ft"
+    assert loaded.units["DTS"] == "us/ft"
+    assert loaded.units["DTST"] == "us/ft"

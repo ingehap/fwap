@@ -97,6 +97,7 @@ from fwap.picker import (
     quality_control_picks,
     quality_control_track,
     track_modes,
+    track_to_log_curves,
     viterbi_pick,
     viterbi_pick_joint,
     viterbi_posterior_marginals,
@@ -135,6 +136,7 @@ from fwap.tomography import (
 from fwap.dispersion import (
     DispersionCurve,
     bandpass,
+    dispersive_pseudo_rayleigh_stc,
     dispersive_stc,
     narrow_band_stc,
     phase_slowness_from_f_k,
@@ -174,9 +176,28 @@ from fwap.rockphysics import (
     gassmann_fluid_substitution,
     hill_average,
     reuss_average,
+    stoneley_amplitude_fracture_indicator,
     stoneley_permeability_indicator,
     voigt_average,
     vp_vs_ratio,
+)
+
+# Geomechanics indices (brittleness, fracability, UCS, closure stress,
+# sand-stability) on top of ElasticModuli.
+from fwap.geomechanics import (
+    GeomechanicsIndices,
+    RICKMAN_E_MAX_PA,
+    RICKMAN_E_MIN_PA,
+    RICKMAN_NU_MAX,
+    RICKMAN_NU_MIN,
+    SAND_STABILITY_SHEAR_THRESHOLD_PA,
+    brittleness_index_rickman,
+    closure_stress,
+    fracability_index,
+    geomechanics_indices,
+    overburden_stress,
+    sand_stability_indicator,
+    unconfined_compressive_strength,
 )
 
 # Cylindrical / surface-wave speeds
@@ -216,6 +237,7 @@ __all__ = [
     "filter_picks_by_shape", "filter_track_by_shape",
     "PickQualityFlags",
     "quality_control_picks", "quality_control_track",
+    "track_to_log_curves",
     # Wave separation
     "fk_forward", "fk_inverse", "fk_filter",
     "tau_p_forward", "tau_p_adjoint", "tau_p_inverse", "tau_p_filter",
@@ -232,6 +254,7 @@ __all__ = [
     "bandpass", "narrow_band_stc", "DispersionCurve",
     "phase_slowness_from_f_k", "phase_slowness_matrix_pencil",
     "shear_slowness_from_dispersion", "dispersive_stc",
+    "dispersive_pseudo_rayleigh_stc",
     # Dip
     "DipResult", "estimate_dip", "synthesize_azimuthal_arrival",
     "AzimuthalGather",
@@ -244,9 +267,18 @@ __all__ = [
     "ElasticModuli", "elastic_moduli", "vp_vs_ratio",
     "reuss_average", "voigt_average", "hill_average",
     "stoneley_permeability_indicator",
+    "stoneley_amplitude_fracture_indicator",
     "GassmannResult", "gassmann_fluid_substitution",
     # Surface-wave speeds / cylindrical
     "rayleigh_speed", "flexural_dispersion_physical",
+    # Geomechanics
+    "GeomechanicsIndices", "brittleness_index_rickman",
+    "fracability_index", "closure_stress",
+    "unconfined_compressive_strength", "sand_stability_indicator",
+    "overburden_stress", "geomechanics_indices",
+    "RICKMAN_E_MIN_PA", "RICKMAN_E_MAX_PA",
+    "RICKMAN_NU_MIN", "RICKMAN_NU_MAX",
+    "SAND_STABILITY_SHEAR_THRESHOLD_PA",
     # I/O (optional deps)
     "LasCurves", "DlisCurves", "SegyGather",
     "read_las", "write_las",

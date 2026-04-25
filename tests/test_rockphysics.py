@@ -233,6 +233,107 @@ def test_stoneley_indicator_rejects_non_positive():
 
 
 # ---------------------------------------------------------------------
+# stoneley_amplitude_fracture_indicator
+# ---------------------------------------------------------------------
+
+
+def test_stoneley_amplitude_indicator_zero_at_reference_amplitude():
+    """A_obs == A_ref gives indicator = 0 (no fracture/permeability flagged)."""
+    from fwap.rockphysics import stoneley_amplitude_fracture_indicator
+    a_ref = 1.2
+    ind = stoneley_amplitude_fracture_indicator(a_ref, a_ref)
+    assert ind == 0.0
+
+
+def test_stoneley_amplitude_indicator_positive_when_observed_attenuated():
+    """Lower observed amplitude -> positive indicator (fractured / permeable)."""
+    from fwap.rockphysics import stoneley_amplitude_fracture_indicator
+    ind = stoneley_amplitude_fracture_indicator(
+        amplitude_observed=0.6, amplitude_reference=1.0)
+    # 1 - 0.6 / 1.0 = 0.4
+    assert ind == pytest.approx(0.4)
+
+
+def test_stoneley_amplitude_indicator_negative_when_amplified():
+    """A_obs > A_ref gives a negative indicator (rare; resonance / SNR)."""
+    from fwap.rockphysics import stoneley_amplitude_fracture_indicator
+    ind = stoneley_amplitude_fracture_indicator(
+        amplitude_observed=1.2, amplitude_reference=1.0)
+    assert ind == pytest.approx(-0.2)
+
+
+def test_stoneley_amplitude_indicator_handles_zero_observed():
+    """A_obs = 0 (total attenuation) -> indicator = 1 (max fracture flag)."""
+    from fwap.rockphysics import stoneley_amplitude_fracture_indicator
+    ind = stoneley_amplitude_fracture_indicator(0.0, 1.0)
+    assert ind == 1.0
+
+
+def test_stoneley_amplitude_indicator_vector_input():
+    """Vectorised: same shape, element-wise formula."""
+    import numpy as np
+    from fwap.rockphysics import stoneley_amplitude_fracture_indicator
+    observed = np.array([1.0, 0.8, 0.5, 0.2])
+    ref = 1.0
+    ind = stoneley_amplitude_fracture_indicator(observed, ref)
+    np.testing.assert_allclose(ind, [0.0, 0.2, 0.5, 0.8])
+
+
+def test_stoneley_amplitude_indicator_per_depth_reference():
+    """A per-depth reference baseline gives an element-wise fractional deficit."""
+    import numpy as np
+    from fwap.rockphysics import stoneley_amplitude_fracture_indicator
+    observed = np.array([1.0, 0.7, 0.4])
+    reference = np.array([1.0, 1.0, 0.8])
+    ind = stoneley_amplitude_fracture_indicator(observed, reference)
+    np.testing.assert_allclose(ind, [0.0, 0.3, 0.5])
+
+
+def test_stoneley_amplitude_indicator_rejects_negative_observed():
+    """Negative observed amplitude is not physical."""
+    from fwap.rockphysics import stoneley_amplitude_fracture_indicator
+    with pytest.raises(ValueError, match="observed"):
+        stoneley_amplitude_fracture_indicator(-0.1, 1.0)
+
+
+def test_stoneley_amplitude_indicator_rejects_non_positive_reference():
+    """Zero or negative reference would divide-by-zero or flip the sign."""
+    from fwap.rockphysics import stoneley_amplitude_fracture_indicator
+    with pytest.raises(ValueError, match="reference"):
+        stoneley_amplitude_fracture_indicator(0.5, 0.0)
+    with pytest.raises(ValueError, match="reference"):
+        stoneley_amplitude_fracture_indicator(0.5, -1.0)
+
+
+def test_stoneley_amplitude_indicator_complements_slowness_indicator():
+    """Both indicators agree on which depths are fractured / permeable."""
+    import numpy as np
+    from fwap.rockphysics import (
+        stoneley_amplitude_fracture_indicator,
+        stoneley_permeability_indicator,
+    )
+    # Synthetic model: depths 0, 2 are tight; 1, 3 are progressively
+    # fractured. Slowness shifts up and amplitude drops at the
+    # fractured depths.
+    s_ref = 7.0e-4
+    a_ref = 1.0
+    slowness = np.array([s_ref, 7.7e-4, s_ref, 8.4e-4])
+    amplitude = np.array([a_ref, 0.7, a_ref, 0.4])
+    perm = stoneley_permeability_indicator(slowness, s_ref)
+    frac = stoneley_amplitude_fracture_indicator(amplitude, a_ref)
+    # Both indicators are zero at the tight depths and positive (and
+    # increasing) at the fractured depths.
+    np.testing.assert_allclose(perm[[0, 2]], 0.0)
+    np.testing.assert_allclose(frac[[0, 2]], 0.0)
+    assert perm[1] > 0 and perm[3] > perm[1]
+    assert frac[1] > 0 and frac[3] > frac[1]
+    # The two flag the *same* depths; their rank order matches.
+    np.testing.assert_array_equal(
+        np.argsort(perm), np.argsort(frac)
+    )
+
+
+# ---------------------------------------------------------------------
 # Gassmann fluid substitution
 # ---------------------------------------------------------------------
 
