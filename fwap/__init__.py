@@ -32,6 +32,17 @@ Modules outside the scope of the 1994 book (added for completeness):
 * :mod:`fwap.cylindrical` -- Rayleigh-speed surface-wave
                               calculation and a physics-grounded
                               flexural-mode dispersion law
+* :mod:`fwap.geomechanics` -- brittleness / fracability / closure
+                              stress / UCS / sand-stability indices
+                              on top of :class:`ElasticModuli`
+                              (Rickman 2008; Eaton 1969; Lacy 1997)
+* :mod:`fwap.lwd`         -- LWD (logging-while-drilling)
+                              phenomenological layer: steel-collar
+                              :class:`Mode` factory, slowness-band
+                              notch for collar rejection, quadrupole-
+                              source ring synthesis, and m=2
+                              receiver-side stacker
+                              (Tang & Cheng 2004 sect. 2.4-2.5)
 * :mod:`fwap.io`          -- LAS reader/writer (``lasio``), DLIS
                               reader/writer (``dlisio`` +
                               ``dliswriter``), and SEG-Y reader/writer

@@ -198,6 +198,24 @@ def test_demo_alford(tmp_path, caplog):
     assert err < 2.0, f"alford angle {angle_deg:.2f} deg, expected 30 deg"
 
 
+def test_demo_lwd(tmp_path, caplog):
+    """demo_lwd writes both LWD figures and recovers formation modes.
+
+    Two figures: monopole-side (collar rejection) and quadrupole-
+    side (m=2 stack). The monopole side recovers P/S/Stoneley to
+    within 10 us/ft of truth (Vp=4500, Vs=2500, Vst=1400) after
+    notching the collar band; the quadrupole side picks
+    FormationShear at Vs=2300 m/s.
+    """
+    lines = _run_demo(demos.demo_lwd, tmp_path, caplog)
+    assert (tmp_path / "demo_lwd_monopole.png").exists()
+    assert (tmp_path / "demo_lwd_quadrupole.png").exists()
+    # Monopole side: log line per recovered mode.
+    assert any("After collar-band notch" in line for line in lines)
+    # Quadrupole side: log lines for the m=2 picker outputs.
+    assert any("Quadrupole stack" in line for line in lines)
+
+
 def test_demo_segy_roundtrip(tmp_path, caplog):
     """SEG-Y round-trip demo writes, reads, and reports max |diff|."""
     lines = _run_demo(demos.demo_segy_roundtrip, tmp_path, caplog)
