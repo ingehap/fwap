@@ -180,6 +180,24 @@ from fwap.rockphysics import (
     vp_vs_ratio,
 )
 
+# Geomechanics indices (brittleness, fracability, UCS, closure stress,
+# sand-stability) on top of ElasticModuli.
+from fwap.geomechanics import (
+    GeomechanicsIndices,
+    RICKMAN_E_MAX_PA,
+    RICKMAN_E_MIN_PA,
+    RICKMAN_NU_MAX,
+    RICKMAN_NU_MIN,
+    SAND_STABILITY_SHEAR_THRESHOLD_PA,
+    brittleness_index_rickman,
+    closure_stress,
+    fracability_index,
+    geomechanics_indices,
+    overburden_stress,
+    sand_stability_indicator,
+    unconfined_compressive_strength,
+)
+
 # Cylindrical / surface-wave speeds
 from fwap.cylindrical import flexural_dispersion_physical, rayleigh_speed
 
@@ -249,6 +267,14 @@ __all__ = [
     "GassmannResult", "gassmann_fluid_substitution",
     # Surface-wave speeds / cylindrical
     "rayleigh_speed", "flexural_dispersion_physical",
+    # Geomechanics
+    "GeomechanicsIndices", "brittleness_index_rickman",
+    "fracability_index", "closure_stress",
+    "unconfined_compressive_strength", "sand_stability_indicator",
+    "overburden_stress", "geomechanics_indices",
+    "RICKMAN_E_MIN_PA", "RICKMAN_E_MAX_PA",
+    "RICKMAN_NU_MIN", "RICKMAN_NU_MAX",
+    "SAND_STABILITY_SHEAR_THRESHOLD_PA",
     # I/O (optional deps)
     "LasCurves", "DlisCurves", "SegyGather",
     "read_las", "write_las",

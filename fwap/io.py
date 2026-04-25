@@ -172,6 +172,13 @@ _FWAP_UNITS: Mapping[str, str] = {
     "MU":    "Pa",
     "E":     "Pa",
     "NU":    "",
+    # Geomechanics indices (fwap.geomechanics).
+    "BRIT":  "",     # Rickman brittleness index, [0, 1]
+    "FRAC":  "",     # Fracability index, [0, 1]
+    "UCS":   "Pa",   # Unconfined compressive strength
+    "SH":    "Pa",   # Minimum horizontal (closure) stress
+    "SV":    "Pa",   # Vertical (overburden) stress
+    "SAND":  "",     # Sand-stability flag (0 = sand-prone, 1 = stable)
 }
 
 
