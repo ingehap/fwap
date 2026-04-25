@@ -183,6 +183,10 @@ _FWAP_UNITS: Mapping[str, str] = {
     "C44":   "Pa",   # Vertical shear modulus (rho * Vsv^2)
     "C66":   "Pa",   # Horizontal shear modulus (Stoneley inversion)
     "GAMMA": "",     # Thomsen shear-anisotropy parameter
+    # Stoneley reflection / fracture-aperture inversion
+    # (fwap.rockphysics.hornby_fracture_aperture).
+    "RFRAC": "",     # Stoneley reflection coefficient |R|
+    "FAPER": "m",    # Hornby et al. 1989 fracture aperture
 }
 
 
