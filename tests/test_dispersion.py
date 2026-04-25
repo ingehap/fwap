@@ -223,3 +223,153 @@ def test_dispersive_pr_stc_rejects_non_positive_lower_bound():
             shear_slowness_range=(0.0, 500e-6),
             n_slowness=21,
         )
+
+
+# ---------------------------------------------------------------------
+# classify_flexural_anisotropy (stress vs intrinsic vs isotropic)
+# ---------------------------------------------------------------------
+
+
+def _curve(freq, slowness, quality=None):
+    """Helper: build a DispersionCurve with broadcast quality."""
+    freq = np.asarray(freq, dtype=float)
+    slowness = np.asarray(slowness, dtype=float)
+    if quality is None:
+        quality = np.ones_like(freq)
+    else:
+        quality = np.broadcast_to(quality, freq.shape).astype(float)
+    return DispersionCurve(freq=freq, slowness=slowness, quality=quality)
+
+
+def test_classify_flexural_isotropic():
+    """Two identical curves -> isotropic classification."""
+    from fwap.dispersion import classify_flexural_anisotropy
+    f = np.linspace(500.0, 10000.0, 50)
+    s = 4.0e-4 * np.ones_like(f)
+    diag = classify_flexural_anisotropy(_curve(f, s), _curve(f, s.copy()))
+    assert diag.classification == "isotropic"
+    assert abs(diag.delta_low) < 5e-6
+    assert abs(diag.delta_high) < 5e-6
+    assert diag.crossover_frequency is None
+
+
+def test_classify_flexural_intrinsic_constant_offset():
+    """Slow curve constantly slower than fast -> intrinsic."""
+    from fwap.dispersion import classify_flexural_anisotropy
+    f = np.linspace(500.0, 10000.0, 50)
+    s_fast = 4.0e-4 * np.ones_like(f)
+    s_slow = s_fast + 1.5e-5  # 15 us/m, comfortably above min_anisotropy
+    diag = classify_flexural_anisotropy(_curve(f, s_fast), _curve(f, s_slow))
+    assert diag.classification == "intrinsic"
+    assert diag.delta_low > 0 and diag.delta_high > 0
+    assert diag.crossover_frequency is None
+
+
+def test_classify_flexural_stress_induced_crossover():
+    """Curves whose Δs flips sign across the band -> stress_induced."""
+    from fwap.dispersion import classify_flexural_anisotropy
+    f = np.linspace(500.0, 10000.0, 100)
+    f_cross = 3000.0
+    s_fast = 4.0e-4 * np.ones_like(f)
+    # Slope chosen so |Δs| is well above 5 us/m default threshold in
+    # both bands: at f=1000 (low band), Δs = -4e-5; at f=8000
+    # (high band), Δs = +1e-4.
+    s_slow = s_fast + 2.0e-8 * (f - f_cross)
+    diag = classify_flexural_anisotropy(_curve(f, s_fast), _curve(f, s_slow))
+    assert diag.classification == "stress_induced"
+    assert diag.delta_low < 0
+    assert diag.delta_high > 0
+    assert diag.crossover_frequency is not None
+    # The synthetic crossover sits at 3000 Hz; the first sign-change
+    # interpolation should land within ~1 sample spacing of that
+    # (~95 Hz on this 100-point grid).
+    assert abs(diag.crossover_frequency - f_cross) < 200.0
+
+
+def test_classify_flexural_ambiguous_when_one_band_quiet():
+    """Anisotropic at low-f, flat at high-f -> ambiguous."""
+    from fwap.dispersion import classify_flexural_anisotropy
+    f = np.linspace(500.0, 10000.0, 50)
+    s_fast = 4.0e-4 * np.ones_like(f)
+    s_slow = s_fast.copy()
+    # 20 us/m offset, but only in the low-f band (1-2.5 kHz).
+    low_mask = (f >= 1000.0) & (f <= 2500.0)
+    s_slow[low_mask] += 2.0e-5
+    diag = classify_flexural_anisotropy(_curve(f, s_fast), _curve(f, s_slow))
+    assert diag.classification == "ambiguous"
+    # Low band carries the anisotropy; high band does not.
+    assert abs(diag.delta_low) > 5e-6
+    assert abs(diag.delta_high) < 5e-6
+
+
+def test_classify_flexural_ambiguous_when_no_quality_samples():
+    """All quality below threshold -> ambiguous with informative reason."""
+    from fwap.dispersion import classify_flexural_anisotropy
+    f = np.linspace(500.0, 10000.0, 50)
+    s = 4.0e-4 * np.ones_like(f)
+    diag = classify_flexural_anisotropy(
+        _curve(f, s, quality=0.1),
+        _curve(f, s.copy(), quality=0.1),
+    )
+    assert diag.classification == "ambiguous"
+    assert any("no quality-passing" in r for r in diag.reasons)
+
+
+def test_classify_flexural_quality_threshold_filters_out_noise():
+    """Bins with low quality on one curve are excluded from the bands."""
+    from fwap.dispersion import classify_flexural_anisotropy
+    f = np.linspace(500.0, 10000.0, 50)
+    s_fast = 4.0e-4 * np.ones_like(f)
+    s_slow = s_fast + 1.5e-5
+    # Inject a spurious negative jump only in the high-f band, but
+    # mark those bins as low quality on curve_a.
+    spurious_mask = (f >= 4000.0) & (f <= 8000.0)
+    s_fast_noisy = s_fast.copy()
+    s_fast_noisy[spurious_mask] = 4.0e-4 + 5.0e-5  # would force fast > slow
+    q_a = np.ones_like(f)
+    q_a[spurious_mask] = 0.1  # well below default threshold = 0.5
+    diag = classify_flexural_anisotropy(
+        _curve(f, s_fast_noisy, quality=q_a),
+        _curve(f, s_slow),
+    )
+    # High-f band is now empty (excluded); should be ambiguous.
+    assert diag.classification == "ambiguous"
+    assert not np.isfinite(diag.delta_high)
+
+
+def test_classify_flexural_rejects_mismatched_freq_axes():
+    """Different freq axes are a caller error."""
+    import pytest
+    from fwap.dispersion import classify_flexural_anisotropy
+    f1 = np.linspace(500.0, 10000.0, 50)
+    f2 = np.linspace(500.0, 10000.0, 60)
+    s1 = 4.0e-4 * np.ones_like(f1)
+    s2 = 4.0e-4 * np.ones_like(f2)
+    with pytest.raises(ValueError, match="freq axis"):
+        classify_flexural_anisotropy(_curve(f1, s1), _curve(f2, s2))
+
+
+def test_classify_flexural_rejects_overlapping_bands():
+    """f_low_band and f_high_band must not overlap."""
+    import pytest
+    from fwap.dispersion import classify_flexural_anisotropy
+    f = np.linspace(500.0, 10000.0, 50)
+    s = 4.0e-4 * np.ones_like(f)
+    with pytest.raises(ValueError, match="overlap"):
+        classify_flexural_anisotropy(
+            _curve(f, s), _curve(f, s.copy()),
+            f_low_band=(1000.0, 5000.0), f_high_band=(4000.0, 8000.0),
+        )
+
+
+def test_classify_flexural_rejects_inverted_bands():
+    """lo >= hi within a band is a caller error."""
+    import pytest
+    from fwap.dispersion import classify_flexural_anisotropy
+    f = np.linspace(500.0, 10000.0, 50)
+    s = 4.0e-4 * np.ones_like(f)
+    with pytest.raises(ValueError, match="lo < hi"):
+        classify_flexural_anisotropy(
+            _curve(f, s), _curve(f, s.copy()),
+            f_low_band=(2500.0, 1000.0), f_high_band=(4000.0, 8000.0),
+        )

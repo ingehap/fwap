@@ -135,7 +135,9 @@ from fwap.tomography import (
 # Dispersion
 from fwap.dispersion import (
     DispersionCurve,
+    FlexuralDispersionDiagnosis,
     bandpass,
+    classify_flexural_anisotropy,
     dispersive_pseudo_rayleigh_stc,
     dispersive_stc,
     narrow_band_stc,
@@ -186,6 +188,7 @@ from fwap.rockphysics import (
     stoneley_reflection_coefficient,
     voigt_average,
     vp_vs_ratio,
+    vs_from_stoneley_slow_formation,
 )
 
 # Geomechanics indices (brittleness, fracability, UCS, closure stress,
@@ -261,6 +264,7 @@ __all__ = [
     "phase_slowness_from_f_k", "phase_slowness_matrix_pencil",
     "shear_slowness_from_dispersion", "dispersive_stc",
     "dispersive_pseudo_rayleigh_stc",
+    "FlexuralDispersionDiagnosis", "classify_flexural_anisotropy",
     # Dip
     "DipResult", "estimate_dip", "synthesize_azimuthal_arrival",
     "AzimuthalGather",
@@ -278,6 +282,7 @@ __all__ = [
     "stoneley_amplitude_fracture_indicator",
     "stoneley_reflection_coefficient",
     "hornby_fracture_aperture",
+    "vs_from_stoneley_slow_formation",
     "GassmannResult", "gassmann_fluid_substitution",
     # Surface-wave speeds / cylindrical
     "rayleigh_speed", "flexural_dispersion_physical",
