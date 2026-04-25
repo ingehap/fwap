@@ -305,6 +305,137 @@ def test_stoneley_amplitude_indicator_rejects_non_positive_reference():
         stoneley_amplitude_fracture_indicator(0.5, -1.0)
 
 
+# ---------------------------------------------------------------------
+# Stoneley reflection-coefficient fracture-aperture inversion (Hornby 1989)
+# ---------------------------------------------------------------------
+
+
+def test_stoneley_reflection_coefficient_basic():
+    """|R| = |A_r| / |A_i|, clipped to [0, 1]."""
+    from fwap.rockphysics import stoneley_reflection_coefficient
+    R = stoneley_reflection_coefficient(amplitude_incident=1.0,
+                                        amplitude_reflected=0.3)
+    assert R == pytest.approx(0.3)
+
+
+def test_stoneley_reflection_coefficient_clips_to_unit_interval():
+    """Noisy estimates can drift > 1; clip to keep |R| physical."""
+    from fwap.rockphysics import stoneley_reflection_coefficient
+    R = stoneley_reflection_coefficient(1.0, 1.05)
+    assert R == 1.0
+
+
+def test_stoneley_reflection_coefficient_takes_absolute_value():
+    """Sign of incident / reflected is irrelevant."""
+    import numpy as np
+    from fwap.rockphysics import stoneley_reflection_coefficient
+    R = stoneley_reflection_coefficient(np.array([-1.0, 1.0]),
+                                        np.array([0.4, -0.4]))
+    np.testing.assert_allclose(R, [0.4, 0.4])
+
+
+def test_stoneley_reflection_coefficient_rejects_zero_incident():
+    """Division by zero is not allowed."""
+    from fwap.rockphysics import stoneley_reflection_coefficient
+    with pytest.raises(ValueError, match="amplitude_incident"):
+        stoneley_reflection_coefficient(0.0, 0.5)
+
+
+def test_hornby_aperture_zero_R_gives_zero_aperture():
+    """A non-reflecting depth has no fracture, so aperture = 0."""
+    from fwap.rockphysics import hornby_fracture_aperture
+    L = hornby_fracture_aperture(reflection_coefficient=0.0,
+                                 frequency_hz=2000.0,
+                                 stoneley_velocity=1400.0)
+    assert L == 0.0
+
+
+def test_hornby_aperture_round_trips_through_forward_model():
+    """Plant L0, build |R|, recover L0 to floating-point precision."""
+    import numpy as np
+    from fwap.rockphysics import hornby_fracture_aperture
+    f = 2000.0
+    Vt = 1400.0
+    omega = 2.0 * np.pi * f
+    L0_planted = 1.0e-3   # 1 mm aperture
+    # Forward: |R| = omega L / sqrt(V^2 + omega^2 L^2)
+    R_forward = (omega * L0_planted
+                 / np.sqrt(Vt ** 2 + omega ** 2 * L0_planted ** 2))
+    L0_recovered = hornby_fracture_aperture(R_forward, f, Vt)
+    assert L0_recovered == pytest.approx(L0_planted, rel=1.0e-12)
+
+
+def test_hornby_aperture_small_amplitude_matches_full_for_small_R():
+    """Small-amplitude approximation < 5% off the full form for |R| <= 0.3."""
+    import numpy as np
+    from fwap.rockphysics import hornby_fracture_aperture
+    R = np.linspace(0.01, 0.30, 10)
+    f, Vt = 2000.0, 1400.0
+    L_full  = hornby_fracture_aperture(R, f, Vt, small_amplitude_approx=False)
+    L_small = hornby_fracture_aperture(R, f, Vt, small_amplitude_approx=True)
+    # Full form is L = V|R|/(omega sqrt(1-R^2)); small-amp drops the
+    # radical, so L_small / L_full = sqrt(1 - R^2) <= 1.
+    rel_err = np.abs(L_full - L_small) / L_full
+    assert rel_err.max() < 0.05
+
+
+def test_hornby_aperture_diverges_at_unit_reflection():
+    """|R| -> 1 saturates the inversion at +inf."""
+    import numpy as np
+    from fwap.rockphysics import hornby_fracture_aperture
+    L = hornby_fracture_aperture(1.0, 2000.0, 1400.0)
+    assert np.isinf(L)
+
+
+def test_hornby_aperture_vector_inputs_broadcast():
+    """Per-fracture |R| array gives a per-fracture aperture array."""
+    import numpy as np
+    from fwap.rockphysics import hornby_fracture_aperture
+    R = np.array([0.0, 0.1, 0.2, 0.3])
+    L = hornby_fracture_aperture(R, frequency_hz=2000.0,
+                                 stoneley_velocity=1400.0)
+    assert L.shape == (4,)
+    # Aperture is monotonic in |R|.
+    assert np.all(np.diff(L) > 0)
+    assert L[0] == 0.0
+
+
+def test_hornby_aperture_rejects_R_out_of_range():
+    """Reflection coefficient outside [0, 1] is unphysical."""
+    from fwap.rockphysics import hornby_fracture_aperture
+    with pytest.raises(ValueError, match="reflection_coefficient"):
+        hornby_fracture_aperture(-0.1, 2000.0, 1400.0)
+    with pytest.raises(ValueError, match="reflection_coefficient"):
+        hornby_fracture_aperture(1.5, 2000.0, 1400.0)
+
+
+def test_hornby_aperture_rejects_non_positive_frequency_or_velocity():
+    """f and V_T must be strictly positive."""
+    from fwap.rockphysics import hornby_fracture_aperture
+    with pytest.raises(ValueError, match="frequency_hz"):
+        hornby_fracture_aperture(0.3, 0.0, 1400.0)
+    with pytest.raises(ValueError, match="stoneley_velocity"):
+        hornby_fracture_aperture(0.3, 2000.0, -1.0)
+
+
+def test_hornby_aperture_round_trips_through_write_las(tmp_path):
+    """RFRAC and FAPER mnemonics carry correct units in LAS round-trip."""
+    import numpy as np
+    from fwap.io import read_las, write_las
+    from fwap.rockphysics import hornby_fracture_aperture
+    n = 5
+    depth = np.linspace(1000.0, 1004.0, n)
+    R = np.array([0.0, 0.1, 0.25, 0.05, 0.0])
+    L = hornby_fracture_aperture(R, frequency_hz=2000.0,
+                                 stoneley_velocity=1400.0)
+    curves = {"RFRAC": R, "FAPER": L}
+    path = str(tmp_path / "fracture.las")
+    write_las(path, depth, curves, well_name="FRACWELL")
+    loaded = read_las(path)
+    assert loaded.units["RFRAC"] == ""
+    assert loaded.units["FAPER"] == "m"
+
+
 def test_stoneley_amplitude_indicator_complements_slowness_indicator():
     """Both indicators agree on which depths are fractured / permeable."""
     import numpy as np

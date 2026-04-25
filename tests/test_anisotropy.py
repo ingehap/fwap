@@ -178,3 +178,176 @@ def test_stress_anisotropy_rotation_quality_matches_alford():
     assert abs(est.rotation_quality - (1.0 - res.cross_energy_ratio)) < 1.0e-12
     # Underlying Alford output is preserved on the dataclass.
     assert est.alford is res
+
+
+# ---------------------------------------------------------------------
+# Thomsen gamma (VTI shear anisotropy from dipole + Stoneley)
+# ---------------------------------------------------------------------
+
+
+def test_stoneley_c66_round_trips_through_white_formula():
+    """Plant C66, build the matching Stoneley slowness, recover C66."""
+    import pytest
+    from fwap.anisotropy import stoneley_horizontal_shear_modulus
+    rho_f, v_f = 1000.0, 1500.0
+    c66_planted = 1.0e10  # 10 GPa, typical sandstone
+    # White (1983): S_ST^2 = 1/V_f^2 + rho_f / C66
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / c66_planted)
+    c66 = stoneley_horizontal_shear_modulus(s_st, rho_fluid=rho_f, v_fluid=v_f)
+    assert c66 == pytest.approx(c66_planted, rel=1.0e-12)
+
+
+def test_stoneley_c66_vector_input():
+    """Per-depth Stoneley slowness gives a per-depth C66."""
+    from fwap.anisotropy import stoneley_horizontal_shear_modulus
+    rho_f, v_f = 1000.0, 1500.0
+    c66_planted = np.array([5.0e9, 1.0e10, 2.0e10])
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / c66_planted)
+    c66 = stoneley_horizontal_shear_modulus(s_st, rho_fluid=rho_f, v_fluid=v_f)
+    assert c66.shape == (3,)
+    np.testing.assert_allclose(c66, c66_planted, rtol=1.0e-12)
+
+
+def test_stoneley_c66_rejects_slowness_below_fluid_slowness():
+    """Stoneley slowness must exceed fluid slowness; reject otherwise."""
+    import pytest
+    from fwap.anisotropy import stoneley_horizontal_shear_modulus
+    rho_f, v_f = 1000.0, 1500.0
+    s_f = 1.0 / v_f
+    with pytest.raises(ValueError, match="v_fluid"):
+        stoneley_horizontal_shear_modulus(s_f, rho_fluid=rho_f, v_fluid=v_f)
+    with pytest.raises(ValueError, match="v_fluid"):
+        stoneley_horizontal_shear_modulus(0.5 * s_f, rho_fluid=rho_f, v_fluid=v_f)
+
+
+def test_stoneley_c66_rejects_non_positive_fluid_params():
+    """rho_fluid and v_fluid must be strictly positive."""
+    import pytest
+    from fwap.anisotropy import stoneley_horizontal_shear_modulus
+    with pytest.raises(ValueError, match="rho_fluid"):
+        stoneley_horizontal_shear_modulus(8.0e-4, rho_fluid=0.0, v_fluid=1500.0)
+    with pytest.raises(ValueError, match="v_fluid"):
+        stoneley_horizontal_shear_modulus(8.0e-4, rho_fluid=1000.0, v_fluid=-1.0)
+
+
+def test_thomsen_gamma_zero_for_isotropic_inputs():
+    """C44 == C66 -> gamma == 0."""
+    from fwap.anisotropy import thomsen_gamma
+    g = thomsen_gamma(c44=1.0e10, c66=1.0e10)
+    assert g == 0.0
+
+
+def test_thomsen_gamma_positive_for_horizontal_stiffer_than_vertical():
+    """Typical VTI shale: C66 > C44 -> gamma > 0."""
+    import pytest
+    from fwap.anisotropy import thomsen_gamma
+    g = thomsen_gamma(c44=8.0e9, c66=1.2e10)
+    # (1.2e10 - 8e9) / (2 * 8e9) = 4e9 / 1.6e10 = 0.25
+    assert g == pytest.approx(0.25)
+
+
+def test_thomsen_gamma_negative_when_horizontal_softer():
+    """Pathological / unusual case: C66 < C44 -> gamma < 0 (allowed)."""
+    from fwap.anisotropy import thomsen_gamma
+    g = thomsen_gamma(c44=1.0e10, c66=8.0e9)
+    assert g < 0
+
+
+def test_thomsen_gamma_rejects_non_positive_moduli():
+    """C44 or C66 <= 0 raises ValueError."""
+    import pytest
+    from fwap.anisotropy import thomsen_gamma
+    with pytest.raises(ValueError, match="c44"):
+        thomsen_gamma(c44=0.0, c66=1.0e10)
+    with pytest.raises(ValueError, match="c66"):
+        thomsen_gamma(c44=1.0e10, c66=-1.0)
+
+
+def test_thomsen_gamma_from_logs_recovers_planted_anisotropy():
+    """End-to-end: plant Vsv, C66, rho; recover gamma from the formulas."""
+    import pytest
+    from fwap.anisotropy import thomsen_gamma_from_logs
+    rho = 2400.0
+    rho_f, v_f = 1000.0, 1500.0
+    Vsv = 2500.0  # vertical shear velocity
+    s_dipole = 1.0 / Vsv
+    c44_truth = rho * Vsv ** 2
+    c66_truth = 1.3 * c44_truth
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / c66_truth)
+    res = thomsen_gamma_from_logs(
+        slowness_dipole=s_dipole,
+        slowness_stoneley=s_st,
+        rho=rho,
+        rho_fluid=rho_f, v_fluid=v_f,
+    )
+    # gamma = (1.3 c44 - c44) / (2 c44) = 0.15
+    assert res.c44 == pytest.approx(c44_truth, rel=1.0e-12)
+    assert res.c66 == pytest.approx(c66_truth, rel=1.0e-12)
+    assert res.gamma == pytest.approx(0.15, rel=1.0e-12)
+
+
+def test_thomsen_gamma_from_logs_vector_inputs_broadcast():
+    """Per-depth arrays in -> per-depth arrays out, all aligned."""
+    from fwap.anisotropy import thomsen_gamma_from_logs
+    n = 4
+    rho_f, v_f = 1000.0, 1500.0
+    rho = np.full(n, 2400.0)
+    Vsv = np.array([2400.0, 2500.0, 2600.0, 2700.0])
+    s_dipole = 1.0 / Vsv
+    c44 = rho * Vsv ** 2
+    c66 = c44 * np.array([1.0, 1.1, 1.2, 1.3])  # increasing anisotropy
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / c66)
+    res = thomsen_gamma_from_logs(
+        slowness_dipole=s_dipole, slowness_stoneley=s_st, rho=rho,
+        rho_fluid=rho_f, v_fluid=v_f,
+    )
+    assert res.gamma.shape == (n,)
+    assert np.all(np.diff(res.gamma) > 0)
+    np.testing.assert_allclose(res.gamma, [0.0, 0.05, 0.10, 0.15],
+                               rtol=1.0e-12, atol=1.0e-12)
+
+
+def test_thomsen_gamma_from_logs_rejects_non_positive_inputs():
+    """Negative or zero slowness / density is rejected with a clear message."""
+    import pytest
+    from fwap.anisotropy import thomsen_gamma_from_logs
+    with pytest.raises(ValueError, match="slowness_dipole"):
+        thomsen_gamma_from_logs(
+            slowness_dipole=0.0, slowness_stoneley=8.0e-4, rho=2400.0,
+            rho_fluid=1000.0, v_fluid=1500.0)
+    with pytest.raises(ValueError, match="slowness_stoneley"):
+        thomsen_gamma_from_logs(
+            slowness_dipole=4.0e-4, slowness_stoneley=-1.0, rho=2400.0,
+            rho_fluid=1000.0, v_fluid=1500.0)
+    with pytest.raises(ValueError, match="rho"):
+        thomsen_gamma_from_logs(
+            slowness_dipole=4.0e-4, slowness_stoneley=8.0e-4, rho=0.0,
+            rho_fluid=1000.0, v_fluid=1500.0)
+
+
+def test_thomsen_gamma_from_logs_round_trips_through_write_las(tmp_path):
+    """gamma_from_logs output is LAS-ready: C44 / C66 / GAMMA mnemonics."""
+    from fwap.anisotropy import thomsen_gamma_from_logs
+    from fwap.io import read_las, write_las
+    n = 4
+    depth = np.linspace(1000.0, 1003.0, n)
+    rho_f, v_f = 1000.0, 1500.0
+    rho = np.full(n, 2400.0)
+    Vsv = np.full(n, 2500.0)
+    s_dipole = 1.0 / Vsv
+    c44 = rho * Vsv ** 2
+    c66 = c44 * np.linspace(1.0, 1.3, n)
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / c66)
+    res = thomsen_gamma_from_logs(
+        slowness_dipole=s_dipole, slowness_stoneley=s_st, rho=rho,
+        rho_fluid=rho_f, v_fluid=v_f,
+    )
+    curves = {"C44": res.c44, "C66": res.c66, "GAMMA": res.gamma}
+    path = str(tmp_path / "gamma.las")
+    write_las(path, depth, curves, well_name="VTI")
+    loaded = read_las(path)
+    assert loaded.units["C44"] == "Pa"
+    assert loaded.units["C66"] == "Pa"
+    assert loaded.units["GAMMA"] == ""
+    np.testing.assert_allclose(loaded.curves["GAMMA"], res.gamma,
+                               rtol=0, atol=1.0e-3)

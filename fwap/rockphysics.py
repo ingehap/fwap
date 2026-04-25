@@ -563,6 +563,206 @@ def stoneley_amplitude_fracture_indicator(
     return 1.0 - obs / ref
 
 
+# ---------------------------------------------------------------------
+# Stoneley reflection-coefficient fracture-aperture inversion
+# (Hornby, Johnson, Winkler & Plumb, 1989)
+# ---------------------------------------------------------------------
+
+
+def stoneley_reflection_coefficient(
+    amplitude_incident: np.ndarray,
+    amplitude_reflected: np.ndarray,
+) -> np.ndarray:
+    r"""
+    Stoneley reflection coefficient :math:`|R|` from incident and
+    reflected pulse amplitudes.
+
+    Returns
+
+    .. math::
+
+        |R| \;=\; |A_\mathrm{reflected}| \, / \, |A_\mathrm{incident}|,
+
+    clipped to ``[0, 1]`` -- numerical drift in the up/down-going
+    decomposition can push noisy estimates a few percent above 1, but
+    a physical reflection coefficient is bounded by unity.
+
+    Prerequisite: the caller has separated the up-going (reflected)
+    and down-going (incident) Stoneley arrivals at each fracture
+    candidate. That decomposition is non-trivial and depends on the
+    array geometry: f-k filtering (:func:`fwap.wavesep.fk_filter`) or
+    tau-p filtering (:func:`fwap.wavesep.tau_p_filter`) at the Stoneley
+    apparent slowness gives the two propagation directions; their
+    peak-to-peak amplitudes near each picked fracture depth are the
+    inputs here.
+
+    Parameters
+    ----------
+    amplitude_incident, amplitude_reflected : ndarray or float
+        Incident (down-going) and reflected (up-going) Stoneley pulse
+        amplitudes near each fracture candidate. Same shape; the
+        function broadcasts. Sign is irrelevant -- the function takes
+        absolute values.
+
+    Returns
+    -------
+    ndarray
+        :math:`|R| \in [0, 1]`. ``1`` is full reflection (impossible
+        for a real fracture; flag for QC); ``0`` is a non-reflecting
+        depth.
+
+    Raises
+    ------
+    ValueError
+        If any incident amplitude is non-positive (the ratio is
+        undefined).
+    """
+    a_i = np.abs(np.asarray(amplitude_incident, dtype=float))
+    a_r = np.abs(np.asarray(amplitude_reflected, dtype=float))
+    if np.any(a_i <= 0):
+        raise ValueError("amplitude_incident must be strictly positive")
+    return np.clip(a_r / a_i, 0.0, 1.0)
+
+
+def hornby_fracture_aperture(
+    reflection_coefficient: np.ndarray,
+    frequency_hz: float | np.ndarray,
+    stoneley_velocity: float | np.ndarray,
+    *,
+    small_amplitude_approx: bool = False,
+) -> np.ndarray:
+    r"""
+    Fracture aperture from the Hornby et al. (1989) Stoneley
+    reflection-coefficient inversion.
+
+    Hornby, Johnson, Winkler & Plumb (1989, *Geophysics* 54(10),
+    1274-1288) treat a horizontal open fluid-filled fracture
+    intersecting the borehole as a thin compliant layer. In the
+    rigid-frame, low-frequency, single-fracture limit their reflection
+    coefficient is
+
+    .. math::
+
+        |R(\omega)| \;=\; \frac{\omega L_0}
+                              {\sqrt{V_T^2 + \omega^2 L_0^{\,2}}},
+
+    where :math:`L_0` is the fracture aperture (m), :math:`\omega = 2
+    \pi f` is the angular frequency, and :math:`V_T` is the Stoneley
+    phase velocity in the unfractured borehole. Inverting for
+    :math:`L_0`:
+
+    .. math::
+
+        L_0 \;=\; \frac{V_T \, |R|}
+                       {\omega \, \sqrt{1 - |R|^2}}
+              \;=\; \frac{V_T \, |R|}
+                         {2\pi f \, \sqrt{1 - |R|^2}}.
+
+    For small reflection coefficients the radical can be dropped,
+    giving the small-amplitude approximation
+
+    .. math::
+
+        L_0 \;\approx\; \frac{V_T \, |R|}{2\pi f},
+
+    which is exact to better than 5% for :math:`|R| \le 0.3`.
+
+    Assumptions
+    -----------
+    * Single horizontal open fracture intersecting the borehole at a
+      right angle. Inclined fractures pick up a ``cos(theta)`` factor
+      that is not modelled here.
+    * Rigid frame (no matrix permeability). Permeable formations
+      attenuate the Stoneley wave through Darcy flow as well as
+      through fracture pumping; separating the two needs the full
+      Hornby et al. (1989) eqs. (5)-(7) or the simplified
+      Biot-Rosenbaum decomposition of Tang, Cheng & Toksoz (1991,
+      *J. Acoust. Soc. Am.* 90(3), 1632-1646). Use this routine on
+      the reflected-wave channel only -- where the matrix
+      contribution is small relative to the fracture pumping.
+    * Low frequency (:math:`\omega L_0 / V_T \lesssim 1`). At higher
+      frequencies the rigid-frame approximation breaks down and the
+      full dispersive form must be used.
+    * Stoneley wavelength much larger than fracture aperture
+      (:math:`L_0 \ll V_T / f`). For typical sonic frequencies
+      (1-5 kHz) this holds up to centimetre-scale apertures.
+
+    Parameters
+    ----------
+    reflection_coefficient : ndarray or float
+        :math:`|R| \in [0, 1)`. Output of
+        :func:`stoneley_reflection_coefficient`.
+    frequency_hz : float or ndarray
+        Stoneley dominant frequency at the reflection (Hz). Either a
+        single scalar (one dominant frequency for the whole log) or
+        a per-fracture array. Must be strictly positive.
+    stoneley_velocity : float or ndarray
+        Stoneley phase velocity in the unfractured borehole (m/s)
+        near the fracture. The reciprocal of the picked Stoneley
+        slowness in a tight reference zone is the standard estimate;
+        compute as ``1.0 / s_Stoneley_ref``. Must be strictly
+        positive.
+    small_amplitude_approx : bool, default False
+        If ``True``, use :math:`L_0 = V_T |R| / (2 \pi f)` instead of
+        the full Hornby form. Saves the radical evaluation; differs
+        by < 5% for :math:`|R| \le 0.3`.
+
+    Returns
+    -------
+    ndarray
+        Fracture aperture :math:`L_0` (m). Same shape as the broadcast
+        of the inputs. ``+inf`` at depths where ``|R| = 1`` (the
+        inversion saturates); the caller can mask these as
+        catastrophic / non-physical.
+
+    Raises
+    ------
+    ValueError
+        If any reflection coefficient is outside ``[0, 1]``, or any
+        frequency / velocity is non-positive.
+
+    See Also
+    --------
+    stoneley_reflection_coefficient :
+        Builds :math:`|R|` from incident / reflected pulse amplitudes.
+    stoneley_permeability_indicator :
+        Slowness-shift indicator for matrix permeability and
+        fractures.
+    stoneley_amplitude_fracture_indicator :
+        Amplitude-deficit indicator (transmission-loss form;
+        complementary to this reflection-coefficient inversion).
+
+    References
+    ----------
+    * Hornby, B. E., Johnson, D. L., Winkler, K. W., & Plumb, R. A.
+      (1989). Fracture evaluation using reflected Stoneley-wave
+      arrivals. *Geophysics* 54(10), 1274-1288.
+    * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
+      Acoustic Methods.* Elsevier, Section 4.5 (Stoneley reflection
+      and aperture inversion in field practice).
+    """
+    R = np.asarray(reflection_coefficient, dtype=float)
+    f = np.asarray(frequency_hz, dtype=float)
+    vt = np.asarray(stoneley_velocity, dtype=float)
+    if np.any((R < 0.0) | (R > 1.0)):
+        raise ValueError("reflection_coefficient must be in [0, 1]")
+    if np.any(f <= 0.0):
+        raise ValueError("frequency_hz must be strictly positive")
+    if np.any(vt <= 0.0):
+        raise ValueError("stoneley_velocity must be strictly positive")
+
+    omega = 2.0 * np.pi * f
+    if small_amplitude_approx:
+        return vt * R / omega
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        denom = omega * np.sqrt(np.clip(1.0 - R * R, 0.0, None))
+        aperture = np.where(denom > 0.0,
+                            vt * R / denom,
+                            np.inf)
+    return aperture
+
+
 def hill_average(moduli: np.ndarray,
                  fractions: np.ndarray) -> float:
     r"""
