@@ -38,6 +38,7 @@ from scipy.signal import butter, sosfiltfilt
 
 from fwap._common import logger
 from fwap.coherence import STCResult, stc
+from fwap.synthetic import pseudo_rayleigh_dispersion
 
 
 def _batched_wls_phase_slope(phase_block: np.ndarray,
@@ -519,4 +520,152 @@ def dispersive_stc(data: np.ndarray,
                      coherence=rho, window_length=window_length,
                      amplitude=amp)
 
+
+def dispersive_pseudo_rayleigh_stc(
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    *,
+    v_fluid: float = 1500.0,
+    a_borehole: float = 0.1,
+    shear_slowness_range: tuple[float, float] = (130e-6, 500e-6),
+    n_slowness: int = 91,
+    f_range: tuple[float, float] = (3000.0, 12000.0),
+    window_length: float = 1.0e-3,
+    time_step: int = 4,
+    min_energy_fraction: float = 1.0e-8,
+) -> STCResult:
+    r"""
+    Dispersive STC for the pseudo-Rayleigh / guided trapped mode.
+
+    Direct analogue of :func:`dispersive_stc` applied to the
+    pseudo-Rayleigh dispersion law of
+    :func:`fwap.synthetic.pseudo_rayleigh_dispersion`. For each trial
+    formation shear slowness ``s_shear``, the expected phase slowness
+
+    .. math::
+
+        s_\mathrm{phase}(f; s_\mathrm{shear}) \;=\;
+        s_\mathrm{shear} \;+\; (s_\mathrm{fluid} - s_\mathrm{shear})\,
+        \frac{(f / f_c)^2}{1 + (f / f_c)^2},
+
+    with :math:`s_\mathrm{fluid} = 1/V_\mathrm{fluid}` and
+    :math:`f_c = V_s / (2\pi a)`, is used to back-project every
+    frequency bin before the windowed semblance. A true pseudo-Rayleigh
+    arrival collapses to zero relative delay at the correct
+    ``s_shear``, removing the high-frequency bias that plagues plain
+    STC for guided modes -- the same trick :func:`dispersive_stc`
+    uses for the dipole flexural mode.
+
+    The output ``slowness`` axis holds the **formation shear**
+    slowness (i.e., the low-frequency cutoff of the pseudo-Rayleigh
+    branch, equal to :math:`1/V_s`), not the per-frequency phase
+    slowness. Pick the maximum-coherence row of the surface to recover
+    formation Vs from a pseudo-Rayleigh-dominated gather.
+
+    Existence constraint
+    --------------------
+    Pseudo-Rayleigh exists only in **fast formations**
+    (:math:`V_s > V_\mathrm{fluid}`). The trial shear-slowness range
+    is therefore required to satisfy
+    ``shear_slowness_range[1] < 1 / v_fluid``; the wrapper raises
+    ``ValueError`` for ranges that would step into the slow-formation
+    regime where the dispersion law is undefined.
+
+    Parameters
+    ----------
+    data : ndarray, shape (n_rec, n_samples)
+        Real-valued multichannel gather.
+    dt : float
+        Sampling interval (s).
+    offsets : ndarray, shape (n_rec,)
+        Source-to-receiver offsets (m).
+    v_fluid : float, default 1500.0
+        Borehole-fluid acoustic velocity (m/s). Sets the high-
+        frequency asymptote of the pseudo-Rayleigh phase slowness.
+    a_borehole : float, default 0.1
+        Borehole radius (m). Sets the cutoff frequency
+        :math:`f_c = V_s / (2 \pi a)` of the dispersion law.
+    shear_slowness_range : (float, float), default (130 us/m, 500 us/m)
+        Lower and upper trial formation shear slowness (s/m). Must
+        be strictly positive, ordered, and bounded above by
+        ``1 / v_fluid``.
+    n_slowness : int, default 91
+        Number of trial shear-slowness points.
+    f_range : (float, float), default (3000, 12000) Hz
+        Inclusive frequency band over which the dispersion correction
+        is applied. The pseudo-Rayleigh branch only exists above its
+        low-frequency cutoff :math:`f_c`; for typical sonic geometry
+        (a = 0.1 m, Vs ~ 2-5 km/s) :math:`f_c` falls in the 3-8 kHz
+        band, motivating the higher-frequency default relative to
+        :func:`dispersive_stc` (which targets the low-frequency
+        flexural mode).
+    window_length : float, default 1e-3
+        STC time-window length (s). Pseudo-Rayleigh wavetrains are
+        typically more impulsive than the flexural mode, so a 1 ms
+        window suffices to bracket the dominant lobe at the default
+        frequency band.
+    time_step : int, default 4
+        Stride of window starts in samples.
+    min_energy_fraction : float, default 1e-8
+        Energy floor relative to gather RMS; below this the
+        coherence cell is reported as ``NaN``.
+
+    Returns
+    -------
+    STCResult
+        ``slowness`` is the formation shear-slowness axis; a true
+        pseudo-Rayleigh arrival peaks at the correct :math:`1/V_s`
+        on this axis (the whole point of the transform). All other
+        fields follow :class:`fwap.coherence.STCResult` conventions.
+
+    Raises
+    ------
+    ValueError
+        If ``shear_slowness_range[1] >= 1 / v_fluid`` (the trial
+        range would leave the pseudo-Rayleigh existence domain),
+        if the range is mis-ordered, or if any bound is non-positive.
+
+    See Also
+    --------
+    fwap.dispersion.dispersive_stc :
+        The dipole-flexural-mode equivalent. The two routines share
+        the same back-projection / semblance machinery; only the
+        per-mode dispersion law differs.
+    fwap.synthetic.pseudo_rayleigh_dispersion :
+        The phenomenological dispersion law used here.
+    """
+    if shear_slowness_range[0] <= 0.0:
+        raise ValueError("shear_slowness_range[0] must be positive")
+    if shear_slowness_range[0] >= shear_slowness_range[1]:
+        raise ValueError(
+            "require shear_slowness_range[0] < shear_slowness_range[1]; got "
+            f"{shear_slowness_range}"
+        )
+    s_fluid = 1.0 / v_fluid
+    if shear_slowness_range[1] >= s_fluid:
+        raise ValueError(
+            f"shear_slowness_range[1] must be < 1/v_fluid "
+            f"({s_fluid:.3e} s/m); pseudo-Rayleigh only exists in fast "
+            f"formations (vs > v_fluid). Got "
+            f"{shear_slowness_range[1]:.3e} s/m."
+        )
+
+    def _family(s_shear: float) -> Callable[[np.ndarray], np.ndarray]:
+        return pseudo_rayleigh_dispersion(
+            vs=1.0 / s_shear, v_fluid=v_fluid, a_borehole=a_borehole,
+        )
+
+    return dispersive_stc(
+        data,
+        dt=dt,
+        offsets=offsets,
+        dispersion_family=_family,
+        shear_slowness_range=shear_slowness_range,
+        n_slowness=n_slowness,
+        f_range=f_range,
+        window_length=window_length,
+        time_step=time_step,
+        min_energy_fraction=min_energy_fraction,
+    )
 
