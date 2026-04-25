@@ -561,7 +561,7 @@ def viterbi_pick(stc_results: Sequence[STCResult],
 
     # Accumulate results as we pick one mode at a time. previous_time[d]
     # is the Viterbi-picked time of the previously processed mode at
-    # depth d, or +inf if it was absent (so no constraint on later
+    # depth d, or -inf if it was absent (so no constraint on later
     # modes at that depth).
     previous_time: np.ndarray = np.full(n_depth, -np.inf, dtype=float)
     all_picks: list[DepthPicks] = [

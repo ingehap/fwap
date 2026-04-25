@@ -192,11 +192,12 @@ class StressAnisotropyEstimate:
     anisotropy_strength : float
         Dimensionless ``[0, 1]`` measure of how much fast and slow
         shear differ, defined as
-        :math:`\|f - s\| / \sqrt{\|f\|^2 + \|s\|^2}`. ``0`` for
-        identical waveforms (isotropic medium), ``1`` for fully
-        orthogonal ones. Time-shift-blind, so reports anisotropy
-        even on a fast / slow pair that differ only in arrival
-        time.
+        :math:`\|f - s\| / \sqrt{2\,(\|f\|^2 + \|s\|^2)}`. ``0`` for
+        identical waveforms (isotropic medium); approaches ``1`` only
+        as :math:`s \to -f` (sign-flipped pair), and equals
+        :math:`1/\sqrt{2} \approx 0.707` for orthogonal equal-energy
+        waveforms. Time-shift-blind, so reports anisotropy even on a
+        fast / slow pair that differ only in arrival time.
     fracture_indicator : float
         Heuristic flexural-wave fracture proxy in ``[0, 1]``:
         :math:`\text{rotation_quality} \times

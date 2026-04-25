@@ -131,17 +131,22 @@ def centroid_frequency_shift_Q(data: np.ndarray,
     sigma_f2 = float(np.mean(fvar))
 
     # Weighted LS fit fc = a*t + b with weights = total power.
+    # Apply sqrt(w) to A and fc so lstsq minimises sum_i w_i * resid_i**2
+    # (the canonical WLS objective). Multiplying by w directly would
+    # weight by w_i**2 instead.
     w = total / total.max()
+    sqrt_w = np.sqrt(w)
     A = np.stack([t_travel, np.ones_like(t_travel)], axis=1)
-    W = np.diag(w)
-    m, *_ = np.linalg.lstsq(W @ A, W @ fc, rcond=None)
+    A_w = A * sqrt_w[:, None]
+    fc_w = sqrt_w * fc
+    m, *_ = np.linalg.lstsq(A_w, fc_w, rcond=None)
     slope, intercept = m
 
-    # Standard error of the slope.
+    # Standard error of the slope. cov = sigma_res2 * (A^T W A)^(-1);
+    # A_w.T @ A_w == A^T diag(w) A by construction.
     resid = fc - (slope * t_travel + intercept)
     dof = max(1, t_travel.size - 2)
     sigma_res2 = np.sum(w * resid ** 2) / dof
-    A_w = W @ A
     cov = sigma_res2 * np.linalg.pinv(A_w.T @ A_w)
     slope_sigma = float(np.sqrt(max(cov[0, 0], 0.0)))
 
@@ -250,13 +255,17 @@ def spectral_ratio_Q(data: np.ndarray,
     A = np.vstack(blocks)
     y = np.concatenate(y_all)
     w = np.concatenate(w_all)
-    W = np.diag(w / w.max())
-    m, *_ = np.linalg.lstsq(W @ A, W @ y, rcond=None)
+    # Apply sqrt(w) so lstsq minimises sum_i w_i_norm * resid_i**2;
+    # multiplying by w directly would weight by w**2.
+    w_norm = w / w.max()
+    sqrt_w = np.sqrt(w_norm)
+    A_w = A * sqrt_w[:, None]
+    y_w = sqrt_w * y
+    m, *_ = np.linalg.lstsq(A_w, y_w, rcond=None)
     inv_q = m[0]
     resid = y - A @ m
     dof = max(1, y.size - m.size)
-    sigma_res2 = np.sum((w / w.max()) * resid ** 2) / dof
-    A_w = W @ A
+    sigma_res2 = np.sum(w_norm * resid ** 2) / dof
     cov = sigma_res2 * np.linalg.pinv(A_w.T @ A_w)
     inv_q_sigma = float(np.sqrt(max(cov[0, 0], 0.0)))
 
