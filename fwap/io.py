@@ -179,6 +179,10 @@ _FWAP_UNITS: Mapping[str, str] = {
     "SH":    "Pa",   # Minimum horizontal (closure) stress
     "SV":    "Pa",   # Vertical (overburden) stress
     "SAND":  "",     # Sand-stability flag (0 = sand-prone, 1 = stable)
+    # VTI shear anisotropy (fwap.anisotropy.thomsen_gamma_from_logs).
+    "C44":   "Pa",   # Vertical shear modulus (rho * Vsv^2)
+    "C66":   "Pa",   # Horizontal shear modulus (Stoneley inversion)
+    "GAMMA": "",     # Thomsen shear-anisotropy parameter
 }
 
 
