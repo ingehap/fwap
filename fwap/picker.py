@@ -1868,6 +1868,11 @@ def track_to_log_curves(
     >>> depths, curves = track_to_log_curves(track)
     >>> write_las("output.las", depths, curves)
     """
+    # Coerce ``null_value`` to a float up-front so a wrong type (e.g.
+    # ``None``) raises ``TypeError`` cleanly rather than slipping
+    # through the NaN check and producing object-dtype curves.
+    null_value = float(null_value)
+
     n_depth = len(track)
     if n_depth == 0:
         return np.empty(0, dtype=float), {}

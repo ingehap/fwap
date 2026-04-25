@@ -362,6 +362,44 @@ def test_classify_flexural_rejects_overlapping_bands():
         )
 
 
+def test_classify_flexural_rejects_touching_bands():
+    """Bands sharing a single endpoint are rejected (a sample at the
+    touch point would otherwise land in both band means)."""
+    import pytest
+    from fwap.dispersion import classify_flexural_anisotropy
+    f = np.linspace(500.0, 10000.0, 50)
+    s = 4.0e-4 * np.ones_like(f)
+    with pytest.raises(ValueError, match="overlap or touch"):
+        classify_flexural_anisotropy(
+            _curve(f, s), _curve(f, s.copy()),
+            f_low_band=(1000.0, 4000.0), f_high_band=(4000.0, 8000.0),
+        )
+
+
+def test_classify_flexural_crossover_search_is_restricted_to_bracket():
+    """A spurious sign flip outside [f_low_band[0], f_high_band[1]]
+    is *not* reported as the crossover; only sign changes inside the
+    bracket spanning the two band means count."""
+    from fwap.dispersion import classify_flexural_anisotropy
+    f = np.linspace(500.0, 10000.0, 100)
+    f_cross_real = 3000.0
+    s_fast = 4.0e-4 * np.ones_like(f)
+    s_slow = s_fast + 2.0e-8 * (f - f_cross_real)   # genuine crossover at 3 kHz
+    # Inject a spurious sign flip at f ~ 600 Hz, well outside the
+    # default low-f band [1000, 2500].
+    spurious_mask = (f >= 550.0) & (f <= 700.0)
+    s_slow_with_noise = s_slow.copy()
+    s_slow_with_noise[spurious_mask] = s_fast[spurious_mask] + 1.0e-5
+    diag = classify_flexural_anisotropy(
+        _curve(f, s_fast), _curve(f, s_slow_with_noise),
+    )
+    assert diag.classification == "stress_induced"
+    assert diag.crossover_frequency is not None
+    # The spurious flip at ~600 Hz is outside the default bracket
+    # [1000, 8000] and is *not* picked. We get the real one near 3 kHz.
+    assert abs(diag.crossover_frequency - f_cross_real) < 200.0
+
+
 def test_classify_flexural_rejects_inverted_bands():
     """lo >= hi within a band is a caller error."""
     import pytest

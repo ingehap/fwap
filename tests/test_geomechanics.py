@@ -131,6 +131,14 @@ def test_closure_stress_rejects_unphysical_poisson():
         closure_stress(np.array([0.25, 1.5]), 50.0e6)
 
 
+def test_closure_stress_rejects_negative_poisson():
+    """Auxetic / negative Poisson is out of scope and rejected."""
+    with pytest.raises(ValueError, match="poisson >= 0"):
+        closure_stress(-0.1, 50.0e6)
+    with pytest.raises(ValueError, match="poisson >= 0"):
+        closure_stress(np.array([0.25, -0.05]), 50.0e6)
+
+
 def test_closure_stress_array_inputs_broadcast():
     """Per-depth Poisson and sigma_v arrays broadcast correctly."""
     nu = np.array([0.20, 0.25, 0.30])

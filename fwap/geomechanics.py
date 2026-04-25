@@ -216,8 +216,11 @@ def closure_stress(
     ----------
     poisson : scalar or ndarray
         Poisson's ratio at each depth (dimensionless). Must satisfy
-        ``poisson < 1`` (the formula has a removable singularity at
-        :math:`\nu = 1`).
+        ``0 <= poisson < 1``. The lower bound rules out auxetic
+        materials, which are physically valid but produce negative
+        effective horizontal stresses under this formula and are not
+        the use case the Eaton model targets. The upper bound is the
+        formula's removable singularity at :math:`\nu = 1`.
     sigma_v_pa : scalar or ndarray
         Vertical (overburden) stress at each depth (Pa). Use
         :func:`overburden_stress` to compute this from a density log,
@@ -244,13 +247,20 @@ def closure_stress(
     Raises
     ------
     ValueError
-        If ``poisson >= 1`` anywhere.
+        If ``poisson >= 1`` or ``poisson < 0`` anywhere.
     """
     nu = np.asarray(poisson, dtype=float)
     sigma_v = np.asarray(sigma_v_pa, dtype=float)
     pp = np.asarray(pore_pressure_pa, dtype=float)
     if np.any(nu >= 1.0):
         raise ValueError("require poisson < 1 everywhere")
+    if np.any(nu < 0.0):
+        raise ValueError(
+            "require poisson >= 0 everywhere; the Eaton uniaxial-strain "
+            "closure-stress formula is calibrated for the positive-"
+            "Poisson regime of typical sedimentary rocks (auxetic "
+            "materials are out of scope)"
+        )
     eff_v = sigma_v - biot_alpha * pp
     return (nu / (1.0 - nu)) * eff_v + biot_alpha * pp
 
@@ -347,10 +357,11 @@ def sand_stability_indicator(
     Returns
     -------
     ndarray of bool
-        ``True`` where the formation is **stable** (shear modulus
-        above the threshold), ``False`` where it is sand-prone.
-        ``True`` for sand-prone is *not* the convention here so the
-        flag composes naturally with other "is OK" gates.
+        ``True`` where the formation is **stable** (shear modulus at
+        or above the threshold), ``False`` where it is sand-prone.
+        Boundary convention: ``mu == threshold_pa`` is treated as
+        stable. ``True`` for sand-prone is *not* the convention here
+        so the flag composes naturally with other "is OK" gates.
     """
     mu = np.asarray(shear_pa, dtype=float)
     return mu >= threshold_pa
