@@ -7,6 +7,175 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **LWD (logging-while-drilling) phenomenological layer**
+  (`fwap.lwd`). Models the steel-drill-collar contamination Tang &
+  Cheng (2004) sect. 2.4-2.5 frame as the defining processing
+  problem of the LWD era, plus the two practical responses:
+  collar-band notching and quadrupole-source / receiver geometry.
+  Public surface: `lwd_collar_mode(...)` returns a pre-configured
+  Gabor `Mode` at the published 80-130 us/ft collar band;
+  `synthesize_lwd_gather(...)` plants the collar on top of the
+  formation modes; `notch_slowness_band(...)` is a slowness-band-
+  stop filter via tau-p forward + cosine-tapered band-pass mask +
+  adjoint **+ subtract-the-in-band** (the subtraction route
+  preserves signals at slownesses outside the tau-p grid, e.g.
+  Stoneley at ~217 us/ft survives a notch at ~92 us/ft); on the
+  quadrupole side, `QuadrupoleRingGather`,
+  `synthesize_quadrupole_lwd_gather(...)` builds a ring of n_rec
+  >= 4 receivers with a `cos(2(theta - phi))` source pattern and
+  `quadrupole_stack(data, azimuths, ...)` projects the ring onto
+  m=2, rejecting m=0 / m=1 patterns by orthogonality;
+  `lwd_quadrupole_priors()` returns a tool-aware picker priors
+  dict. `fwap.demos.demo_lwd` and `fwap lwd` CLI provide a
+  worked-example end-to-end. **Not** a layered cylindrical-Biot
+  solver -- that is research-grade work and remains future work.
+- **Stress-vs-intrinsic anisotropy classifier from a fast / slow
+  flexural dispersion-curve crossover.** Sinha & Kostek (1996)
+  showed that the two cross-dipole flexural dispersion curves of a
+  stress-anisotropic formation cross over in frequency: the
+  low-frequency mode samples the far-field rock fabric and the
+  high-frequency mode samples the near-wellbore stress
+  concentration, so a Δs(f) sign flip between the bands flags
+  stress-induced anisotropy (intrinsic anisotropy shows no such
+  crossover). New `classify_flexural_anisotropy(curve_a, curve_b,
+  ...)` returns a `FlexuralDispersionDiagnosis` with a
+  classification in `{"isotropic", "intrinsic", "stress_induced",
+  "ambiguous"}`, the per-band Δs averages, the interpolated
+  crossover frequency (when present, restricted to the bracket
+  spanning the two band means), and a tuple of human-readable
+  reasons for QC.
+- **Slow-formation Vs from low-frequency Stoneley slowness**
+  (`fwap.rockphysics.vs_from_stoneley_slow_formation`). Inverts the
+  White (1983) tube-wave formula `S_ST^2 = 1/V_f^2 + rho_f / mu`
+  for the formation shear velocity. Primary sonic-only Vs
+  estimator for slow formations (V_S < V_fluid) where the
+  formation has no critically-refracted S head wave on a monopole
+  gather (Paillet & Cheng 1991, Ch. 3) and pseudo-Rayleigh does
+  not exist. Same physics as
+  `stoneley_horizontal_shear_modulus` (which returns C_66 for
+  VTI), divided by rho and square-rooted; the difference is
+  interpretation.
+- **Hornby et al. (1989) Stoneley reflection-coefficient fracture-
+  aperture inversion.** Quantitative complement to the existing
+  Stoneley indicators. New `stoneley_reflection_coefficient(A_inc,
+  A_refl)` builds `|R|` from incident / reflected pulse
+  amplitudes; new `hornby_fracture_aperture(R, frequency_hz,
+  V_T, ...)` inverts the rigid-frame, low-frequency, single-
+  fracture closed form
+  `|R(omega)| = omega L_0 / sqrt(V_T^2 + omega^2 L_0^2)` for the
+  fracture aperture L_0 (m). Saturates at +inf for `|R| -> 1`; an
+  optional small-amplitude approximation `L_0 ~ V_T |R| / omega`
+  is < 5 % off for |R| <= 0.3.
+- **Stoneley amplitude fracture indicator**
+  (`fwap.rockphysics.stoneley_amplitude_fracture_indicator`).
+  Companion to the existing slowness-shift permeability indicator.
+  Returns `1 - A_obs / A_ref` -- the fractional Stoneley amplitude
+  deficit relative to a tight reference. Detects the same
+  fractures / permeable zones via the loss of acoustic energy
+  rather than via the dynamic-poroelastic delay; complementary
+  noise characteristics, so a coincidence flag is more robust than
+  either indicator alone.
+- **Dispersive STC for the pseudo-Rayleigh / guided trapped mode**
+  (`fwap.dispersion.dispersive_pseudo_rayleigh_stc`). Direct
+  pseudo-Rayleigh analogue of `dispersive_stc`: scans formation
+  shear slowness, applies the per-frequency phase-slowness
+  correction from `pseudo_rayleigh_dispersion`, returns an
+  `STCResult` whose slowness axis is the formation `1 / V_S`.
+  Removes the high-frequency bias that plain STC produces on
+  guided arrivals. Enforces the fast-formation existence
+  constraint (`shear_slowness_range[1] < 1 / v_fluid`).
+- **Geomechanics indices on top of `ElasticModuli`** (new module
+  `fwap.geomechanics`). Closes the gap between the elastic-moduli
+  output of `fwap.rockphysics.elastic_moduli` and the
+  Workflow-3 deliverables Mari et al. (1994) Part 3 lists --
+  *sanding prediction* and *hydraulic-fracture design*. Public
+  surface: `brittleness_index_rickman(E, nu, ...)` (Rickman et al.
+  2008 BI in `[0, 1]`); `fracability_index(...)` (alias of BI for
+  HF-design call sites); `closure_stress(nu, sigma_v, P_p,
+  alpha)` (Eaton 1969 uniaxial-strain closure stress, with
+  validation rejecting both `nu >= 1` singularity and `nu < 0`
+  auxetic regime); `unconfined_compressive_strength(E,
+  model='lacy_sandstone')` (Lacy 1997 / Chang et al. 2006);
+  `sand_stability_indicator(mu, threshold)` (Bratli & Risnes 1981
+  / 5 GPa shear-modulus rule); `overburden_stress(z, rho)`
+  (trapezoidal density-log integration). One-call wrapper
+  `geomechanics_indices(moduli, ...)` returns a
+  `GeomechanicsIndices` dataclass with `brittleness`,
+  `fracability`, `ucs`, `sand_stability` and (when
+  `sigma_v_pa` is supplied) `closure_stress`. Module-level
+  constants `RICKMAN_E_MIN_PA`, `RICKMAN_E_MAX_PA`,
+  `RICKMAN_NU_MIN`, `RICKMAN_NU_MAX`,
+  `SAND_STABILITY_SHEAR_THRESHOLD_PA` expose the published
+  defaults. Six new LAS / DLIS mnemonics in `_FWAP_UNITS`:
+  `BRIT`, `FRAC`, `UCS`, `SH`, `SV`, `SAND`.
+- **Thomsen-gamma from combined dipole + Stoneley sonic logs**
+  (`fwap.anisotropy`). VTI shear-anisotropy parameter
+  `gamma = (C_66 - C_44) / (2 C_44)` from two complementary
+  measurements: the dipole shear log gives `C_44 = rho * V_Sv^2`,
+  and the Stoneley low-frequency tube-wave inversion (White 1983
+  / Norris 1990) gives `C_66 = rho_f / (S_ST^2 - 1/V_f^2)`. New
+  `stoneley_horizontal_shear_modulus(s_ST, rho_fluid, v_fluid)`,
+  `thomsen_gamma(c44, c66)`, and a one-call
+  `thomsen_gamma_from_logs(s_dipole, s_stoneley, rho, ...)`
+  returning a `ThomsenGammaResult` with `c44`, `c66`, `gamma`.
+  New LAS mnemonics: `C44`, `C66`, `GAMMA`.
+- **Picker -> log-curve bridge**
+  (`fwap.picker.track_to_log_curves`). Converts a
+  `Sequence[DepthPicks]` from `track_modes` / `viterbi_pick` /
+  `viterbi_pick_joint` into a `(depths, curves)` tuple where
+  `curves` is a `{mnemonic: ndarray}` dict suitable to pass
+  straight to `write_las` / `write_dlis`. Standard fwap mnemonics
+  (`DTP`, `DTS`, `DTST`, `DTPR` / `COHP`, `COHS`, `COHST`,
+  `COHPR` / `AMP*` / `TIM*` / `VPVS`); slowness in us/ft;
+  missing picks become NaN by default with an optional numeric
+  sentinel via `null_value`. `_FWAP_UNITS` extended to carry the
+  new mnemonics.
+
+### Fixed
+- **WLS in attenuation Q estimators** (`centroid_frequency_shift_Q`
+  and `spectral_ratio_Q`): the previous implementations multiplied
+  both `A` and `y` by `W = diag(w)` before passing to `lstsq`,
+  which makes the solver minimise `sum(w_i^2 * r_i^2)` instead of
+  the documented `sum(w_i * r_i^2)`. Switched to `sqrt(W) @ A`,
+  `sqrt(W) @ y` so the per-trace weights match the docstring intent
+  ("weights = total power") and the residual variance / standard
+  error formulas now match the system actually being solved.
+- **`read_las` depth-curve detection**: skipped the depth curve
+  via mnemonic equality with `las.curves[0].mnemonic`, which was
+  fragile when a non-depth curve happened to share the depth
+  mnemonic. Now skips by index instead (always first).
+- **`viterbi_pick` doc bug**: the comment claimed the
+  no-previous-mode sentinel was `+inf`; the code (correctly) uses
+  `-inf`. Comment fixed.
+- **`anisotropy_strength` docstring**: claimed the metric reaches 1
+  for orthogonal waveforms, but actually reaches `1 / sqrt(2)` for
+  orthogonal equal-energy waveforms and only saturates at 1 as
+  `s -> -f`. Updated formula and verbal description; the metric
+  itself was correct.
+
+### Changed
+- **`closure_stress` validation tightened** to reject negative
+  Poisson's ratio. The Eaton uniaxial-strain model is calibrated
+  for the positive-Poisson regime of typical sedimentary rocks;
+  negative inputs would produce negative effective horizontal
+  stresses. Auxetic materials are out of scope.
+- **`classify_flexural_anisotropy`**: band-overlap guard tightened
+  from `>` to `>=` (touching bands now rejected); crossover-
+  frequency search restricted to the bracket
+  `[f_low_band[0], f_high_band[1]]` so a spurious noise zero-
+  crossing outside the bands is not reported as the band-to-band
+  transition.
+- **`track_to_log_curves`**: float-coerce `null_value` at function
+  entry (`null_value = float(null_value)`) so passing `None` or
+  any non-float type raises `TypeError` cleanly instead of
+  slipping through the NaN check and producing object-dtype
+  curves.
+- **`dispersive_stc`**: rename misleading internal variable
+  `tau_of_f` -> `s_of_f`. The variable holds slowness, not a time
+  τ; no behaviour change.
+- **`sand_stability_indicator`**: docstring now explicit that the
+  `mu == threshold_pa` boundary is treated as stable.
+
 - **Cross-mode consistency QC for the picker.** Closes the soft
   Workflow-3 gap flagged in the closing paragraph of the docx
   review: the book's QC philosophy is *"log continuity AND

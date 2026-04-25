@@ -61,6 +61,75 @@ is now in the package:
   `fwap dlis` are wired into the demo registry alongside the
   existing chapter demos.
 
+A second sweep (after the docx pair `Paillet1991.docx` and
+`Tang2004.docx` were added to `ideas/`) closed the gaps Tang & Cheng
+(2004) flag as the post-1994 borehole-acoustic processing literature:
+
+- **Picker → log-curve bridge**: `track_to_log_curves(track) ->
+  (depths, curves)` converts a per-depth pick track from
+  `track_modes` / `viterbi_pick` / `viterbi_pick_joint` into the
+  fixed-length `{mnemonic: ndarray}` dict the LAS / DLIS writers
+  consume directly. Slowness is converted to us/ft (the LAS unit
+  table convention); missing picks become NaN by default with an
+  optional numeric sentinel.
+- **Geomechanics layer (`fwap.geomechanics`)**: Rickman 2008
+  brittleness / fracability index, Eaton 1969 uniaxial-strain
+  closure stress, Lacy 1997 (Chang 2006 form) sandstone UCS,
+  Bratli–Risnes 1981 sand-stability flag, density-log overburden
+  integration, and a one-call `geomechanics_indices(moduli, ...)`
+  bundle returning a `GeomechanicsIndices` dataclass with all four
+  indices (closure stress optional, conditional on a supplied
+  overburden).
+- **Dispersive pseudo-Rayleigh STC**:
+  `dispersive_pseudo_rayleigh_stc` is the pseudo-Rayleigh analogue
+  of `dispersive_stc`; same back-projection machinery, only the
+  per-mode dispersion law differs. Enforces the fast-formation
+  existence constraint (`shear_slowness_range[1] < 1 / v_fluid`).
+- **Stoneley amplitude fracture indicator**:
+  `stoneley_amplitude_fracture_indicator(A_obs, A_ref)` =
+  `1 - A_obs / A_ref` — companion to the existing
+  `stoneley_permeability_indicator`. Detects the same fractures /
+  permeable zones via energy loss rather than via the
+  poroelastic-delay slowness shift; the two have complementary
+  noise characteristics.
+- **Hornby et al. (1989) Stoneley reflection-coefficient fracture-
+  aperture inversion**: `stoneley_reflection_coefficient(...)`
+  builds `|R|`; `hornby_fracture_aperture(R, frequency_hz,
+  V_T, ...)` inverts the low-frequency closed form
+  `|R| = ω L₀ / sqrt(V_T² + ω² L₀²)` for the fracture aperture
+  `L₀` (m). Quantitative complement to the two slowness- and
+  amplitude-based indicators.
+- **Thomsen-gamma from combined dipole + Stoneley
+  (`fwap.anisotropy`)**: `thomsen_gamma(c44, c66)`,
+  `stoneley_horizontal_shear_modulus(s_ST, rho_fluid, v_fluid)`
+  (White 1983 / Norris 1990 tube-wave inversion), and a one-call
+  `thomsen_gamma_from_logs(s_dipole, s_stoneley, rho, ...)`
+  returning a `ThomsenGammaResult` with C44, C66, gamma per depth.
+- **Slow-formation Vs from low-frequency Stoneley
+  (`fwap.rockphysics`)**: `vs_from_stoneley_slow_formation(...)` is
+  the primary sonic-only V_S estimator for the case where the
+  formation has no S head wave on a monopole gather and
+  pseudo-Rayleigh does not exist (V_S < V_fluid; Paillet & Cheng
+  1991 Ch. 3).
+- **Stress-vs-intrinsic anisotropy classifier
+  (`fwap.dispersion`)**: `classify_flexural_anisotropy(curve_a,
+  curve_b)` labels a cross-dipole record as `"isotropic"`,
+  `"intrinsic"`, `"stress_induced"`, or `"ambiguous"` based on
+  whether the slowness difference Δs(f) crosses zero between a
+  low-f band and a high-f band — the Sinha & Kostek 1996
+  diagnostic that distinguishes far-field rock fabric from
+  borehole-wall stress concentration.
+- **LWD phenomenological layer (`fwap.lwd`)**: `lwd_collar_mode`,
+  `synthesize_lwd_gather`, and `notch_slowness_band` (subtract-
+  the-in-band route, preserves out-of-grid signals) deliver the
+  monopole-side collar-rejection workflow; `QuadrupoleRingGather`,
+  `synthesize_quadrupole_lwd_gather`, `quadrupole_stack` and
+  `lwd_quadrupole_priors` deliver the m=2 source / receiver
+  geometry that Tang & Cheng 2004 sect. 2.5 frame as the practical
+  solution to LWD collar contamination. `fwap lwd` runs the
+  worked-example demo. **Not** a layered cylindrical-Biot solver
+  (still flagged as Open item A below).
+
 ## Open items
 
 ### A. Full cylindrical-Biot dispersion solver
@@ -171,12 +240,25 @@ interest) before attempting dipole flexural.
   of perturbation theory to acoustic logging. *J. Geophys. Res.*
   96(B1), 537-549 (starting-guess strategy for the dipole root-finder).
 
-### B. Quantitative Stoneley permeability
+### B. Quantitative Stoneley permeability (Tang–Cheng–Toksöz 1991)
 
-**Status**: fwap ships `stoneley_permeability_indicator` which
-returns the fractional Stoneley slowness shift; the docstring is
-explicit that this is a dimensionless indicator that needs
-calibration to convert to SI permeability.
+**Status**: fwap ships three complementary, *uncalibrated* Stoneley
+indicators / inversions:
+
+- `stoneley_permeability_indicator` returns the fractional slowness
+  shift relative to a tight reference (matrix permeability + open
+  fractures together);
+- `stoneley_amplitude_fracture_indicator` returns the fractional
+  amplitude deficit (transmission-loss form; complementary noise
+  characteristics);
+- `hornby_fracture_aperture` inverts the reflected-wave coefficient
+  for an actual fracture aperture in metres (rigid-frame, single-
+  fracture limit).
+
+What is **still missing** is the matrix-permeability inversion that
+maps the Stoneley slowness shift onto an absolute permeability in m^2
+or mD. That is the Tang–Cheng–Toksöz (1991) simplified Biot-Rosenbaum
+piece outlined below, and remains the open item.
 
 **What to build**:
 
