@@ -176,6 +176,7 @@ from fwap.rockphysics import (
     gassmann_fluid_substitution,
     hill_average,
     reuss_average,
+    stoneley_amplitude_fracture_indicator,
     stoneley_permeability_indicator,
     voigt_average,
     vp_vs_ratio,
@@ -266,6 +267,7 @@ __all__ = [
     "ElasticModuli", "elastic_moduli", "vp_vs_ratio",
     "reuss_average", "voigt_average", "hill_average",
     "stoneley_permeability_indicator",
+    "stoneley_amplitude_fracture_indicator",
     "GassmannResult", "gassmann_fluid_substitution",
     # Surface-wave speeds / cylindrical
     "rayleigh_speed", "flexural_dispersion_physical",

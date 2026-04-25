@@ -462,6 +462,107 @@ def stoneley_permeability_indicator(
     return obs / ref - 1.0
 
 
+def stoneley_amplitude_fracture_indicator(
+    amplitude_observed: np.ndarray,
+    amplitude_reference: float | np.ndarray,
+) -> np.ndarray:
+    r"""
+    Dimensionless Stoneley-amplitude fracture / permeability indicator.
+
+    Returns the fractional Stoneley amplitude *deficit* relative to a
+    tight (unfractured, low-permeability) reference zone:
+
+    .. math::
+
+        \beta_\mathrm{ST}(d) \;=\;
+        1 \;-\; \frac{A_\mathrm{ST,obs}(d)}{A_\mathrm{ST,ref}}.
+
+    The Stoneley wave attenuates as it crosses a fracture or permeable
+    interval -- energy radiates into the formation through Darcy flow
+    in the rock matrix and through fracture-pumping (oscillatory fluid
+    motion in and out of fracture apertures) at fractures intersecting
+    the borehole wall (Tang & Cheng 2004, sect. 5.2; Hornby, Johnson,
+    Winkler & Plumb 1989, *Geophysics* 54(10), 1274-1288). The
+    fractional amplitude deficit therefore flags the same fractures
+    and permeable zones as :func:`stoneley_permeability_indicator`,
+    but with **complementary noise characteristics**: amplitude
+    attenuation responds primarily to the *loss* of acoustic energy
+    along the wavetrain, while the slowness-shift indicator responds
+    primarily to the dynamic poroelastic delay. Combining the two
+    (e.g. as a coincidence flag, or by averaging after rank-
+    standardisation) is more robust than either alone.
+
+    Important: like the slowness-shift companion, this is an
+    **uncalibrated, dimensionless** indicator -- a depth-by-depth
+    rank-ordering of fracture / permeability strength, not an
+    absolute permeability or fracture aperture. Conversion to SI
+    quantities needs a calibration tied to the tool's source
+    frequency, borehole-fluid viscosity / bulk modulus, formation
+    Stoneley impedance, and (for fractures) the fracture-aperture
+    distribution; in practice it is tuned against a known interval
+    (image log, core, mudlog) rather than computed from first
+    principles. The closed-form low-frequency expressions are in
+    Hornby et al. (1989), eqs. (3)-(7) (single-fracture reflection
+    / transmission) and Tang & Cheng (2004), sect. 5.2 (matrix-
+    permeability transmission loss).
+
+    Parameters
+    ----------
+    amplitude_observed : ndarray or float
+        Per-depth Stoneley-wave amplitude. Typically
+        :attr:`fwap.picker.ModePick.amplitude` for the ``"Stoneley"``
+        mode gathered across depths, or the ``"AMPST"`` column of a
+        log set written via :func:`fwap.picker.track_to_log_curves`.
+        Must be non-negative.
+    amplitude_reference : float or ndarray
+        Tight-reference Stoneley amplitude. Either a single value
+        (a hand-picked tight zone) or a per-depth baseline (e.g. a
+        median-filtered or low-pass-smoothed version of the observed
+        log). Must be strictly positive.
+
+    Returns
+    -------
+    ndarray
+        Dimensionless indicator, typically in ``[-0.05, 0.9]``.
+        Positive values flag permeable / fractured intervals (lower
+        observed amplitude than reference); near-zero values are
+        zones that match the reference. Negative values indicate
+        either an unusual amplification (rare; resonance from
+        thin-bed multiples) or that the reference itself was lower
+        than this depth.
+
+    Raises
+    ------
+    ValueError
+        If ``amplitude_observed`` is negative anywhere or
+        ``amplitude_reference`` is non-positive anywhere.
+
+    See Also
+    --------
+    stoneley_permeability_indicator :
+        The slowness-shift companion. Run both and combine as a
+        coincidence flag for robust fracture / permeability picks.
+
+    References
+    ----------
+    * Hornby, B. E., Johnson, D. L., Winkler, K. W., & Plumb, R. A.
+      (1989). Fracture evaluation using reflected Stoneley-wave
+      arrivals. *Geophysics* 54(10), 1274-1288.
+    * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
+      Acoustic Methods.* Elsevier, Section 5.2.
+    * Mari, J.-L., Coppens, F., Gavin, P., & Wicquart, E. (1994).
+      *Full Waveform Acoustic Data Processing*, Part 1 (Stoneley
+      amplitude as permeability / fracture proxy). Editions Technip.
+    """
+    obs = np.asarray(amplitude_observed, dtype=float)
+    ref = np.asarray(amplitude_reference, dtype=float)
+    if np.any(obs < 0):
+        raise ValueError("amplitude_observed must be non-negative")
+    if np.any(ref <= 0):
+        raise ValueError("amplitude_reference must be strictly positive")
+    return 1.0 - obs / ref
+
+
 def hill_average(moduli: np.ndarray,
                  fractions: np.ndarray) -> float:
     r"""
