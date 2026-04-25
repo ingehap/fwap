@@ -139,15 +139,29 @@ def read_las(path: str) -> LasCurves:
 
 
 _FWAP_UNITS: Mapping[str, str] = {
-    # Compressional / shear / Stoneley slowness (us/ft is the
-    # borehole-acoustic convention; consumers can convert on read).
+    # Compressional / shear / Stoneley / pseudo-Rayleigh slowness
+    # (us/ft is the borehole-acoustic convention; consumers can
+    # convert on read).
     "DTP":   "us/ft",
     "DTS":   "us/ft",
     "DTST":  "us/ft",
-    # Compressional / shear coherence (unitless).
+    "DTPR":  "us/ft",
+    # Per-mode coherence (unitless).
     "COHP":  "",
     "COHS":  "",
     "COHST": "",
+    "COHPR": "",
+    # Per-mode stack amplitude (input units; dimensionless when the
+    # source gather was unit-amplitude).
+    "AMPP":  "",
+    "AMPS":  "",
+    "AMPST": "",
+    "AMPPR": "",
+    # Per-mode pick time (window-start time, seconds).
+    "TIMP":  "s",
+    "TIMS":  "s",
+    "TIMST": "s",
+    "TIMPR": "s",
     # Vp / Vs ratio.
     "VPVS":  "",
     # Q (dimensionless).

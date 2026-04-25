@@ -100,6 +100,17 @@ DEFAULT_PRIORS: dict[str, dict[str, float]] = {
 # handle the full :data:`DEFAULT_PRIORS` including PseudoRayleigh.
 _JOINT_VITERBI_MODES = ("P", "S", "Stoneley")
 
+# Mnemonic suffix per canonical mode name, used by
+# :func:`track_to_log_curves` to build LAS/DLIS-friendly column names
+# (DTP / DTS / DTST / DTPR, COHP / COHS / COHST / COHPR, etc.). Modes
+# outside this map fall through to ``mode_name.upper()``.
+_MODE_MNEMONIC_SUFFIX: dict[str, str] = {
+    "P":              "P",
+    "S":              "S",
+    "Stoneley":       "ST",
+    "PseudoRayleigh": "PR",
+}
+
 
 @dataclass
 class ModePick:
@@ -1755,3 +1766,172 @@ def quality_control_track(track: Sequence[DepthPicks],
         )
         for dp in track
     ]
+
+
+# ---------------------------------------------------------------------
+# Track -> log-curve bridge (picker output -> LAS/DLIS writer input)
+# ---------------------------------------------------------------------
+
+
+def track_to_log_curves(
+    track: Sequence[DepthPicks],
+    *,
+    modes: Sequence[str] | None = None,
+    include_amplitude: bool = True,
+    include_coherence: bool = True,
+    include_vp_vs: bool = True,
+    include_time: bool = False,
+    null_value: float = float("nan"),
+) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    """
+    Convert a per-depth pick track into LAS/DLIS-ready log curves.
+
+    Bridges the picker output (:func:`track_modes`,
+    :func:`viterbi_pick`, :func:`viterbi_pick_joint`) and the I/O
+    writers (:func:`fwap.io.write_las`, :func:`fwap.io.write_dlis`)
+    by building one fixed-length ``(n_depth,)`` array per
+    (mode, attribute) pair, keyed by the standard fwap mnemonics.
+    Slownesses are converted to **us/ft** (the borehole-acoustic
+    unit used by the LAS/DLIS unit table); coherences and amplitudes
+    are kept dimensionless / in their input units.
+
+    The Workflow-1 deliverable per Mari et al. (1994), Part 1 is a
+    set of continuous Vp / Vs / Stoneley slowness curves with
+    matching coherence (and amplitude) tracks. This function is the
+    last mile: it produces the dict that
+    :func:`fwap.io.write_las(path, depth, curves)` and
+    :func:`fwap.io.write_dlis(path, depth, curves)` consume directly.
+
+    Mnemonic conventions
+    --------------------
+    Canonical mode -> suffix mapping:
+      ``P`` -> ``P``, ``S`` -> ``S``, ``Stoneley`` -> ``ST``,
+      ``PseudoRayleigh`` -> ``PR``. Modes outside this set use
+      ``mode_name.upper()`` as the suffix.
+
+    Per mode, the columns produced are:
+
+    =========  ===================  ========
+    Mnemonic   Quantity              Unit
+    =========  ===================  ========
+    DT*        slowness              us/ft
+    COH*       coherence             (-)
+    AMP*       per-cell amplitude    (-)
+    TIM*       pick time             s
+    =========  ===================  ========
+
+    plus a single ``VPVS`` (= ``s_S / s_P`` = ``Vp / Vs``) when both
+    P and S are picked.
+
+    Parameters
+    ----------
+    track : sequence of DepthPicks
+        Output of :func:`track_modes`, :func:`viterbi_pick`,
+        :func:`viterbi_pick_joint`, or any other multi-depth picker.
+    modes : sequence of str, optional
+        Restrict output to these mode names. Defaults to every mode
+        that appears anywhere in ``track`` (preserving first-seen
+        order).
+    include_amplitude : bool, default True
+        Emit ``AMP*`` columns. Skipped per mode if no pick of that
+        mode carries an amplitude.
+    include_coherence : bool, default True
+        Emit ``COH*`` columns.
+    include_vp_vs : bool, default True
+        Emit a ``VPVS`` column when both ``P`` and ``S`` columns
+        exist in the output.
+    include_time : bool, default False
+        Emit ``TIM*`` columns (pick time in seconds). Off by default
+        because pick times are intermediate diagnostics rather than
+        published log curves.
+    null_value : float, default ``NaN``
+        Fill value at depths where a mode was not picked. ``NaN`` is
+        the LAS / DLIS native null marker; pass a numeric sentinel
+        like ``-999.25`` if a downstream consumer requires that.
+
+    Returns
+    -------
+    depths : ndarray, shape (n_depth,)
+        Depth axis pulled from ``DepthPicks.depth``, in the same unit
+        the picker was called with (typically metres).
+    curves : dict[str, ndarray]
+        Mnemonic -> ``(n_depth,)`` array. All arrays are aligned on
+        ``depths``. Suitable to pass to :func:`fwap.io.write_las` or
+        :func:`fwap.io.write_dlis` directly.
+
+    Examples
+    --------
+    >>> from fwap import (
+    ...     track_modes, track_to_log_curves, write_las,
+    ... )
+    >>> track = track_modes(stc_results, depths)
+    >>> depths, curves = track_to_log_curves(track)
+    >>> write_las("output.las", depths, curves)
+    """
+    n_depth = len(track)
+    if n_depth == 0:
+        return np.empty(0, dtype=float), {}
+
+    depths = np.array([float(dp.depth) for dp in track], dtype=float)
+
+    if modes is None:
+        seen: list[str] = []
+        for dp in track:
+            for name in dp.picks:
+                if name not in seen:
+                    seen.append(name)
+        modes = seen
+
+    # Build the per-mode columns with NaN as the internal "missing"
+    # marker so VPVS arithmetic propagates correctly even when the
+    # caller passes a numeric ``null_value``. NaNs are remapped to
+    # the requested null_value at the very end.
+    nan = float("nan")
+    curves: dict[str, np.ndarray] = {}
+    for mode in modes:
+        suffix = _MODE_MNEMONIC_SUFFIX.get(mode, mode.upper())
+        slow_arr = np.full(n_depth, nan, dtype=float)
+        coh_arr  = np.full(n_depth, nan, dtype=float)
+        amp_arr  = np.full(n_depth, nan, dtype=float)
+        time_arr = np.full(n_depth, nan, dtype=float)
+        any_amp = False
+        any_pick = False
+        for d, dp in enumerate(track):
+            pick = dp.picks.get(mode)
+            if pick is None:
+                continue
+            any_pick = True
+            slow_arr[d] = float(pick.slowness) / US_PER_FT
+            coh_arr[d]  = float(pick.coherence)
+            time_arr[d] = float(pick.time)
+            if pick.amplitude is not None:
+                amp_arr[d] = float(pick.amplitude)
+                any_amp = True
+        if not any_pick:
+            # Mode never appeared in this track -- skip rather than
+            # emit an all-null column.
+            continue
+        curves[f"DT{suffix}"] = slow_arr
+        if include_coherence:
+            curves[f"COH{suffix}"] = coh_arr
+        if include_amplitude and any_amp:
+            curves[f"AMP{suffix}"] = amp_arr
+        if include_time:
+            curves[f"TIM{suffix}"] = time_arr
+
+    if include_vp_vs and "DTP" in curves and "DTS" in curves:
+        # s_S / s_P = (1/v_S) / (1/v_P) = v_P / v_S = Vp/Vs.
+        # Both columns are us/ft, so the unit cancels. Compute on the
+        # NaN-marked internals so a missing P or S at any depth gives
+        # NaN here; that NaN is converted to ``null_value`` below.
+        with np.errstate(divide="ignore", invalid="ignore"):
+            vpvs = curves["DTS"] / curves["DTP"]
+        vpvs = np.where(np.isfinite(vpvs), vpvs, nan)
+        curves["VPVS"] = vpvs
+
+    if not (isinstance(null_value, float) and np.isnan(null_value)):
+        # Caller wants a numeric sentinel instead of NaN; remap.
+        for name, arr in curves.items():
+            curves[name] = np.where(np.isnan(arr), null_value, arr)
+
+    return depths, curves

@@ -97,6 +97,7 @@ from fwap.picker import (
     quality_control_picks,
     quality_control_track,
     track_modes,
+    track_to_log_curves,
     viterbi_pick,
     viterbi_pick_joint,
     viterbi_posterior_marginals,
@@ -216,6 +217,7 @@ __all__ = [
     "filter_picks_by_shape", "filter_track_by_shape",
     "PickQualityFlags",
     "quality_control_picks", "quality_control_track",
+    "track_to_log_curves",
     # Wave separation
     "fk_forward", "fk_inverse", "fk_filter",
     "tau_p_forward", "tau_p_adjoint", "tau_p_inverse", "tau_p_filter",
