@@ -118,8 +118,8 @@ def read_las(path: str) -> LasCurves:
 
     curves: dict[str, np.ndarray] = {}
     units: dict[str, str] = {}
-    for curve in las.curves:
-        if curve.mnemonic == las.curves[0].mnemonic:
+    for i, curve in enumerate(las.curves):
+        if i == 0:
             # The first curve is the depth axis, already extracted.
             continue
         curves[curve.mnemonic] = np.asarray(curve.data, dtype=float)
