@@ -16,21 +16,38 @@ log-format libraries ``lasio`` (LAS), ``dlisio`` + ``dliswriter``
 Documentation builds
 --------------------
 
-A pre-built PDF snapshot of this manual lives at
-:file:`docs/fwap.pdf`. To regenerate the HTML or PDF locally:
+Pre-built PDF snapshots of this manual live in :file:`docs/`:
+
+* :file:`docs/fwap.pdf` -- all-in-one reference, ~140 pages.
+  GitHub's blob viewer lazy-loads PDFs and only renders the first
+  few pages inline; download the file (right-click *Download* on
+  the GitHub blob page, or use the ``raw`` URL) to read all of it.
+* :file:`docs/fwap-quickstart.pdf` -- Quick-start section only.
+* :file:`docs/fwap-chapter-map.pdf` -- Chapter-to-module map.
+* :file:`docs/fwap-roadmap.pdf` -- Roadmap.
+* :file:`docs/fwap-changelog.pdf` -- Changelog.
+
+The four per-section PDFs are short enough (3-9 pages each) that
+GitHub's blob viewer renders them inline; the all-in-one PDF is
+the reference for offline reading.
+
+To regenerate the HTML or PDFs locally:
 
 .. code-block:: bash
 
    pip install -e .[docs]
-   sphinx-build -b html docs docs/_build/html      # HTML
+   sphinx-build -b html docs docs/_build/html       # HTML
 
-   # PDF: needs a TeX Live install (xelatex + xindy + poppler-utils):
+   # PDFs: needs a TeX Live install (xelatex + xindy + poppler-utils):
    sphinx-build -b latex docs docs/_build/latex
-   make -C docs/_build/latex
+   make -C docs/_build/latex                        # builds all PDFs
 
-The LaTeX builder is pinned to ``xelatex`` in :file:`docs/conf.py`
-because some of the docstrings carry Unicode math glyphs that
-``pdflatex`` cannot typeset.
+``make`` produces five PDFs in ``docs/_build/latex/``: the all-in-one
+``fwap.pdf`` plus four per-section PDFs configured via
+``latex_documents`` in :file:`docs/conf.py`. The LaTeX builder is
+pinned to ``xelatex`` in :file:`docs/conf.py` because some of the
+docstrings carry Unicode math glyphs that ``pdflatex`` cannot
+typeset.
 
 Run the demos
 -------------
