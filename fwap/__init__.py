@@ -188,6 +188,7 @@ from fwap.rockphysics import (
     stoneley_reflection_coefficient,
     voigt_average,
     vp_vs_ratio,
+    vs_from_stoneley_slow_formation,
 )
 
 # Geomechanics indices (brittleness, fracability, UCS, closure stress,
@@ -281,6 +282,7 @@ __all__ = [
     "stoneley_amplitude_fracture_indicator",
     "stoneley_reflection_coefficient",
     "hornby_fracture_aperture",
+    "vs_from_stoneley_slow_formation",
     "GassmannResult", "gassmann_fluid_substitution",
     # Surface-wave speeds / cylindrical
     "rayleigh_speed", "flexural_dispersion_physical",

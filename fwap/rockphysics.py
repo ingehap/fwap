@@ -763,6 +763,143 @@ def hornby_fracture_aperture(
     return aperture
 
 
+def vs_from_stoneley_slow_formation(
+    slowness_stoneley: np.ndarray,
+    rho: np.ndarray,
+    *,
+    rho_fluid: float,
+    v_fluid: float,
+) -> np.ndarray:
+    r"""
+    Formation shear velocity :math:`V_S` from low-frequency Stoneley
+    slowness.
+
+    The primary sonic-only :math:`V_S` estimator for **slow
+    formations** (:math:`V_S < V_\mathrm{fluid}`), where the
+    formation has no critically-refracted S head wave to pick on a
+    monopole gather (Paillet & Cheng 1991, Ch. 3) and the pseudo-
+    Rayleigh / guided trapped mode does not exist
+    (:func:`fwap.synthetic.pseudo_rayleigh_dispersion` raises in
+    this regime). The Stoneley wave's low-frequency phase velocity
+    carries the formation shear-modulus information through the
+    classical White (1983) tube-wave formula
+
+    .. math::
+
+        S_\mathrm{ST}^2 \;=\; \frac{1}{V_f^2}
+                              \;+\; \frac{\rho_f}{\mu},
+
+    where :math:`\mu = \rho V_S^2` is the formation shear modulus.
+    Inverting for :math:`V_S`:
+
+    .. math::
+
+        V_S \;=\; \sqrt{\frac{\rho_f}
+                             {\rho \,(S_\mathrm{ST}^2 - 1/V_f^2)}}.
+
+    The formula is identical to the
+    :func:`fwap.anisotropy.stoneley_horizontal_shear_modulus`
+    expression after dividing by :math:`\rho` and taking the square
+    root; the difference is interpretation. For an isotropic
+    formation :math:`C_{66} = \mu` and this function returns
+    :math:`V_S` directly. For a VTI formation use
+    :func:`fwap.anisotropy.stoneley_horizontal_shear_modulus` to get
+    :math:`C_{66}` (the horizontal shear modulus, *not* equal to
+    :math:`\rho V_{Sv}^2` in general).
+
+    Assumptions
+    -----------
+    * Low-frequency limit (Stoneley pulse well below the dipole-
+      flexural and pseudo-Rayleigh cutoffs). At higher frequencies
+      the Stoneley wave is dispersive in slow formations and a full
+      cylindrical-mode solver is needed (Paillet & Cheng 1991,
+      Ch. 4). The slowness here should therefore be the picked
+      Stoneley slowness in a low-pass-filtered or low-frequency
+      band.
+    * Inviscid borehole fluid; centred tool; circular borehole
+      cross-section. Tool-eccentricity and mudcake corrections
+      (Tang & Cheng 2004, sect. 5.2) are not applied.
+    * Isotropic formation. For VTI shales the inverted modulus is
+      :math:`C_{66}`, not :math:`\mu`; the function will then
+      systematically under- or over-estimate the *vertical*
+      :math:`V_{Sv}` depending on the sign of Thomsen
+      :math:`\gamma`. Use
+      :func:`fwap.anisotropy.thomsen_gamma_from_logs` when an
+      independent dipole shear log is available to detect this case.
+
+    Parameters
+    ----------
+    slowness_stoneley : ndarray or float
+        Per-depth low-frequency Stoneley slowness (s/m). Must be
+        strictly greater than ``1 / v_fluid`` everywhere -- the
+        Stoneley wave is always slower than the unconfined fluid
+        wave because the formation loads it.
+    rho : ndarray or float
+        Per-depth formation bulk density (kg/m^3) from the bulk-
+        density log (typically the ``RHOB`` curve).
+    rho_fluid : float
+        Borehole-fluid density (kg/m^3). Brine ~ 1000-1100; oil
+        ~ 800-900; gas / foam << 1000.
+    v_fluid : float
+        Borehole-fluid acoustic velocity (m/s). Brine ~ 1500;
+        oil ~ 1300; gas << 1000.
+
+    Returns
+    -------
+    ndarray
+        Formation shear velocity :math:`V_S` (m/s), broadcast to the
+        common shape of ``slowness_stoneley`` and ``rho``.
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive, or if any Stoneley slowness is
+        at or below the fluid slowness ``1 / v_fluid`` (the
+        inversion is undefined there).
+
+    See Also
+    --------
+    fwap.anisotropy.stoneley_horizontal_shear_modulus :
+        Same physics in the VTI shale case; returns :math:`C_{66}`.
+    fwap.anisotropy.thomsen_gamma_from_logs :
+        When a dipole shear log is also available, combines both to
+        flag VTI anisotropy and give the Thomsen :math:`\gamma`
+        directly.
+
+    References
+    ----------
+    * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
+      Boreholes*, Chapter 3. CRC Press (Stoneley low-f velocity as
+      slow-formation Vs estimator).
+    * White, J. E. (1983). *Underground Sound: Application of
+      Seismic Waves.* Elsevier, Section 5.5 (tube-wave formula).
+    * Norris, A. N. (1990). The speed of a tube wave. *J. Acoust.
+      Soc. Am.* 87(1), 414-417.
+    * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
+      Acoustic Methods.* Elsevier, Section 5.2.
+    """
+    if rho_fluid <= 0.0:
+        raise ValueError("rho_fluid must be strictly positive")
+    if v_fluid <= 0.0:
+        raise ValueError("v_fluid must be strictly positive")
+    s_st = np.asarray(slowness_stoneley, dtype=float)
+    rho_arr = np.asarray(rho, dtype=float)
+    if np.any(s_st <= 0):
+        raise ValueError("slowness_stoneley must be strictly positive")
+    if np.any(rho_arr <= 0):
+        raise ValueError("rho must be strictly positive")
+    s_f2 = 1.0 / (v_fluid * v_fluid)
+    diff = s_st * s_st - s_f2
+    if np.any(diff <= 0.0):
+        raise ValueError(
+            "slowness_stoneley must exceed 1 / v_fluid everywhere "
+            "(Stoneley wave is slower than the unconfined fluid wave); "
+            f"got min slowness {float(np.min(s_st)):.3e} s/m, fluid "
+            f"slowness {1.0 / v_fluid:.3e} s/m."
+        )
+    return np.sqrt(rho_fluid / (rho_arr * diff))
+
+
 def hill_average(moduli: np.ndarray,
                  fractions: np.ndarray) -> float:
     r"""

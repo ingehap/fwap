@@ -609,3 +609,109 @@ def test_gassmann_rejects_dry_stiffer_than_mineral():
             k_dry=40.0e9, mu_dry=10.0e9,
             k_mineral=37.0e9, k_fluid=2.2e9, porosity=0.2,
         )
+
+
+# ---------------------------------------------------------------------
+# vs_from_stoneley_slow_formation
+# ---------------------------------------------------------------------
+
+
+def test_vs_from_stoneley_round_trips_through_white_formula():
+    """Plant V_S, build matching Stoneley slowness, recover V_S exactly."""
+    from fwap.rockphysics import vs_from_stoneley_slow_formation
+    rho_f, v_f = 1000.0, 1500.0
+    rho = 2200.0
+    Vs_planted = 1100.0   # slow formation: V_S < V_fluid
+    mu = rho * Vs_planted ** 2
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / mu)
+    Vs = vs_from_stoneley_slow_formation(
+        s_st, rho, rho_fluid=rho_f, v_fluid=v_f)
+    assert Vs == pytest.approx(Vs_planted, rel=1.0e-12)
+
+
+def test_vs_from_stoneley_works_in_fast_formation_too():
+    """Formula is general; the 'slow_formation' name is a use-case label.
+    A planted fast-formation V_S round-trips just as cleanly.
+    """
+    from fwap.rockphysics import vs_from_stoneley_slow_formation
+    rho_f, v_f = 1000.0, 1500.0
+    rho = 2400.0
+    Vs_planted = 2500.0   # fast formation
+    mu = rho * Vs_planted ** 2
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / mu)
+    Vs = vs_from_stoneley_slow_formation(
+        s_st, rho, rho_fluid=rho_f, v_fluid=v_f)
+    assert Vs == pytest.approx(Vs_planted, rel=1.0e-12)
+
+
+def test_vs_from_stoneley_vector_input_broadcasts():
+    """Per-depth Stoneley slowness + density -> per-depth V_S."""
+    from fwap.rockphysics import vs_from_stoneley_slow_formation
+    rho_f, v_f = 1000.0, 1500.0
+    Vs_planted = np.array([800.0, 1100.0, 1400.0])
+    rho = np.full_like(Vs_planted, 2200.0)
+    mu = rho * Vs_planted ** 2
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / mu)
+    Vs = vs_from_stoneley_slow_formation(
+        s_st, rho, rho_fluid=rho_f, v_fluid=v_f)
+    assert Vs.shape == (3,)
+    np.testing.assert_allclose(Vs, Vs_planted, rtol=1.0e-12)
+
+
+def test_vs_from_stoneley_consistent_with_c66_helper():
+    """Vs == sqrt(C66 / rho) with C66 from anisotropy.stoneley_horizontal_shear_modulus."""
+    from fwap.anisotropy import stoneley_horizontal_shear_modulus
+    from fwap.rockphysics import vs_from_stoneley_slow_formation
+    rho_f, v_f = 1000.0, 1500.0
+    rho = 2200.0
+    Vs_planted = 1200.0
+    mu = rho * Vs_planted ** 2
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / mu)
+    Vs = vs_from_stoneley_slow_formation(
+        s_st, rho, rho_fluid=rho_f, v_fluid=v_f)
+    c66 = stoneley_horizontal_shear_modulus(
+        s_st, rho_fluid=rho_f, v_fluid=v_f)
+    np.testing.assert_allclose(Vs, np.sqrt(c66 / rho), rtol=1.0e-12)
+
+
+def test_vs_from_stoneley_rejects_slowness_below_fluid_slowness():
+    """Stoneley slowness <= fluid slowness is unphysical."""
+    from fwap.rockphysics import vs_from_stoneley_slow_formation
+    rho_f, v_f = 1000.0, 1500.0
+    s_f = 1.0 / v_f
+    with pytest.raises(ValueError, match="v_fluid"):
+        vs_from_stoneley_slow_formation(
+            s_f, 2200.0, rho_fluid=rho_f, v_fluid=v_f)
+    with pytest.raises(ValueError, match="v_fluid"):
+        vs_from_stoneley_slow_formation(
+            0.5 * s_f, 2200.0, rho_fluid=rho_f, v_fluid=v_f)
+
+
+def test_vs_from_stoneley_rejects_non_positive_inputs():
+    """All inputs must be strictly positive."""
+    from fwap.rockphysics import vs_from_stoneley_slow_formation
+    with pytest.raises(ValueError, match="rho_fluid"):
+        vs_from_stoneley_slow_formation(
+            8.0e-4, 2200.0, rho_fluid=0.0, v_fluid=1500.0)
+    with pytest.raises(ValueError, match="v_fluid"):
+        vs_from_stoneley_slow_formation(
+            8.0e-4, 2200.0, rho_fluid=1000.0, v_fluid=-1.0)
+    with pytest.raises(ValueError, match="slowness_stoneley"):
+        vs_from_stoneley_slow_formation(
+            0.0, 2200.0, rho_fluid=1000.0, v_fluid=1500.0)
+    with pytest.raises(ValueError, match="rho"):
+        vs_from_stoneley_slow_formation(
+            8.0e-4, 0.0, rho_fluid=1000.0, v_fluid=1500.0)
+
+
+def test_vs_from_stoneley_lower_when_formation_softer():
+    """At fixed Stoneley slowness, lower density -> higher Vs (mu fixed)."""
+    from fwap.rockphysics import vs_from_stoneley_slow_formation
+    rho_f, v_f = 1000.0, 1500.0
+    s_st = 8.0e-4   # 1250 m/s tube wave -- typical slow formation
+    Vs_high_rho = vs_from_stoneley_slow_formation(
+        s_st, rho=2600.0, rho_fluid=rho_f, v_fluid=v_f)
+    Vs_low_rho = vs_from_stoneley_slow_formation(
+        s_st, rho=2000.0, rho_fluid=rho_f, v_fluid=v_f)
+    # Lower formation density and the same modulus gives higher Vs.
+    assert Vs_low_rho > Vs_high_rho
