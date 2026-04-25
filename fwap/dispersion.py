@@ -669,3 +669,253 @@ def dispersive_pseudo_rayleigh_stc(
         min_energy_fraction=min_energy_fraction,
     )
 
+
+# ---------------------------------------------------------------------
+# Stress-vs-intrinsic anisotropy from fast/slow flexural dispersion
+# (Sinha & Kostek 1996; Tang & Cheng 2004 sect. 5.3)
+# ---------------------------------------------------------------------
+
+
+@dataclass
+class FlexuralDispersionDiagnosis:
+    r"""
+    Output of :func:`classify_flexural_anisotropy`.
+
+    Attributes
+    ----------
+    classification : str
+        One of ``"isotropic"``, ``"intrinsic"``, ``"stress_induced"``,
+        ``"ambiguous"``.
+    delta_low : float
+        Mean :math:`s_b(f) - s_a(f)` over the low-frequency band
+        (s/m). ``NaN`` if no quality-passing samples land in the
+        band.
+    delta_high : float
+        Same over the high-frequency band.
+    crossover_frequency : float or None
+        Frequency (Hz) where :math:`s_b(f) - s_a(f)` changes sign
+        between the low and high bands. ``None`` when no crossover
+        is detected (intrinsic / isotropic / ambiguous cases).
+    reasons : tuple of str
+        Human-readable description of how the classification was
+        reached. Useful for QC / display.
+    """
+    classification: str
+    delta_low: float
+    delta_high: float
+    crossover_frequency: float | None
+    reasons: tuple[str, ...]
+
+
+def classify_flexural_anisotropy(
+    curve_a: DispersionCurve,
+    curve_b: DispersionCurve,
+    *,
+    quality_threshold: float = 0.5,
+    min_anisotropy: float = 5.0e-6,
+    f_low_band: tuple[float, float] = (1000.0, 2500.0),
+    f_high_band: tuple[float, float] = (4000.0, 8000.0),
+) -> FlexuralDispersionDiagnosis:
+    r"""
+    Discriminate stress-induced vs intrinsic flexural anisotropy
+    from two dispersion curves.
+
+    Following Sinha & Kostek (1996, *Geophysics* 61(6), 1899-1907) and
+    Tang & Cheng (2004, sect. 5.3), the two cross-dipole flexural
+    dispersion curves of a stress-anisotropic formation **cross over**
+    in frequency: the low-frequency flexural mode samples ~1-2
+    wavelengths radially into the formation -- primarily the far-field
+    rock fabric -- while the high-frequency mode samples ~0.1-0.5
+    wavelengths radially -- primarily the near-wellbore stress
+    concentration. When the bulk fabric is isotropic but the borehole
+    is loaded by an anisotropic far-field stress, the two regions see
+    *different* anisotropy, so :math:`\Delta s(f) = s_b(f) - s_a(f)`
+    changes sign between the bands. Intrinsic anisotropy (aligned
+    fractures, layered shale fabric) shows no such crossover -- the
+    same direction is slow at every frequency.
+
+    Classification logic
+    --------------------
+    Compute :math:`\Delta s_\mathrm{low}` and :math:`\Delta s_\mathrm{high}`
+    as the means of :math:`\Delta s(f)` over ``f_low_band`` and
+    ``f_high_band`` respectively, restricted to bins where both
+    curves have ``quality >= quality_threshold`` and a finite
+    slowness. Then:
+
+    - both bands :math:`< \mathrm{min\_anisotropy}` in magnitude
+      :math:`\rightarrow` ``"isotropic"``;
+    - both bands above threshold with the **same** sign
+      :math:`\rightarrow` ``"intrinsic"``;
+    - both bands above threshold with **opposite** signs
+      :math:`\rightarrow` ``"stress_induced"`` (and the crossover
+      frequency is reported);
+    - any other combination (one band missing, only one band
+      anisotropic) :math:`\rightarrow` ``"ambiguous"``.
+
+    Parameters
+    ----------
+    curve_a, curve_b : DispersionCurve
+        The two flexural dispersion curves -- typically obtained by
+        running :func:`phase_slowness_from_f_k` on the two rotated
+        cross-dipole components (XX' and YY' in the Alford-rotated
+        frame). The two curves must share the same ``freq`` axis to
+        within a small relative tolerance.
+    quality_threshold : float, default 0.5
+        Per-bin quality floor on each curve; bins below this on
+        either curve are excluded from the band averages.
+    min_anisotropy : float, default 5e-6 s/m
+        Magnitude of :math:`\Delta s` below which a band is treated
+        as isotropic. The default ~5 us/m corresponds to ~1.5 us/ft.
+    f_low_band : (float, float), default (1000, 2500) Hz
+        Low-frequency averaging band (samples deep into the
+        formation).
+    f_high_band : (float, float), default (4000, 8000) Hz
+        High-frequency averaging band (samples near the borehole
+        wall).
+
+    Returns
+    -------
+    FlexuralDispersionDiagnosis
+        Classification plus the diagnostic numbers used to reach it.
+
+    Raises
+    ------
+    ValueError
+        If the two curves have mismatched ``freq`` axes, or the
+        bands are mis-ordered / overlap.
+
+    See Also
+    --------
+    phase_slowness_from_f_k :
+        Produces the input dispersion curves from raw cross-dipole
+        sonic data.
+    fwap.anisotropy.alford_rotation :
+        Cross-dipole rotation that defines the fast / slow
+        components from the raw XX/XY/YX/YY tensor.
+
+    References
+    ----------
+    * Sinha, B. K., & Kostek, S. (1996). Stress-induced azimuthal
+      anisotropy in borehole flexural waves. *Geophysics* 61(6),
+      1899-1907.
+    * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
+      Acoustic Methods.* Elsevier, Section 5.3 (stress-induced vs
+      intrinsic anisotropy discrimination).
+    """
+    if f_low_band[0] >= f_low_band[1]:
+        raise ValueError("f_low_band must be (lo, hi) with lo < hi")
+    if f_high_band[0] >= f_high_band[1]:
+        raise ValueError("f_high_band must be (lo, hi) with lo < hi")
+    if f_low_band[1] > f_high_band[0]:
+        raise ValueError(
+            "f_low_band and f_high_band must not overlap; got "
+            f"low={f_low_band}, high={f_high_band}"
+        )
+    if curve_a.freq.shape != curve_b.freq.shape:
+        raise ValueError("dispersion curves must share the same freq axis")
+    if curve_a.freq.size > 0 and not np.allclose(
+        curve_a.freq, curve_b.freq, rtol=1.0e-6, atol=0.0
+    ):
+        raise ValueError("dispersion curves must share the same freq axis")
+
+    f = curve_a.freq
+    delta = curve_b.slowness - curve_a.slowness
+    valid = (
+        np.isfinite(curve_a.slowness)
+        & np.isfinite(curve_b.slowness)
+        & (curve_a.quality >= quality_threshold)
+        & (curve_b.quality >= quality_threshold)
+    )
+
+    def _band_mean(lo: float, hi: float) -> float:
+        m = valid & (f >= lo) & (f <= hi)
+        if not m.any():
+            return float("nan")
+        return float(delta[m].mean())
+
+    delta_low = _band_mean(*f_low_band)
+    delta_high = _band_mean(*f_high_band)
+
+    reasons: list[str] = []
+
+    if not (np.isfinite(delta_low) and np.isfinite(delta_high)):
+        if not np.isfinite(delta_low):
+            reasons.append(
+                f"low-f band {f_low_band} has no quality-passing samples"
+            )
+        if not np.isfinite(delta_high):
+            reasons.append(
+                f"high-f band {f_high_band} has no quality-passing samples"
+            )
+        return FlexuralDispersionDiagnosis(
+            classification="ambiguous",
+            delta_low=delta_low, delta_high=delta_high,
+            crossover_frequency=None,
+            reasons=tuple(reasons),
+        )
+
+    is_low_aniso = abs(delta_low) > min_anisotropy
+    is_high_aniso = abs(delta_high) > min_anisotropy
+
+    if not is_low_aniso and not is_high_aniso:
+        return FlexuralDispersionDiagnosis(
+            classification="isotropic",
+            delta_low=delta_low, delta_high=delta_high,
+            crossover_frequency=None,
+            reasons=(
+                f"|delta_s| below {min_anisotropy:.1e} s/m in both bands "
+                f"(low={delta_low:.2e}, high={delta_high:.2e})",
+            ),
+        )
+
+    if not (is_low_aniso and is_high_aniso):
+        which = "high" if is_low_aniso else "low"
+        return FlexuralDispersionDiagnosis(
+            classification="ambiguous",
+            delta_low=delta_low, delta_high=delta_high,
+            crossover_frequency=None,
+            reasons=(
+                f"{which}-f band below min_anisotropy "
+                f"(low={delta_low:.2e}, high={delta_high:.2e})",
+            ),
+        )
+
+    if delta_low * delta_high > 0:
+        return FlexuralDispersionDiagnosis(
+            classification="intrinsic",
+            delta_low=delta_low, delta_high=delta_high,
+            crossover_frequency=None,
+            reasons=(
+                f"delta_s has same sign in both bands "
+                f"(low={delta_low:.2e}, high={delta_high:.2e}); "
+                f"no dispersion crossover",
+            ),
+        )
+
+    # Opposite signs => stress-induced; locate the first crossover by
+    # linear interpolation between the first pair of valid samples
+    # whose delta_s differs in sign.
+    f_valid = f[valid]
+    delta_valid = delta[valid]
+    crossover_freq: float | None = None
+    if f_valid.size >= 2:
+        sign_changes = np.where(np.diff(np.sign(delta_valid)) != 0)[0]
+        if sign_changes.size > 0:
+            i = int(sign_changes[0])
+            f1, f2 = float(f_valid[i]), float(f_valid[i + 1])
+            d1, d2 = float(delta_valid[i]), float(delta_valid[i + 1])
+            if d2 != d1:
+                crossover_freq = f1 - d1 * (f2 - f1) / (d2 - d1)
+            else:
+                crossover_freq = 0.5 * (f1 + f2)
+
+    return FlexuralDispersionDiagnosis(
+        classification="stress_induced",
+        delta_low=delta_low, delta_high=delta_high,
+        crossover_frequency=crossover_freq,
+        reasons=(
+            f"delta_s sign flips between bands "
+            f"(low={delta_low:.2e}, high={delta_high:.2e})",
+        ),
+    )
+

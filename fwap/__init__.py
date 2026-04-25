@@ -135,7 +135,9 @@ from fwap.tomography import (
 # Dispersion
 from fwap.dispersion import (
     DispersionCurve,
+    FlexuralDispersionDiagnosis,
     bandpass,
+    classify_flexural_anisotropy,
     dispersive_pseudo_rayleigh_stc,
     dispersive_stc,
     narrow_band_stc,
@@ -261,6 +263,7 @@ __all__ = [
     "phase_slowness_from_f_k", "phase_slowness_matrix_pencil",
     "shear_slowness_from_dispersion", "dispersive_stc",
     "dispersive_pseudo_rayleigh_stc",
+    "FlexuralDispersionDiagnosis", "classify_flexural_anisotropy",
     # Dip
     "DipResult", "estimate_dip", "synthesize_azimuthal_arrival",
     "AzimuthalGather",
