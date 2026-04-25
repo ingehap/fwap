@@ -100,12 +100,12 @@ def brittleness_index_rickman(
     .. math::
 
         \hat E   \;=\; \mathrm{clip}\!\left(
-            \tfrac{E - E_\min}{E_\max - E_\min},\;0,\;1\right),
+            \tfrac{E - E_{\min}}{E_{\max} - E_{\min}},\;0,\;1\right),
 
     .. math::
 
         \hat\nu \;=\; \mathrm{clip}\!\left(
-            \tfrac{\nu_\max - \nu}{\nu_\max - \nu_\min},\;0,\;1\right).
+            \tfrac{\nu_{\max} - \nu}{\nu_{\max} - \nu_{\min}},\;0,\;1\right).
 
     High Young's modulus and low Poisson's ratio map to high
     brittleness; the result is in ``[0, 1]``.
