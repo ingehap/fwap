@@ -491,11 +491,11 @@ def dispersive_stc(data: np.ndarray,
 
     for k, s_shear in enumerate(s_shear_axis):
         s_phase_fn = dispersion_family(s_shear)
-        tau_of_f = np.zeros_like(freqs)
-        tau_of_f[band_pos] = s_phase_fn(freqs[band_pos])
+        s_of_f = np.zeros_like(freqs)
+        s_of_f[band_pos] = s_phase_fn(freqs[band_pos])
         # shifted_spec = spec * exp(+2*pi*i * freq_off * s_phase), with
         # out-of-band bins zeroed (double as leakage guard).
-        phase = np.exp(1j * freq_off * tau_of_f[None, :])
+        phase = np.exp(1j * freq_off * s_of_f[None, :])
         shifted_spec = np.where(band_mask, spec * phase, 0.0)
         shifted = np.fft.irfft(shifted_spec, n=n_samp, axis=1)
 
@@ -693,9 +693,11 @@ class FlexuralDispersionDiagnosis:
     delta_high : float
         Same over the high-frequency band.
     crossover_frequency : float or None
-        Frequency (Hz) where :math:`s_b(f) - s_a(f)` changes sign
-        between the low and high bands. ``None`` when no crossover
-        is detected (intrinsic / isotropic / ambiguous cases).
+        Frequency (Hz) of the **first** zero-crossing of
+        :math:`s_b(f) - s_a(f)` inside the bracket
+        ``[f_low_band[0], f_high_band[1]]``. ``None`` when no
+        crossover is detected (intrinsic / isotropic / ambiguous
+        cases) or when no sign flip is observed inside the bracket.
     reasons : tuple of str
         Human-readable description of how the classification was
         reached. Useful for QC / display.
@@ -806,9 +808,9 @@ def classify_flexural_anisotropy(
         raise ValueError("f_low_band must be (lo, hi) with lo < hi")
     if f_high_band[0] >= f_high_band[1]:
         raise ValueError("f_high_band must be (lo, hi) with lo < hi")
-    if f_low_band[1] > f_high_band[0]:
+    if f_low_band[1] >= f_high_band[0]:
         raise ValueError(
-            "f_low_band and f_high_band must not overlap; got "
+            "f_low_band and f_high_band must not overlap or touch; got "
             f"low={f_low_band}, high={f_high_band}"
         )
     if curve_a.freq.shape != curve_b.freq.shape:
@@ -894,9 +896,15 @@ def classify_flexural_anisotropy(
 
     # Opposite signs => stress-induced; locate the first crossover by
     # linear interpolation between the first pair of valid samples
-    # whose delta_s differs in sign.
-    f_valid = f[valid]
-    delta_valid = delta[valid]
+    # whose delta_s differs in sign. Restrict the search to the
+    # bracket spanning the two band means, [f_low_band[0],
+    # f_high_band[1]] -- the meaningful crossover sits between them,
+    # and a sign flip at frequencies outside that bracket would be a
+    # spurious noise zero-crossing rather than the band-to-band
+    # transition the classification is reporting.
+    bracket = valid & (f >= f_low_band[0]) & (f <= f_high_band[1])
+    f_valid = f[bracket]
+    delta_valid = delta[bracket]
     crossover_freq: float | None = None
     if f_valid.size >= 2:
         sign_changes = np.where(np.diff(np.sign(delta_valid)) != 0)[0]

@@ -965,6 +965,17 @@ def test_track_to_log_curves_custom_null_value():
     assert curves["VPVS"][1] == -999.25
 
 
+def test_track_to_log_curves_rejects_non_float_null_value():
+    """Passing ``None`` (or any non-float) for null_value raises
+    cleanly instead of silently producing object-dtype columns."""
+    import pytest
+    from fwap.picker import track_to_log_curves
+
+    track = _three_depth_track()
+    with pytest.raises(TypeError):
+        track_to_log_curves(track, null_value=None)  # type: ignore[arg-type]
+
+
 def test_track_to_log_curves_pseudo_rayleigh_uses_pr_suffix():
     """Mode 'PseudoRayleigh' maps to the DTPR / COHPR / AMPPR family."""
     from fwap.picker import DepthPicks, ModePick, track_to_log_curves
