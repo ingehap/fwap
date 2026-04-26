@@ -1880,6 +1880,11 @@ def track_to_log_curves(
     include_coherence: bool = True,
     include_vp_vs: bool = True,
     include_time: bool = False,
+    include_vti: bool = False,
+    rho: float | np.ndarray | None = None,
+    rho_fluid: float | None = None,
+    v_fluid: float | None = None,
+    correct_for_p_modulus: bool = True,
     null_value: float = float("nan"),
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """
@@ -1922,6 +1927,42 @@ def track_to_log_curves(
     plus a single ``VPVS`` (= ``s_S / s_P`` = ``Vp / Vs``) when both
     P and S are picked.
 
+    With ``include_vti=True`` (and the required ``rho`` /
+    ``rho_fluid`` / ``v_fluid`` inputs) the function additionally
+    emits the seven VTI columns:
+
+    =========  ============================================  =====
+    Mnemonic   Quantity                                       Unit
+    =========  ============================================  =====
+    C33        :math:`\\rho V_P^2`                            Pa
+    C44        :math:`\\rho V_{Sv}^2`                         Pa
+    C66        Stoneley-derived horizontal shear modulus      Pa
+    GAMMA      Thomsen :math:`\\gamma = (C_{66}-C_{44})/(2 C_{44})` (-)
+    VP         :math:`\\sqrt{C_{33}/\\rho}`                   m/s
+    VSV        :math:`\\sqrt{C_{44}/\\rho}`                   m/s
+    VSH        :math:`\\sqrt{C_{66}/\\rho}`                   m/s
+    =========  ============================================  =====
+
+    Each VTI cell is computed only at depths where the underlying
+    pick(s) are present:
+
+    * C33 / VP need ``"P"``,
+    * C44 / VSV need ``"S"``,
+    * C66 / VSH need ``"Stoneley"`` (with a Stoneley slowness above
+      :math:`1/V_f`),
+    * GAMMA needs both C44 and C66.
+
+    Cells where the relevant pick is missing receive ``null_value``.
+    With ``correct_for_p_modulus=True`` (default) C66 uses the Tang
+    & Cheng (2004) §5.4 finite-impedance correction at depths where
+    the P pick is *also* present; depths where the P pick is
+    missing fall back to the literal White (1983) reading
+    transparently. This per-depth fall-back is the right
+    operational choice for a track that is dense in S/Stoneley but
+    sparse in P -- the resulting C66/GAMMA log uses the best
+    physics available cell-by-cell rather than dropping out
+    entirely on every missed P pick.
+
     Parameters
     ----------
     track : sequence of DepthPicks
@@ -1943,6 +1984,29 @@ def track_to_log_curves(
         Emit ``TIM*`` columns (pick time in seconds). Off by default
         because pick times are intermediate diagnostics rather than
         published log curves.
+    include_vti : bool, default False
+        Emit the seven VTI columns (``C33``, ``C44``, ``C66``,
+        ``GAMMA``, ``VP``, ``VSV``, ``VSH``). Requires ``rho``,
+        ``rho_fluid``, ``v_fluid``; raises if any of those is
+        ``None``.
+    rho : float or ndarray, optional
+        Formation bulk density (kg/m^3). Either a scalar (constant
+        density across the track) or a length-``n_depth`` per-depth
+        array. Required when ``include_vti=True``; ignored
+        otherwise.
+    rho_fluid : float, optional
+        Borehole-fluid density (kg/m^3). Required when
+        ``include_vti=True``; ignored otherwise.
+    v_fluid : float, optional
+        Borehole-fluid acoustic velocity (m/s). Required when
+        ``include_vti=True``; ignored otherwise.
+    correct_for_p_modulus : bool, default True
+        With ``include_vti=True``, apply the Tang & Cheng (2004)
+        §5.4 finite-impedance correction to the Stoneley → C66
+        inversion at depths where the P pick is also present.
+        Depths without a P pick fall back to the literal White
+        (1983) reading regardless of this flag. Pass ``False`` to
+        force the legacy White path everywhere.
     null_value : float, default ``NaN``
         Fill value at depths where a mode was not picked. ``NaN`` is
         the LAS / DLIS native null marker; pass a numeric sentinel
@@ -2032,6 +2096,93 @@ def track_to_log_curves(
             vpvs = curves["DTS"] / curves["DTP"]
         vpvs = np.where(np.isfinite(vpvs), vpvs, nan)
         curves["VPVS"] = vpvs
+
+    if include_vti:
+        if rho is None:
+            raise ValueError(
+                "include_vti=True requires `rho` (formation density "
+                "in kg/m^3, scalar or per-depth array)"
+            )
+        if rho_fluid is None or v_fluid is None:
+            raise ValueError(
+                "include_vti=True requires `rho_fluid` and `v_fluid` "
+                "(borehole-fluid density in kg/m^3 and acoustic "
+                "velocity in m/s)"
+            )
+        if rho_fluid <= 0.0 or v_fluid <= 0.0:
+            raise ValueError(
+                "rho_fluid and v_fluid must be strictly positive"
+            )
+        rho_arr = np.asarray(rho, dtype=float)
+        if rho_arr.ndim == 0:
+            rho_arr = np.full(n_depth, float(rho_arr), dtype=float)
+        elif rho_arr.shape != (n_depth,):
+            raise ValueError(
+                "rho must be a scalar or a length-n_depth array; got "
+                f"shape {rho_arr.shape} for n_depth={n_depth}"
+            )
+        if np.any(rho_arr <= 0):
+            raise ValueError("rho must be strictly positive everywhere")
+
+        # Per-depth slownesses in s/m (NaN where the pick is missing).
+        s_p_arr  = np.full(n_depth, nan, dtype=float)
+        s_s_arr  = np.full(n_depth, nan, dtype=float)
+        s_st_arr = np.full(n_depth, nan, dtype=float)
+        for d, dp in enumerate(track):
+            p = dp.picks.get("P")
+            if p is not None:
+                s_p_arr[d] = float(p.slowness)
+            s = dp.picks.get("S")
+            if s is not None:
+                s_s_arr[d] = float(s.slowness)
+            st = dp.picks.get("Stoneley")
+            if st is not None:
+                s_st_arr[d] = float(st.slowness)
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            c33 = rho_arr / (s_p_arr * s_p_arr)
+            c44 = rho_arr / (s_s_arr * s_s_arr)
+            # White (1983) C66 forward inversion at every Stoneley-
+            # picked depth.
+            s_f2 = 1.0 / (v_fluid * v_fluid)
+            diff = s_st_arr * s_st_arr - s_f2
+            c66_white = np.where(diff > 0.0,
+                                 rho_fluid / diff, np.nan)
+            if correct_for_p_modulus:
+                # Tang & Cheng (2004) §5.4 correction at depths where
+                # the P pick is *also* present (and the resulting
+                # correction factor stays positive). Depths without a
+                # P pick keep the literal White reading -- documented
+                # in the docstring.
+                rho_vp2 = rho_arr / (s_p_arr * s_p_arr)
+                rho_f_vf2 = rho_fluid * v_fluid * v_fluid
+                factor = 1.0 - rho_f_vf2 / rho_vp2
+                use_corrected = (np.isfinite(factor)
+                                 & (factor > 0.0)
+                                 & np.isfinite(c66_white))
+                c66 = np.where(use_corrected,
+                               c66_white / factor,
+                               c66_white)
+            else:
+                c66 = c66_white
+
+            gamma = (c66 - c44) / (2.0 * c44)
+            vp  = np.sqrt(c33 / rho_arr)
+            vsv = np.sqrt(c44 / rho_arr)
+            vsh = np.sqrt(c66 / rho_arr)
+
+        # Replace any +/- inf or other non-finite values with NaN so
+        # the null_value substitution downstream catches them.
+        for arr in (c33, c44, c66, gamma, vp, vsv, vsh):
+            np.copyto(arr, nan, where=~np.isfinite(arr))
+
+        curves["C33"] = c33
+        curves["C44"] = c44
+        curves["C66"] = c66
+        curves["GAMMA"] = gamma
+        curves["VP"]  = vp
+        curves["VSV"] = vsv
+        curves["VSH"] = vsh
 
     if not (isinstance(null_value, float) and np.isnan(null_value)):
         # Caller wants a numeric sentinel instead of NaN; remap.
