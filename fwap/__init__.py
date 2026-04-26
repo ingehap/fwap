@@ -176,6 +176,7 @@ from fwap.attenuation import (
 from fwap.anisotropy import (
     AlfordResult,
     StressAnisotropyEstimate,
+    ThomsenEpsilonDeltaResult,
     ThomsenGammaResult,
     VtiModuli,
     alford_rotation,
@@ -184,6 +185,7 @@ from fwap.anisotropy import (
     stoneley_horizontal_shear_modulus,
     stoneley_horizontal_shear_modulus_corrected,
     stress_anisotropy_from_alford,
+    thomsen_epsilon_delta_from_walkaway_vsp,
     thomsen_gamma,
     thomsen_gamma_from_logs,
     vti_moduli_from_logs,
@@ -306,6 +308,8 @@ __all__ = [
     "stoneley_horizontal_shear_modulus_corrected",
     "thomsen_gamma", "thomsen_gamma_from_logs",
     "VtiModuli", "c33_from_p_pick", "vti_moduli_from_logs",
+    "ThomsenEpsilonDeltaResult",
+    "thomsen_epsilon_delta_from_walkaway_vsp",
     # Rock physics
     "ElasticModuli", "elastic_moduli", "vp_vs_ratio",
     "reuss_average", "voigt_average", "hill_average",

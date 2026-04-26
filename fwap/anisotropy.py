@@ -1024,3 +1024,240 @@ def vti_moduli_from_logs(
         vsv=vsv,
         vsh=vsh,
     )
+
+
+# ---------------------------------------------------------------------
+# Thomsen epsilon / delta from walkaway-VSP slowness-polarization
+# inversion (Tier 2 VTI roadmap)
+# ---------------------------------------------------------------------
+
+
+@dataclass
+class ThomsenEpsilonDeltaResult:
+    r"""
+    Output of :func:`thomsen_epsilon_delta_from_walkaway_vsp`.
+
+    Attributes
+    ----------
+    epsilon : float
+        Thomsen P-wave anisotropy parameter
+        :math:`\epsilon = (C_{11} - C_{33}) / (2 C_{33})`. ``0`` for
+        an isotropic formation; positive for typical VTI shales
+        (horizontal P faster than vertical P).
+    delta : float
+        Thomsen near-vertical anisotropy parameter
+        :math:`\delta = ((C_{13} + C_{44})^2 - (C_{33} - C_{44})^2)
+        / (2 C_{33} (C_{33} - C_{44}))`. Controls near-vertical
+        P-wave reflection moveout. ``0`` for isotropic; can be
+        positive or negative in VTI shales.
+    vp0 : float
+        Vertical P-wave velocity (m/s) used in the inversion -- the
+        sonic-derived value passed in by the caller.
+    residual_rms : float
+        Root-mean-square residual of the joint (V_phase, polarization
+        angle) least-squares fit. Has the units of the joint
+        residual vector (mixed -- treat as a relative quality
+        score; an order-of-magnitude smaller than ``epsilon`` /
+        ``delta`` themselves indicates a clean fit).
+    n_shots : int
+        Number of walkaway-VSP shots used in the inversion.
+    """
+    epsilon: float
+    delta: float
+    vp0: float
+    residual_rms: float
+    n_shots: int
+
+
+def thomsen_epsilon_delta_from_walkaway_vsp(
+    slowness_vectors: np.ndarray,
+    polarization_vectors: np.ndarray,
+    vp0: float,
+) -> ThomsenEpsilonDeltaResult:
+    r"""
+    Thomsen :math:`\epsilon` / :math:`\delta` from walkaway-VSP
+    slowness-polarization measurements.
+
+    Closes the VTI-roadmap gap that
+    :func:`vti_moduli_from_logs` flags as out-of-scope: the two
+    Thomsen parameters that a vertical-well sonic acquisition
+    cannot recover (:math:`\epsilon`, :math:`\delta`) but a
+    walkaway-VSP at the same depth can (Miller & Spencer 1994;
+    Horne & Leaney 2000).
+
+    **Minimum extra data** beyond the sonic logs already in
+    :mod:`fwap`: per shot, the 2-D P-wave slowness vector
+    :math:`\mathbf{p} = (p_x, p_z)` measured at the downhole
+    geophone (typically from the array slope of the picked first
+    arrivals) plus the 2-D P-wave polarization unit vector
+    :math:`\mathbf{u} = (u_x, u_z)` (the eigenvector of the
+    3C particle-motion covariance at the picked first break). The
+    sonic monopole P log supplies the vertical P velocity
+    :math:`V_{P0}` directly -- pass it as ``vp0``.
+
+    Inversion (Thomsen 1986 weak-anisotropy linearisation)
+    --------------------------------------------------------
+    For a P-wave in a VTI medium with a vertical symmetry axis,
+    the per-shot phase velocity and polarization-deviation angle
+    are linear in :math:`\epsilon`, :math:`\delta`:
+
+    .. math::
+
+        \frac{V_{\mathrm{phase}}(\theta)}{V_{P0}} - 1
+        \;\approx\; \delta \sin^2\theta \cos^2\theta
+                \;+\; \epsilon \sin^4\theta,
+
+    .. math::
+
+        \psi_u(\theta) - \theta
+        \;\approx\; \epsilon \sin(2\theta)
+                \;+\; \tfrac{1}{2}(\delta - \epsilon) \sin(4\theta),
+
+    where :math:`\theta = \arctan(p_x / p_z)` is the slowness-vector
+    phase angle from vertical and :math:`\psi_u =
+    \arctan(u_x / u_z)` is the polarization angle. Stacking both
+    equations across all :math:`N` shots gives a :math:`2N \times 2`
+    linear system that is solved via :func:`numpy.linalg.lstsq`.
+
+    Assumptions
+    -----------
+    * Weak-anisotropy regime: :math:`|\epsilon|, |\delta| \lesssim
+      0.3`. Beyond that the linearisation is biased; the exact
+      Christoffel inversion is needed.
+    * Single-layer VTI between source and receiver (no
+      dipping-layer / azimuthal-anisotropy corrections).
+    * The polarization vectors are unit-magnitude P-wave first-
+      motion estimates; magnitude is ignored (only the direction
+      enters the inversion).
+    * The slowness-vector horizontal component ``p_x`` is signed
+      (same convention as the offset direction). The polarization
+      ``u_x`` carries the same sign as ``p_x`` for a physically
+      reasonable P-wave first motion.
+
+    Out of scope
+    ------------
+    The same data gives the third Thomsen parameter :math:`\gamma`
+    only with a converted (P-to-S) S-wave polarization measurement
+    at each shot, which is uncommon in routine walkaway VSP. For
+    :math:`\gamma`, use the sonic-only
+    :func:`thomsen_gamma_from_logs` instead -- the dipole + Stoneley
+    tracks are much more reliably available than P-to-S converted
+    waves at oblique incidence.
+
+    Parameters
+    ----------
+    slowness_vectors : ndarray, shape (n_shots, 2)
+        Per-shot ``[p_x, p_z]`` slowness components (s/m). Must
+        have positive :math:`|p|` everywhere; ``p_z`` should be
+        strictly positive (down-going wave).
+    polarization_vectors : ndarray, shape (n_shots, 2)
+        Per-shot ``[u_x, u_z]`` polarization components. Magnitude
+        is irrelevant -- the function uses only the direction.
+        Must be non-zero everywhere.
+    vp0 : float
+        Vertical P-wave velocity (m/s). The standard source is the
+        sonic monopole pick: ``vp0 = sqrt(c33 / rho)`` with
+        ``c33`` from :func:`c33_from_p_pick`. Must be strictly
+        positive.
+
+    Returns
+    -------
+    ThomsenEpsilonDeltaResult
+        ``epsilon``, ``delta``, ``vp0`` (echoed), ``residual_rms``,
+        ``n_shots``.
+
+    Raises
+    ------
+    ValueError
+        If ``vp0 <= 0``, the input arrays are mis-shaped or have
+        zero-length, or any per-shot slowness / polarization vector
+        is zero.
+
+    See Also
+    --------
+    thomsen_gamma_from_logs : The sonic-only :math:`\gamma`
+        inversion that this function complements; together they
+        give all three Thomsen parameters.
+    vti_moduli_from_logs : The vertical-well-sonic VTI summary
+        whose ``epsilon`` / ``delta`` slots are filled by this
+        function when a walkaway VSP is also available.
+
+    References
+    ----------
+    * Thomsen, L. (1986). Weak elastic anisotropy. *Geophysics*
+      51(10), 1954-1966.
+    * Miller, D. E., & Spencer, C. (1994). An exact inversion for
+      anisotropic moduli from phase-slowness data. *J. Geophys.
+      Res.* 99(B11), 21651-21657.
+    * Horne, S., & Leaney, S. (2000). Polarization and slowness
+      component inversion for TI anisotropy. *Geophysical
+      Prospecting* 48(4), 779-788.
+    * Tsvankin, I. (2012). *Seismic Signatures and Analysis of
+      Reflection Data in Anisotropic Media*, 3rd ed., Chapter 1
+      (weak-anisotropy linearisations). SEG.
+    """
+    if vp0 <= 0:
+        raise ValueError("vp0 must be strictly positive")
+    p = np.asarray(slowness_vectors, dtype=float)
+    u = np.asarray(polarization_vectors, dtype=float)
+    if p.ndim != 2 or p.shape[1] != 2:
+        raise ValueError(
+            "slowness_vectors must have shape (n_shots, 2); got "
+            f"{p.shape}"
+        )
+    if u.shape != p.shape:
+        raise ValueError(
+            "polarization_vectors must have the same shape as "
+            f"slowness_vectors; got {u.shape} vs {p.shape}"
+        )
+    n_shots = p.shape[0]
+    if n_shots < 1:
+        raise ValueError("at least one shot is required")
+    p_norm = np.sqrt(p[:, 0] ** 2 + p[:, 1] ** 2)
+    u_norm = np.sqrt(u[:, 0] ** 2 + u[:, 1] ** 2)
+    if np.any(p_norm <= 0):
+        raise ValueError("every slowness vector must be non-zero")
+    if np.any(u_norm <= 0):
+        raise ValueError("every polarization vector must be non-zero")
+
+    theta = np.arctan2(p[:, 0], p[:, 1])           # phase angle from z
+    psi_u = np.arctan2(u[:, 0], u[:, 1])           # polarization angle
+    v_phase = 1.0 / p_norm
+
+    # Velocity equation: V_phase / V_P0 - 1 = epsilon sin^4 theta
+    #                                       + delta sin^2 theta cos^2 theta
+    sin2_t = np.sin(theta) ** 2
+    cos2_t = np.cos(theta) ** 2
+    rhs_v = v_phase / vp0 - 1.0
+    coef_eps_v = sin2_t ** 2                         # sin^4 theta
+    coef_del_v = sin2_t * cos2_t                     # sin^2 theta cos^2 theta
+
+    # Polarization equation: psi_u - theta = epsilon sin(2 theta)
+    #                                       + (delta - epsilon)/2 sin(4 theta)
+    sin_2t = np.sin(2.0 * theta)
+    sin_4t = np.sin(4.0 * theta)
+    rhs_p = psi_u - theta
+    coef_eps_p = sin_2t - 0.5 * sin_4t               # eps coefficient
+    coef_del_p = 0.5 * sin_4t                         # delta coefficient
+
+    A = np.empty((2 * n_shots, 2), dtype=float)
+    A[:n_shots, 0] = coef_eps_v
+    A[:n_shots, 1] = coef_del_v
+    A[n_shots:, 0] = coef_eps_p
+    A[n_shots:, 1] = coef_del_p
+    y = np.concatenate([rhs_v, rhs_p])
+
+    m, *_ = np.linalg.lstsq(A, y, rcond=None)
+    epsilon = float(m[0])
+    delta = float(m[1])
+
+    residual = A @ m - y
+    residual_rms = float(np.sqrt(np.mean(residual ** 2)))
+
+    return ThomsenEpsilonDeltaResult(
+        epsilon=epsilon,
+        delta=delta,
+        vp0=float(vp0),
+        residual_rms=residual_rms,
+        n_shots=n_shots,
+    )

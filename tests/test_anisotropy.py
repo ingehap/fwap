@@ -766,3 +766,191 @@ def test_vti_moduli_corrected_and_white_diverge_for_typical_inputs():
     # gamma is monotonic in C66 at fixed C44 -> corrected gamma is
     # also greater than White gamma here.
     assert corr.gamma > whte.gamma
+
+
+# ---------------------------------------------------------------------
+# Walkaway-VSP slowness-polarization inversion (Tier 2 VTI)
+# ---------------------------------------------------------------------
+
+
+def _synth_walkaway_vsp(theta_deg, vp0, epsilon, delta, *,
+                        polarization_noise_rad=0.0,
+                        slowness_noise_rel=0.0,
+                        seed=0):
+    """Build (slowness_vectors, polarization_vectors) for a list of
+    phase angles via the Thomsen weak-anisotropy forward formulas."""
+    rng = np.random.default_rng(seed)
+    theta = np.deg2rad(np.asarray(theta_deg, dtype=float))
+    sin2_t = np.sin(theta) ** 2
+    cos2_t = np.cos(theta) ** 2
+    # Phase velocity (Thomsen weak-anisotropy P-wave).
+    v_phase = vp0 * (1.0 + delta * sin2_t * cos2_t + epsilon * sin2_t ** 2)
+    # Polarization-deviation angle: psi_u - theta = eps sin(2t)
+    #                                              + (delta - eps) sin(4t) / 2
+    sin_2t = np.sin(2.0 * theta)
+    sin_4t = np.sin(4.0 * theta)
+    psi_u = theta + (epsilon * sin_2t
+                     + 0.5 * (delta - epsilon) * sin_4t)
+
+    # Slowness vector p = (1/V) * (sin theta, cos theta).
+    p = np.column_stack([np.sin(theta) / v_phase,
+                         np.cos(theta) / v_phase])
+    # Polarization unit vector u = (sin psi_u, cos psi_u).
+    u = np.column_stack([np.sin(psi_u), np.cos(psi_u)])
+
+    if slowness_noise_rel > 0:
+        p = p * (1.0 + slowness_noise_rel
+                       * rng.standard_normal(p.shape))
+    if polarization_noise_rad > 0:
+        # Rotate each polarization vector by a small angle.
+        dpsi = polarization_noise_rad * rng.standard_normal(theta.size)
+        u_rot = np.column_stack([
+            u[:, 0] * np.cos(dpsi) + u[:, 1] * np.sin(dpsi),
+            -u[:, 0] * np.sin(dpsi) + u[:, 1] * np.cos(dpsi),
+        ])
+        u = u_rot
+    return p, u
+
+
+def test_thomsen_eps_delta_round_trips_through_forward_model():
+    """Plant epsilon / delta / V_P0; build synthetic walkaway VSP via
+    the forward formulas; recover epsilon and delta to floating-point
+    precision in the noise-free case."""
+    import pytest
+    from fwap.anisotropy import thomsen_epsilon_delta_from_walkaway_vsp
+    vp0 = 4500.0
+    eps_truth, delta_truth = 0.15, 0.08
+    theta_deg = np.array([5.0, 15.0, 25.0, 35.0, 45.0])
+    p, u = _synth_walkaway_vsp(theta_deg, vp0, eps_truth, delta_truth)
+    res = thomsen_epsilon_delta_from_walkaway_vsp(p, u, vp0=vp0)
+    assert res.epsilon == pytest.approx(eps_truth, rel=1.0e-10)
+    assert res.delta == pytest.approx(delta_truth, rel=1.0e-10)
+    assert res.vp0 == vp0
+    assert res.n_shots == 5
+    assert res.residual_rms < 1.0e-12
+
+
+def test_thomsen_eps_delta_recovers_isotropic():
+    """epsilon = delta = 0 round-trips on an isotropic synthetic."""
+    import pytest
+    from fwap.anisotropy import thomsen_epsilon_delta_from_walkaway_vsp
+    vp0 = 4500.0
+    theta_deg = np.array([10.0, 20.0, 30.0, 40.0])
+    p, u = _synth_walkaway_vsp(theta_deg, vp0, 0.0, 0.0)
+    res = thomsen_epsilon_delta_from_walkaway_vsp(p, u, vp0=vp0)
+    assert res.epsilon == pytest.approx(0.0, abs=1.0e-12)
+    assert res.delta == pytest.approx(0.0, abs=1.0e-12)
+
+
+def test_thomsen_eps_delta_under_noise_recovers_within_tolerance():
+    """Modest synthetic noise (1 % slowness, 0.5 deg polarization)
+    still recovers epsilon and delta to within 0.02."""
+    from fwap.anisotropy import thomsen_epsilon_delta_from_walkaway_vsp
+    vp0 = 4500.0
+    eps_truth, delta_truth = 0.15, 0.08
+    theta_deg = np.linspace(5.0, 50.0, 20)
+    p, u = _synth_walkaway_vsp(
+        theta_deg, vp0, eps_truth, delta_truth,
+        slowness_noise_rel=0.01, polarization_noise_rad=np.deg2rad(0.5),
+        seed=42,
+    )
+    res = thomsen_epsilon_delta_from_walkaway_vsp(p, u, vp0=vp0)
+    assert abs(res.epsilon - eps_truth) < 0.02
+    assert abs(res.delta - delta_truth) < 0.02
+    assert res.residual_rms < 0.1
+
+
+def test_thomsen_eps_delta_separates_eps_and_delta():
+    """Plant epsilon high / delta low and the inversion separates them
+    rather than mixing -- the velocity equation alone has the
+    sin^4 / sin^2 cos^2 angular dependence that breaks degeneracy
+    above ~30 degrees."""
+    import pytest
+    from fwap.anisotropy import thomsen_epsilon_delta_from_walkaway_vsp
+    vp0 = 4500.0
+    theta_deg = np.array([10.0, 25.0, 40.0, 55.0])
+    p, u = _synth_walkaway_vsp(theta_deg, vp0,
+                                epsilon=0.20, delta=-0.05)
+    res = thomsen_epsilon_delta_from_walkaway_vsp(p, u, vp0=vp0)
+    assert res.epsilon == pytest.approx(0.20, rel=1.0e-10)
+    assert res.delta == pytest.approx(-0.05, rel=1.0e-9)
+
+
+def test_thomsen_eps_delta_rejects_non_positive_vp0():
+    import pytest
+    from fwap.anisotropy import thomsen_epsilon_delta_from_walkaway_vsp
+    p = np.array([[0.1, 0.9]]) / 4500.0
+    u = np.array([[0.1, 0.9]])
+    with pytest.raises(ValueError, match="vp0"):
+        thomsen_epsilon_delta_from_walkaway_vsp(p, u, vp0=0.0)
+    with pytest.raises(ValueError, match="vp0"):
+        thomsen_epsilon_delta_from_walkaway_vsp(p, u, vp0=-1.0)
+
+
+def test_thomsen_eps_delta_rejects_misshaped_inputs():
+    import pytest
+    from fwap.anisotropy import thomsen_epsilon_delta_from_walkaway_vsp
+    # Wrong second-dim size.
+    with pytest.raises(ValueError, match="slowness_vectors"):
+        thomsen_epsilon_delta_from_walkaway_vsp(
+            np.zeros((3, 3)), np.zeros((3, 3)), vp0=4500.0)
+    # Slowness and polarization shapes disagree.
+    with pytest.raises(ValueError, match="polarization_vectors"):
+        thomsen_epsilon_delta_from_walkaway_vsp(
+            np.array([[1.0, 1.0]]) / 4500.0,
+            np.array([[1.0, 1.0], [0.5, 0.5]]),
+            vp0=4500.0)
+
+
+def test_thomsen_eps_delta_rejects_zero_vectors():
+    import pytest
+    from fwap.anisotropy import thomsen_epsilon_delta_from_walkaway_vsp
+    with pytest.raises(ValueError, match="slowness vector"):
+        thomsen_epsilon_delta_from_walkaway_vsp(
+            np.array([[0.0, 0.0]]),
+            np.array([[1.0, 1.0]]),
+            vp0=4500.0)
+    with pytest.raises(ValueError, match="polarization vector"):
+        thomsen_epsilon_delta_from_walkaway_vsp(
+            np.array([[1.0e-4, 9.0e-5]]),
+            np.array([[0.0, 0.0]]),
+            vp0=4500.0)
+
+
+def test_thomsen_eps_delta_polarization_magnitude_does_not_matter():
+    """Scaling polarization_vectors by an arbitrary positive factor
+    leaves the result unchanged (only the direction enters)."""
+    from fwap.anisotropy import thomsen_epsilon_delta_from_walkaway_vsp
+    vp0 = 4500.0
+    theta_deg = np.array([10.0, 20.0, 30.0, 40.0])
+    p, u = _synth_walkaway_vsp(theta_deg, vp0, 0.18, 0.10)
+    res_unit = thomsen_epsilon_delta_from_walkaway_vsp(p, u, vp0=vp0)
+    res_scaled = thomsen_epsilon_delta_from_walkaway_vsp(
+        p, 17.3 * u, vp0=vp0)
+    np.testing.assert_allclose(res_scaled.epsilon, res_unit.epsilon,
+                               rtol=1.0e-12)
+    np.testing.assert_allclose(res_scaled.delta, res_unit.delta,
+                               rtol=1.0e-12)
+
+
+def test_thomsen_eps_delta_minimum_two_shots_exactly_determined():
+    """Two shots give an exactly-determined 4x2 system; solution
+    matches the truth and residual_rms ~ 0."""
+    import pytest
+    from fwap.anisotropy import thomsen_epsilon_delta_from_walkaway_vsp
+    vp0 = 4500.0
+    theta_deg = np.array([15.0, 35.0])
+    p, u = _synth_walkaway_vsp(theta_deg, vp0, 0.12, 0.04)
+    res = thomsen_epsilon_delta_from_walkaway_vsp(p, u, vp0=vp0)
+    assert res.epsilon == pytest.approx(0.12, rel=1.0e-10)
+    assert res.delta == pytest.approx(0.04, rel=1.0e-10)
+    assert res.residual_rms < 1.0e-12
+
+
+def test_thomsen_eps_delta_preserves_n_shots():
+    from fwap.anisotropy import thomsen_epsilon_delta_from_walkaway_vsp
+    vp0 = 4500.0
+    theta_deg = np.linspace(10.0, 50.0, 7)
+    p, u = _synth_walkaway_vsp(theta_deg, vp0, 0.15, 0.08)
+    res = thomsen_epsilon_delta_from_walkaway_vsp(p, u, vp0=vp0)
+    assert res.n_shots == 7
