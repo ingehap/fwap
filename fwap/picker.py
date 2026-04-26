@@ -1586,6 +1586,17 @@ def filter_track_by_shape(track_picks: Sequence[DepthPicks],
 _DEFAULT_VP_VS_MIN = 1.4
 _DEFAULT_VP_VS_MAX = 2.6
 
+# Physically-reasonable Thomsen gamma band, used as the default gate
+# in :func:`quality_control_picks` when a per-depth gamma is supplied.
+# The canonical *VTI shale* window is the tighter ``[0.05, 0.30]``
+# (Thomsen 1986; Tang & Cheng 2004 sect. 5.4); the defaults here are
+# wider so the gate catches obvious mispicks (gamma < -0.05 is
+# unusual; gamma > 0.50 almost always means bad picks or a violated
+# VTI assumption) without false-positive-ing isotropic carbonates or
+# clean sands at gamma ~ 0.
+_DEFAULT_GAMMA_MIN = -0.05
+_DEFAULT_GAMMA_MAX = 0.50
+
 # Canonical mode time ordering: P first, then S, then the guided
 # pseudo-Rayleigh, then Stoneley last. Modes not in this list (or
 # absent from the picks dict) are silently skipped.
@@ -1624,6 +1635,15 @@ class PickQualityFlags:
         (``viterbi_pick(time_order_slack > 0)`` /
         ``viterbi_pick_joint(soft_time_order=...)``) where the
         ordering can be deliberately violated.
+    gamma : float or None
+        Thomsen shear-anisotropy parameter for this depth, as passed
+        in via the ``gamma`` keyword to :func:`quality_control_picks`.
+        ``None`` when not supplied (the gate is then skipped).
+    gamma_in_band : bool
+        True when ``gamma`` lies inside the configured
+        ``[gamma_min, gamma_max]`` band, *or* when no ``gamma`` was
+        supplied (a missing gamma is not flagged -- it just isn't
+        checked).
     flagged : bool
         True when any check failed at this depth.
     reasons : tuple of str
@@ -1636,6 +1656,8 @@ class PickQualityFlags:
     time_order_ok: bool
     flagged: bool
     reasons: tuple[str, ...]
+    gamma: float | None = None
+    gamma_in_band: bool = True
 
 
 def quality_control_picks(picks: dict[str, ModePick] | DepthPicks,
@@ -1644,11 +1666,14 @@ def quality_control_picks(picks: dict[str, ModePick] | DepthPicks,
                           vp_vs_min: float = _DEFAULT_VP_VS_MIN,
                           vp_vs_max: float = _DEFAULT_VP_VS_MAX,
                           require_time_order: bool = True,
+                          gamma: float | None = None,
+                          gamma_min: float = _DEFAULT_GAMMA_MIN,
+                          gamma_max: float = _DEFAULT_GAMMA_MAX,
                           ) -> PickQualityFlags:
     """
     Cross-mode consistency QC at one depth.
 
-    Two checks:
+    Three checks (all opt-out / opt-in):
 
     * **Vp/Vs in physical band.** Computed as ``s_S / s_P`` (which
       equals Vp/Vs since slowness is the reciprocal of velocity).
@@ -1659,6 +1684,21 @@ def quality_control_picks(picks: dict[str, ModePick] | DepthPicks,
       times do not satisfy ``t_P <= t_S <= t_PseudoRayleigh <=
       t_Stoneley`` over the modes that were picked. Disable by
       passing ``require_time_order=False``.
+    * **Thomsen gamma in physical band** (opt-in). Flagged when the
+      Thomsen shear-anisotropy parameter (computed externally via
+      :func:`fwap.anisotropy.thomsen_gamma_from_logs` or
+      :func:`fwap.anisotropy.vti_moduli_from_logs` and passed in
+      via the ``gamma`` keyword) lies outside
+      ``[gamma_min, gamma_max]``. Skipped -- and reported as
+      ``gamma_in_band=True`` -- when ``gamma`` is ``None``. The
+      default band is wider than the canonical VTI shale window
+      (Thomsen 1986; Tang & Cheng 2004 sect. 5.4 give shales at
+      ``[0.05, 0.30]``); the wider default catches mispicks
+      (negative gamma is unusual; gamma > 0.50 almost always
+      indicates bad picks or a violated VTI assumption) without
+      false-positive-ing isotropic carbonates or clean sands at
+      gamma ~ 0. Tighten to ``gamma_min=0.05, gamma_max=0.30`` if
+      you specifically want a "this depth is in a VTI shale" gate.
 
     The function only **flags** -- it never modifies the picks. The
     caller decides what to do with flagged depths (drop, mark in
@@ -1679,6 +1719,15 @@ def quality_control_picks(picks: dict[str, ModePick] | DepthPicks,
         to clay-rich shales / fluid-saturated carbonates (~2.6).
     require_time_order : bool, default True
         Disable to skip the canonical-ordering check entirely.
+    gamma : float, optional
+        Thomsen shear-anisotropy parameter for this depth. When
+        supplied the function checks it against
+        ``[gamma_min, gamma_max]``. ``None`` (default) skips the
+        gate.
+    gamma_min, gamma_max : float
+        Inclusive Thomsen-gamma band. Defaults
+        ``[-0.05, 0.50]`` flag obvious mispicks without
+        false-positive-ing isotropic samples at gamma ~ 0.
 
     Returns
     -------
@@ -1725,7 +1774,19 @@ def quality_control_picks(picks: dict[str, ModePick] | DepthPicks,
                 f"canonical time order violated: {order_str}"
             )
 
-    flagged = (not vp_vs_in_band) or (not time_order_ok)
+    # Thomsen-gamma gate (opt-in)
+    gamma_value: float | None = None
+    gamma_in_band = True
+    if gamma is not None:
+        gamma_value = float(gamma)
+        if not (gamma_min <= gamma_value <= gamma_max):
+            gamma_in_band = False
+            reasons.append(
+                f"Thomsen gamma={gamma_value:.3f} outside band "
+                f"[{gamma_min:.2f}, {gamma_max:.2f}]"
+            )
+
+    flagged = (not vp_vs_in_band) or (not time_order_ok) or (not gamma_in_band)
     return PickQualityFlags(
         depth=float(depth),
         vp_vs=vp_vs,
@@ -1733,6 +1794,8 @@ def quality_control_picks(picks: dict[str, ModePick] | DepthPicks,
         time_order_ok=time_order_ok,
         flagged=flagged,
         reasons=tuple(reasons),
+        gamma=gamma_value,
+        gamma_in_band=gamma_in_band,
     )
 
 
@@ -1741,6 +1804,9 @@ def quality_control_track(track: Sequence[DepthPicks],
                           vp_vs_min: float = _DEFAULT_VP_VS_MIN,
                           vp_vs_max: float = _DEFAULT_VP_VS_MAX,
                           require_time_order: bool = True,
+                          gammas: Sequence[float] | np.ndarray | None = None,
+                          gamma_min: float = _DEFAULT_GAMMA_MIN,
+                          gamma_max: float = _DEFAULT_GAMMA_MAX,
                           ) -> list[PickQualityFlags]:
     """
     Apply :func:`quality_control_picks` per-depth across a track.
@@ -1752,19 +1818,52 @@ def quality_control_track(track: Sequence[DepthPicks],
         :func:`viterbi_pick_joint`, or any other multi-depth picker.
     vp_vs_min, vp_vs_max, require_time_order : as in
         :func:`quality_control_picks`.
+    gammas : sequence of float or ndarray, optional
+        Per-depth Thomsen-gamma values (one per entry in ``track``).
+        When supplied, each is forwarded to the per-depth
+        :func:`quality_control_picks` call as the ``gamma`` keyword,
+        enabling the gamma-band gate. ``None`` (default) skips the
+        gate everywhere. Pass ``np.nan`` for individual depths
+        where gamma is unavailable -- the per-depth call treats NaN
+        as "skip the gamma gate at this depth".
+    gamma_min, gamma_max : float
+        Inclusive Thomsen-gamma band, forwarded to every per-depth
+        call. See :func:`quality_control_picks` for the convention.
 
     Returns
     -------
     list of PickQualityFlags
         One entry per depth, in the order of ``track``.
+
+    Raises
+    ------
+    ValueError
+        If ``gammas`` is supplied with a different length than
+        ``track``.
     """
+    if gammas is None:
+        per_depth_gammas: list[float | None] = [None] * len(track)
+    else:
+        gammas_arr = np.asarray(gammas, dtype=float)
+        if gammas_arr.size != len(track):
+            raise ValueError(
+                "gammas must have the same length as track; got "
+                f"len(gammas)={gammas_arr.size}, len(track)={len(track)}"
+            )
+        # Treat NaN as "skip the gamma gate at this depth".
+        per_depth_gammas = [
+            None if not np.isfinite(g) else float(g)
+            for g in gammas_arr
+        ]
     return [
         quality_control_picks(
             dp,
             vp_vs_min=vp_vs_min, vp_vs_max=vp_vs_max,
             require_time_order=require_time_order,
+            gamma=per_depth_gammas[i],
+            gamma_min=gamma_min, gamma_max=gamma_max,
         )
-        for dp in track
+        for i, dp in enumerate(track)
     ]
 
 

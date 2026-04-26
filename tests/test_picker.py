@@ -832,6 +832,149 @@ def test_quality_control_track_runs_per_depth():
 
 
 # ---------------------------------------------------------------------
+# Thomsen-gamma band gate (Tier 1 VTI QC)
+# ---------------------------------------------------------------------
+
+
+def test_quality_control_picks_skips_gamma_when_not_supplied():
+    """Default (gamma=None) skips the gate; gamma_in_band stays True
+    and no gamma reason is appended."""
+    import pytest
+    from fwap.picker import quality_control_picks
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    qc = quality_control_picks(picks, depth=1000.0)
+    assert qc.gamma is None
+    assert qc.gamma_in_band is True
+    assert all("gamma" not in r.lower() for r in qc.reasons)
+
+
+def test_quality_control_picks_gamma_in_band_passes():
+    """A typical-shale gamma value (0.15) passes the default band."""
+    from fwap.picker import quality_control_picks
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    qc = quality_control_picks(picks, depth=1000.0, gamma=0.15)
+    assert qc.gamma == 0.15
+    assert qc.gamma_in_band is True
+    assert qc.flagged is False
+    assert all("gamma" not in r.lower() for r in qc.reasons)
+
+
+def test_quality_control_picks_gamma_above_band_flags():
+    """gamma > gamma_max (default 0.50) flags with a descriptive reason."""
+    from fwap.picker import quality_control_picks
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    qc = quality_control_picks(picks, depth=1000.0, gamma=0.75)
+    assert qc.gamma == 0.75
+    assert qc.gamma_in_band is False
+    assert qc.flagged is True
+    assert any("Thomsen gamma" in r and "0.75" in r for r in qc.reasons)
+
+
+def test_quality_control_picks_gamma_below_band_flags():
+    """gamma < gamma_min (default -0.05) flags with a descriptive reason."""
+    from fwap.picker import quality_control_picks
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    qc = quality_control_picks(picks, depth=1000.0, gamma=-0.20)
+    assert qc.gamma_in_band is False
+    assert qc.flagged is True
+    assert any("Thomsen gamma" in r for r in qc.reasons)
+
+
+def test_quality_control_picks_gamma_isotropic_passes_default_band():
+    """gamma == 0 (isotropic carbonate / clean sand) is in the default
+    band -- no false positive."""
+    from fwap.picker import quality_control_picks
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    qc = quality_control_picks(picks, depth=1000.0, gamma=0.0)
+    assert qc.gamma_in_band is True
+    assert qc.flagged is False
+
+
+def test_quality_control_picks_gamma_custom_band_for_shale_only():
+    """Caller can tighten to the canonical VTI shale window
+    [0.05, 0.30] to flag non-shale depths."""
+    from fwap.picker import quality_control_picks
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    # Sandstone-like gamma 0.02 -- inside the wide default but outside
+    # the tight shale band.
+    qc_wide = quality_control_picks(picks, depth=1000.0, gamma=0.02)
+    qc_shale = quality_control_picks(
+        picks, depth=1000.0, gamma=0.02, gamma_min=0.05, gamma_max=0.30)
+    assert qc_wide.gamma_in_band is True
+    assert qc_shale.gamma_in_band is False
+
+
+def test_quality_control_track_per_depth_gammas():
+    """quality_control_track forwards a per-depth gamma array; NaN
+    entries skip the gate at that depth only."""
+    from fwap.picker import (
+        DepthPicks, ModePick, quality_control_track,
+    )
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    track = [
+        DepthPicks(depth=1000.0, picks=picks),
+        DepthPicks(depth=1001.0, picks=picks),
+        DepthPicks(depth=1002.0, picks=picks),
+        DepthPicks(depth=1003.0, picks=picks),
+    ]
+    # In-band, out-of-band, NaN (skip), in-band.
+    gammas = np.array([0.15, 0.80, np.nan, 0.20])
+    qc = quality_control_track(track, gammas=gammas)
+    assert qc[0].gamma_in_band is True and qc[0].flagged is False
+    assert qc[1].gamma_in_band is False and qc[1].flagged is True
+    assert qc[2].gamma is None and qc[2].gamma_in_band is True
+    assert qc[3].gamma_in_band is True and qc[3].flagged is False
+
+
+def test_quality_control_track_rejects_gammas_length_mismatch():
+    """Length mismatch is a caller error."""
+    import pytest
+    from fwap.picker import DepthPicks, ModePick, quality_control_track
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    track = [DepthPicks(depth=1000.0 + i, picks=picks) for i in range(3)]
+    with pytest.raises(ValueError, match="length"):
+        quality_control_track(track, gammas=[0.1, 0.2])
+
+
+def test_quality_control_track_default_gammas_none_skips_gate():
+    """Without gammas, no QC entry has the gate active."""
+    from fwap.picker import DepthPicks, ModePick, quality_control_track
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    track = [DepthPicks(depth=1000.0 + i, picks=picks) for i in range(3)]
+    qc = quality_control_track(track)
+    for q in qc:
+        assert q.gamma is None
+        assert q.gamma_in_band is True
+
+
+def test_quality_control_picks_gamma_combines_with_other_reasons():
+    """A gamma violation appears alongside a Vp/Vs violation in
+    the reasons tuple."""
+    from fwap.picker import ModePick, quality_control_picks
+    geom, data, *_ = _gather()
+    picks = pick_modes(_stc_from_gather(geom, data), threshold=0.4)
+    bad = dict(picks)
+    bad["S"] = ModePick(name="S", slowness=picks["S"].slowness * 1.6,
+                        time=picks["S"].time, coherence=0.5)
+    qc = quality_control_picks(bad, depth=1000.0, gamma=0.80)
+    assert qc.flagged is True
+    assert qc.vp_vs_in_band is False
+    assert qc.gamma_in_band is False
+    # Both reasons present.
+    assert any("Vp/Vs" in r for r in qc.reasons)
+    assert any("Thomsen gamma" in r for r in qc.reasons)
+
+
+# ---------------------------------------------------------------------
 # track_to_log_curves: picker -> LAS/DLIS bridge
 # ---------------------------------------------------------------------
 
