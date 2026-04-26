@@ -182,6 +182,7 @@ from fwap.anisotropy import (
     alford_rotation_from_tensor,
     c33_from_p_pick,
     stoneley_horizontal_shear_modulus,
+    stoneley_horizontal_shear_modulus_corrected,
     stress_anisotropy_from_alford,
     thomsen_gamma,
     thomsen_gamma_from_logs,
@@ -302,6 +303,7 @@ __all__ = [
     "AlfordResult", "alford_rotation", "alford_rotation_from_tensor",
     "StressAnisotropyEstimate", "stress_anisotropy_from_alford",
     "ThomsenGammaResult", "stoneley_horizontal_shear_modulus",
+    "stoneley_horizontal_shear_modulus_corrected",
     "thomsen_gamma", "thomsen_gamma_from_logs",
     "VtiModuli", "c33_from_p_pick", "vti_moduli_from_logs",
     # Rock physics

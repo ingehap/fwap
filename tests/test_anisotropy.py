@@ -397,9 +397,11 @@ def test_vti_moduli_from_logs_recovers_planted_isotropic_case():
     rho = 2400.0
     Vp, Vs = 4500.0, 2500.0
     # Plant an isotropic formation: pick a Stoneley slowness whose
-    # White-formula C66 matches C44.
+    # *Tang & Cheng (2004)* corrected C66 matches C44 (the function
+    # defaults to the corrected inversion).
     c44 = rho * Vs ** 2
-    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / c44)
+    factor = 1.0 - rho_f * v_f ** 2 / (rho * Vp ** 2)
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / (c44 * factor))
     out = vti_moduli_from_logs(
         slowness_p=1.0 / Vp, slowness_dipole=1.0 / Vs,
         slowness_stoneley=s_st, rho=rho,
@@ -423,7 +425,9 @@ def test_vti_moduli_from_logs_planted_vti_case():
     Vp, Vs = 4500.0, 2500.0
     c44 = rho * Vs ** 2
     c66 = 1.3 * c44
-    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / c66)
+    # Plant via the corrected forward (default).
+    factor = 1.0 - rho_f * v_f ** 2 / (rho * Vp ** 2)
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / (c66 * factor))
     out = vti_moduli_from_logs(
         slowness_p=1.0 / Vp, slowness_dipole=1.0 / Vs,
         slowness_stoneley=s_st, rho=rho,
@@ -445,7 +449,9 @@ def test_vti_moduli_from_logs_vector_inputs_broadcast():
     Vs = np.array([2400.0, 2500.0, 2600.0, 2700.0])
     c44 = rho * Vs ** 2
     c66 = c44 * np.array([1.0, 1.1, 1.2, 1.3])
-    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / c66)
+    # Plant via the corrected forward (default).
+    factor = 1.0 - rho_f * v_f ** 2 / (rho * Vp ** 2)
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / (c66 * factor))
     out = vti_moduli_from_logs(
         slowness_p=1.0 / Vp, slowness_dipole=1.0 / Vs,
         slowness_stoneley=s_st, rho=rho,
@@ -540,3 +546,223 @@ def test_vti_moduli_from_logs_round_trips_through_write_las(tmp_path):
     assert loaded.units["VP"]  == "m/s"
     assert loaded.units["VSV"] == "m/s"
     assert loaded.units["VSH"] == "m/s"
+
+
+# ---------------------------------------------------------------------
+# Tang & Cheng (2004) sect. 5.4 finite-impedance correction on
+# stoneley_horizontal_shear_modulus
+# ---------------------------------------------------------------------
+
+
+def test_stoneley_c66_corrected_round_trips_through_forward_model():
+    """Plant C66 + V_P, build the corrected forward S_ST, recover C66."""
+    import pytest
+    from fwap.anisotropy import stoneley_horizontal_shear_modulus_corrected
+    rho_f, v_f = 1000.0, 1500.0
+    rho = 2400.0
+    Vp = 4500.0
+    c66_planted = 1.5e10
+    s_p = 1.0 / Vp
+    factor = 1.0 - rho_f * v_f ** 2 / (rho * Vp ** 2)
+    c66_eff = c66_planted * factor
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / c66_eff)
+    c66 = stoneley_horizontal_shear_modulus_corrected(
+        slowness_stoneley=s_st, rho=rho, slowness_p=s_p,
+        rho_fluid=rho_f, v_fluid=v_f)
+    assert c66 == pytest.approx(c66_planted, rel=1.0e-12)
+
+
+def test_stoneley_c66_corrected_exceeds_uncorrected_for_finite_vp():
+    """For finite V_P the corrected C66 is strictly greater than the
+    White (1983) reading of the same observed slowness; the ratio
+    matches the closed-form factor 1/(1 - rho_f V_f^2 / (rho V_P^2))."""
+    import pytest
+    from fwap.anisotropy import (
+        stoneley_horizontal_shear_modulus,
+        stoneley_horizontal_shear_modulus_corrected,
+    )
+    rho_f, v_f = 1000.0, 1500.0
+    rho = 2400.0
+    Vp = 4500.0
+    s_p = 1.0 / Vp
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / 1.0e10)
+    c66_white = stoneley_horizontal_shear_modulus(
+        s_st, rho_fluid=rho_f, v_fluid=v_f)
+    c66_corr = stoneley_horizontal_shear_modulus_corrected(
+        slowness_stoneley=s_st, rho=rho, slowness_p=s_p,
+        rho_fluid=rho_f, v_fluid=v_f)
+    expected_ratio = 1.0 / (1.0 - rho_f * v_f ** 2 / (rho * Vp ** 2))
+    assert c66_corr > c66_white
+    assert c66_corr / c66_white == pytest.approx(expected_ratio, rel=1.0e-12)
+
+
+def test_stoneley_c66_corrected_reduces_to_white_in_rigid_limit():
+    """V_P -> very large => correction factor -> 1 => corrected == White."""
+    from fwap.anisotropy import (
+        stoneley_horizontal_shear_modulus,
+        stoneley_horizontal_shear_modulus_corrected,
+    )
+    rho_f, v_f = 1000.0, 1500.0
+    rho = 2400.0
+    Vp = 1.0e8     # absurdly fast formation; correction factor ~ 1 - 1e-13
+    s_p = 1.0 / Vp
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / 1.0e10)
+    c66_white = stoneley_horizontal_shear_modulus(
+        s_st, rho_fluid=rho_f, v_fluid=v_f)
+    c66_corr = stoneley_horizontal_shear_modulus_corrected(
+        slowness_stoneley=s_st, rho=rho, slowness_p=s_p,
+        rho_fluid=rho_f, v_fluid=v_f)
+    np.testing.assert_allclose(c66_corr, c66_white, rtol=1.0e-10)
+
+
+def test_stoneley_c66_corrected_correction_grows_with_slow_formation():
+    """Slow VTI shales (V_P ~ 2500 m/s) get a larger correction
+    (~1.10-1.20x) than fast carbonates (V_P ~ 6000 m/s, ~1.02x)."""
+    from fwap.anisotropy import (
+        stoneley_horizontal_shear_modulus,
+        stoneley_horizontal_shear_modulus_corrected,
+    )
+    rho_f, v_f = 1000.0, 1500.0
+    rho = 2400.0
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / 1.0e10)
+    ratios = []
+    for Vp in (2500.0, 3500.0, 4500.0, 6000.0):
+        s_p = 1.0 / Vp
+        c66_white = stoneley_horizontal_shear_modulus(
+            s_st, rho_fluid=rho_f, v_fluid=v_f)
+        c66_corr = stoneley_horizontal_shear_modulus_corrected(
+            slowness_stoneley=s_st, rho=rho, slowness_p=s_p,
+            rho_fluid=rho_f, v_fluid=v_f)
+        ratios.append(c66_corr / c66_white)
+    # Slower formations get larger correction factors.
+    for r1, r2 in zip(ratios[:-1], ratios[1:]):
+        assert r1 > r2
+    # 2500 m/s shale: 5-25 % correction; 6000 m/s carbonate: 1-3 %.
+    assert 1.05 < ratios[0] < 1.25
+    assert 1.005 < ratios[-1] < 1.05
+
+
+def test_stoneley_c66_corrected_vector_inputs_broadcast():
+    """Per-depth inputs broadcast to per-depth outputs."""
+    from fwap.anisotropy import stoneley_horizontal_shear_modulus_corrected
+    n = 4
+    rho_f, v_f = 1000.0, 1500.0
+    rho = np.full(n, 2400.0)
+    Vp = np.array([3000.0, 3500.0, 4000.0, 4500.0])
+    c66_planted = np.linspace(1.0e10, 2.0e10, n)
+    factor = 1.0 - rho_f * v_f ** 2 / (rho * Vp ** 2)
+    c66_eff = c66_planted * factor
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / c66_eff)
+    s_p = 1.0 / Vp
+    c66 = stoneley_horizontal_shear_modulus_corrected(
+        slowness_stoneley=s_st, rho=rho, slowness_p=s_p,
+        rho_fluid=rho_f, v_fluid=v_f)
+    np.testing.assert_allclose(c66, c66_planted, rtol=1.0e-12)
+
+
+def test_stoneley_c66_corrected_rejects_unphysical_p_modulus():
+    """rho V_P^2 <= rho_f V_f^2 makes the correction factor non-positive
+    -- rejected explicitly with a named error."""
+    import pytest
+    from fwap.anisotropy import stoneley_horizontal_shear_modulus_corrected
+    rho_f, v_f = 1000.0, 1500.0
+    # Choose Vp so that rho*Vp^2 == rho_f*Vf^2 exactly => factor = 0.
+    rho = 1000.0
+    Vp = 1500.0
+    s_p = 1.0 / Vp
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / 5.0e9)
+    with pytest.raises(ValueError, match="P-wave modulus"):
+        stoneley_horizontal_shear_modulus_corrected(
+            slowness_stoneley=s_st, rho=rho, slowness_p=s_p,
+            rho_fluid=rho_f, v_fluid=v_f)
+
+
+def test_stoneley_c66_corrected_rejects_non_positive_inputs():
+    """All slownesses + densities + fluid params must be positive."""
+    import pytest
+    from fwap.anisotropy import stoneley_horizontal_shear_modulus_corrected
+    base = dict(slowness_stoneley=8.0e-4, rho=2400.0, slowness_p=2.0e-4,
+                rho_fluid=1000.0, v_fluid=1500.0)
+    with pytest.raises(ValueError, match="rho_fluid"):
+        stoneley_horizontal_shear_modulus_corrected(**{**base, "rho_fluid": 0.0})
+    with pytest.raises(ValueError, match="v_fluid"):
+        stoneley_horizontal_shear_modulus_corrected(**{**base, "v_fluid": -1.0})
+    with pytest.raises(ValueError, match="rho"):
+        stoneley_horizontal_shear_modulus_corrected(**{**base, "rho": 0.0})
+    with pytest.raises(ValueError, match="slowness_p"):
+        stoneley_horizontal_shear_modulus_corrected(**{**base, "slowness_p": -1.0})
+
+
+def test_vti_moduli_default_uses_corrected_c66():
+    """vti_moduli_from_logs(...) defaults to the corrected C66; the
+    gamma it returns matches the corrected helper, not the White one."""
+    from fwap.anisotropy import (
+        stoneley_horizontal_shear_modulus_corrected,
+        thomsen_gamma,
+        vti_moduli_from_logs,
+    )
+    rho_f, v_f = 1000.0, 1500.0
+    rho = 2400.0
+    Vp, Vs = 4500.0, 2500.0
+    c44_planted = rho * Vs ** 2
+    c66_planted = 1.3 * c44_planted
+    factor = 1.0 - rho_f * v_f ** 2 / (rho * Vp ** 2)
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / (c66_planted * factor))
+    out = vti_moduli_from_logs(
+        slowness_p=1.0 / Vp, slowness_dipole=1.0 / Vs,
+        slowness_stoneley=s_st, rho=rho,
+        rho_fluid=rho_f, v_fluid=v_f,
+    )
+    np.testing.assert_allclose(out.c66, c66_planted, rtol=1.0e-12)
+    np.testing.assert_allclose(
+        out.gamma, thomsen_gamma(c44_planted, c66_planted), rtol=1.0e-12)
+
+
+def test_vti_moduli_correct_for_p_modulus_false_matches_white_helper():
+    """The legacy uncorrected mode (correct_for_p_modulus=False) gives
+    exactly the same gamma as thomsen_gamma_from_logs."""
+    import pytest
+    from fwap.anisotropy import (
+        thomsen_gamma_from_logs,
+        vti_moduli_from_logs,
+    )
+    rho_f, v_f = 1000.0, 1500.0
+    rho = 2400.0
+    Vp, Vs = 4500.0, 2500.0
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / (1.3 * rho * Vs ** 2))
+    out_white = vti_moduli_from_logs(
+        slowness_p=1.0 / Vp, slowness_dipole=1.0 / Vs,
+        slowness_stoneley=s_st, rho=rho,
+        rho_fluid=rho_f, v_fluid=v_f,
+        correct_for_p_modulus=False,
+    )
+    ref = thomsen_gamma_from_logs(
+        slowness_dipole=1.0 / Vs, slowness_stoneley=s_st, rho=rho,
+        rho_fluid=rho_f, v_fluid=v_f,
+    )
+    assert out_white.c44 == pytest.approx(ref.c44, rel=1.0e-12)
+    assert out_white.c66 == pytest.approx(ref.c66, rel=1.0e-12)
+    assert out_white.gamma == pytest.approx(ref.gamma, rel=1.0e-12)
+
+
+def test_vti_moduli_corrected_and_white_diverge_for_typical_inputs():
+    """Corrected gamma > White gamma by ~5-10 % for typical sandstone."""
+    import pytest
+    from fwap.anisotropy import vti_moduli_from_logs
+    rho_f, v_f = 1000.0, 1500.0
+    rho = 2400.0
+    Vp, Vs = 4500.0, 2500.0
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / (1.3 * rho * Vs ** 2))
+    common = dict(
+        slowness_p=1.0 / Vp, slowness_dipole=1.0 / Vs,
+        slowness_stoneley=s_st, rho=rho,
+        rho_fluid=rho_f, v_fluid=v_f,
+    )
+    corr = vti_moduli_from_logs(correct_for_p_modulus=True,  **common)
+    whte = vti_moduli_from_logs(correct_for_p_modulus=False, **common)
+    # Corrected C66 / White C66 = 1 / (1 - rho_f V_f^2 / (rho V_P^2))
+    expected_ratio = 1.0 / (1.0 - rho_f * v_f ** 2 / (rho * Vp ** 2))
+    assert corr.c66 / whte.c66 == pytest.approx(expected_ratio, rel=1.0e-12)
+    # gamma is monotonic in C66 at fixed C44 -> corrected gamma is
+    # also greater than White gamma here.
+    assert corr.gamma > whte.gamma
