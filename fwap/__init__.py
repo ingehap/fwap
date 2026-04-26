@@ -232,6 +232,10 @@ from fwap.cylindrical import (
     flexural_dispersion_vti_physical,
     rayleigh_speed,
 )
+from fwap.cylindrical_solver import (
+    BoreholeMode,
+    stoneley_dispersion,
+)
 
 # LWD (logging-while-drilling) phenomenological layer
 from fwap.lwd import (
@@ -326,6 +330,8 @@ __all__ = [
     # Surface-wave speeds / cylindrical
     "rayleigh_speed", "flexural_dispersion_physical",
     "flexural_dispersion_vti_physical",
+    # Cylindrical-borehole modal-determinant solver (Schmitt 1988)
+    "BoreholeMode", "stoneley_dispersion",
     # LWD phenomenological layer
     "lwd_collar_mode", "synthesize_lwd_gather", "notch_slowness_band",
     "DEFAULT_COLLAR_SLOWNESS_S_PER_M",
