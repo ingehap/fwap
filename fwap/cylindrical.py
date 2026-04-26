@@ -183,3 +183,149 @@ def flexural_dispersion_physical(vp: float,
         return s_low + (s_high - s_low) * (x ** 2) / (1.0 + x ** 2)
 
     return s_of_f
+
+
+def flexural_dispersion_vti_physical(vp: float,
+                                     vsv: float,
+                                     vsh: float,
+                                     a_borehole: float = 0.1,
+                                     ) -> Callable[[np.ndarray], np.ndarray]:
+    r"""
+    Phenomenological VTI dipole-flexural dispersion law.
+
+    Generalises :func:`flexural_dispersion_physical` to a VTI
+    formation by anchoring the two-parameter rational
+    interpolation between physically-correct low- and high-
+    frequency asymptotes:
+
+    * **Low-frequency limit.** The dipole-flexural mode at
+      :math:`f \to 0` has wavelength much larger than the borehole
+      radius, so it sees the formation only through its
+      vertically-propagating shear stiffness :math:`C_{44} =
+      \rho V_{Sv}^2`. The low-frequency phase slowness is therefore
+      :math:`1/V_{Sv}` (Ellefsen, Cheng & Toksoz 1991, sect. III.B;
+      Sinha, Norris & Chang 1994, eq. 14).
+    * **High-frequency limit.** As :math:`f \to \infty` the
+      flexural mode localises within ~one wavelength of the
+      borehole wall and propagates as a Rayleigh-like surface wave
+      whose speed is governed by the *horizontal* shear modulus
+      :math:`C_{66} = \rho V_{Sh}^2` (the SH polarisation of the
+      surface motion). The high-frequency phase slowness is
+      :math:`1/V_R(V_P, V_{Sh})` from
+      :func:`rayleigh_speed`.
+
+    Between the two asymptotes the dispersion is interpolated with
+    the same rational form
+    :math:`s(f) = s_{\text{low}} + (s_{\text{high}}-s_{\text{low}})
+    \cdot x^2/(1+x^2)` used in
+    :func:`flexural_dispersion_physical`, with the geometric cut-
+    off :math:`f_c = V_{Sv} / (2\pi a)` set by the *low-frequency*
+    velocity. For an isotropic formation
+    (:math:`V_{Sh} = V_{Sv} \Rightarrow \gamma = 0`) the function
+    reduces exactly to :func:`flexural_dispersion_physical(vp, vsv,
+    a_borehole)`.
+
+    Caveats
+    -------
+    * **Phenomenological**, not the full Schmitt (1989) VTI
+      cylindrical-mode determinant. The two asymptotes are
+      physically correct in their respective limits, but the
+      transition shape is a smoothed-step approximation of the
+      true root of the modal determinant. For dispersion-curve
+      bias estimates within the typical dipole-sonic band
+      (~1-6 kHz) the approximation is in line with
+      Ellefsen-Cheng-Toksöz-grade weak-anisotropy expansions; for
+      quantitative full-band inversion (e.g. matching dispersion-
+      corrected STC to better than 1-2 % :math:`V_{Sv}`) the full
+      modal solver is required.
+    * Vacuum-loaded Rayleigh asymptote (no Scholte / fluid-loading
+      correction). For a brine-filled borehole through a typical
+      VTI shale the Rayleigh-Scholte difference is at the
+      few-percent level (Paillet & Cheng 1991, ch. 4).
+    * Single-layer VTI; mudcake / altered-zone radial layering not
+      modelled.
+
+    Parameters
+    ----------
+    vp : float
+        Vertical P-wave velocity (m/s). For VTI media this is
+        :math:`V_P = \sqrt{C_{33}/\rho}`.
+    vsv : float
+        Vertical shear velocity (m/s):
+        :math:`V_{Sv} = \sqrt{C_{44}/\rho}`. Must satisfy
+        ``vp > vsv``.
+    vsh : float
+        Horizontal shear velocity (m/s):
+        :math:`V_{Sh} = \sqrt{C_{66}/\rho}`. Must satisfy
+        ``vp > vsh``. Equal to ``vsv`` for an isotropic formation;
+        :math:`V_{Sh} > V_{Sv}` for typical VTI shales (Thomsen
+        :math:`\gamma > 0`).
+    a_borehole : float, default 0.1
+        Borehole radius (m).
+
+    Returns
+    -------
+    Callable[[ndarray], ndarray]
+        Array-in / array-out mapping of frequency (Hz) to phase
+        slowness (s/m). Drop-in for the ``dispersion_family``
+        argument of :func:`fwap.dispersion.dispersive_stc` and
+        :func:`fwap.dispersion.dispersive_pseudo_rayleigh_stc`.
+
+    Raises
+    ------
+    ValueError
+        If ``vsv`` or ``vsh`` is non-positive, or if either is
+        :math:`\ge` ``vp`` (an isotropic-rock physical bound that
+        the VTI Christoffel system also respects under standard
+        positivity of the Hooke tensor).
+
+    See Also
+    --------
+    flexural_dispersion_physical : Isotropic special case;
+        equivalent to this function when ``vsh == vsv``.
+    fwap.anisotropy.vti_moduli_from_logs : Sonic-derived VTI
+        moduli; supplies the ``(vp, vsv, vsh)`` triple from
+        monopole + dipole + Stoneley + density logs.
+
+    References
+    ----------
+    * Ellefsen, K. J., Cheng, C. H., & Toksoz, M. N. (1991).
+      Effects of anisotropy upon the resonances of normal modes
+      in a borehole. *J. Acoust. Soc. Am.* 89(6), 2597-2616.
+      Section III.B gives the long-wavelength flexural-mode limit
+      :math:`s_{low} = 1/V_{Sv}` for VTI formations.
+    * Sinha, B. K., Norris, A. N., & Chang, S. K. (1994).
+      Borehole flexural modes in anisotropic formations.
+      *Geophysics* 59(7), 1037-1052. Eq. 14 confirms the same
+      low-frequency limit and gives the high-frequency
+      surface-wave-on-borehole-wall asymptote that motivates
+      :math:`V_R(V_P, V_{Sh})`.
+    * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
+      Boreholes*, ch. 4. CRC Press (cylindrical-mode dispersion;
+      Rayleigh / Scholte asymptotic forms).
+    """
+    if vsv <= 0.0:
+        raise ValueError("vsv must be positive")
+    if vsh <= 0.0:
+        raise ValueError("vsh must be positive")
+    if vp <= vsv:
+        raise ValueError("require vp > vsv")
+    if vp <= vsh:
+        raise ValueError("require vp > vsh")
+
+    s_low = 1.0 / vsv
+    # High-f Rayleigh asymptote with horizontal shear setting the
+    # surface-wave SH polarisation speed. rayleigh_speed validates
+    # the vp > vs constraint internally.
+    v_rayleigh = rayleigh_speed(vp, vsh)
+    s_high = 1.0 / v_rayleigh
+    # Geometric cut-off set by the low-frequency velocity (the
+    # dispersion turns over when wavelength ~ borehole radius, and
+    # at low f the wave propagates at V_Sv).
+    fc = vsv / (2.0 * np.pi * a_borehole)
+
+    def s_of_f(f: np.ndarray) -> np.ndarray:
+        x = np.asarray(f) / fc
+        return s_low + (s_high - s_low) * (x ** 2) / (1.0 + x ** 2)
+
+    return s_of_f
