@@ -1175,3 +1175,256 @@ def test_track_to_log_curves_round_trips_through_write_las(tmp_path):
     assert loaded.units["DTP"] == "us/ft"
     assert loaded.units["DTS"] == "us/ft"
     assert loaded.units["DTST"] == "us/ft"
+
+
+# ---------------------------------------------------------------------
+# include_vti=True path: C33 / C44 / C66 / GAMMA / VP / VSV / VSH
+# ---------------------------------------------------------------------
+
+
+def test_track_to_log_curves_include_vti_off_by_default():
+    """Default (include_vti=False) emits no VTI columns."""
+    from fwap.picker import track_to_log_curves
+    track = _three_depth_track()
+    _, curves = track_to_log_curves(track)
+    for mnemonic in ("C33", "C44", "C66", "GAMMA", "VP", "VSV", "VSH"):
+        assert mnemonic not in curves
+
+
+def test_track_to_log_curves_include_vti_emits_seven_columns():
+    """Default-on path: emits C33/C44/C66/GAMMA/VP/VSV/VSH."""
+    from fwap.picker import track_to_log_curves
+    track = _three_depth_track()
+    _, curves = track_to_log_curves(
+        track, include_vti=True, rho=2400.0,
+        rho_fluid=1000.0, v_fluid=1500.0,
+    )
+    for mnemonic in ("C33", "C44", "C66", "GAMMA", "VP", "VSV", "VSH"):
+        assert mnemonic in curves
+        assert curves[mnemonic].shape == (3,)
+
+
+def test_track_to_log_curves_include_vti_planted_values():
+    """Plant a uniform formation; recovered VTI columns match the
+    closed-form analytical values cell by cell."""
+    import pytest
+    from fwap.picker import DepthPicks, ModePick, track_to_log_curves
+
+    rho_f, v_f = 1000.0, 1500.0
+    rho = 2400.0
+    Vp, Vs, Vst = 4500.0, 2500.0, 1400.0
+    track = [
+        DepthPicks(depth=1000.0, picks={
+            "P":        ModePick("P",        1.0/Vp,  2.0e-3, 0.92, amplitude=0.7),
+            "S":        ModePick("S",        1.0/Vs,  3.0e-3, 0.85, amplitude=0.9),
+            "Stoneley": ModePick("Stoneley", 1.0/Vst, 5.0e-3, 0.80, amplitude=1.1),
+        }),
+    ]
+    _, curves = track_to_log_curves(
+        track, include_vti=True, rho=rho,
+        rho_fluid=rho_f, v_fluid=v_f,
+    )
+    # C33, C44 follow rho * V^2 exactly.
+    assert curves["C33"][0] == pytest.approx(rho * Vp ** 2, rel=1.0e-12)
+    assert curves["C44"][0] == pytest.approx(rho * Vs ** 2, rel=1.0e-12)
+    # C66 via the corrected (Tang & Cheng) inversion since P is picked.
+    s_st = 1.0 / Vst
+    factor = 1.0 - rho_f * v_f ** 2 / (rho * Vp ** 2)
+    c66_expected = (rho_f / (s_st ** 2 - 1.0 / v_f ** 2)) / factor
+    assert curves["C66"][0] == pytest.approx(c66_expected, rel=1.0e-12)
+    # Velocities follow sqrt(C / rho).
+    np.testing.assert_allclose(
+        curves["VP"][0],  np.sqrt(curves["C33"][0] / rho), rtol=1.0e-12)
+    np.testing.assert_allclose(
+        curves["VSV"][0], np.sqrt(curves["C44"][0] / rho), rtol=1.0e-12)
+    np.testing.assert_allclose(
+        curves["VSH"][0], np.sqrt(curves["C66"][0] / rho), rtol=1.0e-12)
+    # GAMMA matches (C66 - C44) / (2 C44).
+    np.testing.assert_allclose(
+        curves["GAMMA"][0],
+        (curves["C66"][0] - curves["C44"][0]) / (2.0 * curves["C44"][0]),
+        rtol=1.0e-12)
+
+
+def test_track_to_log_curves_include_vti_per_pick_nan_propagation():
+    """Cells where the underlying picks are missing become NaN."""
+    from fwap.picker import DepthPicks, ModePick, track_to_log_curves
+
+    rho_f, v_f = 1000.0, 1500.0
+    rho = 2400.0
+    Vp, Vs, Vst = 4500.0, 2500.0, 1400.0
+    track = [
+        # Depth 0: full picks -> all VTI cells finite.
+        DepthPicks(depth=1000.0, picks={
+            "P":        ModePick("P",        1.0/Vp,  2.0e-3, 0.92),
+            "S":        ModePick("S",        1.0/Vs,  3.0e-3, 0.85),
+            "Stoneley": ModePick("Stoneley", 1.0/Vst, 5.0e-3, 0.80),
+        }),
+        # Depth 1: P missing -> C33/VP NaN; C66 falls back to White.
+        DepthPicks(depth=1001.0, picks={
+            "S":        ModePick("S",        1.0/Vs,  3.0e-3, 0.85),
+            "Stoneley": ModePick("Stoneley", 1.0/Vst, 5.0e-3, 0.80),
+        }),
+        # Depth 2: S missing -> C44/VSV/GAMMA NaN.
+        DepthPicks(depth=1002.0, picks={
+            "P":        ModePick("P",        1.0/Vp,  2.0e-3, 0.92),
+            "Stoneley": ModePick("Stoneley", 1.0/Vst, 5.0e-3, 0.80),
+        }),
+        # Depth 3: Stoneley missing -> C66/VSH/GAMMA NaN.
+        DepthPicks(depth=1003.0, picks={
+            "P": ModePick("P", 1.0/Vp, 2.0e-3, 0.92),
+            "S": ModePick("S", 1.0/Vs, 3.0e-3, 0.85),
+        }),
+    ]
+    _, curves = track_to_log_curves(
+        track, include_vti=True, rho=rho,
+        rho_fluid=rho_f, v_fluid=v_f,
+    )
+    # Depth 0: all finite.
+    for mn in ("C33", "C44", "C66", "GAMMA", "VP", "VSV", "VSH"):
+        assert np.isfinite(curves[mn][0])
+    # Depth 1: P missing.
+    assert np.isnan(curves["C33"][1])
+    assert np.isnan(curves["VP"][1])
+    # C66 is finite (White-fallback), C44 finite.
+    assert np.isfinite(curves["C44"][1])
+    assert np.isfinite(curves["C66"][1])
+    assert np.isfinite(curves["GAMMA"][1])
+    # Depth 2: S missing.
+    assert np.isnan(curves["C44"][2])
+    assert np.isnan(curves["VSV"][2])
+    assert np.isnan(curves["GAMMA"][2])
+    # Depth 3: Stoneley missing.
+    assert np.isnan(curves["C66"][3])
+    assert np.isnan(curves["VSH"][3])
+    assert np.isnan(curves["GAMMA"][3])
+
+
+def test_track_to_log_curves_include_vti_white_fallback_on_missing_p():
+    """At depths where P is missing, C66 uses the White (1983) reading
+    transparently -- the operational benefit of the per-depth
+    fall-back."""
+    import pytest
+    from fwap.picker import DepthPicks, ModePick, track_to_log_curves
+
+    rho_f, v_f = 1000.0, 1500.0
+    rho = 2400.0
+    Vs, Vst = 2500.0, 1400.0
+    track = [
+        DepthPicks(depth=1000.0, picks={
+            "S":        ModePick("S",        1.0/Vs,  3.0e-3, 0.85),
+            "Stoneley": ModePick("Stoneley", 1.0/Vst, 5.0e-3, 0.80),
+        }),
+    ]
+    _, curves = track_to_log_curves(
+        track, include_vti=True, rho=rho,
+        rho_fluid=rho_f, v_fluid=v_f,
+    )
+    # White expected: C66 = rho_f / (s_ST^2 - 1/V_f^2).
+    s_st = 1.0 / Vst
+    c66_white = rho_f / (s_st ** 2 - 1.0 / v_f ** 2)
+    assert curves["C66"][0] == pytest.approx(c66_white, rel=1.0e-12)
+
+
+def test_track_to_log_curves_include_vti_correct_for_p_modulus_false():
+    """correct_for_p_modulus=False forces White everywhere even when
+    P is picked."""
+    import pytest
+    from fwap.picker import track_to_log_curves
+    track = _three_depth_track()
+    rho_f, v_f, rho = 1000.0, 1500.0, 2400.0
+    _, curves = track_to_log_curves(
+        track, include_vti=True, rho=rho,
+        rho_fluid=rho_f, v_fluid=v_f,
+        correct_for_p_modulus=False,
+    )
+    # Hand-derive White C66 at depth 0 (Stoneley slowness 1/1400).
+    s_st = 1.0 / 1400.0
+    c66_white = rho_f / (s_st ** 2 - 1.0 / v_f ** 2)
+    assert curves["C66"][0] == pytest.approx(c66_white, rel=1.0e-12)
+
+
+def test_track_to_log_curves_include_vti_per_depth_density():
+    """rho can be a length-n_depth ndarray; each cell uses its own."""
+    import pytest
+    from fwap.picker import track_to_log_curves
+    track = _three_depth_track()
+    rho_per_depth = np.array([2300.0, 2400.0, 2500.0])
+    _, curves = track_to_log_curves(
+        track, include_vti=True, rho=rho_per_depth,
+        rho_fluid=1000.0, v_fluid=1500.0,
+    )
+    Vp = 4500.0  # depth 0's planted Vp
+    assert curves["C33"][0] == pytest.approx(2300.0 * Vp ** 2, rel=1.0e-12)
+
+
+def test_track_to_log_curves_include_vti_requires_rho_and_fluid():
+    """include_vti=True without rho/rho_fluid/v_fluid raises."""
+    import pytest
+    from fwap.picker import track_to_log_curves
+    track = _three_depth_track()
+    with pytest.raises(ValueError, match="rho"):
+        track_to_log_curves(track, include_vti=True,
+                            rho_fluid=1000.0, v_fluid=1500.0)
+    with pytest.raises(ValueError, match="rho_fluid"):
+        track_to_log_curves(track, include_vti=True,
+                            rho=2400.0, v_fluid=1500.0)
+    with pytest.raises(ValueError, match="rho_fluid"):
+        track_to_log_curves(track, include_vti=True,
+                            rho=2400.0, rho_fluid=1000.0)
+
+
+def test_track_to_log_curves_include_vti_rejects_bad_rho_shape():
+    """rho must be a scalar or length-n_depth array."""
+    import pytest
+    from fwap.picker import track_to_log_curves
+    track = _three_depth_track()
+    with pytest.raises(ValueError, match="length-n_depth"):
+        track_to_log_curves(
+            track, include_vti=True,
+            rho=np.array([2400.0, 2500.0]),   # wrong length (2 vs 3)
+            rho_fluid=1000.0, v_fluid=1500.0,
+        )
+
+
+def test_track_to_log_curves_include_vti_round_trips_through_write_las(tmp_path):
+    """All seven VTI columns + the standard pick columns round-trip
+    through write_las / read_las with the right units."""
+    from fwap.io import read_las, write_las
+    from fwap.picker import track_to_log_curves
+    track = _three_depth_track()
+    depths, curves = track_to_log_curves(
+        track, include_vti=True, rho=2400.0,
+        rho_fluid=1000.0, v_fluid=1500.0,
+    )
+    path = str(tmp_path / "vti_track.las")
+    write_las(path, depths, curves, well_name="TRACK_VTI")
+    loaded = read_las(path)
+    for mn, unit in (("C33", "Pa"), ("C44", "Pa"), ("C66", "Pa"),
+                     ("GAMMA", ""), ("VP", "m/s"),
+                     ("VSV", "m/s"), ("VSH", "m/s")):
+        assert mn in loaded.curves
+        assert loaded.units[mn] == unit
+
+
+def test_track_to_log_curves_include_vti_with_numeric_null_value():
+    """null_value sentinel applies to VTI columns too."""
+    from fwap.picker import DepthPicks, ModePick, track_to_log_curves
+    Vs, Vst = 2500.0, 1400.0
+    track = [
+        # Stoneley missing -> C66/VSH/GAMMA should land on -999.25.
+        DepthPicks(depth=1000.0, picks={
+            "S": ModePick("S", 1.0/Vs, 3.0e-3, 0.85),
+        }),
+    ]
+    _, curves = track_to_log_curves(
+        track, include_vti=True, rho=2400.0,
+        rho_fluid=1000.0, v_fluid=1500.0,
+        null_value=-999.25,
+    )
+    assert curves["C66"][0]   == -999.25
+    assert curves["VSH"][0]   == -999.25
+    assert curves["GAMMA"][0] == -999.25
+    # C44 / VSV are finite (S is picked).
+    assert curves["C44"][0] != -999.25
+    assert curves["VSV"][0] != -999.25
