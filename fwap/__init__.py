@@ -177,12 +177,15 @@ from fwap.anisotropy import (
     AlfordResult,
     StressAnisotropyEstimate,
     ThomsenGammaResult,
+    VtiModuli,
     alford_rotation,
     alford_rotation_from_tensor,
+    c33_from_p_pick,
     stoneley_horizontal_shear_modulus,
     stress_anisotropy_from_alford,
     thomsen_gamma,
     thomsen_gamma_from_logs,
+    vti_moduli_from_logs,
 )
 
 # Rock physics
@@ -295,11 +298,12 @@ __all__ = [
     "AzimuthalGather",
     # Attenuation
     "AttenuationResult", "centroid_frequency_shift_Q", "spectral_ratio_Q",
-    # Cross-dipole + VTI Thomsen gamma
+    # Cross-dipole + VTI Thomsen gamma + vertical-well VTI moduli
     "AlfordResult", "alford_rotation", "alford_rotation_from_tensor",
     "StressAnisotropyEstimate", "stress_anisotropy_from_alford",
     "ThomsenGammaResult", "stoneley_horizontal_shear_modulus",
     "thomsen_gamma", "thomsen_gamma_from_logs",
+    "VtiModuli", "c33_from_p_pick", "vti_moduli_from_logs",
     # Rock physics
     "ElasticModuli", "elastic_moduli", "vp_vs_ratio",
     "reuss_average", "voigt_average", "hill_average",

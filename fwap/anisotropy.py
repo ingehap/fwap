@@ -612,3 +612,231 @@ def thomsen_gamma_from_logs(
     )
     gamma = thomsen_gamma(c44, c66)
     return ThomsenGammaResult(c44=c44, c66=c66, gamma=gamma)
+
+
+# ---------------------------------------------------------------------
+# Vertical-well VTI moduli summary
+# ---------------------------------------------------------------------
+
+
+def c33_from_p_pick(
+    slowness_p: np.ndarray,
+    rho: np.ndarray,
+) -> np.ndarray:
+    r"""
+    Vertical P-wave modulus :math:`C_{33}` from monopole P slowness
+    and bulk density.
+
+    For a vertical well in a (possibly transversely-isotropic)
+    formation, the monopole-derived compressional head wave samples
+    the **vertically-incident** P-wave modulus
+
+    .. math::
+
+        C_{33} \;=\; \rho \, V_P^{\,2}
+                \;=\; \rho \,/\, S_P^{\,2}.
+
+    Combined with :math:`C_{44}` (from the dipole shear log) and
+    :math:`C_{66}` (from the Stoneley low-frequency tube wave via
+    :func:`stoneley_horizontal_shear_modulus`), this gives the three
+    of the five VTI elastic constants that a vertical-well sonic
+    acquisition can recover. The remaining two (:math:`C_{11}`,
+    :math:`C_{13}`) need horizontal-P or off-axis-S measurements
+    (walkaway VSP, cross-well, oblique-incidence VSP).
+
+    Parameters
+    ----------
+    slowness_p : ndarray or float
+        Per-depth monopole P slowness (s/m). Typically the
+        ``"P"`` mode slowness from :func:`fwap.picker.pick_modes`.
+        Must be strictly positive.
+    rho : ndarray or float
+        Per-depth formation bulk density (kg/m^3) from the bulk-
+        density log (typically the ``RHOB`` curve). Must be
+        strictly positive.
+
+    Returns
+    -------
+    ndarray
+        :math:`C_{33}` (Pa), broadcast to the common shape of the
+        inputs.
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive.
+
+    See Also
+    --------
+    vti_moduli_from_logs : Bundles C33 + C44 + C66 + gamma in one
+        call from monopole P + dipole S + Stoneley + density.
+    """
+    s_p = np.asarray(slowness_p, dtype=float)
+    rho_arr = np.asarray(rho, dtype=float)
+    if np.any(s_p <= 0):
+        raise ValueError("slowness_p must be strictly positive")
+    if np.any(rho_arr <= 0):
+        raise ValueError("rho must be strictly positive")
+    return rho_arr / (s_p * s_p)
+
+
+@dataclass
+class VtiModuli:
+    r"""
+    Output of :func:`vti_moduli_from_logs`.
+
+    The three off-diagonal elastic constants a vertical-well sonic
+    + density acquisition can recover, plus the corresponding
+    velocities and the Thomsen shear-anisotropy parameter.
+
+    The remaining two Thomsen parameters
+    :math:`\epsilon = (C_{11} - C_{33}) / (2 C_{33})` and
+    :math:`\delta = ((C_{13} + C_{44})^2 - (C_{33} - C_{44})^2)
+    / (2 C_{33} (C_{33} - C_{44}))` are *not* fields here -- they
+    cannot be recovered from a single vertical-well sonic record
+    and need horizontal-P or off-axis-S measurements (walkaway VSP,
+    cross-well, oblique-incidence VSP).
+
+    Attributes
+    ----------
+    c33 : ndarray
+        Vertical P-wave modulus :math:`\rho V_P^2` (Pa). From the
+        monopole P pick.
+    c44 : ndarray
+        Vertical shear modulus :math:`\rho V_{Sv}^2` (Pa). From the
+        dipole shear log.
+    c66 : ndarray
+        Horizontal shear modulus (Pa). From the Stoneley low-
+        frequency tube-wave inversion (White 1983 / Norris 1990).
+    gamma : ndarray
+        Thomsen shear-anisotropy parameter
+        :math:`\gamma = (C_{66} - C_{44}) / (2 C_{44})`. ``0`` for
+        an isotropic formation; positive for typical VTI shales.
+    vp : ndarray
+        Vertical P-wave velocity :math:`V_P = \sqrt{C_{33}/\rho}`
+        (m/s).
+    vsv : ndarray
+        Vertical shear velocity :math:`V_{Sv} = \sqrt{C_{44}/\rho}`
+        (m/s).
+    vsh : ndarray
+        Horizontal shear velocity :math:`V_{Sh} = \sqrt{C_{66}/\rho}`
+        (m/s). Equal to :math:`V_{Sv}` for an isotropic formation;
+        :math:`V_{Sh} > V_{Sv}` for typical VTI shales.
+    """
+    c33: np.ndarray
+    c44: np.ndarray
+    c66: np.ndarray
+    gamma: np.ndarray
+    vp: np.ndarray
+    vsv: np.ndarray
+    vsh: np.ndarray
+
+
+def vti_moduli_from_logs(
+    slowness_p: np.ndarray,
+    slowness_dipole: np.ndarray,
+    slowness_stoneley: np.ndarray,
+    rho: np.ndarray,
+    *,
+    rho_fluid: float,
+    v_fluid: float,
+) -> VtiModuli:
+    r"""
+    Vertical-well VTI elastic-moduli summary from a sonic + density
+    log set.
+
+    One-call wrapper that combines:
+
+    - :math:`C_{33} = \rho V_P^2` from the monopole P slowness via
+      :func:`c33_from_p_pick`;
+    - :math:`C_{44} = \rho V_{Sv}^2` from the dipole shear slowness;
+    - :math:`C_{66}` from the Stoneley low-frequency tube wave via
+      :func:`stoneley_horizontal_shear_modulus` (White 1983 /
+      Norris 1990 inversion);
+    - the Thomsen shear-anisotropy parameter
+      :math:`\gamma = (C_{66} - C_{44}) / (2 C_{44})` via
+      :func:`thomsen_gamma`;
+    - the corresponding vertical and horizontal shear / compressional
+      velocities :math:`V_P`, :math:`V_{Sv}`, :math:`V_{Sh}`.
+
+    For an isotropic formation :math:`V_{Sh} = V_{Sv}` and
+    :math:`\gamma = 0`; positive :math:`\gamma` (and
+    :math:`V_{Sh} > V_{Sv}`) flags VTI behaviour. The Workflow-3
+    deliverable in Mari et al. (1994), Part 3 lists this triple --
+    "shear anisotropy, mechanical properties and fracture
+    indicators from the flexural wave" -- as the dipole-sonic
+    output; this wrapper produces the shear-anisotropy half of it
+    in one call.
+
+    Out of scope
+    ------------
+    The remaining two Thomsen parameters
+    (:math:`\epsilon, \delta`) need horizontal-P or off-axis-S
+    measurements that a vertical-well sonic acquisition cannot
+    provide. Walkaway-VSP or cross-well processing is the standard
+    route; both are outside fwap's scope today and are flagged in
+    :file:`docs/roadmap.md`.
+
+    Parameters
+    ----------
+    slowness_p : ndarray
+        Per-depth monopole P slowness (s/m).
+    slowness_dipole : ndarray
+        Per-depth dipole shear slowness (s/m).
+    slowness_stoneley : ndarray
+        Per-depth low-frequency Stoneley slowness (s/m).
+    rho : ndarray
+        Per-depth formation bulk density (kg/m^3).
+    rho_fluid : float
+        Borehole-fluid density (kg/m^3).
+    v_fluid : float
+        Borehole-fluid acoustic velocity (m/s).
+
+    Returns
+    -------
+    VtiModuli
+        ``c33``, ``c44``, ``c66`` (Pa), ``gamma`` (-), and the
+        derived ``vp``, ``vsv``, ``vsh`` (m/s); all per-depth and
+        broadcast to the common input shape.
+
+    Raises
+    ------
+    ValueError
+        Same conditions as :func:`c33_from_p_pick`,
+        :func:`thomsen_gamma_from_logs`, and
+        :func:`stoneley_horizontal_shear_modulus`.
+
+    See Also
+    --------
+    thomsen_gamma_from_logs :
+        Returns just the (C44, C66, gamma) triple when the monopole
+        P pick or density log isn't available.
+    fwap.geomechanics.geomechanics_indices :
+        Companion one-call wrapper for the geomechanical indices
+        (brittleness, fracability, UCS, closure stress, sand
+        stability) on top of :class:`~fwap.rockphysics.ElasticModuli`.
+    """
+    s_p = np.asarray(slowness_p, dtype=float)
+    s_d = np.asarray(slowness_dipole, dtype=float)
+    s_st = np.asarray(slowness_stoneley, dtype=float)
+    rho_arr = np.asarray(rho, dtype=float)
+    c33 = c33_from_p_pick(s_p, rho_arr)
+    gamma_res = thomsen_gamma_from_logs(
+        slowness_dipole=s_d,
+        slowness_stoneley=s_st,
+        rho=rho_arr,
+        rho_fluid=rho_fluid,
+        v_fluid=v_fluid,
+    )
+    vp = np.sqrt(c33 / rho_arr)
+    vsv = np.sqrt(gamma_res.c44 / rho_arr)
+    vsh = np.sqrt(gamma_res.c66 / rho_arr)
+    return VtiModuli(
+        c33=c33,
+        c44=gamma_res.c44,
+        c66=gamma_res.c66,
+        gamma=gamma_res.gamma,
+        vp=vp,
+        vsv=vsv,
+        vsh=vsh,
+    )
