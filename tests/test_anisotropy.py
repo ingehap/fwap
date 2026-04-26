@@ -351,3 +351,192 @@ def test_thomsen_gamma_from_logs_round_trips_through_write_las(tmp_path):
     assert loaded.units["GAMMA"] == ""
     np.testing.assert_allclose(loaded.curves["GAMMA"], res.gamma,
                                rtol=0, atol=1.0e-3)
+
+
+# ---------------------------------------------------------------------
+# c33_from_p_pick + vti_moduli_from_logs
+# ---------------------------------------------------------------------
+
+
+def test_c33_from_p_pick_round_trips_through_rho_Vp_squared():
+    """C33 = rho * Vp^2 = rho / S_P^2."""
+    import pytest
+    from fwap.anisotropy import c33_from_p_pick
+    rho = 2400.0
+    Vp = 4500.0
+    S_P = 1.0 / Vp
+    c33 = c33_from_p_pick(S_P, rho)
+    assert c33 == pytest.approx(rho * Vp ** 2, rel=1.0e-12)
+
+
+def test_c33_from_p_pick_vector_input_broadcasts():
+    """Per-depth slowness + density gives per-depth C33."""
+    from fwap.anisotropy import c33_from_p_pick
+    rho = np.array([2300.0, 2400.0, 2500.0])
+    Vp  = np.array([4400.0, 4500.0, 4600.0])
+    S_P = 1.0 / Vp
+    c33 = c33_from_p_pick(S_P, rho)
+    np.testing.assert_allclose(c33, rho * Vp ** 2, rtol=1.0e-12)
+
+
+def test_c33_from_p_pick_rejects_non_positive_inputs():
+    """Slowness and density must both be strictly positive."""
+    import pytest
+    from fwap.anisotropy import c33_from_p_pick
+    with pytest.raises(ValueError, match="slowness_p"):
+        c33_from_p_pick(0.0, 2400.0)
+    with pytest.raises(ValueError, match="rho"):
+        c33_from_p_pick(2.0e-4, -1.0)
+
+
+def test_vti_moduli_from_logs_recovers_planted_isotropic_case():
+    """C66 == C44 -> gamma = 0, Vsh == Vsv exactly."""
+    import pytest
+    from fwap.anisotropy import vti_moduli_from_logs
+    rho_f, v_f = 1000.0, 1500.0
+    rho = 2400.0
+    Vp, Vs = 4500.0, 2500.0
+    # Plant an isotropic formation: pick a Stoneley slowness whose
+    # White-formula C66 matches C44.
+    c44 = rho * Vs ** 2
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / c44)
+    out = vti_moduli_from_logs(
+        slowness_p=1.0 / Vp, slowness_dipole=1.0 / Vs,
+        slowness_stoneley=s_st, rho=rho,
+        rho_fluid=rho_f, v_fluid=v_f,
+    )
+    assert out.c33 == pytest.approx(rho * Vp ** 2, rel=1.0e-12)
+    assert out.c44 == pytest.approx(c44, rel=1.0e-12)
+    assert out.c66 == pytest.approx(c44, rel=1.0e-12)
+    assert out.gamma == pytest.approx(0.0, abs=1.0e-12)
+    assert out.vp == pytest.approx(Vp, rel=1.0e-12)
+    assert out.vsv == pytest.approx(Vs, rel=1.0e-12)
+    assert out.vsh == pytest.approx(Vs, rel=1.0e-12)
+
+
+def test_vti_moduli_from_logs_planted_vti_case():
+    """C66 = 1.3 C44 -> gamma = 0.15; Vsh > Vsv."""
+    import pytest
+    from fwap.anisotropy import vti_moduli_from_logs
+    rho_f, v_f = 1000.0, 1500.0
+    rho = 2400.0
+    Vp, Vs = 4500.0, 2500.0
+    c44 = rho * Vs ** 2
+    c66 = 1.3 * c44
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / c66)
+    out = vti_moduli_from_logs(
+        slowness_p=1.0 / Vp, slowness_dipole=1.0 / Vs,
+        slowness_stoneley=s_st, rho=rho,
+        rho_fluid=rho_f, v_fluid=v_f,
+    )
+    assert out.gamma == pytest.approx(0.15, rel=1.0e-12)
+    assert out.vsh > out.vsv
+    # Vsh = sqrt(C66/rho) = sqrt(1.3) * Vsv
+    assert out.vsh == pytest.approx(np.sqrt(1.3) * Vs, rel=1.0e-12)
+
+
+def test_vti_moduli_from_logs_vector_inputs_broadcast():
+    """Per-depth arrays in -> per-depth fields out, all aligned."""
+    from fwap.anisotropy import vti_moduli_from_logs
+    n = 4
+    rho_f, v_f = 1000.0, 1500.0
+    rho = np.full(n, 2400.0)
+    Vp = np.array([4400.0, 4500.0, 4600.0, 4700.0])
+    Vs = np.array([2400.0, 2500.0, 2600.0, 2700.0])
+    c44 = rho * Vs ** 2
+    c66 = c44 * np.array([1.0, 1.1, 1.2, 1.3])
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / c66)
+    out = vti_moduli_from_logs(
+        slowness_p=1.0 / Vp, slowness_dipole=1.0 / Vs,
+        slowness_stoneley=s_st, rho=rho,
+        rho_fluid=rho_f, v_fluid=v_f,
+    )
+    for fld in (out.c33, out.c44, out.c66, out.gamma,
+                out.vp, out.vsv, out.vsh):
+        assert fld.shape == (n,)
+    np.testing.assert_allclose(out.gamma, [0.0, 0.05, 0.10, 0.15],
+                               rtol=1.0e-12, atol=1.0e-12)
+    # Vsh / Vsv ratio is sqrt(C66 / C44).
+    np.testing.assert_allclose(out.vsh / out.vsv, np.sqrt(c66 / c44),
+                               rtol=1.0e-12)
+
+
+def test_vti_moduli_from_logs_internal_consistency():
+    """gamma matches (c66 - c44) / (2 c44); velocities match sqrt(C/rho)."""
+    from fwap.anisotropy import vti_moduli_from_logs
+    rho_f, v_f = 1000.0, 1500.0
+    rho = 2400.0
+    Vp, Vs = 4500.0, 2500.0
+    c66 = 1.2 * rho * Vs ** 2
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / c66)
+    out = vti_moduli_from_logs(
+        slowness_p=1.0 / Vp, slowness_dipole=1.0 / Vs,
+        slowness_stoneley=s_st, rho=rho,
+        rho_fluid=rho_f, v_fluid=v_f,
+    )
+    np.testing.assert_allclose(
+        out.gamma, (out.c66 - out.c44) / (2.0 * out.c44), rtol=1.0e-12)
+    np.testing.assert_allclose(out.vp,  np.sqrt(out.c33 / rho), rtol=1.0e-12)
+    np.testing.assert_allclose(out.vsv, np.sqrt(out.c44 / rho), rtol=1.0e-12)
+    np.testing.assert_allclose(out.vsh, np.sqrt(out.c66 / rho), rtol=1.0e-12)
+
+
+def test_vti_moduli_from_logs_rejects_non_positive_inputs():
+    """All slownesses and density must be strictly positive."""
+    import pytest
+    from fwap.anisotropy import vti_moduli_from_logs
+    with pytest.raises(ValueError, match="slowness_p"):
+        vti_moduli_from_logs(
+            slowness_p=0.0, slowness_dipole=4.0e-4,
+            slowness_stoneley=8.0e-4, rho=2400.0,
+            rho_fluid=1000.0, v_fluid=1500.0)
+    with pytest.raises(ValueError, match="slowness_dipole"):
+        vti_moduli_from_logs(
+            slowness_p=2.0e-4, slowness_dipole=-1.0,
+            slowness_stoneley=8.0e-4, rho=2400.0,
+            rho_fluid=1000.0, v_fluid=1500.0)
+    with pytest.raises(ValueError, match="slowness_stoneley"):
+        vti_moduli_from_logs(
+            slowness_p=2.0e-4, slowness_dipole=4.0e-4,
+            slowness_stoneley=0.0, rho=2400.0,
+            rho_fluid=1000.0, v_fluid=1500.0)
+    with pytest.raises(ValueError, match="rho"):
+        vti_moduli_from_logs(
+            slowness_p=2.0e-4, slowness_dipole=4.0e-4,
+            slowness_stoneley=8.0e-4, rho=0.0,
+            rho_fluid=1000.0, v_fluid=1500.0)
+
+
+def test_vti_moduli_from_logs_round_trips_through_write_las(tmp_path):
+    """C33 / C44 / C66 / GAMMA / VP / VSV / VSH mnemonics carry units."""
+    from fwap.anisotropy import vti_moduli_from_logs
+    from fwap.io import read_las, write_las
+    n = 4
+    depth = np.linspace(1000.0, 1003.0, n)
+    rho_f, v_f = 1000.0, 1500.0
+    rho = np.full(n, 2400.0)
+    Vp = np.full(n, 4500.0)
+    Vs = np.full(n, 2500.0)
+    c44 = rho * Vs ** 2
+    c66 = c44 * np.linspace(1.0, 1.3, n)
+    s_st = np.sqrt(1.0 / v_f ** 2 + rho_f / c66)
+    out = vti_moduli_from_logs(
+        slowness_p=1.0 / Vp, slowness_dipole=1.0 / Vs,
+        slowness_stoneley=s_st, rho=rho,
+        rho_fluid=rho_f, v_fluid=v_f,
+    )
+    curves = {
+        "C33": out.c33, "C44": out.c44, "C66": out.c66,
+        "GAMMA": out.gamma,
+        "VP": out.vp, "VSV": out.vsv, "VSH": out.vsh,
+    }
+    path = str(tmp_path / "vti.las")
+    write_las(path, depth, curves, well_name="VTI_FULL")
+    loaded = read_las(path)
+    assert loaded.units["C33"] == "Pa"
+    assert loaded.units["C44"] == "Pa"
+    assert loaded.units["C66"] == "Pa"
+    assert loaded.units["GAMMA"] == ""
+    assert loaded.units["VP"]  == "m/s"
+    assert loaded.units["VSV"] == "m/s"
+    assert loaded.units["VSH"] == "m/s"

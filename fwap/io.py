@@ -179,10 +179,15 @@ _FWAP_UNITS: Mapping[str, str] = {
     "SH":    "Pa",   # Minimum horizontal (closure) stress
     "SV":    "Pa",   # Vertical (overburden) stress
     "SAND":  "",     # Sand-stability flag (0 = sand-prone, 1 = stable)
-    # VTI shear anisotropy (fwap.anisotropy.thomsen_gamma_from_logs).
+    # VTI elastic moduli (fwap.anisotropy.vti_moduli_from_logs /
+    # thomsen_gamma_from_logs).
+    "C33":   "Pa",   # Vertical P-wave modulus (rho * Vp^2)
     "C44":   "Pa",   # Vertical shear modulus (rho * Vsv^2)
     "C66":   "Pa",   # Horizontal shear modulus (Stoneley inversion)
     "GAMMA": "",     # Thomsen shear-anisotropy parameter
+    "VP":    "m/s",  # Vertical P-wave velocity
+    "VSV":   "m/s",  # Vertical shear velocity
+    "VSH":   "m/s",  # Horizontal shear velocity (Stoneley-derived)
     # Stoneley reflection / fracture-aperture inversion
     # (fwap.rockphysics.hornby_fracture_aperture).
     "RFRAC": "",     # Stoneley reflection coefficient |R|
