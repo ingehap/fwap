@@ -479,6 +479,149 @@ def stoneley_horizontal_shear_modulus(
     return rho_fluid / diff
 
 
+def stoneley_horizontal_shear_modulus_corrected(
+    slowness_stoneley: np.ndarray,
+    rho: np.ndarray,
+    slowness_p: np.ndarray,
+    *,
+    rho_fluid: float,
+    v_fluid: float,
+) -> np.ndarray:
+    r"""
+    Tang & Cheng (2004) §5.4 finite-formation-impedance correction
+    on the White (1983) Stoneley → :math:`C_{66}` inversion.
+
+    The simple :func:`stoneley_horizontal_shear_modulus` formula
+    (White 1983)
+
+    .. math::
+
+        S_{ST}^2 \;=\; \frac{1}{V_f^2} \;+\; \frac{\rho_f}{C_{66}}
+
+    treats the formation as **rigid** against radial tube-wave
+    displacement. In reality the Stoneley wave couples weakly to the
+    formation P-mode -- the radial pressure oscillation pumps fluid
+    into the formation slightly, even at zero matrix permeability,
+    which softens the *effective* shear modulus felt by the tube
+    wave. Tang & Cheng (2004), sect. 5.4 (eq. 5.31) give the
+    refinement:
+
+    .. math::
+
+        S_{ST}^2 \;=\; \frac{1}{V_f^2}
+                      \;+\; \frac{\rho_f}{C_{66,\mathrm{eff}}},
+        \qquad
+        C_{66,\mathrm{eff}} \;=\; C_{66} \,
+            \left(1 \;-\; \frac{\rho_f V_f^{\,2}}{\rho V_P^{\,2}}\right).
+
+    Solving for :math:`C_{66}`:
+
+    .. math::
+
+        C_{66} \;=\;
+        \frac{\rho_f}{(S_{ST}^2 - 1/V_f^2)}
+        \,/\, \left(1 - \frac{\rho_f V_f^{\,2}}{\rho V_P^{\,2}}\right).
+
+    The correction factor is
+    :math:`1 / (1 - \rho_f V_f^{\,2}/(\rho V_P^{\,2}))`. For brine
+    in a typical sandstone (:math:`V_P` ≈ 4500 m/s) it is ~1.05;
+    for slow VTI shales (:math:`V_P` ≈ 2500-3000 m/s) it can reach
+    1.10–1.20 and matters operationally for the recovered shear
+    anisotropy. In the rigid-formation limit
+    (:math:`V_P \to \infty`) the correction vanishes and the formula
+    reduces to :func:`stoneley_horizontal_shear_modulus`.
+
+    Parameters
+    ----------
+    slowness_stoneley : ndarray or float
+        Per-depth low-frequency Stoneley slowness (s/m). Must
+        satisfy ``slowness_stoneley > 1 / v_fluid`` everywhere.
+    rho : ndarray or float
+        Per-depth formation bulk density (kg/m^3). Must be strictly
+        positive.
+    slowness_p : ndarray or float
+        Per-depth monopole P slowness (s/m), giving the formation
+        P-wave modulus :math:`\rho V_P^2 = \rho / S_P^2`. Must be
+        strictly positive.
+    rho_fluid : float
+        Borehole-fluid density (kg/m^3).
+    v_fluid : float
+        Borehole-fluid acoustic velocity (m/s).
+
+    Returns
+    -------
+    ndarray
+        Corrected :math:`C_{66}` (Pa), broadcast to the common shape
+        of the inputs.
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive, if any Stoneley slowness is at
+        or below the fluid slowness, or if the formation P-wave
+        modulus :math:`\rho V_P^2` does not exceed the fluid bulk
+        modulus :math:`\rho_f V_f^2` (the correction factor would
+        otherwise be non-positive -- physically a vanishing or
+        inverted radial impedance contrast and outside the model's
+        scope).
+
+    See Also
+    --------
+    stoneley_horizontal_shear_modulus :
+        The uncorrected (White 1983) form. Equivalent to this
+        function in the :math:`V_P \to \infty` limit; faster and
+        the right choice when the monopole P pick or density log is
+        unavailable.
+
+    References
+    ----------
+    * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
+      Acoustic Methods.* Elsevier, Section 5.4 (Stoneley-wave
+      inversion for the horizontal shear modulus in VTI
+      formations).
+    * Norris, A. N. (1990). The speed of a tube wave. *J. Acoust.
+      Soc. Am.* 87(1), 414-417 (general radial-impedance form).
+    * White, J. E. (1983). *Underground Sound: Application of
+      Seismic Waves.* Elsevier, sect. 5.5 (rigid-formation limit).
+    """
+    if rho_fluid <= 0.0:
+        raise ValueError("rho_fluid must be strictly positive")
+    if v_fluid <= 0.0:
+        raise ValueError("v_fluid must be strictly positive")
+    s_st = np.asarray(slowness_stoneley, dtype=float)
+    rho_arr = np.asarray(rho, dtype=float)
+    s_p = np.asarray(slowness_p, dtype=float)
+    if np.any(rho_arr <= 0):
+        raise ValueError("rho must be strictly positive")
+    if np.any(s_p <= 0):
+        raise ValueError("slowness_p must be strictly positive")
+    s_f2 = 1.0 / (v_fluid * v_fluid)
+    diff = s_st * s_st - s_f2
+    if np.any(diff <= 0.0):
+        raise ValueError(
+            "slowness_stoneley must exceed 1 / v_fluid everywhere "
+            "(Stoneley wave is slower than the unconfined fluid wave); "
+            f"got min slowness {float(np.min(s_st)):.3e} s/m, fluid "
+            f"slowness {1.0/v_fluid:.3e} s/m."
+        )
+    # Formation P-wave modulus rho * V_P^2 = rho / s_p^2 must exceed
+    # the fluid bulk modulus rho_f * V_f^2 so the correction factor
+    # 1 - (rho_f V_f^2)/(rho V_P^2) stays positive.
+    rho_vp2 = rho_arr / (s_p * s_p)
+    rho_f_vf2 = rho_fluid * v_fluid * v_fluid
+    factor = 1.0 - rho_f_vf2 / rho_vp2
+    if np.any(factor <= 0.0):
+        raise ValueError(
+            "formation P-wave modulus rho * V_P^2 must exceed the "
+            "fluid bulk modulus rho_fluid * v_fluid^2 everywhere "
+            "(the Tang & Cheng (2004) correction factor "
+            "1 - rho_f V_f^2 / (rho V_P^2) must stay positive); got "
+            f"min rho * V_P^2 = {float(np.min(rho_vp2)):.3e} Pa "
+            f"vs rho_f * V_f^2 = {rho_f_vf2:.3e} Pa."
+        )
+    return rho_fluid / (diff * factor)
+
+
 def thomsen_gamma(c44: np.ndarray, c66: np.ndarray) -> np.ndarray:
     r"""
     Thomsen (1986) shear-anisotropy parameter from C44 and C66.
@@ -740,6 +883,7 @@ def vti_moduli_from_logs(
     *,
     rho_fluid: float,
     v_fluid: float,
+    correct_for_p_modulus: bool = True,
 ) -> VtiModuli:
     r"""
     Vertical-well VTI elastic-moduli summary from a sonic + density
@@ -750,9 +894,12 @@ def vti_moduli_from_logs(
     - :math:`C_{33} = \rho V_P^2` from the monopole P slowness via
       :func:`c33_from_p_pick`;
     - :math:`C_{44} = \rho V_{Sv}^2` from the dipole shear slowness;
-    - :math:`C_{66}` from the Stoneley low-frequency tube wave via
-      :func:`stoneley_horizontal_shear_modulus` (White 1983 /
-      Norris 1990 inversion);
+    - :math:`C_{66}` from the Stoneley low-frequency tube wave -- by
+      default the Tang & Cheng (2004) §5.4 form via
+      :func:`stoneley_horizontal_shear_modulus_corrected`, falling
+      back to the rigid-formation White (1983) form via
+      :func:`stoneley_horizontal_shear_modulus` when
+      ``correct_for_p_modulus=False``;
     - the Thomsen shear-anisotropy parameter
       :math:`\gamma = (C_{66} - C_{44}) / (2 C_{44})` via
       :func:`thomsen_gamma`;
@@ -791,6 +938,17 @@ def vti_moduli_from_logs(
         Borehole-fluid density (kg/m^3).
     v_fluid : float
         Borehole-fluid acoustic velocity (m/s).
+    correct_for_p_modulus : bool, default True
+        Apply the Tang & Cheng (2004) §5.4 finite-formation-impedance
+        correction on the Stoneley → :math:`C_{66}` inversion.
+        Recommended (and the default) because the monopole P pick
+        and density log are already required arguments. Pass
+        ``False`` to recover the literal White (1983) reading; the
+        :math:`\gamma` returned in that mode matches
+        :func:`thomsen_gamma_from_logs` exactly. The two modes
+        typically differ by 5–15 % in :math:`C_{66}` (and
+        correspondingly in :math:`\gamma`) -- larger in slow VTI
+        shales, smaller in fast carbonates.
 
     Returns
     -------
@@ -803,14 +961,21 @@ def vti_moduli_from_logs(
     ------
     ValueError
         Same conditions as :func:`c33_from_p_pick`,
-        :func:`thomsen_gamma_from_logs`, and
-        :func:`stoneley_horizontal_shear_modulus`.
+        :func:`thomsen_gamma_from_logs`, and -- when
+        ``correct_for_p_modulus=True`` --
+        :func:`stoneley_horizontal_shear_modulus_corrected`
+        (additionally requires the formation P-wave modulus to
+        exceed the fluid bulk modulus).
 
     See Also
     --------
     thomsen_gamma_from_logs :
         Returns just the (C44, C66, gamma) triple when the monopole
-        P pick or density log isn't available.
+        P pick or density log isn't available; uses the uncorrected
+        White (1983) C66 inversion exclusively.
+    stoneley_horizontal_shear_modulus_corrected :
+        The Tang & Cheng (2004) C66 inversion used here when
+        ``correct_for_p_modulus=True``.
     fwap.geomechanics.geomechanics_indices :
         Companion one-call wrapper for the geomechanical indices
         (brittleness, fracability, UCS, closure stress, sand
@@ -821,6 +986,25 @@ def vti_moduli_from_logs(
     s_st = np.asarray(slowness_stoneley, dtype=float)
     rho_arr = np.asarray(rho, dtype=float)
     c33 = c33_from_p_pick(s_p, rho_arr)
+    if correct_for_p_modulus:
+        if np.any(s_d <= 0):
+            raise ValueError("slowness_dipole must be strictly positive")
+        c44 = rho_arr / (s_d * s_d)
+        c66 = stoneley_horizontal_shear_modulus_corrected(
+            slowness_stoneley=s_st,
+            rho=rho_arr,
+            slowness_p=s_p,
+            rho_fluid=rho_fluid,
+            v_fluid=v_fluid,
+        )
+        gamma = thomsen_gamma(c44, c66)
+        vp = np.sqrt(c33 / rho_arr)
+        vsv = np.sqrt(c44 / rho_arr)
+        vsh = np.sqrt(c66 / rho_arr)
+        return VtiModuli(
+            c33=c33, c44=c44, c66=c66, gamma=gamma,
+            vp=vp, vsv=vsv, vsh=vsh,
+        )
     gamma_res = thomsen_gamma_from_logs(
         slowness_dipole=s_d,
         slowness_stoneley=s_st,
