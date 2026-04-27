@@ -444,16 +444,31 @@ def stoneley_dispersion(
 #
 # Formation SV vector-potential, theta component:
 #
-#     psi_theta  =  C * K_1(s r) * sin(theta)
+#     psi_theta  =  C * K_1(s r) * cos(theta)
 #
 # Formation SH vector-potential, z component:
 #
-#     psi_z  =  D * K_1(s r) * cos(theta)
+#     psi_z  =  D * K_1(s r) * sin(theta)
 #
 # All four amplitudes ``A, B, C, D`` are taken complex in general;
 # in the bound regime, after the row/column phase rescaling fixed
 # in substep 1.5, the resulting 4x4 modal matrix has purely real
 # entries.
+#
+# Sector-closure check (the constraint that pins the cos / sin
+# choices above): u_r and u_z must live on the cos(theta) sector
+# to match the fluid pressure ``P proportional to cos(theta)`` and
+# the resulting fluid u_r and u_z. In the curl identity
+# ``(curl psi)_r = (1/r) d_theta(psi_z) - d_z(psi_theta)`` the term
+# ``(1/r) d_theta(psi_z)`` lands on cos(theta) only if ``psi_z``
+# carries sin(theta); the term ``d_z(psi_theta)`` lands on
+# cos(theta) only if ``psi_theta`` carries cos(theta). The same
+# constraint independently fixes u_z via
+# ``(curl psi)_z = (1/r) d_r(r psi_theta)`` (cos(theta) iff
+# ``psi_theta`` ~ cos(theta)). The earlier draft of this block had
+# the two factors swapped; substep 1.2's full per-component
+# derivation is what surfaced the inconsistency, exactly the kind
+# of self-check substep 1.6 is supposed to catch in code form.
 #
 # Why two solid-side vector-potential components (not one)
 # --------------------------------------------------------
@@ -462,9 +477,10 @@ def stoneley_dispersion(
 # At n >= 1 the tangential-shear (sigma_r_theta = 0) and axial-
 # shear (sigma_rz = 0) boundary conditions couple SV and SH through
 # their azimuthal derivatives. Both potential components must be
-# retained: ``psi_theta`` carries the SV part of the wall response,
-# while ``psi_z`` carries the SH part that participates in the
-# u_r / sigma_rr / sigma_rz balance on the cos(theta) sector.
+# retained: ``psi_theta`` carries the SV part of the wall response
+# on the cos(theta) sector, while ``psi_z`` carries the SH part on
+# the sin(theta) sector. The two sectors couple through the four
+# boundary conditions enumerated above.
 #
 # Gauge fixing
 # ------------
@@ -497,15 +513,151 @@ def stoneley_dispersion(
 #   2nd ed., sect. 7.2. Vector-potential Helmholtz decomposition
 #   and gauge choice in cylindrical coordinates.
 #
+# =====================================================================
+# Substep 1.2 -- displacements from the four potentials
+# =====================================================================
+#
+# Goal: write u_r, u_theta, u_z in each region as linear combinations
+# of (A, B, C, D) with all azimuthal factors made explicit. The
+# results below feed substep 1.3 (stress components) directly.
+#
+# Cylindrical-coordinate identities
+# ---------------------------------
+# Scalar gradient:
+#
+#     (grad phi)_r     = d_r phi
+#     (grad phi)_theta = (1/r) d_theta phi
+#     (grad phi)_z     = d_z phi
+#
+# Vector curl (with our gauge psi_r = 0, so the psi_r-bearing terms
+# are dropped):
+#
+#     (curl psi)_r     = (1/r) d_theta(psi_z) - d_z(psi_theta)
+#     (curl psi)_theta = -d_r(psi_z)
+#     (curl psi)_z     = (1/r) d_r(r psi_theta)
+#
+# Bessel recurrences used below (derive from
+# ``I_n'(x) = I_{n-1}(x) - n I_n(x)/x`` and
+# ``K_n'(x) = -K_{n-1}(x) - n K_n(x)/x``):
+#
+#     I_1'(x) = I_0(x) - I_1(x) / x
+#     K_1'(x) = -K_0(x) - K_1(x) / x
+#
+# And the "(1/r) d_r [r K_1(s r)] = -s K_0(s r)" identity, which
+# follows from ``d/dx [x K_1(x)] = -x K_0(x)``:
+#
+#     d_r [r K_1(s r)] = K_1(s r) + r s K_1'(s r)
+#                      = K_1(s r) + r s [-K_0(s r) - K_1(s r)/(s r)]
+#                      = -r s K_0(s r)
+#     ==>  (1/r) d_r [r K_1(s r)] = -s K_0(s r).
+#
+# z-derivative: ``e^{i k_z z}`` makes ``d_z -> i k_z``.
+#
+# Fluid region (r < a)
+# --------------------
+# The fluid is inviscid; the only scalar is the pressure. Linearised
+# Euler with time dependence ``e^{-i omega t}``:
+#
+#     -rho_f omega^2 u^{(f)} = -grad P     ==>   u^{(f)} = grad P / (rho_f omega^2).
+#
+# With ``P = A I_1(F r) cos(theta) e^{i k_z z}``:
+#
+#     u_r^{(f)}     = (A / (rho_f omega^2)) F I_1'(F r) * cos(theta)
+#                   = (A / (rho_f omega^2)) [F I_0(F r) - I_1(F r) / r] * cos(theta)
+#     u_theta^{(f)} = -(A / (rho_f omega^2 r)) I_1(F r) * sin(theta)
+#     u_z^{(f)}     = (i k_z A / (rho_f omega^2)) I_1(F r) * cos(theta)
+#
+# Sector check: u_r and u_z carry cos(theta), u_theta carries sin(theta).
+# Matches the cos / sin partition pinned in 1.1.
+#
+# Solid region (r > a)
+# --------------------
+# Substitute the gauge-fixed Helmholtz decomposition
+# ``u^{(s)} = grad phi + curl psi`` with the 1.1 ansatz
+# (``phi = B K_1(p r) cos(theta)``, ``psi_theta = C K_1(s r) cos(theta)``,
+# ``psi_z = D K_1(s r) sin(theta)``).
+#
+# Per-component derivation:
+#
+# u_r^{(s)} = d_r phi + (1/r) d_theta(psi_z) - d_z(psi_theta)
+#
+#     d_r phi              = B p K_1'(p r) cos(theta)
+#                          = -B [p K_0(p r) + K_1(p r) / r] cos(theta)
+#     (1/r) d_theta(psi_z) = (1/r) D K_1(s r) cos(theta)
+#                          = (D / r) K_1(s r) cos(theta)
+#     d_z(psi_theta)       = i k_z C K_1(s r) cos(theta)
+#
+#     ==> u_r^{(s)} = [ -B p K_0(p r)
+#                       - B K_1(p r) / r
+#                       + D K_1(s r) / r
+#                       - i k_z C K_1(s r) ] * cos(theta)
+#
+# u_theta^{(s)} = (1/r) d_theta phi + (curl psi)_theta
+#               = (1/r) d_theta phi - d_r(psi_z)
+#
+#     (1/r) d_theta phi = -(B / r) K_1(p r) sin(theta)
+#     d_r(psi_z)        = D s K_1'(s r) sin(theta)
+#                       = -D [s K_0(s r) + K_1(s r) / r] sin(theta)
+#
+#     ==> u_theta^{(s)} = [ -B K_1(p r) / r
+#                           + D s K_0(s r)
+#                           + D K_1(s r) / r ] * sin(theta)
+#
+# u_z^{(s)} = d_z phi + (curl psi)_z
+#           = d_z phi + (1/r) d_r(r psi_theta)
+#
+#     d_z phi               = i k_z B K_1(p r) cos(theta)
+#     (1/r) d_r(r psi_theta) = (C cos(theta) / r) * d_r[r K_1(s r)]
+#                            = (C cos(theta) / r) * [-r s K_0(s r)]
+#                            = -C s K_0(s r) cos(theta)
+#
+#     ==> u_z^{(s)} = [ i k_z B K_1(p r)
+#                       - C s K_0(s r) ] * cos(theta)
+#
+# Sector check: u_r and u_z on cos(theta), u_theta on sin(theta).
+# Matches the partition pinned in 1.1; ``A, B, D`` appear with cos
+# in u_r and ``B, C`` with cos in u_z, while ``B, D`` carry sin in
+# u_theta. No sector cross-talk -- the gauge + ansatz close as
+# advertised.
+#
+# Wall (r = a) summary -- direct input to substep 1.3
+# ---------------------------------------------------
+# Drop the azimuthal factors and the implicit ``e^{i k_z z}``;
+# write ``Fa = F a, pa = p a, sa = s a`` for compactness.
+#
+# Fluid (cos(theta) sector except u_theta which is sin(theta)):
+#
+#     u_r^{(f)}(a) / cos = (A / (rho_f omega^2)) [F I_0(Fa) - I_1(Fa) / a]
+#     u_theta^{(f)}(a) / sin = -(A / (rho_f omega^2 a)) I_1(Fa)
+#     u_z^{(f)}(a) / cos = (i k_z A / (rho_f omega^2)) I_1(Fa)
+#
+# Solid:
+#
+#     u_r^{(s)}(a) / cos = -B p K_0(pa)
+#                          - B K_1(pa) / a
+#                          + D K_1(sa) / a
+#                          - i k_z C K_1(sa)
+#
+#     u_theta^{(s)}(a) / sin = -B K_1(pa) / a
+#                              + D s K_0(sa)
+#                              + D K_1(sa) / a
+#
+#     u_z^{(s)}(a) / cos = i k_z B K_1(pa) - C s K_0(sa)
+#
+# The factor ``i k_z`` on the C and "i k_z B" terms anticipates the
+# substep-1.5 phase rescaling: we will multiply the C column by ``-i``
+# and the row carrying these factors by ``i`` so the combined effect
+# leaves ``det M_1`` unchanged but kills every imaginary entry.
+#
 # Status
 # ------
-# Substep 1.1 (this block, conventions pinned) :  done.
-# Substep 1.2 (displacements from potentials)  :  TODO.
-# Substep 1.3 (stresses, Lame reduction)       :  TODO.
-# Substep 1.4 (BCs, azimuthal-factor strip)    :  TODO.
-# Substep 1.5 (phase-rescale to real entries)  :  TODO.
-# Substep 1.6 (analytical-limit cross-check)   :  TODO.
-# Substep 1.7 (_modal_determinant_n1 in code)  :  TODO.
-# Substep 1.8 (transcription smoke test)       :  TODO.
+# Substep 1.1 (conventions pinned, sin/cos corrected): done.
+# Substep 1.2 (displacements from potentials)        : done.
+# Substep 1.3 (stresses, Lame reduction)             : TODO.
+# Substep 1.4 (BCs, azimuthal-factor strip)          : TODO.
+# Substep 1.5 (phase-rescale to real entries)        : TODO.
+# Substep 1.6 (analytical-limit cross-check)         : TODO.
+# Substep 1.7 (_modal_determinant_n1 in code)        : TODO.
+# Substep 1.8 (transcription smoke test)             : TODO.
 # Then Step 2 (root-finder) and Step 3 (public ``flexural_dispersion``
 # API) per the parent implementation plan.
