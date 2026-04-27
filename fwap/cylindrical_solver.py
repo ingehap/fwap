@@ -381,3 +381,131 @@ def stoneley_dispersion(
         freq=f_arr,
         slowness=slowness,
     )
+
+
+# =====================================================================
+# n = 1 dipole flexural mode -- conventions and field ansatz
+# =====================================================================
+#
+# The block below pins the conventions for the n=1 dipole flexural
+# solver. Substeps that follow (matrix construction, root-finder,
+# public API) all reference the symbol names and sign choices fixed
+# here; later commits MUST NOT silently re-letter the unknowns or
+# flip the azimuthal split, because a transcription bug introduced by
+# such a rename would only surface as a wrong number from
+# ``flexural_dispersion`` later.
+#
+# Inheritance from n = 0
+# ----------------------
+# The sign conventions in the module docstring carry over verbatim:
+#
+# * Time dependence  ``e^{-i omega t}``
+# * Axial dependence ``e^{i k_z z}`` with bound modes ``k_z > 0``
+# * Bound regime     ``k_z > omega / V_S``  (so ``F, p, s`` real, > 0)
+#
+#   F = sqrt(k_z^2 - omega^2 / V_f^2)        (fluid evanescent)
+#   p = sqrt(k_z^2 - omega^2 / V_P^2)        (formation P decay)
+#   s = sqrt(k_z^2 - omega^2 / V_S^2)        (formation S decay)
+#
+# The scalar Helmholtz decomposition (P potential ``phi``, vector
+# potential ``psi``) is identical; only the azimuthal index
+# ``e^{i n theta}`` flips from ``n = 0`` to ``n = 1``.
+#
+# Azimuthal split (new at n = 1)
+# ------------------------------
+# At n = 1 the boundary conditions decouple into two independent
+# Fourier sectors. We pick the cos(theta) branch so the field
+# components on each sector are:
+#
+#     cos(theta) sector :  u_r , u_z , sigma_rr , sigma_rz
+#     sin(theta) sector :  u_theta , sigma_r_theta
+#
+# The four boundary conditions at ``r = a`` distribute as:
+#
+#     row 1   u_r continuity              (cos theta)
+#     row 2   sigma_rr balance            (cos theta)
+#     row 3   sigma_r_theta = 0           (sin theta)
+#     row 4   sigma_rz = 0                (cos theta)
+#
+# After stripping the azimuthal factor, the four BCs close on the
+# four amplitudes (A, B, C, D) defined below. Mixing of cos / sin
+# sectors in any single row indicates a sign error in the ansatz
+# and must be caught before transcription (substep 1.4 cross-check).
+#
+# Field representation, bound regime
+# ----------------------------------
+# Fluid pressure (regular at ``r = 0``):
+#
+#     P  =  A * I_1(F r) * cos(theta)
+#
+# Formation P scalar potential (decaying at ``r -> infty``):
+#
+#     phi  =  B * K_1(p r) * cos(theta)
+#
+# Formation SV vector-potential, theta component:
+#
+#     psi_theta  =  C * K_1(s r) * sin(theta)
+#
+# Formation SH vector-potential, z component:
+#
+#     psi_z  =  D * K_1(s r) * cos(theta)
+#
+# All four amplitudes ``A, B, C, D`` are taken complex in general;
+# in the bound regime, after the row/column phase rescaling fixed
+# in substep 1.5, the resulting 4x4 modal matrix has purely real
+# entries.
+#
+# Why two solid-side vector-potential components (not one)
+# --------------------------------------------------------
+# At n = 0 axisymmetric the SH polarization decouples and only
+# ``psi_theta`` is needed (see ``_modal_determinant_n0`` above).
+# At n >= 1 the tangential-shear (sigma_r_theta = 0) and axial-
+# shear (sigma_rz = 0) boundary conditions couple SV and SH through
+# their azimuthal derivatives. Both potential components must be
+# retained: ``psi_theta`` carries the SV part of the wall response,
+# while ``psi_z`` carries the SH part that participates in the
+# u_r / sigma_rr / sigma_rz balance on the cos(theta) sector.
+#
+# Gauge fixing
+# ------------
+# We adopt ``div psi = 0`` (the standard Helmholtz gauge) and set
+# ``psi_r = 0``. The remaining two solid-side vector-potential
+# components ``psi_theta`` and ``psi_z`` together with the P scalar
+# potential ``phi`` give three solid-side amplitudes; with the
+# fluid pressure amplitude that is four unknowns total, matching
+# the four boundary conditions above.
+#
+# Kurkjian & Chang (1986) eq. 4 use an equivalent gauge written in
+# terms of ``(chi, Gamma)`` potentials; the algebra in substeps
+# 1.2-1.4 follows Paillet & Cheng (1991) ch. 4 with ``psi_r = 0``
+# already enforced.
+#
+# References
+# ----------
+# * Kurkjian, A. L., & Chang, S.-K. (1986). Acoustic multipole
+#   sources in fluid-filled boreholes. *Geophysics* 51(1), 148-163.
+#   Eqs. 4-9 give the azimuthal-order field decomposition; the
+#   most explicit derivation of the n=1 4x4 system in print.
+# * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
+#   Boreholes*, ch. 4. CRC Press. The four-potential cylindrical
+#   decomposition with explicit n=1 forms; the boundary-condition
+#   table this block implements.
+# * Schmitt, D. P. (1988). Shear-wave logging in elastic
+#   formations. *J. Acoust. Soc. Am.* 84(6), 2230-2244 (the
+#   isotropic n=1 dispersion curves the validation tests target).
+# * Aki, K., & Richards, P. G. (2002). *Quantitative Seismology*,
+#   2nd ed., sect. 7.2. Vector-potential Helmholtz decomposition
+#   and gauge choice in cylindrical coordinates.
+#
+# Status
+# ------
+# Substep 1.1 (this block, conventions pinned) :  done.
+# Substep 1.2 (displacements from potentials)  :  TODO.
+# Substep 1.3 (stresses, Lame reduction)       :  TODO.
+# Substep 1.4 (BCs, azimuthal-factor strip)    :  TODO.
+# Substep 1.5 (phase-rescale to real entries)  :  TODO.
+# Substep 1.6 (analytical-limit cross-check)   :  TODO.
+# Substep 1.7 (_modal_determinant_n1 in code)  :  TODO.
+# Substep 1.8 (transcription smoke test)       :  TODO.
+# Then Step 2 (root-finder) and Step 3 (public ``flexural_dispersion``
+# API) per the parent implementation plan.
