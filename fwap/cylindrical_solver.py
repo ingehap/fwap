@@ -777,6 +777,128 @@ def stoneley_dispersion(
 # ``-P(a) = -A I_1(F a) cos(theta)`` (from the 1.1 ansatz directly).
 # No I-Bessel second derivatives appear; the I-side recurrence
 # ``I_1'(x) = I_0(x) - I_1(x) / x`` from 1.2 is sufficient.
+
+# =====================================================================
+# Substep 1.3.c -- solid sigma_rr with Lame reduction
+# =====================================================================
+#
+# Goal: write sigma_rr^{(s)}(a) on the cos(theta) sector as a
+# coefficient sum on (B, C, D). The fluid contribution at the wall
+# is the trivial ``sigma_rr^{(f)}(a) = -P(a) = -A I_1(F a) cos(theta)``.
+#
+# Inputs from 1.2 (cos(theta) factor stripped; r kept symbolic):
+#
+#     u_r^{(s)} / cos(theta) = - B p K_0(p r)
+#                              - B K_1(p r) / r
+#                              + D K_1(s r) / r
+#                              - i k_z C K_1(s r)
+#
+# Decomposition (from 1.3.a):
+#
+#     sigma_rr^{(s)} = lambda * laplacian(phi) + 2 mu * d_r u_r^{(s)}
+#                    = - lambda k_P^2 * (B K_1(p r) cos(theta))
+#                      + 2 mu * d_r u_r^{(s)}
+#
+# Per-amplitude differentiation of u_r^{(s)} (each line uses the
+# Bessel recurrences from 1.2):
+#
+# B contributions to d_r u_r^{(s)}:
+#
+#     d_r [- B p K_0(p r)] = - B p^2 K_0'(p r) = + B p^2 K_1(p r)
+#         (uses K_0'(x) = -K_1(x))
+#
+#     d_r [- B K_1(p r) / r]
+#         = - B [ p K_1'(p r) / r - K_1(p r) / r^2 ]
+#         = - B [ p (- K_0(p r) - K_1(p r) / (p r)) / r - K_1(p r) / r^2 ]
+#         = + B [ p K_0(p r) / r + 2 K_1(p r) / r^2 ]
+#
+#     B-sum:   B [ p^2 K_1(p r) + p K_0(p r) / r + 2 K_1(p r) / r^2 ]
+#
+# Equivalently (1.3.b sanity check): the B contribution to u_r^{(s)}
+# is ``B d_r K_1(p r)`` (since -p K_0 - K_1/r = d_r K_1(p r)), so
+# ``d_r [B-part] = B d_r^2 K_1(p r)``. Substep 1.3.b gives
+# d_r^2 K_1(p r) = p^2 K_1(p r) + p K_0(p r) / r + 2 K_1(p r) / r^2.
+# Both routes match. [End sanity check.]
+#
+# C contributions to d_r u_r^{(s)}:
+#
+#     d_r [- i k_z C K_1(s r)]
+#         = - i k_z C s K_1'(s r)
+#         = - i k_z C s (- K_0(s r) - K_1(s r) / (s r))
+#         = + i k_z C [ s K_0(s r) + K_1(s r) / r ]
+#
+# D contributions to d_r u_r^{(s)}:
+#
+#     d_r [+ D K_1(s r) / r]
+#         = D [ s K_1'(s r) / r - K_1(s r) / r^2 ]
+#         = D [ s (- K_0(s r) - K_1(s r) / (s r)) / r - K_1(s r) / r^2 ]
+#         = - D [ s K_0(s r) / r + 2 K_1(s r) / r^2 ]
+#
+# Sum, multiplied by 2 mu:
+#
+#     2 mu * d_r u_r^{(s)} / cos(theta) = 2 mu * {
+#         B [ p^2 K_1(p r) + p K_0(p r) / r + 2 K_1(p r) / r^2 ]
+#         + i k_z C [ s K_0(s r) + K_1(s r) / r ]
+#         - D [ s K_0(s r) / r + 2 K_1(s r) / r^2 ]
+#     }
+#
+# Add the lambda piece (B-only, on K_1(p r)):
+#
+#     - lambda k_P^2 * B K_1(p r)
+#
+# This combines with ``2 mu p^2 B K_1(p r)`` from the strain piece via
+# the substep-1.3.a Lame reduction
+#
+#     - lambda k_P^2 + 2 mu p^2 = mu (2 k_z^2 - k_S^2),
+#
+# leaving the B-coefficient of K_1(p r) as ``mu (2 k_z^2 - k_S^2)`` --
+# the same form that appears at row 2 of ``_modal_determinant_n0``.
+# All other B / C / D terms have no lambda dependence and pass
+# through 2 mu untouched.
+#
+# Result (cos(theta) factor reinstated, r = a):
+#
+#     sigma_rr^{(s)}(a) / cos(theta) = mu * {
+#         B [
+#             (2 k_z^2 - k_S^2) K_1(p a)
+#             + 2 p K_0(p a) / a
+#             + 4 K_1(p a) / a^2
+#         ]
+#         + 2 i k_z C [
+#             s K_0(s a) + K_1(s a) / a
+#         ]
+#         - 2 D [
+#             s K_0(s a) / a + 2 K_1(s a) / a^2
+#         ]
+#     }
+#
+# Fluid side at the wall:
+#
+#     sigma_rr^{(f)}(a) / cos(theta) = - P(a) / cos(theta) = - A I_1(F a)
+#
+# Sector check
+# ------------
+# Every term on the right is a real coefficient (modulo the i k_z
+# factor on the C entry, which is killed by the substep-1.5 phase
+# rescaling) times a Bessel evaluation, all multiplied by cos(theta).
+# No sin(theta) appears, confirming sigma_rr lives entirely on the
+# cos(theta) sector. This is row 2 of the upcoming 4x4 in 1.4.
+#
+# Comparison with n = 0
+# ---------------------
+# The B-coefficient at n = 0 is
+# ``mu * [(2 k_z^2 - k_S^2) K_0(p a) + 2 p K_1(p a) / a]``
+# (see ``_modal_determinant_n0`` row 2). At n = 1 the corresponding
+# expression has K_0 / K_1 swapped (because phi ~ K_1(p r) at n = 1
+# instead of K_0(p r) at n = 0) and gains an extra ``+ 4 K_1(p a) / a^2``
+# term -- the genuine 1/r^2 correction that 1.3.b's K_1''
+# identity introduces. The C-coefficient form
+# ``2 i k_z mu [s K_0(s a) + K_1(s a) / a]`` is structurally
+# identical at both orders, since the SV potential ``psi_theta`` is
+# proportional to K_1(s r) at both n = 0 and n = 1. The D entry is
+# new at n = 1; it carries the SH potential ``psi_z`` that the n = 0
+# case does not have (substep 1.1 "Why two solid-side
+# vector-potential components" paragraph).
 #
 # Status
 # ------
@@ -784,7 +906,7 @@ def stoneley_dispersion(
 # Substep 1.2 (displacements from potentials)        : done.
 # Substep 1.3.a (Hooke + strains + Lame reduction)   : done.
 # Substep 1.3.b (Bessel second-derivative identities): done.
-# Substep 1.3.c (sigma_rr with Lame reduction)       : TODO.
+# Substep 1.3.c (sigma_rr with Lame reduction)       : done.
 # Substep 1.3.d (sigma_r_theta on sin sector)        : TODO.
 # Substep 1.3.e (sigma_rz on cos sector)             : TODO.
 # Substep 1.3.f (wall summary + sector check)        : TODO.
