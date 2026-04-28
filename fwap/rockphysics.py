@@ -462,6 +462,241 @@ def stoneley_permeability_indicator(
     return obs / ref - 1.0
 
 
+def stoneley_permeability_tang_cheng(
+    slowness_observed: np.ndarray,
+    slowness_reference: float | np.ndarray,
+    *,
+    frequency: float,
+    fluid_bulk_modulus: float,
+    fluid_viscosity: float,
+    fluid_density: float,
+    porosity: np.ndarray,
+    frame_bulk_modulus: np.ndarray,
+) -> np.ndarray:
+    r"""
+    Quantitative Stoneley permeability via Tang-Cheng-Toksoz (1991).
+
+    Closed-form low-frequency inversion of the Stoneley slowness
+    shift to absolute formation permeability in m^2. Calibrated
+    complement to the dimensionless rank-ordering returned by
+    :func:`stoneley_permeability_indicator`.
+
+    Model
+    -----
+    The simplified Biot-Rosenbaum closed form (Tang, Cheng & Toksoz
+    1991, eq. 36; Tang & Cheng 2004, sect. 5.1) at angular frequency
+    :math:`\omega` well below the Biot characteristic frequency
+    relates the dispersive part of the fractional Stoneley slowness
+    shift :math:`\alpha_\mathrm{ST}` to the Biot characteristic
+    angular frequency :math:`\omega_c`:
+
+    .. math::
+
+        \alpha_\mathrm{ST}(\omega) \;\approx\;
+        \frac{1}{2}\,\frac{K_f}{K_\phi}
+        \cdot \frac{i\,\omega/\omega_c}{1 + i\,\omega/\omega_c},
+
+        \qquad
+        \omega_c \;=\; \frac{\eta\,\phi}{\kappa\,\rho_f}.
+
+    The dispersion factor is written so that
+    :math:`\alpha_\mathrm{ST} \to 0` as :math:`\kappa \to 0` (tight
+    formation; no slowdown vs the tight reference) and
+    :math:`\alpha_\mathrm{ST} \to K_f/(2 K_\phi)` as
+    :math:`\kappa \to \infty` (model upper bound), matching the
+    sign convention of :func:`stoneley_permeability_indicator`
+    where positive :math:`\alpha_\mathrm{ST}` flags permeable zones.
+
+    Inversion (real-valued :math:`\alpha_\mathrm{ST}`)
+    --------------------------------------------------
+    For real :math:`\alpha_\mathrm{ST}` (the typical case using the
+    slowness shift only, not the imaginary attenuation part), take
+    the real part of the dispersion factor. Letting
+    :math:`x = \omega / \omega_c` and :math:`A = K_f / (2 K_\phi)`,
+
+    .. math::
+
+        \mathrm{Re}\!\left[\frac{i x}{1 + i x}\right] = \frac{x^2}{1 + x^2},
+
+        \qquad
+        \alpha_\mathrm{ST} = A \cdot \frac{x^2}{1 + x^2}.
+
+    Solving for :math:`x^2`:
+
+    .. math::
+
+        x^2 = \frac{\alpha_\mathrm{ST}}{A - \alpha_\mathrm{ST}},
+        \qquad
+        \omega_c = \frac{\omega}{\sqrt{x^2}},
+        \qquad
+        \kappa = \frac{\eta\,\phi}{\omega_c\,\rho_f}
+              = \frac{\eta\,\phi}{\omega\,\rho_f}
+                \sqrt{\frac{\alpha_\mathrm{ST}}{A - \alpha_\mathrm{ST}}}.
+
+    Out-of-model handling:
+
+    * :math:`\alpha_\mathrm{ST} \le 0` (tight formation or
+      noise-driven negative): clipped to :math:`\kappa = 0`.
+    * :math:`0 < \alpha_\mathrm{ST} < A`: standard inversion.
+    * :math:`\alpha_\mathrm{ST} \ge A` (observed shift exceeds the
+      model upper bound): NaN. Typically indicates open fractures
+      or the reference zone was not truly tight; the
+      :func:`hornby_fracture_aperture` model is the natural
+      complement when the cause is fractures.
+
+    Parameters
+    ----------
+    slowness_observed : ndarray, shape (n_depths,)
+        Per-depth Stoneley-wave slowness (s/m). Same input as for
+        :func:`stoneley_permeability_indicator`.
+    slowness_reference : float or ndarray
+        Tight-reference Stoneley slowness (s/m). Either a single
+        value (one tight zone) or a per-depth reference baseline.
+    frequency : float
+        Frequency (Hz) at which the slowness was measured. Must
+        be well below the Biot characteristic frequency for the
+        formations of interest -- typically 1-2 kHz for sonic
+        Stoneley logging in moderate-permeability rocks.
+    fluid_bulk_modulus : float
+        Borehole-fluid bulk modulus :math:`K_f` (Pa). Typical
+        values: water 2.2 GPa = 2.2e9 Pa, oil 1.0-1.5 GPa,
+        drilling mud 2.0-2.5 GPa.
+    fluid_viscosity : float
+        Borehole-fluid dynamic viscosity :math:`\eta` (Pa s).
+        Typical: water 1e-3 Pa s, light oil 1e-3 to 1e-2 Pa s,
+        drilling mud 1e-2 to 1e-1 Pa s.
+    fluid_density : float
+        Borehole-fluid mass density :math:`\rho_f` (kg/m^3).
+    porosity : ndarray, shape (n_depths,)
+        Per-depth formation porosity :math:`\phi`, dimensionless,
+        in the open interval (0, 1).
+    frame_bulk_modulus : ndarray, shape (n_depths,)
+        Per-depth dry-frame bulk modulus :math:`K_\phi` of the
+        porous formation (Pa). Sets the model upper bound
+        :math:`A = K_f / (2 K_\phi)` on :math:`\alpha_\mathrm{ST}`.
+
+    Returns
+    -------
+    ndarray, shape (n_depths,)
+        Permeability :math:`\kappa` in m^2. Multiply by
+        ``9.869233e-13`` to convert to darcies (1 darcy
+        :math:`\approx` 9.87e-13 m^2; 1 millidarcy
+        :math:`\approx` 9.87e-16 m^2). Zero where the slowness
+        shift is non-positive (clipped). NaN where the shift
+        exceeds the model upper bound.
+
+    Raises
+    ------
+    ValueError
+        If ``frequency``, ``fluid_bulk_modulus``,
+        ``fluid_viscosity``, or ``fluid_density`` is non-positive;
+        if any slowness, frame modulus, or porosity is out of its
+        physical range; or if input array shapes are incompatible.
+
+    See Also
+    --------
+    stoneley_permeability_indicator : Dimensionless rank-ordering
+        without the Biot calibration; the natural input to this
+        function via the alpha_ST = (s_obs / s_ref - 1) form.
+    hornby_fracture_aperture : Reflected-wave inversion for the
+        complementary case where the slowness shift exceeds the
+        Biot-Rosenbaum upper bound A and the cause is open
+        fractures rather than matrix permeability.
+    stoneley_amplitude_fracture_indicator : Energy-loss-based
+        permeability indicator with complementary noise
+        characteristics.
+
+    Notes
+    -----
+    The model assumes a uniform, isotropic, simply-connected pore
+    space with Darcy-flow exchange between the borehole and the
+    formation. It does not model:
+
+    * The imaginary part of :math:`\alpha_\mathrm{ST}` (Stoneley
+      attenuation); the real-part inversion uses the slowness
+      shift only. The imaginary-part inversion would carry
+      independent permeability information when amplitude data
+      is reliable -- a follow-up.
+    * Mudcake or formation-altered-zone radial layering.
+    * Anisotropic permeability (each depth gets a single scalar).
+    * Open fractures (use ``hornby_fracture_aperture`` for those).
+
+    Validation against Tang & Cheng (2004) Figure 5.3 (synthetic
+    permeable bed of 1-2 darcy bracketed by tight limestone of
+    0.01-0.1 mD) is in the test suite as a round-trip check on
+    the forward / inverse pair.
+
+    References
+    ----------
+    * Tang, X.-M., Cheng, A., & Toksoz, M. N. (1991). Dynamic
+      permeability and borehole Stoneley waves: A simplified
+      Biot-Rosenbaum model. *J. Acoust. Soc. Am.* 90(3),
+      1632-1646.
+    * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
+      Acoustic Methods.* Elsevier, Section 5.1 (the closed-form
+      inversion as implemented here, plus the Figure 5.3
+      validation example).
+    * Kostek, S., & Johnson, D. L. (1992). The interaction of
+      tube waves with borehole fractures, Part I: Numerical
+      models. *Geophysics* 57(6), 784-795.
+    """
+    if frequency <= 0:
+        raise ValueError("frequency must be positive")
+    if fluid_bulk_modulus <= 0:
+        raise ValueError("fluid_bulk_modulus must be positive")
+    if fluid_viscosity <= 0:
+        raise ValueError("fluid_viscosity must be positive")
+    if fluid_density <= 0:
+        raise ValueError("fluid_density must be positive")
+
+    s_obs = np.asarray(slowness_observed, dtype=float)
+    s_ref = np.asarray(slowness_reference, dtype=float)
+    phi = np.asarray(porosity, dtype=float)
+    K_phi = np.asarray(frame_bulk_modulus, dtype=float)
+
+    if np.any(s_obs <= 0):
+        raise ValueError("slowness_observed must be strictly positive")
+    if np.any(s_ref <= 0):
+        raise ValueError("slowness_reference must be strictly positive")
+    if np.any(phi <= 0) or np.any(phi >= 1):
+        raise ValueError("porosity must be strictly between 0 and 1")
+    if np.any(K_phi <= 0):
+        raise ValueError("frame_bulk_modulus must be strictly positive")
+
+    omega = 2.0 * np.pi * frequency
+    K_f = fluid_bulk_modulus
+    eta = fluid_viscosity
+    rho_f = fluid_density
+
+    # Fractional slowness shift (matches stoneley_permeability_indicator).
+    alpha_ST = s_obs / s_ref - 1.0
+
+    # Model upper bound on alpha_ST: A = K_f / (2 K_phi). Per-depth.
+    A = K_f / (2.0 * K_phi)
+
+    # Broadcast to a common shape; raises ValueError on incompatible
+    # input shapes.
+    alpha_b, A_b, phi_b = np.broadcast_arrays(alpha_ST, A, phi)
+
+    kappa = np.zeros_like(alpha_b, dtype=float)
+
+    # Out-of-model: alpha_ST >= A. Set NaN before the valid mask so
+    # the valid branch can overwrite when bounds happen to coincide.
+    out_of_model = alpha_b >= A_b
+    kappa[out_of_model] = np.nan
+
+    # Standard inversion: 0 < alpha_ST < A.
+    valid = (alpha_b > 0) & (alpha_b < A_b)
+    if np.any(valid):
+        ratio = alpha_b[valid] / (A_b[valid] - alpha_b[valid])
+        kappa[valid] = (eta * phi_b[valid] * np.sqrt(ratio)
+                        / (omega * rho_f))
+
+    # alpha_ST <= 0 (tight or noise-driven negative): kappa stays 0.
+
+    return kappa
+
+
 def stoneley_amplitude_fracture_indicator(
     amplitude_observed: np.ndarray,
     amplitude_reference: float | np.ndarray,

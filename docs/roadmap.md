@@ -276,23 +276,27 @@ interest) before attempting dipole flexural.
 
 ### B. Quantitative Stoneley permeability (Tang–Cheng–Toksöz 1991)
 
-**Status**: fwap ships three complementary, *uncalibrated* Stoneley
-indicators / inversions:
+**Status**: closed in the [Unreleased] cycle. fwap now ships four
+complementary Stoneley permeability / fracture inversions:
 
-- `stoneley_permeability_indicator` returns the fractional slowness
-  shift relative to a tight reference (matrix permeability + open
-  fractures together);
-- `stoneley_amplitude_fracture_indicator` returns the fractional
-  amplitude deficit (transmission-loss form; complementary noise
-  characteristics);
-- `hornby_fracture_aperture` inverts the reflected-wave coefficient
-  for an actual fracture aperture in metres (rigid-frame, single-
+- `stoneley_permeability_indicator` -- dimensionless fractional
+  slowness shift vs a tight reference (rank-ordering only).
+- `stoneley_amplitude_fracture_indicator` -- fractional amplitude
+  deficit (transmission-loss form; complementary noise
+  characteristics).
+- `hornby_fracture_aperture` -- reflected-wave-coefficient
+  inversion for fracture aperture in metres (rigid-frame, single-
   fracture limit).
+- **`stoneley_permeability_tang_cheng`** *(new)* -- absolute matrix
+  permeability in m^2 from the Tang-Cheng-Toksoz (1991) simplified
+  Biot-Rosenbaum closed form. Real-valued inversion of the
+  slowness shift; out-of-model cases (`alpha_ST <= 0` clipped to
+  `kappa = 0`; `alpha_ST >= K_f / (2 K_phi)` returns NaN with a
+  pointer to `hornby_fracture_aperture` for the open-fracture
+  case). Validated by round-trip recovery on a Tang & Cheng 2004
+  fig 5.3 synthetic (1-2 darcy bed in tight limestone). 11 tests.
 
-What is **still missing** is the matrix-permeability inversion that
-maps the Stoneley slowness shift onto an absolute permeability in m^2
-or mD. That is the Tang–Cheng–Toksöz (1991) simplified Biot-Rosenbaum
-piece outlined below, and remains the open item.
+The original problem statement is preserved below for reference.
 
 **What to build**:
 
