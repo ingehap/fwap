@@ -648,12 +648,146 @@ def stoneley_dispersion(
 # substep-1.5 phase rescaling: we will multiply the C column by ``-i``
 # and the row carrying these factors by ``i`` so the combined effect
 # leaves ``det M_1`` unchanged but kills every imaginary entry.
+
+# =====================================================================
+# Substep 1.3.a -- Hooke's law, strains, and the Lame-reduction trick
+# =====================================================================
+#
+# Goal: pin the strain-displacement, Hooke, and divergence identities
+# that 1.3.c-e use to turn the displacement forms in 1.2 into the
+# four stress quantities the boundary conditions need at r = a:
+#
+#     sigma_rr^{(f)}(a)       (= -P(a); fluid carries no shear)
+#     sigma_rr^{(s)}(a)       (cos(theta) sector; BC2)
+#     sigma_r_theta^{(s)}(a)  (sin(theta) sector; BC3)
+#     sigma_rz^{(s)}(a)       (cos(theta) sector; BC4)
+#
+# Strain-displacement relations, only the three components used at r = a:
+#
+#     eps_rr        = d_r u_r
+#     eps_r_theta   = (1/2) [ (1/r) d_theta u_r + d_r u_theta - u_theta / r ]
+#     eps_rz        = (1/2) [ d_z u_r + d_r u_z ]
+#
+# Hooke's law (isotropic solid, Lame parameters lambda, mu):
+#
+#     sigma_rr        = lambda * div(u) + 2 mu * eps_rr
+#     sigma_r_theta   = 2 mu * eps_r_theta
+#     sigma_rz        = 2 mu * eps_rz
+#
+# Note that lambda enters only sigma_rr; the two shear stresses are
+# pure mu, which is what makes substeps 1.3.d and 1.3.e short.
+#
+# Divergence in cylindrical coordinates:
+#
+#     div(u) = (1/r) d_r(r u_r) + (1/r) d_theta(u_theta) + d_z(u_z)
+#
+# Helmholtz reduction. With the gauge ``u = grad phi + curl psi`` (and
+# ``psi_r = 0`` from 1.1):
+#
+#     div(u) = div(grad phi) + div(curl psi)
+#            = laplacian(phi) + 0
+#            = laplacian(phi).
+#
+# In the formation, phi satisfies the P-wave equation
+# ``laplacian(phi) + (omega / V_P)^2 phi = 0``, so
+#
+#     laplacian(phi) = - (omega / V_P)^2 phi
+#                    = - k_P^2 phi.
+#
+# This is what kills the ``lambda``-bearing term in sigma_rr at the
+# wall: substituting laplacian(phi) = -k_P^2 phi and using the
+# definition p^2 = k_z^2 - k_P^2, the lambda-vs-mu combination
+# collapses via the algebraic identity
+#
+#     - lambda * k_P^2 + 2 mu * p^2 = mu * (2 k_z^2 - k_S^2),
+#
+# i.e. the same Lame reduction used in the n=0 derivation
+# (``_modal_determinant_n0`` docstring; see the
+# ``mu * (2 k_z^2 - k_S^2)`` line). Verification: from
+# ``rho V_P^2 = lambda + 2 mu`` and ``rho V_S^2 = mu``,
+#
+#     LHS = - lambda * (rho omega^2 / (lambda + 2 mu)) + 2 mu * p^2
+#         = - lambda * (rho omega^2 / (lambda + 2 mu))
+#           + 2 mu * (k_z^2 - omega^2 / V_P^2)
+#         = 2 mu * k_z^2
+#           - rho omega^2 * (lambda + 2 mu) / (lambda + 2 mu)
+#         = 2 mu * k_z^2 - rho omega^2
+#         = mu * (2 k_z^2 - k_S^2)              (using mu k_S^2 = rho omega^2).
+#
+# This identity is the only place lambda enters the n=1 derivation;
+# substeps 1.3.d (sigma_r_theta) and 1.3.e (sigma_rz) use only mu.
+#
+
+# =====================================================================
+# Substep 1.3.b -- Bessel second-derivative identities
+# =====================================================================
+#
+# Goal: pin compact forms for ``d_r^2 K_1(p r)`` and ``d_r^2 K_1(s r)``,
+# the only second derivatives needed in 1.3.c-e. Forms below are
+# written in K_0 and K_1 only, matching the existing ``_k0_k1``
+# helper -- no K_2 helper is needed in code.
+#
+# Modified-Bessel ODE for K_1 (n=1):
+#
+#     x^2 K_1''(x) + x K_1'(x) - (x^2 + 1) K_1(x) = 0
+#
+# Combined with the recurrence ``K_1'(x) = -K_0(x) - K_1(x) / x``
+# (from substep 1.2), this gives
+#
+#     K_1''(x) = K_1(x) + K_0(x) / x + 2 K_1(x) / x^2.       (*)
+#
+# Derivation:
+#     K_1''(x) = [(x^2 + 1) K_1(x) - x K_1'(x)] / x^2
+#              = K_1(x) + K_1(x) / x^2 - K_1'(x) / x
+#              = K_1(x) + K_1(x) / x^2
+#                + K_0(x) / x + K_1(x) / x^2
+#              = K_1(x) + K_0(x) / x + 2 K_1(x) / x^2.
+#
+# Equivalent compressed form via the recurrence
+# ``K_2(x) = K_0(x) + 2 K_1(x) / x``:
+#
+#     K_1''(x) = K_1(x) + K_2(x) / x.
+#
+# We use form (*) downstream because the existing ``_k0_k1`` helper
+# returns exactly K_0 and K_1; adopting a K_2 helper would add code
+# for no algebraic gain.
+#
+# Per-coordinate forms used in 1.3.c-e (chain rule with x = p r or
+# x = s r introduces a factor of p or s on each derivative):
+#
+#     d_r^2 [K_1(p r)] = p^2 * K_1''(p r)
+#                      = p^2 K_1(p r)
+#                        + p K_0(p r) / r
+#                        + 2 K_1(p r) / r^2
+#
+#     d_r^2 [K_1(s r)] = s^2 * K_1''(s r)
+#                      = s^2 K_1(s r)
+#                        + s K_0(s r) / r
+#                        + 2 K_1(s r) / r^2
+#
+# Sanity check at high frequency: for ``p a >> 1`` and ``s a >> 1``,
+# both K_0 and K_1 decay as ``e^{-x} / sqrt(x)``, so the leading term
+# in each form is ``p^2 K_1(p r)`` (resp. ``s^2 K_1(s r)``). The
+# subleading ``1/r`` and ``1/r^2`` corrections are what distinguish
+# the cylindrical algebra from the planar half-space Rayleigh-equation
+# limit that substep 1.6 will check.
+#
+# Fluid side: no second derivatives needed. The only fluid input to
+# the four BCs is ``u_r^{(f)}(a)`` (from 1.2) and the wall pressure
+# ``-P(a) = -A I_1(F a) cos(theta)`` (from the 1.1 ansatz directly).
+# No I-Bessel second derivatives appear; the I-side recurrence
+# ``I_1'(x) = I_0(x) - I_1(x) / x`` from 1.2 is sufficient.
 #
 # Status
 # ------
 # Substep 1.1 (conventions pinned, sin/cos corrected): done.
 # Substep 1.2 (displacements from potentials)        : done.
-# Substep 1.3 (stresses, Lame reduction)             : TODO.
+# Substep 1.3.a (Hooke + strains + Lame reduction)   : done.
+# Substep 1.3.b (Bessel second-derivative identities): done.
+# Substep 1.3.c (sigma_rr with Lame reduction)       : TODO.
+# Substep 1.3.d (sigma_r_theta on sin sector)        : TODO.
+# Substep 1.3.e (sigma_rz on cos sector)             : TODO.
+# Substep 1.3.f (wall summary + sector check)        : TODO.
 # Substep 1.4 (BCs, azimuthal-factor strip)          : TODO.
 # Substep 1.5 (phase-rescale to real entries)        : TODO.
 # Substep 1.6 (analytical-limit cross-check)         : TODO.
