@@ -899,6 +899,143 @@ def stoneley_dispersion(
 # new at n = 1; it carries the SH potential ``psi_z`` that the n = 0
 # case does not have (substep 1.1 "Why two solid-side
 # vector-potential components" paragraph).
+
+# =====================================================================
+# Substep 1.3.d -- solid sigma_r_theta (sin(theta) sector)
+# =====================================================================
+#
+# Goal: write sigma_r_theta^{(s)}(a) on the sin(theta) sector as a
+# coefficient sum on (B, C, D). Fluid contribution: identically zero
+# (an inviscid fluid carries no shear stress); the A entry of this
+# row of the upcoming 4x4 will be 0.
+#
+# Decomposition (from 1.3.a, no lambda, pure mu):
+#
+#     sigma_r_theta^{(s)} = mu * [
+#         (1/r) d_theta u_r + d_r u_theta - u_theta / r
+#     ]
+#
+# Inputs from 1.2 (azimuthal factors stripped; r kept symbolic):
+#
+#     u_r^{(s)} / cos(theta) = - B p K_0(p r)
+#                              - B K_1(p r) / r
+#                              + D K_1(s r) / r
+#                              - i k_z C K_1(s r)
+#
+#     u_theta^{(s)} / sin(theta) = - B K_1(p r) / r
+#                                  + D s K_0(s r)
+#                                  + D K_1(s r) / r
+#
+# The cos(theta) -> sin(theta) sector flip happens at
+# ``(1/r) d_theta u_r``: since u_r ~ cos(theta), one gets
+# ``d_theta u_r / sin(theta) = - [u_r / cos(theta)]``. The other two
+# pieces (d_r u_theta, u_theta / r) are already on sin(theta).
+#
+# Piece (i):  (1/r) d_theta u_r / sin(theta)
+# -----------------------------------------
+#
+#     = - (1/r) [ - B p K_0(p r)
+#                 - B K_1(p r) / r
+#                 + D K_1(s r) / r
+#                 - i k_z C K_1(s r) ]
+#
+#     = + B p K_0(p r) / r
+#       + B K_1(p r) / r^2
+#       - D K_1(s r) / r^2
+#       + i k_z C K_1(s r) / r
+#
+# Piece (ii):  d_r u_theta / sin(theta)
+# -------------------------------------
+# Per-amplitude differentiation:
+#
+#     d_r [- B K_1(p r) / r] = + B [ p K_0(p r) / r + 2 K_1(p r) / r^2 ]
+#         (same calculation as the B / d_r u_r line in 1.3.c, applied
+#          to the K_1(p r)/r combination)
+#
+#     d_r [+ D s K_0(s r)] = + D s^2 K_0'(s r)
+#                          = - D s^2 K_1(s r)
+#         (uses K_0'(x) = -K_1(x))
+#
+#     d_r [+ D K_1(s r) / r] = - D [ s K_0(s r) / r + 2 K_1(s r) / r^2 ]
+#         (same calculation as the D entry in 1.3.c)
+#
+#     Sum:  + B [ p K_0(p r) / r + 2 K_1(p r) / r^2 ]
+#           - D [ s^2 K_1(s r) + s K_0(s r) / r + 2 K_1(s r) / r^2 ]
+#
+# Piece (iii):  - u_theta / r / sin(theta)
+# ----------------------------------------
+#
+#     = - (1/r) [ - B K_1(p r) / r
+#                 + D s K_0(s r)
+#                 + D K_1(s r) / r ]
+#
+#     = + B K_1(p r) / r^2
+#       - D s K_0(s r) / r
+#       - D K_1(s r) / r^2
+#
+# Sum, collected by amplitude
+# ---------------------------
+# Multiply the (i) + (ii) + (iii) sum by mu.
+#
+# B contributions (each from one or more pieces -- counts in brackets):
+#
+#     p K_0(p r) / r:  (i) + (ii)        =  2
+#     K_1(p r) / r^2:  (i) + (ii) + (iii) =  1 + 2 + 1 = 4
+#
+#     ==> B-sum = 2 * [ p K_0(p r) / r + 2 K_1(p r) / r^2 ]
+#
+# C contributions:
+#
+#     K_1(s r) / r:    (i)               =  1 (with i k_z prefactor)
+#
+#     ==> C-sum = i k_z * K_1(s r) / r
+#
+# D contributions (note opposite signs between piece (ii) and the
+# combined (i) + (iii) bookkeeping):
+#
+#     s^2 K_1(s r):     - 1 from (ii)
+#     s K_0(s r) / r:   - 1 from (ii) - 1 from (iii)  =  - 2
+#     K_1(s r) / r^2:   - 1 from (i) - 2 from (ii) - 1 from (iii)  =  - 4
+#
+#     ==> D-sum = - [ s^2 K_1(s r) + 2 s K_0(s r) / r + 4 K_1(s r) / r^2 ]
+#
+# Result (sin(theta) factor reinstated, r = a)
+# --------------------------------------------
+#
+#     sigma_r_theta^{(s)}(a) / sin(theta) = mu * {
+#         2 B [
+#             p K_0(p a) / a + 2 K_1(p a) / a^2
+#         ]
+#         + i k_z C [
+#             K_1(s a) / a
+#         ]
+#         - D [
+#             s^2 K_1(s a)
+#             + 2 s K_0(s a) / a
+#             + 4 K_1(s a) / a^2
+#         ]
+#     }
+#
+# Fluid side at the wall:
+#
+#     sigma_r_theta^{(f)}(a) = 0     (inviscid fluid, no shear stress)
+#
+# Sector check
+# ------------
+# All right-hand terms carry sin(theta) (the piece-(i) cos(theta)
+# was flipped to sin(theta) by ``d_theta``); no cos(theta) survives.
+# This will be row 3 of the upcoming 4x4 in 1.4, with A = 0 in that
+# row from the fluid-side identity above.
+#
+# The C entry is the smallest of the three (just K_1(s a)/a, no
+# K_0 mixing) because C only appears in u_r and not in u_theta; the
+# (1/r) d_theta u_r piece is the only one that touches C. The B
+# entry has identical bracket structure to its sigma_rr counterpart
+# in 1.3.c (``p K_0(p a)/a + 2 K_1(p a)/a^2``) but with prefactor
+# 2 instead of the (2 k_z^2 - k_S^2) + ``...`` form -- because the
+# Lame reduction is absent here (no lambda). The D entry is new
+# at n = 1 and carries the s^2 K_1 piece from differentiating
+# the ``D s K_0(s r)`` term, which has no analogue in 1.3.c.
 #
 # Status
 # ------
@@ -907,7 +1044,7 @@ def stoneley_dispersion(
 # Substep 1.3.a (Hooke + strains + Lame reduction)   : done.
 # Substep 1.3.b (Bessel second-derivative identities): done.
 # Substep 1.3.c (sigma_rr with Lame reduction)       : done.
-# Substep 1.3.d (sigma_r_theta on sin sector)        : TODO.
+# Substep 1.3.d (sigma_r_theta on sin sector)        : done.
 # Substep 1.3.e (sigma_rz on cos sector)             : TODO.
 # Substep 1.3.f (wall summary + sector check)        : TODO.
 # Substep 1.4 (BCs, azimuthal-factor strip)          : TODO.
