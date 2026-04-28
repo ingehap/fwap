@@ -1292,6 +1292,1010 @@ def stoneley_dispersion(
 # The matrix entries do not change between 1.4 and 1.7; only the
 # substep-1.5 phase rescaling and the 1.5/1.7 cosmetic sign
 # adjustments touch them.
+
+# =====================================================================
+# Substep 1.4 -- BC application and azimuthal-factor strip
+# =====================================================================
+#
+# Goal: turn the four wall equations from 1.3.f into a 4x4 linear
+# system on (A, B, C, D) with no theta dependence, confirm the
+# system is generically non-degenerate, and document the row-2 sign
+# convention that 1.7 will adopt to match the n=0 code visually.
+#
+# Azimuthal-factor strip (Fourier orthogonality)
+# ----------------------------------------------
+# Each of the four BCs is enforced at every point on the borehole
+# wall ``r = a``, i.e. for all ``theta in [0, 2 pi)``. Each LHS in
+# 1.3.f has the form
+#
+#     [ coefficient bracket on (A, B, C, D) ] * cos(theta)         (BC1, BC2, BC4)
+#     [ coefficient bracket on (A, B, C, D) ] * sin(theta)         (BC3)
+#
+# Since ``{1, cos(theta), sin(theta)}`` are pairwise orthogonal under
+# the L^2(0, 2 pi) inner product, requiring the LHS to vanish for
+# every theta forces each bracket to vanish independently. The four
+# scalar equations are exactly the rows of the M_pre table from
+# 1.3.f; "stripping cos / sin" is the explicit name for taking each
+# bracket as a self-contained linear equation in (A, B, C, D).
+#
+# After the strip, the modal equation is
+#
+#     M_pre(omega, k_z) @ (A, B, C, D)^T = 0,
+#
+# with M_pre real-valued except on the five entries flagged in
+# 1.3.f's imaginary-entry inventory. The dispersion curve k_z(omega)
+# is the locus where ``det M_pre = 0`` (equivalently, where the
+# system has a non-trivial null vector).
+#
+# Block structure
+# ---------------
+# M_pre has a clean 2x4 / 2x3 block split because the fluid does not
+# carry shear stress:
+#
+#                     |  A     B     C     D  |
+#               BC1   |  *     *     *     *  |   <-- cos sector
+#               BC2   |  *     *     *     *  |   <-- cos sector
+#               BC3   |  0     *     *     *  |   <-- sin sector
+#               BC4   |  0     *     *     *  |   <-- cos sector
+#
+# Rows 3 and 4 live entirely in the (B, C, D) sub-block; only rows
+# 1 and 2 couple the fluid amplitude A to the solid amplitudes.
+# Expanding ``det M_pre`` along the A column gives the structurally
+# meaningful identity
+#
+#     det M_pre = M_pre[1, A] * det(rows={2,3,4}, cols={B,C,D})
+#               - M_pre[2, A] * det(rows={1,3,4}, cols={B,C,D}),
+#
+# i.e. the dispersion equation is a difference of two 3x3 minors
+# weighted by the two non-zero fluid-side entries. The signs and
+# magnitudes of those minors govern the low-f and high-f limits
+# 1.6 will check.
+#
+# Rank / generic non-degeneracy check
+# -----------------------------------
+# For the dispersion equation ``det M_pre = 0`` to define a curve
+# (rather than to be satisfied identically), M_pre must have full
+# rank 4 generically. Two structural observations confirm this:
+#
+# 1. **No identically-zero column.** Every column has at least one
+#    entry that is a positive multiple of an evaluated Bessel
+#    function (and Bessels have isolated zeros at most). The A
+#    column has a non-zero entry on rows 1 and 2 (the I_0 / I_1
+#    forms), so it is not the zero vector. Columns B, C, D each
+#    have non-zero entries on all four rows, so likewise.
+#
+# 2. **No identically-zero row.** Each of the four rows has at
+#    least one non-vanishing entry on the (B, C, D) sub-columns.
+#
+# Together these rule out the two trivial ways the determinant
+# could vanish identically. Linear dependence among rows or among
+# columns at specific (omega, k_z) is exactly what defines the
+# dispersion curve; the substep-1.6 limit checks confirm that
+# those special points reduce to the expected analytical forms
+# (low-f -> ``k_z = omega / V_S``; high-f -> Scholte / Rayleigh).
+#
+# Row-2 sign convention (matches the n=0 code)
+# --------------------------------------------
+# The natural form of BC2 is ``sigma_rr^{(s)}(a) + P(a) = 0`` with
+# coefficients as written in 1.3.f. The existing n=0 code
+# (``_modal_determinant_n0`` row 2 in the docstring) multiplies the
+# row by -1 to write it as ``-sigma_rr^{(s)} - P = 0``, which puts
+# the negative sign on every entry. This is purely cosmetic --
+# multiplying a row of M by -1 multiplies ``det M`` by -1, leaving
+# the locus ``det M = 0`` unchanged.
+#
+# Substep 1.7's transcription should adopt the same convention so
+# the n=0 and n=1 code blocks are visually parallel. The signs
+# come out as:
+#
+#     M[2, A] = - I1
+#     M[2, B] = - mu * [ kz2_kS2 * K1p + 2 p K0p / a + 4 K1p / a^2 ]
+#     M[2, C] = - 2 i k_z mu * [ s K0s + K1s / a ]
+#     M[2, D] = + 2 mu * [ s K0s / a + 2 K1s / a^2 ]
+#
+# (each entry has its 1.3.f form negated).
+#
+# Hand-off to substep 1.5
+# -----------------------
+# 1.4 leaves M_pre as a 4x4 real matrix with five complex entries
+# explicitly flagged. Substep 1.5 will absorb the ``i`` factors via
+# a row/column rescaling whose product is 1, leaving ``det M_pre``
+# numerically invariant but ensuring every entry of the rescaled
+# matrix is real. The spoiler from 1.3.f -- "row 4 by i, column C
+# by (-i)" -- is the rescaling that 1.5 will verify and apply.
+
+# =====================================================================
+# Substep 1.5 -- phase rescaling to a fully real M_1
+# =====================================================================
+#
+# Goal: produce a real-valued 4x4 ``M_1(omega, k_z)`` such that
+# ``det M_1 = det M_pre``, so a real-valued root finder operating on
+# ``det M_1`` recovers exactly the dispersion curve of M_pre. The
+# rescaling required is small (one row, one column) and the proof
+# of det invariance is two lines.
+#
+# The five imaginary entries (recap from 1.3.f, with the row-2 sign
+# convention from 1.4 already applied):
+#
+#     M_pre[1, C] = + i k_z K1s
+#     M_pre[2, C] = - 2 i k_z mu [s K0s + K1s / a]
+#     M_pre[3, C] = + i k_z mu K1s / a
+#     M_pre[4, B] = - 2 i k_z mu [p K0p + K1p / a]
+#     M_pre[4, D] = + i k_z mu K1s / a
+#
+# Each is a real coefficient times an explicit ``i`` factor; nothing
+# else in M_pre carries an imaginary part.
+#
+# Rescaling
+# ---------
+# Apply the two operations in either order (they commute on the
+# entries that aren't simultaneously in row 4 *and* column C):
+#
+#     Step 1.  Multiply *row 4* by ``i``.
+#     Step 2.  Multiply *column C* by ``-i``.
+#
+# Determinant scaling factor:
+#
+#     row scale * column scale = i * (-i) = - i^2 = +1.
+#
+# So ``det M_rescaled = det M_pre``; the locus
+# ``det M_rescaled = 0`` is identical to the dispersion curve.
+#
+# Per-entry verification
+# ----------------------
+# 16 entries; group them by which rescalings they receive.
+#
+# A. **Untouched** (rows 1-3, columns A, B, D; nine entries):
+#    no factor applied. Each was real in M_pre and stays real.
+#    Specifically:
+#
+#         [1, A], [1, B], [1, D]
+#         [2, A], [2, B], [2, D]
+#         [3, A], [3, B], [3, D]
+#
+# B. **Column C only** (rows 1-3, column C; three entries):
+#    factor (-i) applied. Each was ``+ i * (real)`` in M_pre, so
+#    the product is ``+ i * (real) * (-i) = + (real)`` -- real.
+#
+#         [1, C] = i k_z K1s              -->  k_z K1s
+#         [2, C] = - 2 i k_z mu [...]     -->  - 2 k_z mu [s K0s + K1s/a]
+#         [3, C] = i k_z mu K1s / a       -->  k_z mu K1s / a
+#
+# C. **Row 4 only** (row 4, columns A, B, D; three entries):
+#    factor (i) applied. The A entry is zero (unchanged). The B
+#    and D entries were imaginary in M_pre and become real:
+#
+#         [4, A] = 0                      -->  0  (zero is zero)
+#         [4, B] = - 2 i k_z mu [...]     -->  + 2 k_z mu [p K0p + K1p/a]
+#         [4, D] = + i k_z mu K1s / a     -->  - k_z mu K1s / a
+#
+#    (verifications: ``i * (-2 i) = -2 i^2 = +2``;
+#                    ``i * (+ i) = i^2 = -1``)
+#
+# D. **Both row 4 and column C** (the [4, C] corner; one entry):
+#    factor i * (-i) = 1 applied. Originally ``mu kz2_kS2 K1s``
+#    (real in M_pre), stays exactly that. The corner entry is
+#    explicitly the only one whose two rescaling factors cancel,
+#    which is *also* the reason the rescaling works at all -- if
+#    [4, C] had been imaginary in M_pre, no row-4 + col-C rescaling
+#    could clear it without unbalancing det.
+#
+#         [4, C] = mu kz2_kS2 K1s         -->  mu kz2_kS2 K1s
+#
+# Total count: 9 (A) + 3 (B) + 3 (C) + 1 (D) = 16 entries; covers
+# every cell of M_1.
+#
+# Final form of M_1 (all entries real)
+# ------------------------------------
+# With the 1.4 row-2 negation and the 1.5 row-4 / column-C
+# rescaling both applied:
+#
+#     M_1[1, A] = (F I0 - I1 / a) / (rho_f omega^2)
+#     M_1[1, B] = p K0p + K1p / a
+#     M_1[1, C] = k_z K1s
+#     M_1[1, D] = - K1s / a
+#
+#     M_1[2, A] = - I1
+#     M_1[2, B] = - mu * [ kz2_kS2 K1p + 2 p K0p / a + 4 K1p / a^2 ]
+#     M_1[2, C] = - 2 k_z mu * [ s K0s + K1s / a ]
+#     M_1[2, D] = + 2 mu * [ s K0s / a + 2 K1s / a^2 ]
+#
+#     M_1[3, A] = 0
+#     M_1[3, B] = 2 mu * [ p K0p / a + 2 K1p / a^2 ]
+#     M_1[3, C] = k_z mu K1s / a
+#     M_1[3, D] = - mu * [ s^2 K1s + 2 s K0s / a + 4 K1s / a^2 ]
+#
+#     M_1[4, A] = 0
+#     M_1[4, B] = + 2 k_z mu * [ p K0p + K1p / a ]
+#     M_1[4, C] = mu * kz2_kS2 K1s
+#     M_1[4, D] = - k_z mu K1s / a
+#
+# This is the form 1.7 transcribes; the entries above are exactly
+# what ``_modal_determinant_n1`` will assemble.
+#
+# Comparison with the n = 0 row-3 / column-3 rescaling
+# ----------------------------------------------------
+# The n = 0 code multiplies "row 3 by i, column 3 by -i" (see
+# ``_modal_determinant_n0`` docstring). The row index moves
+# 3 -> 4 at n = 1 only because the dipole problem has the extra
+# sigma_r_theta = 0 BC inserted above sigma_rz = 0; the column
+# index 3 -> "C" is unchanged (always the SV potential amplitude).
+# Both rescalings are the same operation -- "rescale the sigma_rz
+# row by i, the C column by -i" -- expressed against different
+# row-numbering conventions. Net rescaling factor i * (-i) = +1
+# in both cases. The structural parallel is what lets 1.7's n=1
+# transcription mirror the n=0 implementation almost
+# line-for-line.
+#
+# Hand-off to substep 1.6
+# -----------------------
+# M_1 is now a real 4x4 polynomial-in-Bessels. Substep 1.6 will
+# substitute the low-frequency expansion ``omega a / V_S << 1`` and
+# the high-frequency expansion ``omega a / V_S >> 1`` into M_1 and
+# verify the leading roots reduce to ``k_z = omega / V_S`` and
+# ``k_z = omega / V_R`` respectively. Those are the only checks
+# possible without numerical evaluation; the published-curve match
+# (Paillet & Cheng 1991 fig. 4.5) waits for substep 1.7 + 1.8 +
+# Step 4's validation tests.
+
+# =====================================================================
+# Substep 1.6.a -- small-x Bessel asymptotics + low-f entry table
+# =====================================================================
+#
+# Goal: pin the small-argument forms of the four modified Bessel
+# functions used in M_1, substitute them into each of the 16
+# entries, and tabulate the leading + subleading behavior. Substep
+# 1.6.b uses the table to identify the dominant balance that
+# defines the flexural-mode low-f asymptote.
+#
+# Bessel functions in the small-argument limit (x -> 0+)
+# ------------------------------------------------------
+# Standard expansions (Abramowitz & Stegun 9.6, NIST DLMF 10.30):
+#
+#     I_0(x) = 1 + x^2 / 4 + O(x^4)
+#     I_1(x) = x / 2 + x^3 / 16 + O(x^5)
+#
+#     K_0(x) = - ln(x / 2) - gamma_E + O(x^2 ln x)
+#     K_1(x) = 1 / x + (x / 2) [ ln(x / 2) + gamma_E - 1/2 ]
+#                    + O(x^3 ln x)
+#
+# where gamma_E = 0.5772... is the Euler-Mascheroni constant.
+#
+# Key observation: the I-Bessels are regular at the origin, but
+# K_0 is logarithmically divergent and K_1 is algebraically
+# divergent (1/x). The flexural mode at low f sits at
+# ``k_z ~ omega / V_S`` so ``s = sqrt(k_z^2 - k_S^2) -> 0`` faster
+# than F or p; this is what makes ``K_0(sa)`` and ``K_1(sa)`` the
+# most strongly divergent objects in the small-x limit and what
+# drives the dominant-balance argument in 1.6.b.
+#
+# Entry-by-entry leading-order substitution
+# -----------------------------------------
+# Substitute the small-x forms directly into each of the 16 entries
+# of M_1 (from substep 1.5). "Leading" means the most strongly
+# divergent term in (Fa, pa, sa); "subleading" lists the next-order
+# correction when it's qualitatively different (logarithmic
+# corrections from K_0, etc.). All entries below are quoted
+# verbatim from M_1; only the Bessel evaluations are replaced.
+#
+# Row 1 (BC1, u_r continuity)
+#
+#     [1, A] = (F I0 - I1 / a) / (rho_f omega^2)
+#       I0 ~ 1, I1 ~ Fa/2 ==> F I0 - I1 / a ~ F - F / 2 = F / 2
+#       LEADING:  F / (2 rho_f omega^2)        (cancellation by 1/2)
+#
+#     [1, B] = p K0p + K1p / a
+#       K0p ~ -ln(pa/2) - gamma_E,  K1p ~ 1 / (pa)
+#       LEADING:  1 / (p a^2)                 (from K1p / a)
+#       SUBLEADING:  -p ln(pa/2) - p gamma_E  (from p K0p)
+#
+#     [1, C] = k_z K1s
+#       K1s ~ 1 / (sa)
+#       LEADING:  k_z / (s a)
+#
+#     [1, D] = - K1s / a
+#       LEADING:  - 1 / (s a^2)
+#
+# Row 2 (BC2, sigma_rr balance, with the 1.4 row-2 sign convention)
+#
+#     [2, A] = - I1
+#       I1 ~ Fa / 2
+#       LEADING:  - F a / 2                   (regular, vanishes as omega -> 0)
+#
+#     [2, B] = - mu [ kz2_kS2 K1p + 2 p K0p / a + 4 K1p / a^2 ]
+#       K1p ~ 1 / (pa), K0p ~ -ln(pa/2) - gamma_E
+#       (a) kz2_kS2 K1p     ~ kz2_kS2 / (pa)        ~  kz2_kS2 / (p a)
+#       (b) 2 p K0p / a     ~ -2 p ln(pa/2) / a     ~  log-correction
+#       (c) 4 K1p / a^2     ~ 4 / (pa) / a^2         ~  4 / (p a^3)
+#       LEADING:  - 4 mu / (p a^3)            (from (c))
+#       SUBLEADING:  -mu kz2_kS2 / (p a)      (from (a); important when k_z >> omega/V_S)
+#
+#     [2, C] = - 2 k_z mu [ s K0s + K1s / a ]
+#       K0s ~ -ln(sa/2) - gamma_E,  K1s ~ 1 / (sa)
+#       LEADING:  - 2 k_z mu / (s a^2)        (from K1s / a)
+#       SUBLEADING:  + 2 k_z mu s ln(sa/2)    (from s K0s)
+#
+#     [2, D] = + 2 mu [ s K0s / a + 2 K1s / a^2 ]
+#       LEADING:  + 4 mu / (s a^3)            (from K1s / a^2)
+#       SUBLEADING:  - 2 mu s ln(sa/2) / a    (from s K0s / a)
+#
+# Row 3 (BC3, sigma_r_theta = 0)
+#
+#     [3, A] = 0
+#
+#     [3, B] = 2 mu [ p K0p / a + 2 K1p / a^2 ]
+#       LEADING:  + 4 mu / (p a^3)            (from K1p / a^2)
+#       SUBLEADING:  - 2 mu p ln(pa/2) / a    (from p K0p / a)
+#
+#     [3, C] = k_z mu K1s / a
+#       LEADING:  k_z mu / (s a^2)
+#
+#     [3, D] = - mu [ s^2 K1s + 2 s K0s / a + 4 K1s / a^2 ]
+#       (a) s^2 K1s       ~ s^2 / (sa) = s / a
+#       (b) 2 s K0s / a   ~ -2 s ln(sa/2) / a    log-correction
+#       (c) 4 K1s / a^2   ~ 4 / (sa) / a^2 = 4 / (s a^3)
+#       LEADING:  - 4 mu / (s a^3)            (from (c))
+#       SUBLEADING:  - mu s / a               (from (a); regular at sa = 0)
+#
+# Row 4 (BC4, sigma_rz = 0)
+#
+#     [4, A] = 0
+#
+#     [4, B] = + 2 k_z mu [ p K0p + K1p / a ]
+#       LEADING:  + 2 k_z mu / (p a^2)        (from K1p / a)
+#       SUBLEADING:  - 2 k_z mu p ln(pa/2)    (from p K0p)
+#
+#     [4, C] = mu kz2_kS2 K1s
+#       LEADING:  mu kz2_kS2 / (s a)
+#
+#     [4, D] = - k_z mu K1s / a
+#       LEADING:  - k_z mu / (s a^2)
+#
+# Cross-check on the divergence pattern
+# -------------------------------------
+# Among the entries above, the most strongly divergent ones (those
+# scaling as ``1 / (s a^3)`` or ``1 / (p a^3)``) are:
+#
+#     [2, B] ~ -4 mu / (p a^3)      (P-divergent)
+#     [2, D] ~ +4 mu / (s a^3)      (S-divergent)
+#     [3, B] ~ +4 mu / (p a^3)      (P-divergent)
+#     [3, D] ~ -4 mu / (s a^3)      (S-divergent)
+#
+# Notice the sign flip between rows 2 and 3 on each column, which
+# anticipates a determinant cancellation: at the leading divergent
+# order, the rows-2-and-3 sub-block contributes
+# ``[+4 mu / (p a^3)] [-4 mu / (s a^3)] - [-4 mu / (p a^3)]
+# [+4 mu / (s a^3)]`` to the (B, D) 2x2 minor, which is *zero* --
+# the leading divergence cancels exactly, leaving the next-order
+# terms to govern the dispersion equation.
+#
+# This is the cleanest hint that the low-f flexural root sits at
+# the *subleading* balance, not the leading one. Substep 1.6.b
+# turns this observation into a dominant-balance argument that
+# locks down ``k_z = omega / V_S`` as the asymptote.
+#
+# References
+# ----------
+# * Abramowitz, M., & Stegun, I. A. (1964). *Handbook of
+#   Mathematical Functions*. Dover. Sect. 9.6 (small-argument
+#   modified Bessel asymptotics).
+# * NIST Digital Library of Mathematical Functions, sect. 10.30
+#   (online: https://dlmf.nist.gov/10.30).
+
+# =====================================================================
+# Substep 1.6.b -- low-f dominant balance: confirm k_z = omega / V_S
+# =====================================================================
+#
+# Goal: take the leading-order cancellation surfaced in 1.6.a and
+# argue that the *subleading* balance forces ``k_z -> omega / V_S``
+# (equivalently ``s -> 0``) as ``omega a / V_S -> 0``. Scope is
+# structural consistency with the published Ellefsen-Cheng-Toksoz
+# (1991) result, not a from-scratch perturbation derivation -- the
+# latter takes several pages and lives in the cited reference.
+#
+# Published result (target asymptote)
+# -----------------------------------
+# Ellefsen, Cheng & Toksoz (1991), sect. III.B, derive the
+# long-wavelength flexural-mode limit by perturbation expansion
+# of the cylindrical n = 1 modal determinant about ``omega = 0``.
+# The leading-order phase slowness is
+#
+#     s_low = 1 / V_S          (isotropic formation),
+#
+# i.e. ``k_z(omega) -> omega / V_S`` as ``omega -> 0``. For VTI
+# formations the same expansion gives ``s_low = 1 / V_Sv`` (the
+# vertical shear slowness; see ``flexural_dispersion_vti_physical``
+# in ``fwap.cylindrical`` for the phenomenological VTI version
+# anchored on the same limit). The isotropic case is what M_1
+# implements and what 1.6.b checks.
+#
+# Why direct evaluation at ``s = 0`` is singular
+# ----------------------------------------------
+# Setting ``s = 0`` (equivalently ``sa = 0``) sends ``K_0(sa)``
+# and ``K_1(sa)`` to infinity, so ``M_1`` as written has divergent
+# entries in column C and the C-derived parts of column D. The
+# correct interpretation is "the dispersion locus passes through
+# the ``s = 0`` limit as ``omega a / V_S -> 0``", i.e. the *root*
+# of ``det M_1 = 0`` approaches the singular point along a
+# specific direction in (omega, k_z) space rather than the matrix
+# being evaluable there.
+#
+# Useful regularised limits at small ``sa``
+# -----------------------------------------
+# Several products that appear in M_1 have finite limits even as
+# ``sa -> 0``. Combining the small-x asymptotics from 1.6.a:
+#
+#     s K_1(sa)   ~ s * 1/(sa) = 1/a               (finite)
+#     s^2 K_1(sa) ~ s^2 * 1/(sa) = s/a -> 0        (vanishing)
+#     s K_0(sa)   ~ s * (- ln(sa/2)) -> 0          (slower than s)
+#     K_1(sa)/a   ~ 1/(sa^2)                       (divergent)
+#     K_1(sa)/a^2 ~ 1/(sa^3)                       (more divergent)
+#
+# These let us trace which entries stay finite vs which carry the
+# divergence. In particular, the [2, C] and [3, C] entries
+# diverge as 1/(sa^2) and the [2, D], [3, D] entries diverge as
+# 1/(sa^3); but the *combinations* that appear in the (B, C, D)
+# 3x3 minors of det M_1 (1.4 block-structure observation) admit
+# row-and-column factorings that pull the divergence outside,
+# leaving a regular (B, C, D) sub-determinant.
+#
+# Subleading-balance argument
+# ---------------------------
+# 1.6.a flagged that the leading 1/(s a^3) divergences in
+# [2, B], [2, D], [3, B], [3, D] cancel exactly on the (B, D) 2x2
+# minor. The next-order contributions to that minor come from the
+# subleading terms tabulated in 1.6.a:
+#
+#     [2, C]_sub = + 2 k_z mu s ln(sa/2)              (from s K_0(sa))
+#     [3, D]_sub = - mu s / a                         (from s^2 K_1(sa))
+#     [2, D]_sub = - 2 mu s ln(sa/2) / a              (from s K_0(sa) / a)
+#     [3, B]_sub = - 2 mu p ln(pa/2) / a              (from p K_0(pa) / a)
+#
+# Combined with the leading parts that survive on rows 1 and 4,
+# the dispersion equation ``det M_1 = 0`` becomes a balance
+# between *finite* (s, p, log) terms and *vanishing* (s -> 0)
+# terms. The only way to satisfy that balance asymptotically is
+# to drive the vanishing-term coefficients to dominate the finite
+# coefficients, which forces ``s -> 0``.
+#
+# Equivalently: in the regularised (B, D) minor, the dispersion
+# root corresponds to a zero of a function that has a simple
+# analytic factor of ``s`` at leading order in (omega a). The
+# zero of that factor is at ``s = 0``, recovering ``k_z =
+# omega / V_S``.
+#
+# This sketch is consistent with the EC&T derivation (which goes
+# further to compute the higher-order corrections in (omega a /
+# V_S)^2). For a full quantitative match between M_1 and EC&T,
+# the test is numerical and belongs to substep 1.8 / Step 4.
+#
+# Connection to existing fwap code
+# --------------------------------
+# ``fwap.cylindrical.flexural_dispersion_physical(vp, vs, a)``
+# already uses ``s_low = 1 / vs`` as its low-f anchor (see
+# ``cylindrical.py`` line 176). The modal solver in this module
+# replaces the rational-interpolation transition between
+# ``s_low`` and the high-f Rayleigh asymptote with the actual
+# determinant root, but the low-f anchor is the same value. A
+# test in Step 4 will confirm that ``flexural_dispersion`` (the
+# 1.7 + Step 2-3 product) returns ``1 / vs`` to within a few
+# percent at f = 200 Hz for typical sonic parameters, replicating
+# the agreement that ``flexural_dispersion_physical`` already
+# enforces by construction.
+#
+# Honest scope of this comment block
+# ----------------------------------
+# What this comment establishes:
+#
+#   1. The published EC&T result is ``k_z -> omega / V_S`` at low
+#      f for the isotropic flexural mode.
+#   2. M_1 as written cannot be evaluated at ``s = 0`` directly;
+#      the limit must be taken along the dispersion locus.
+#   3. The 1.6.a divergence cancellation in the (B, D) minor
+#      forces the dispersion root to the subleading balance,
+#      which is structurally consistent with ``s -> 0``.
+#
+# What this comment does *not* establish:
+#
+#   * A first-principles algebraic derivation of the EC&T result
+#     from M_1. That requires several pages of perturbation
+#     expansion in (omega a / V_S) and is well-trodden in the
+#     reference; reproducing it here adds zero value over a
+#     pointer to EC&T sect. III.B.
+#   * Quantitative verification. That belongs to the numerical
+#     tests in 1.8 + Step 4 (``s(200 Hz) approx 1 / vs`` for a
+#     fast formation).
+#
+# References
+# ----------
+# * Ellefsen, K. J., Cheng, C. H., & Toksoz, M. N. (1991).
+#   Effects of anisotropy upon the resonances of normal modes
+#   in a borehole. *J. Acoust. Soc. Am.* 89(6), 2597-2616.
+#   Section III.B gives the long-wavelength flexural-mode
+#   limit ``s_low = 1 / V_Sv``.
+# * Sinha, B. K., Norris, A. N., & Chang, S. K. (1994).
+#   Borehole flexural modes in anisotropic formations.
+#   *Geophysics* 59(7), 1037-1052. Eq. 14 confirms the same
+#   ``s_low = 1 / V_Sv`` low-frequency limit on a different
+#   (isotropic-and-VTI) starting point.
+
+# =====================================================================
+# Substep 1.6.c -- large-x Bessel asymptotics + exponential structure
+# =====================================================================
+#
+# Goal: pin the large-argument forms of the modified Bessel
+# functions, tabulate the dominant exponential factor of each of
+# the 16 entries of M_1, and show that the exponentials factor
+# globally out of det M_1, leaving a planar-Rayleigh-style
+# secular equation for substep 1.6.d to reduce.
+#
+# Bessel functions in the large-argument limit (x -> infinity)
+# ------------------------------------------------------------
+# Standard expansions (Abramowitz & Stegun 9.7, NIST DLMF 10.40):
+#
+#     I_0(x) ~ e^x / sqrt(2 pi x) * [ 1 + 1/(8 x) + O(1/x^2) ]
+#     I_1(x) ~ e^x / sqrt(2 pi x) * [ 1 - 3/(8 x) + O(1/x^2) ]
+#
+#     K_0(x) ~ sqrt(pi / (2 x)) * e^{-x}
+#                              * [ 1 - 1/(8 x) + O(1/x^2) ]
+#     K_1(x) ~ sqrt(pi / (2 x)) * e^{-x}
+#                              * [ 1 + 3/(8 x) + O(1/x^2) ]
+#
+# Note: in the high-f limit Fa, pa, sa all scale linearly with
+# ``omega a`` (since F, p, s -> omega/V_R, omega/V_R^2-correction,
+# etc., as ``k_z -> omega / V_R``). All three Bessel arguments are
+# therefore large together; no parameter sub-asymptote is needed
+# to land in the large-x regime.
+#
+# Per-entry exponential factor
+# ----------------------------
+# Substituting the leading-order ``e^{+x}`` (I-Bessels) and
+# ``e^{-x}`` (K-Bessels) into each entry of M_1 (from substep 1.5)
+# gives a column-only pattern: every entry's exponential factor
+# is determined solely by which column it sits in.
+#
+#     Column   Bessel       Exponential factor      Rows where non-zero
+#     A        I_0, I_1     e^{+ Fa}                rows 1, 2 only
+#     B        K_0, K_1     e^{- pa}                all 4 rows
+#     C        K_0, K_1     e^{- sa}                all 4 rows
+#     D        K_0, K_1     e^{- sa}                all 4 rows
+#
+# Per-entry table (matching the 1.6.a low-f table column-for-column;
+# the same shorthand Fa, pa, sa applies):
+#
+#     [1, A] ~ e^{+ Fa}      [1, B] ~ e^{- pa}
+#     [1, C] ~ e^{- sa}      [1, D] ~ e^{- sa}
+#
+#     [2, A] ~ e^{+ Fa}      [2, B] ~ e^{- pa}
+#     [2, C] ~ e^{- sa}      [2, D] ~ e^{- sa}
+#
+#     [3, A] = 0             [3, B] ~ e^{- pa}
+#     [3, C] ~ e^{- sa}      [3, D] ~ e^{- sa}
+#
+#     [4, A] = 0             [4, B] ~ e^{- pa}
+#     [4, C] ~ e^{- sa}      [4, D] ~ e^{- sa}
+#
+# Column-uniformity argument
+# --------------------------
+# In the Leibniz expansion of det M_1, each term is a product
+# ``sign(sigma) * M[1, sigma(1)] * M[2, sigma(2)] * M[3, sigma(3)]
+# * M[4, sigma(4)]`` over a permutation sigma of (A, B, C, D).
+# Because the exponential factor of each entry depends only on its
+# column, the exponential factor of the product is
+#
+#     e^{eta_A + eta_B + eta_C + eta_D}
+#         = e^{Fa - pa - sa - sa}
+#         = e^{Fa - pa - 2 sa},
+#
+# *the same factor for every non-zero permutation*. The 12 of 24
+# permutations that put A on row 3 or row 4 are zero (since
+# [3, A] = [4, A] = 0); the remaining 12 all carry the same global
+# exponential.
+#
+# Consequence:
+#
+#     det M_1(omega, k_z) = e^{Fa - pa - 2 sa} * D_red(omega, k_z)
+#
+# where D_red is built from the algebraic Bessel prefactors
+# ``sqrt(2 pi Fa)``, ``sqrt(2 pi / pa)``, etc. plus the M_1
+# entry coefficients (F, p, s, k_z, mu, kz2_kS2, ...). D_red has
+# no exponential dependence at leading order in 1 / (omega a).
+#
+# Since e^{Fa - pa - 2 sa} > 0 for all bound-mode parameters, the
+# dispersion equation
+#
+#     det M_1 = 0    <==>    D_red = 0
+#
+# in the high-f limit. The structural observation is that D_red is
+# precisely the planar half-space modal determinant -- substep
+# 1.6.d will show the explicit reduction to the Rayleigh secular
+# equation that ``rayleigh_speed`` already implements.
+#
+# Subleading corrections
+# ----------------------
+# The ``1 + O(1/x)`` correction factors from the I_n / K_n
+# expansions become ``1 + O(1 / (omega a))`` corrections to D_red.
+# These are responsible for:
+#
+#   1. Cylindrical-radius corrections to the planar Rayleigh
+#      asymptote -- finite a vs the planar half-space limit.
+#   2. The Scholte / fluid-loading offset -- the few-percent
+#      reduction below the vacuum-loaded Rayleigh speed that
+#      ``rayleigh_speed`` returns. The fluid loading enters via
+#      the e^{Fa} I-Bessel column A; the size of the offset
+#      depends on rho_f / rho_solid and V_f / V_S.
+#
+# Both corrections are mentioned in the existing
+# ``flexural_dispersion_physical`` docstring (see
+# ``cylindrical.py`` around line 145, "fluid-loading correction")
+# as a noted limitation of the vacuum-loaded asymptote. The full
+# modal solver this module implements does include them; the
+# Rayleigh asymptote is just the leading-order term.
+#
+# Hand-off to substep 1.6.d
+# -------------------------
+# 1.6.d will:
+#
+#   1. Substitute the per-entry algebraic prefactors (after
+#      stripping e^{Fa}, e^{-pa}, e^{-sa}) into D_red.
+#   2. Eliminate the column scaling factors by row / column
+#      operations (the planar-limit reduction).
+#   3. Match the resulting polynomial in (V_R/V_S)^2 and
+#      (V_R/V_P)^2 against the Rayleigh secular equation in
+#      ``rayleigh_speed`` (cylindrical.py:48).
+#
+# References
+# ----------
+# * Abramowitz, M., & Stegun, I. A. (1964). *Handbook of
+#   Mathematical Functions*. Dover. Sect. 9.7 (large-argument
+#   modified Bessel asymptotics).
+# * NIST Digital Library of Mathematical Functions, sect. 10.40
+#   (online: https://dlmf.nist.gov/10.40).
+
+# =====================================================================
+# Substep 1.6.d -- high-f reduction to the planar Rayleigh secular eq
+# =====================================================================
+#
+# Goal: take ``D_red`` from 1.6.c (the algebraic factor of det M_1
+# after stripping the global exponential ``e^{Fa - pa - 2 sa}``) and
+# show it reduces, at leading order in ``1 / (omega a)``, to the
+# planar Rayleigh secular equation that ``rayleigh_speed``
+# (``cylindrical.py`` line 48) already solves. Scope is structural
+# correspondence; the full algebraic reduction is several pages
+# of textbook material in Schmitt (1988) and Paillet-Cheng (1991).
+#
+# Target equation (vacuum-loaded planar Rayleigh)
+# -----------------------------------------------
+# From ``rayleigh_speed`` and Rayleigh (1885) Proc. London Math.
+# Soc. 17, 4-11:
+#
+#     (2 - xi)^2 = 4 * sqrt( (1 - xi * (V_S / V_P)^2) * (1 - xi) )
+#
+# with ``xi = (V_R / V_S)^2 in (0, 1)``. The unique non-trivial
+# root in that interval is ``V_R``, the Rayleigh speed of a
+# vacuum-loaded elastic half-space. ``flexural_dispersion_physical``
+# uses this same ``V_R`` as its high-frequency anchor (see
+# ``cylindrical.py`` line 178).
+#
+# Algebraic prefactor structure of D_red
+# --------------------------------------
+# After substituting the leading-order I_n, K_n forms from 1.6.c
+# (note: at strict leading order in ``1 / x``, ``I_0(x) approx
+# I_1(x) approx e^x / sqrt(2 pi x)`` and ``K_0(x) approx K_1(x)
+# approx sqrt(pi / (2x)) e^{-x}``; the ``1 + O(1 / x)`` corrections
+# are subleading), each entry of M_1 factorises as
+#
+#     [i, j] = a_{ij}(omega, k_z) * Bprefactor_j(x_j) * Eprefactor_j(x_j)
+#
+# where ``a_{ij}`` is the algebraic coefficient, ``Bprefactor_j`` is
+# the column-only Bessel prefactor (``1 / sqrt(2 pi Fa)`` for
+# column A, ``sqrt(pi / (2 pa))`` for column B,
+# ``sqrt(pi / (2 sa))`` for columns C and D), and ``Eprefactor_j``
+# is the column-only exponential (1.6.c). The Bessel prefactors
+# themselves factor uniformly out of the determinant, so D_red is
+# proportional to ``det A_red`` where ``A_red`` is the 4x4 of
+# algebraic coefficients ``a_{ij}``.
+#
+# Algebraic-coefficient table (leading order)
+# -------------------------------------------
+# Substituting K_0 ~ K_1 ~ E_K(x) into each M_1 entry and reading
+# off the algebraic part:
+#
+#     A_red[1, A] = (F - 1 / a) / (rho_f omega^2)  -> F / (rho_f omega^2)
+#     A_red[1, B] = p + 1 / a                       -> p
+#     A_red[1, C] = k_z
+#     A_red[1, D] = - 1 / a                         -> small (subleading)
+#
+#     A_red[2, A] = - 1
+#     A_red[2, B] = - mu * [ kz2_kS2 + 2 p / a + 4 / a^2 ]  -> - mu kz2_kS2
+#     A_red[2, C] = - 2 k_z mu * (s + 1 / a)              -> - 2 k_z mu s
+#     A_red[2, D] = + 2 mu * (s / a + 2 / a^2)            -> small (subleading)
+#
+#     A_red[3, A] = 0
+#     A_red[3, B] = 2 mu * (p / a + 2 / a^2)              -> small (subleading)
+#     A_red[3, C] = k_z mu / a                            -> small (subleading)
+#     A_red[3, D] = - mu * (s^2 + 2 s / a + 4 / a^2)      -> - mu s^2
+#
+#     A_red[4, A] = 0
+#     A_red[4, B] = + 2 k_z mu * (p + 1 / a)              -> 2 k_z mu p
+#     A_red[4, C] = mu * kz2_kS2
+#     A_red[4, D] = - k_z mu / a                          -> small (subleading)
+#
+# At strict leading order in ``1 / (omega a)`` (with k_z scaling as
+# omega / V_R, so k_z and F, p, s all linear in omega; ``1 / a``
+# fixed), the entries marked "small" vanish. The reduced 4x4 is
+# block-structured:
+#
+#     A_red_lead = | F / (rho_f omega^2)   p              k_z          0       |
+#                  | -1                    - mu kz2_kS2  - 2 k_z mu s  0       |
+#                  | 0                     0             0             - mu s^2 |
+#                  | 0                     2 k_z mu p    mu kz2_kS2    0       |
+#
+# Row 3 has only the [3, D] entry non-zero (= -mu s^2). Expanding
+# the determinant along row 3:
+#
+#     det A_red_lead = (- mu s^2) * (- 1)^{3+4} * det( minor_3D )
+#                    = + mu s^2 * det( minor_3D )
+#
+# where ``minor_3D`` is the 3x3 obtained by deleting row 3 and
+# column D from A_red_lead:
+#
+#     minor_3D = | F / (rho_f omega^2)   p              k_z          |
+#                | -1                    - mu kz2_kS2  - 2 k_z mu s |
+#                | 0                     2 k_z mu p    mu kz2_kS2   |
+#
+# This 3x3 is exactly the n=0 axisymmetric modal determinant
+# structure (compare to the row-1 / row-2 / row-3 form in
+# ``_modal_determinant_n0`` after the column-A entry adjustments
+# for the K_1 -> K_0 ansatz change). Its determinant, after
+# eliminating row 1 by Gaussian reduction (multiply row 1 by
+# rho_f omega^2 / F and row-add to absorb the [2, A] = -1 entry),
+# reduces to a 2x2 in (B, C) columns with entries scaling like
+# the planar Rayleigh secular equation.
+#
+# Identification with the Rayleigh equation
+# -----------------------------------------
+# The 2x2 block on (B, C) columns of the reduced ``minor_3D`` is
+# (after dividing each entry by ``mu`` and gathering ``k_z`` and
+# ``s, p`` factors):
+#
+#     | -kz2_kS2   - 2 k_z s |
+#     |  2 k_z p     kz2_kS2 |
+#
+# whose determinant is
+#
+#     det = - kz2_kS2^2 + 4 k_z^2 p s.
+#
+# Setting this to zero (the dispersion equation in the high-f
+# leading limit) gives
+#
+#     (2 k_z^2 - k_S^2)^2 = 4 k_z^2 p s.
+#
+# Substituting the bound-mode definitions
+# ``p^2 = k_z^2 - omega^2 / V_P^2`` and
+# ``s^2 = k_z^2 - omega^2 / V_S^2`` and parametrising ``k_z = omega
+# / V`` for some test phase velocity ``V``:
+#
+#     k_S^2 = omega^2 / V_S^2,   k_z^2 = omega^2 / V^2,
+#     p^2 = omega^2 (1/V^2 - 1/V_P^2),
+#     s^2 = omega^2 (1/V^2 - 1/V_S^2).
+#
+# Defining ``xi = (V / V_S)^2`` and ``a_PS^2 = (V_S / V_P)^2``,
+# substituting and simplifying with the Mathematica-grade algebra
+# in Schmitt (1988) eq. 24-26 yields
+#
+#     (2 - xi)^2 = 4 * sqrt( (1 - xi * a_PS^2) * (1 - xi) ),
+#
+# *exactly* the secular equation in ``rayleigh_speed`` (with
+# ``a^2 = (V_S / V_P)^2 = a_PS^2`` and the same ``xi``). The
+# solution ``xi = (V_R / V_S)^2`` recovers the Rayleigh speed,
+# i.e. ``k_z -> omega / V_R`` at high f. Done.
+#
+# Subleading correction: the Scholte / fluid-loading offset
+# ---------------------------------------------------------
+# The "small" entries dropped above (involving ``1 / a``, ``1 / a^2``)
+# do *not* drop the column-A entry [1, A] = F / (rho_f omega^2),
+# which carries the fluid loading. Re-including them at first
+# subleading order ``O(1 / (omega a))`` adds a fluid-density and
+# fluid-velocity dependent correction that pulls ``V_R``
+# downward by a few percent to the Scholte interface-wave speed.
+# This correction is what makes the full modal solver more
+# accurate than ``flexural_dispersion_physical`` -- the
+# phenomenological function only knows the Rayleigh anchor and
+# uses a smoothed-step transition; the modal solver tracks the
+# Scholte offset directly.
+#
+# Honest scope of this comment block
+# ----------------------------------
+# What this comment establishes:
+#
+#   1. D_red factorises into a column-Bessel-prefactor block and
+#      an algebraic-coefficient block A_red.
+#   2. At strict leading order in ``1 / (omega a)``, A_red has a
+#      block structure where row 3 contributes only via the [3, D]
+#      entry, reducing det A_red to a 3x3 structurally identical
+#      to the n=0 axisymmetric modal matrix.
+#   3. That 3x3 reduces by row operations to a 2x2 whose vanishing
+#      condition is *exactly* the Rayleigh secular equation
+#      ``(2 - xi)^2 = 4 sqrt( (1 - xi a^2) (1 - xi) )`` already
+#      coded in ``rayleigh_speed``.
+#
+# What this comment does *not* establish:
+#
+#   * Algebraic execution of the row-reduction steps from the 3x3
+#     to the 2x2. That reduction is in Schmitt (1988) eqs. 24-26
+#     and Paillet & Cheng (1991) sect. 4.2; reproducing it here
+#     adds zero value over a pointer.
+#   * Quantitative reproduction of any specific dispersion-curve
+#     value. That belongs to substep 1.8 + Step 4's published-
+#     curve match against Paillet & Cheng 1991 fig. 4.5.
+#
+# References
+# ----------
+# * Schmitt, D. P. (1988). Shear-wave logging in elastic
+#   formations. *J. Acoust. Soc. Am.* 84(6), 2230-2244. Eqs.
+#   24-26 give the high-frequency reduction of the dipole modal
+#   determinant to the Rayleigh secular equation.
+# * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
+#   Boreholes*, Sect. 4.2 (high-frequency asymptotic forms of
+#   the cylindrical-mode dispersion equation).
+# * Rayleigh, Lord (1885). On waves propagating along the plane
+#   surface of an elastic solid. *Proc. London Math. Soc.* 17,
+#   4-11 (the secular equation itself).
+
+# =====================================================================
+# Substep 1.6.e -- cross-consistency, n=0 comparison, hand-off to 1.7
+# =====================================================================
+#
+# Goal: three short structural cross-checks that confirm 1.6.a-d
+# are internally consistent, then compile a transcription-ready
+# reference table for 1.7.
+#
+# Cross-check 1: the (2 k_z^2 - k_S^2) combination
+# ------------------------------------------------
+# This combination appears in M_1 in two distinct entries via two
+# distinct routes (already noted in 1.3.c and 1.3.e):
+#
+#   * ``M_1[2, B] = - mu * [ kz2_kS2 K1(pa) + ... ]``
+#     -- arrived via the Lame reduction
+#     ``- lambda k_P^2 + 2 mu p^2 = mu (2 k_z^2 - k_S^2)``
+#     applied to the K_1(p r) part of u_r.
+#
+#   * ``M_1[4, C] = mu * kz2_kS2 K1(sa)``
+#     -- arrived via the bound-regime identity
+#     ``s^2 + k_z^2 = 2 k_z^2 - k_S^2``
+#     applied to the K_1(s r) part of u_z.
+#
+# 1.6.d showed that these two entries are exactly the *diagonal*
+# entries of the (B, C) 2x2 sub-block whose vanishing condition,
+# in the high-f leading limit, is the Rayleigh secular equation
+# ``(2 - xi)^2 = 4 sqrt((1 - xi a^2) (1 - xi))``. The off-diagonal
+# entries pair them with ``2 k_z s`` (in [2, C]) and ``2 k_z p``
+# (in [4, B]), which are exactly the cross-terms of the Rayleigh
+# equation. So the two-route derivation of the same number lands
+# in the structurally correct places of the high-f sub-block --
+# confirming that 1.3.c and 1.3.e were not just numerically
+# right but algebraically right.
+#
+# Cross-check 2: monotonic dispersion between the two limits
+# ----------------------------------------------------------
+# 1.6.b: low-f asymptote ``s_low = 1 / V_S``, i.e.
+#        ``k_z -> omega / V_S``.
+# 1.6.d: high-f asymptote ``s_high = 1 / V_R``, with
+#        ``V_R < V_S``, so ``k_z -> omega / V_R > omega / V_S``.
+#
+# Since V_R < V_S strictly (Rayleigh speed is always strictly
+# less than the shear speed; see ``rayleigh_speed`` for the
+# Poisson-ratio dependence), the slowness ``s(omega) = k_z / omega``
+# *increases* monotonically from ``1 / V_S`` at low f to
+# ``1 / V_R`` at high f. The dispersion curve is monotonic in
+# this slowness sense, which matches:
+#
+#   * The qualitative shape coded in
+#     ``flexural_dispersion_physical(vp, vs, a)``
+#     (``cylindrical.py`` line 109) -- a smoothed-step rise
+#     from ``s_low`` to ``s_high``.
+#   * The fast-formation dipole-flexural curves in Paillet &
+#     Cheng (1991) fig. 4.5 and Tang & Cheng (2004) fig. 3.4.
+#
+# A non-monotonic dispersion would indicate a sign error somewhere
+# in the 1.3.c / 1.3.d / 1.3.e / 1.5 chain. The two endpoints
+# being on opposite sides of ``1 / V_S`` is the cleanest single
+# cross-check that the matrix is built right.
+#
+# Cross-check 3: structural reduction to the n=0 modal form
+# ---------------------------------------------------------
+# At n = 0, the sigma_r_theta = 0 BC is trivially satisfied (no
+# theta dependence to differentiate), so row 3 of M_1 disappears.
+# The SH potential ``psi_z`` is also absent at n = 0, so column D
+# disappears. Removing row 3 and column D from M_1 should give a
+# 3x3 structurally identical to ``_modal_determinant_n0``.
+#
+# 1.6.d's ``minor_3D`` is exactly this 3x3 (rows 1, 2, 4 / columns
+# A, B, C). At the algebraic level, ``minor_3D`` matches
+# ``_modal_determinant_n0`` row-for-row and column-for-column,
+# with two notation differences:
+#
+#   1. **Bessel order swap**: at n = 0 the P-potential ansatz uses
+#      ``phi = B K_0(p r)`` (not K_1); at n = 1 it's K_1(p r). So
+#      the K_1(pa) entries in ``minor_3D`` correspond to K_0(pa)
+#      entries in ``_modal_determinant_n0`` and vice versa. This
+#      is a structural difference, not a transcription mistake.
+#   2. **No ``+ 4 K_1(p a) / a^2`` term**: the n = 0 derivation
+#      doesn't have this 1/r^2 correction in its B-coefficient
+#      (it arises at n = 1 from the K_1''(p r) identity, which
+#      doesn't apply when the radial dependence is K_0(p r)).
+#      See 1.3.c "Comparison with n = 0".
+#
+# Modulo those two structural changes, ``minor_3D`` is the n = 0
+# modal determinant. The fact that the high-f reduction
+# (1.6.d) lands on ``minor_3D``, and that ``minor_3D`` is
+# structurally the n=0 form, is reassuring: both n = 0 and n = 1
+# share the same Rayleigh asymptote at high f, which is
+# physically correct because both modes localise within ~one
+# wavelength of the borehole wall and propagate as surface waves
+# on the fluid-solid interface.
+#
+# Hand-off table for substep 1.7 (the actual code transcription)
+# --------------------------------------------------------------
+# 1.7 will write the function ``_modal_determinant_n1(kz, omega,
+# vp, vs, rho, vf, rho_f, a)`` mirroring the n = 0 counterpart.
+# The body should follow this template, in order:
+#
+#     1. Compute radial decay constants:
+#            F = sqrt(kz^2 - (omega / vf)^2)
+#            p = sqrt(kz^2 - (omega / vp)^2)
+#            s = sqrt(kz^2 - (omega / vs)^2)
+#
+#     2. Compute Bessel arguments:
+#            Fa, pa, sa = F * a, p * a, s * a
+#
+#     3. Evaluate Bessels (use existing helpers):
+#            I0, I1   = _i0_i1(Fa)
+#            K0p, K1p = _k0_k1(pa)
+#            K0s, K1s = _k0_k1(sa)
+#
+#     4. Compute auxiliary scalars:
+#            mu      = rho * vs**2
+#            kS2     = (omega / vs)**2
+#            kz2_kS2 = 2.0 * kz * kz - kS2
+#
+#     5. Assemble M_1 (16 real entries; the 1.5 + 1.4 forms):
+#
+#         Row 1 (BC1, u_r continuity, cos sector):
+#             M[0, 0] = (F * I0 - I1 / a) / (rho_f * omega**2)
+#             M[0, 1] = p * K0p + K1p / a
+#             M[0, 2] = kz * K1s
+#             M[0, 3] = - K1s / a
+#
+#         Row 2 (BC2, sigma_rr balance, cos sector, row negated):
+#             M[1, 0] = - I1
+#             M[1, 1] = - mu * (kz2_kS2 * K1p
+#                               + 2.0 * p * K0p / a
+#                               + 4.0 * K1p / a**2)
+#             M[1, 2] = - 2.0 * kz * mu * (s * K0s + K1s / a)
+#             M[1, 3] = + 2.0 * mu * (s * K0s / a + 2.0 * K1s / a**2)
+#
+#         Row 3 (BC3, sigma_r_theta = 0, sin sector):
+#             M[2, 0] = 0.0
+#             M[2, 1] = 2.0 * mu * (p * K0p / a + 2.0 * K1p / a**2)
+#             M[2, 2] = kz * mu * K1s / a
+#             M[2, 3] = - mu * (s * s * K1s
+#                               + 2.0 * s * K0s / a
+#                               + 4.0 * K1s / a**2)
+#
+#         Row 4 (BC4, sigma_rz = 0, cos sector, after 1.5 row+col rescale):
+#             M[3, 0] = 0.0
+#             M[3, 1] = + 2.0 * kz * mu * (p * K0p + K1p / a)
+#             M[3, 2] = mu * kz2_kS2 * K1s
+#             M[3, 3] = - kz * mu * K1s / a
+#
+#     6. Return ``float(np.linalg.det(M))``.
+#
+# Validation (substep 1.8 + Step 4): bound-mode bracket scan
+# starting from the existing ``flexural_dispersion_physical``
+# anchor ``s_low = 1 / vs`` at f = 200 Hz; published-curve match
+# against Paillet & Cheng 1991 fig. 4.5 in Step 4.
 #
 # Status
 # ------
@@ -1303,9 +2307,13 @@ def stoneley_dispersion(
 # Substep 1.3.d (sigma_r_theta on sin sector)        : done.
 # Substep 1.3.e (sigma_rz on cos sector)             : done.
 # Substep 1.3.f (wall summary + sector check)        : done.
-# Substep 1.4 (BCs, azimuthal-factor strip)          : TODO.
-# Substep 1.5 (phase-rescale to real entries)        : TODO.
-# Substep 1.6 (analytical-limit cross-check)         : TODO.
+# Substep 1.4 (BCs, azimuthal-factor strip)          : done.
+# Substep 1.5 (phase-rescale to real entries)        : done.
+# Substep 1.6.a (small-x Bessel + low-f entry table) : done.
+# Substep 1.6.b (low-f dominant balance)             : done.
+# Substep 1.6.c (large-x Bessel + exponential structure): done.
+# Substep 1.6.d (high-f Rayleigh-secular reduction)  : done.
+# Substep 1.6.e (cross-consistency + n=0 + hand-off) : done.
 # Substep 1.7 (_modal_determinant_n1 in code)        : TODO.
 # Substep 1.8 (transcription smoke test)             : TODO.
 # Then Step 2 (root-finder) and Step 3 (public ``flexural_dispersion``
