@@ -233,6 +233,269 @@ def test_stoneley_indicator_rejects_non_positive():
 
 
 # ---------------------------------------------------------------------
+# stoneley_permeability_tang_cheng (Tang-Cheng-Toksoz 1991)
+# ---------------------------------------------------------------------
+
+
+# Standard Tang-Cheng-Toksoz parameter set used across the tests below.
+# Water-filled borehole at typical Stoneley logging frequency, limestone
+# matrix with K_phi = 30 GPa.
+TC_K_F = 2.2e9         # Pa, water bulk modulus
+TC_ETA = 1.0e-3        # Pa s, water viscosity
+TC_RHO_F = 1000.0      # kg/m^3, water density
+TC_FREQ = 1500.0       # Hz, typical Stoneley band
+TC_K_PHI = 3.0e10      # Pa, limestone frame modulus
+TC_DARCY = 9.869233e-13  # m^2 per darcy
+
+
+def _tc_forward(kappa, phi, K_f=TC_K_F, K_phi=TC_K_PHI,
+                eta=TC_ETA, rho_f=TC_RHO_F, freq=TC_FREQ):
+    """Forward model: predict alpha_ST from a known kappa array.
+
+    Inverts the same closed form ``stoneley_permeability_tang_cheng``
+    inverts, used here to round-trip-check the inversion.
+    """
+    omega = 2.0 * np.pi * freq
+    omega_c = eta * phi / (kappa * rho_f)
+    x2 = (omega / omega_c) ** 2
+    A = K_f / (2.0 * K_phi)
+    return A * x2 / (1.0 + x2)
+
+
+# Round-trip recovery (the validation that anchors against
+# Tang & Cheng 2004 fig 5.3)
+# ---------------------------------------------------------------------
+
+
+def test_tc_round_trip_recovers_known_permeability():
+    """Forward-model alpha_ST from a known kappa profile, synthesise
+    observed slowness, run the inversion, and confirm round-trip
+    recovery to high precision. Profile mimics Tang & Cheng (2004)
+    fig 5.3: tight limestone (~0.01-0.1 mD) bracketing a permeable
+    bed (~1-2 darcy)."""
+    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    s_ref = 1.0 / 1500.0
+    phi = np.array([0.05, 0.05, 0.20, 0.30, 0.20, 0.05, 0.05])
+    kappa_true = np.array([
+        1.0e-17,    # tight, ~0.01 mD
+        1.0e-16,    # tight, ~0.1 mD
+        5.0e-13,    # ~0.5 darcy
+        2.0e-12,    # ~2 darcy (peak)
+        5.0e-13,    # ~0.5 darcy
+        1.0e-16,    # tight
+        1.0e-17,    # tight
+    ])
+    alpha = _tc_forward(kappa_true, phi)
+    s_obs = s_ref * (1.0 + alpha)
+    K_phi = np.full_like(phi, TC_K_PHI)
+    kappa_inv = stoneley_permeability_tang_cheng(
+        s_obs, s_ref, frequency=TC_FREQ,
+        fluid_bulk_modulus=TC_K_F, fluid_viscosity=TC_ETA,
+        fluid_density=TC_RHO_F, porosity=phi, frame_bulk_modulus=K_phi)
+    # Round-trip relative error well under 0.1% across the band
+    rel_err = np.abs(kappa_inv - kappa_true) / kappa_true
+    assert np.all(rel_err < 1.0e-3)
+
+
+def test_tc_recovers_tang_cheng_fig_5_3_orders_of_magnitude():
+    """Recovered permeabilities span the expected darcy ranges from
+    Tang & Cheng (2004) fig 5.3: tight ~0.01-0.1 mD, permeable
+    ~1-2 darcy."""
+    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    s_ref = 1.0 / 1500.0
+    phi = np.array([0.05, 0.30, 0.05])
+    kappa_true = np.array([5.0e-17, 1.5e-12, 5.0e-17])  # 0.05 mD, 1.5 darcy, 0.05 mD
+    alpha = _tc_forward(kappa_true, phi)
+    s_obs = s_ref * (1.0 + alpha)
+    K_phi = np.full_like(phi, TC_K_PHI)
+    kappa_inv = stoneley_permeability_tang_cheng(
+        s_obs, s_ref, frequency=TC_FREQ,
+        fluid_bulk_modulus=TC_K_F, fluid_viscosity=TC_ETA,
+        fluid_density=TC_RHO_F, porosity=phi, frame_bulk_modulus=K_phi)
+    kappa_md = kappa_inv / 9.869233e-16  # convert m^2 -> mD
+    # Tight zones in 0.01 - 1.0 mD
+    assert 0.01 < kappa_md[0] < 1.0
+    assert 0.01 < kappa_md[2] < 1.0
+    # Permeable zone in 0.5 - 5 darcy = 500-5000 mD
+    assert 500.0 < kappa_md[1] < 5000.0
+
+
+# Edge cases (zero / negative shift, out-of-model)
+# ---------------------------------------------------------------------
+
+
+def test_tc_zero_shift_gives_zero_permeability():
+    """Tight zone (s_obs = s_ref, alpha_ST = 0) gives kappa = 0."""
+    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    s_ref = 1.0 / 1500.0
+    kappa = stoneley_permeability_tang_cheng(
+        np.array([s_ref]), s_ref, frequency=TC_FREQ,
+        fluid_bulk_modulus=TC_K_F, fluid_viscosity=TC_ETA,
+        fluid_density=TC_RHO_F,
+        porosity=np.array([0.10]),
+        frame_bulk_modulus=np.array([TC_K_PHI]))
+    assert kappa[0] == 0.0
+
+
+def test_tc_negative_shift_clipped_to_zero():
+    """Negative slowness shift (observed faster than reference;
+    noise-driven or imperfect tight-reference) clipped to kappa = 0
+    rather than raising or returning negative permeability."""
+    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    s_ref = 1.0 / 1500.0
+    s_obs = s_ref * 0.99  # 1% faster than reference
+    kappa = stoneley_permeability_tang_cheng(
+        np.array([s_obs]), s_ref, frequency=TC_FREQ,
+        fluid_bulk_modulus=TC_K_F, fluid_viscosity=TC_ETA,
+        fluid_density=TC_RHO_F,
+        porosity=np.array([0.10]),
+        frame_bulk_modulus=np.array([TC_K_PHI]))
+    assert kappa[0] == 0.0
+
+
+def test_tc_out_of_model_returns_nan():
+    """Slowness shift exceeding the model upper bound A = K_f/(2 K_phi)
+    returns NaN (typical cause: open fractures requiring the Hornby
+    aperture model rather than the Biot-Rosenbaum matrix model)."""
+    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    s_ref = 1.0 / 1500.0
+    A = TC_K_F / (2.0 * TC_K_PHI)
+    s_obs = s_ref * (1.0 + 2.0 * A)  # well above A
+    kappa = stoneley_permeability_tang_cheng(
+        np.array([s_obs]), s_ref, frequency=TC_FREQ,
+        fluid_bulk_modulus=TC_K_F, fluid_viscosity=TC_ETA,
+        fluid_density=TC_RHO_F,
+        porosity=np.array([0.10]),
+        frame_bulk_modulus=np.array([TC_K_PHI]))
+    assert np.isnan(kappa[0])
+
+
+# Monotonicity (more shift -> more permeability)
+# ---------------------------------------------------------------------
+
+
+def test_tc_recovered_kappa_monotonic_in_shift():
+    """Larger fractional slowness shift produces larger recovered
+    permeability across a representative band (within the model's
+    valid alpha_ST range)."""
+    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    s_ref = 1.0 / 1500.0
+    A = TC_K_F / (2.0 * TC_K_PHI)
+    # Five increasing alpha_ST values, all below A
+    alpha_grid = A * np.array([0.01, 0.1, 0.3, 0.6, 0.9])
+    s_obs = s_ref * (1.0 + alpha_grid)
+    phi = np.full_like(alpha_grid, 0.10)
+    K_phi = np.full_like(alpha_grid, TC_K_PHI)
+    kappa = stoneley_permeability_tang_cheng(
+        s_obs, s_ref, frequency=TC_FREQ,
+        fluid_bulk_modulus=TC_K_F, fluid_viscosity=TC_ETA,
+        fluid_density=TC_RHO_F,
+        porosity=phi, frame_bulk_modulus=K_phi)
+    assert np.all(np.diff(kappa) > 0)
+
+
+# Input validation
+# ---------------------------------------------------------------------
+
+
+def test_tc_rejects_non_positive_scalar_inputs():
+    """Each of frequency, K_f, eta, rho_f rejected when non-positive."""
+    import pytest
+
+    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    base = dict(slowness_observed=np.array([1.0e-3]),
+                slowness_reference=1.0 / 1500.0,
+                frequency=TC_FREQ, fluid_bulk_modulus=TC_K_F,
+                fluid_viscosity=TC_ETA, fluid_density=TC_RHO_F,
+                porosity=np.array([0.10]),
+                frame_bulk_modulus=np.array([TC_K_PHI]))
+    with pytest.raises(ValueError, match="frequency"):
+        stoneley_permeability_tang_cheng(**{**base, "frequency": 0.0})
+    with pytest.raises(ValueError, match="fluid_bulk_modulus"):
+        stoneley_permeability_tang_cheng(**{**base, "fluid_bulk_modulus": -1.0})
+    with pytest.raises(ValueError, match="fluid_viscosity"):
+        stoneley_permeability_tang_cheng(**{**base, "fluid_viscosity": 0.0})
+    with pytest.raises(ValueError, match="fluid_density"):
+        stoneley_permeability_tang_cheng(**{**base, "fluid_density": 0.0})
+
+
+def test_tc_rejects_unphysical_porosity():
+    """Porosity must be strictly in (0, 1)."""
+    import pytest
+
+    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    s_obs = np.array([1.0e-3])
+    s_ref = 1.0 / 1500.0
+    K_phi = np.array([TC_K_PHI])
+    with pytest.raises(ValueError, match="porosity"):
+        stoneley_permeability_tang_cheng(
+            s_obs, s_ref, frequency=TC_FREQ,
+            fluid_bulk_modulus=TC_K_F, fluid_viscosity=TC_ETA,
+            fluid_density=TC_RHO_F,
+            porosity=np.array([0.0]),  # zero not allowed
+            frame_bulk_modulus=K_phi)
+    with pytest.raises(ValueError, match="porosity"):
+        stoneley_permeability_tang_cheng(
+            s_obs, s_ref, frequency=TC_FREQ,
+            fluid_bulk_modulus=TC_K_F, fluid_viscosity=TC_ETA,
+            fluid_density=TC_RHO_F,
+            porosity=np.array([1.0]),  # 1.0 not allowed
+            frame_bulk_modulus=K_phi)
+
+
+def test_tc_rejects_non_positive_slowness():
+    """Slowness inputs must be strictly positive."""
+    import pytest
+
+    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    base_kwargs = dict(frequency=TC_FREQ, fluid_bulk_modulus=TC_K_F,
+                       fluid_viscosity=TC_ETA, fluid_density=TC_RHO_F,
+                       porosity=np.array([0.10]),
+                       frame_bulk_modulus=np.array([TC_K_PHI]))
+    with pytest.raises(ValueError, match="slowness_observed"):
+        stoneley_permeability_tang_cheng(
+            np.array([0.0]), 1.0 / 1500.0, **base_kwargs)
+    with pytest.raises(ValueError, match="slowness_reference"):
+        stoneley_permeability_tang_cheng(
+            np.array([1.0e-3]), -1.0, **base_kwargs)
+
+
+# Output contract
+# ---------------------------------------------------------------------
+
+
+def test_tc_output_shape_matches_input():
+    """Output array shape matches the (broadcast) input shape."""
+    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    s_obs = np.array([1.05, 1.10, 1.15, 1.20]) / 1500.0
+    s_ref = 1.0 / 1500.0
+    phi = np.array([0.10, 0.15, 0.20, 0.25])
+    K_phi = np.full(4, TC_K_PHI)
+    kappa = stoneley_permeability_tang_cheng(
+        s_obs, s_ref, frequency=TC_FREQ,
+        fluid_bulk_modulus=TC_K_F, fluid_viscosity=TC_ETA,
+        fluid_density=TC_RHO_F, porosity=phi, frame_bulk_modulus=K_phi)
+    assert kappa.shape == (4,)
+
+
+def test_tc_returns_si_units_m_squared():
+    """Output should be in m^2 (SI), with magnitudes in the 1e-17
+    to 1e-12 range for typical sonic Stoneley measurements."""
+    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    s_ref = 1.0 / 1500.0
+    A = TC_K_F / (2.0 * TC_K_PHI)
+    s_obs = np.array([s_ref * (1.0 + 0.5 * A)])  # mid-range alpha
+    kappa = stoneley_permeability_tang_cheng(
+        s_obs, s_ref, frequency=TC_FREQ,
+        fluid_bulk_modulus=TC_K_F, fluid_viscosity=TC_ETA,
+        fluid_density=TC_RHO_F,
+        porosity=np.array([0.10]),
+        frame_bulk_modulus=np.array([TC_K_PHI]))
+    # Mid-range alpha gives a permeability in the millidarcy-to-darcy band
+    assert 1.0e-17 < kappa[0] < 1.0e-9
+
+
+# ---------------------------------------------------------------------
 # stoneley_amplitude_fracture_indicator
 # ---------------------------------------------------------------------
 

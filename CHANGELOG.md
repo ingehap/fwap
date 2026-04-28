@@ -7,6 +7,25 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Quantitative Stoneley permeability** via the Tang-Cheng-Toksoz
+  (1991) simplified Biot-Rosenbaum closed form
+  (`fwap.rockphysics.stoneley_permeability_tang_cheng`).
+  Calibrated complement to the dimensionless rank-ordering
+  returned by `stoneley_permeability_indicator`: takes the
+  observed Stoneley slowness, a tight reference, and the standard
+  set of Biot / fluid parameters (frequency, K_f, eta, rho_f,
+  porosity, frame K_phi); returns absolute formation permeability
+  in m^2 (multiply by ~9.87e-13 for darcies). Real-valued
+  inversion (slowness shift only); the imaginary-part
+  (attenuation) inversion is a follow-up. Out-of-model handling:
+  `alpha_ST <= 0` (tight or noise-driven negative) clipped to
+  `kappa = 0`; `alpha_ST >= K_f / (2 K_phi)` returns NaN
+  (typical cause: open fractures requiring the
+  `hornby_fracture_aperture` model rather than the matrix-flow
+  Biot-Rosenbaum model). 11 new tests including a round-trip
+  check against a Tang & Cheng (2004) fig 5.3-style synthetic
+  (1-2 darcy permeable bed bracketed by 0.01-0.1 mD tight
+  limestone). Closes Open Item B on the roadmap.
 - **n=1 dipole flexural modal-determinant solver**
   (`fwap.cylindrical_solver.flexural_dispersion`). Companion to the
   existing n=0 Stoneley solver (Schmitt 1988); root-finds the
