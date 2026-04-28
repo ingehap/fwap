@@ -1403,6 +1403,140 @@ def stoneley_dispersion(
 # numerically invariant but ensuring every entry of the rescaled
 # matrix is real. The spoiler from 1.3.f -- "row 4 by i, column C
 # by (-i)" -- is the rescaling that 1.5 will verify and apply.
+
+# =====================================================================
+# Substep 1.5 -- phase rescaling to a fully real M_1
+# =====================================================================
+#
+# Goal: produce a real-valued 4x4 ``M_1(omega, k_z)`` such that
+# ``det M_1 = det M_pre``, so a real-valued root finder operating on
+# ``det M_1`` recovers exactly the dispersion curve of M_pre. The
+# rescaling required is small (one row, one column) and the proof
+# of det invariance is two lines.
+#
+# The five imaginary entries (recap from 1.3.f, with the row-2 sign
+# convention from 1.4 already applied):
+#
+#     M_pre[1, C] = + i k_z K1s
+#     M_pre[2, C] = - 2 i k_z mu [s K0s + K1s / a]
+#     M_pre[3, C] = + i k_z mu K1s / a
+#     M_pre[4, B] = - 2 i k_z mu [p K0p + K1p / a]
+#     M_pre[4, D] = + i k_z mu K1s / a
+#
+# Each is a real coefficient times an explicit ``i`` factor; nothing
+# else in M_pre carries an imaginary part.
+#
+# Rescaling
+# ---------
+# Apply the two operations in either order (they commute on the
+# entries that aren't simultaneously in row 4 *and* column C):
+#
+#     Step 1.  Multiply *row 4* by ``i``.
+#     Step 2.  Multiply *column C* by ``-i``.
+#
+# Determinant scaling factor:
+#
+#     row scale * column scale = i * (-i) = - i^2 = +1.
+#
+# So ``det M_rescaled = det M_pre``; the locus
+# ``det M_rescaled = 0`` is identical to the dispersion curve.
+#
+# Per-entry verification
+# ----------------------
+# 16 entries; group them by which rescalings they receive.
+#
+# A. **Untouched** (rows 1-3, columns A, B, D; nine entries):
+#    no factor applied. Each was real in M_pre and stays real.
+#    Specifically:
+#
+#         [1, A], [1, B], [1, D]
+#         [2, A], [2, B], [2, D]
+#         [3, A], [3, B], [3, D]
+#
+# B. **Column C only** (rows 1-3, column C; three entries):
+#    factor (-i) applied. Each was ``+ i * (real)`` in M_pre, so
+#    the product is ``+ i * (real) * (-i) = + (real)`` -- real.
+#
+#         [1, C] = i k_z K1s              -->  k_z K1s
+#         [2, C] = - 2 i k_z mu [...]     -->  - 2 k_z mu [s K0s + K1s/a]
+#         [3, C] = i k_z mu K1s / a       -->  k_z mu K1s / a
+#
+# C. **Row 4 only** (row 4, columns A, B, D; three entries):
+#    factor (i) applied. The A entry is zero (unchanged). The B
+#    and D entries were imaginary in M_pre and become real:
+#
+#         [4, A] = 0                      -->  0  (zero is zero)
+#         [4, B] = - 2 i k_z mu [...]     -->  + 2 k_z mu [p K0p + K1p/a]
+#         [4, D] = + i k_z mu K1s / a     -->  - k_z mu K1s / a
+#
+#    (verifications: ``i * (-2 i) = -2 i^2 = +2``;
+#                    ``i * (+ i) = i^2 = -1``)
+#
+# D. **Both row 4 and column C** (the [4, C] corner; one entry):
+#    factor i * (-i) = 1 applied. Originally ``mu kz2_kS2 K1s``
+#    (real in M_pre), stays exactly that. The corner entry is
+#    explicitly the only one whose two rescaling factors cancel,
+#    which is *also* the reason the rescaling works at all -- if
+#    [4, C] had been imaginary in M_pre, no row-4 + col-C rescaling
+#    could clear it without unbalancing det.
+#
+#         [4, C] = mu kz2_kS2 K1s         -->  mu kz2_kS2 K1s
+#
+# Total count: 9 (A) + 3 (B) + 3 (C) + 1 (D) = 16 entries; covers
+# every cell of M_1.
+#
+# Final form of M_1 (all entries real)
+# ------------------------------------
+# With the 1.4 row-2 negation and the 1.5 row-4 / column-C
+# rescaling both applied:
+#
+#     M_1[1, A] = (F I0 - I1 / a) / (rho_f omega^2)
+#     M_1[1, B] = p K0p + K1p / a
+#     M_1[1, C] = k_z K1s
+#     M_1[1, D] = - K1s / a
+#
+#     M_1[2, A] = - I1
+#     M_1[2, B] = - mu * [ kz2_kS2 K1p + 2 p K0p / a + 4 K1p / a^2 ]
+#     M_1[2, C] = - 2 k_z mu * [ s K0s + K1s / a ]
+#     M_1[2, D] = + 2 mu * [ s K0s / a + 2 K1s / a^2 ]
+#
+#     M_1[3, A] = 0
+#     M_1[3, B] = 2 mu * [ p K0p / a + 2 K1p / a^2 ]
+#     M_1[3, C] = k_z mu K1s / a
+#     M_1[3, D] = - mu * [ s^2 K1s + 2 s K0s / a + 4 K1s / a^2 ]
+#
+#     M_1[4, A] = 0
+#     M_1[4, B] = + 2 k_z mu * [ p K0p + K1p / a ]
+#     M_1[4, C] = mu * kz2_kS2 K1s
+#     M_1[4, D] = - k_z mu K1s / a
+#
+# This is the form 1.7 transcribes; the entries above are exactly
+# what ``_modal_determinant_n1`` will assemble.
+#
+# Comparison with the n = 0 row-3 / column-3 rescaling
+# ----------------------------------------------------
+# The n = 0 code multiplies "row 3 by i, column 3 by -i" (see
+# ``_modal_determinant_n0`` docstring). The row index moves
+# 3 -> 4 at n = 1 only because the dipole problem has the extra
+# sigma_r_theta = 0 BC inserted above sigma_rz = 0; the column
+# index 3 -> "C" is unchanged (always the SV potential amplitude).
+# Both rescalings are the same operation -- "rescale the sigma_rz
+# row by i, the C column by -i" -- expressed against different
+# row-numbering conventions. Net rescaling factor i * (-i) = +1
+# in both cases. The structural parallel is what lets 1.7's n=1
+# transcription mirror the n=0 implementation almost
+# line-for-line.
+#
+# Hand-off to substep 1.6
+# -----------------------
+# M_1 is now a real 4x4 polynomial-in-Bessels. Substep 1.6 will
+# substitute the low-frequency expansion ``omega a / V_S << 1`` and
+# the high-frequency expansion ``omega a / V_S >> 1`` into M_1 and
+# verify the leading roots reduce to ``k_z = omega / V_S`` and
+# ``k_z = omega / V_R`` respectively. Those are the only checks
+# possible without numerical evaluation; the published-curve match
+# (Paillet & Cheng 1991 fig. 4.5) waits for substep 1.7 + 1.8 +
+# Step 4's validation tests.
 #
 # Status
 # ------
@@ -1415,7 +1549,7 @@ def stoneley_dispersion(
 # Substep 1.3.e (sigma_rz on cos sector)             : done.
 # Substep 1.3.f (wall summary + sector check)        : done.
 # Substep 1.4 (BCs, azimuthal-factor strip)          : done.
-# Substep 1.5 (phase-rescale to real entries)        : TODO.
+# Substep 1.5 (phase-rescale to real entries)        : done.
 # Substep 1.6 (analytical-limit cross-check)         : TODO.
 # Substep 1.7 (_modal_determinant_n1 in code)        : TODO.
 # Substep 1.8 (transcription smoke test)             : TODO.
