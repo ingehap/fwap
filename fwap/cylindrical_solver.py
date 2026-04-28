@@ -1036,6 +1036,143 @@ def stoneley_dispersion(
 # Lame reduction is absent here (no lambda). The D entry is new
 # at n = 1 and carries the s^2 K_1 piece from differentiating
 # the ``D s K_0(s r)`` term, which has no analogue in 1.3.c.
+
+# =====================================================================
+# Substep 1.3.e -- solid sigma_rz (cos(theta) sector)
+# =====================================================================
+#
+# Goal: write sigma_rz^{(s)}(a) on the cos(theta) sector as a
+# coefficient sum on (B, C, D). Fluid contribution: identically
+# zero (inviscid fluid carries no shear); A entry of this row of
+# the upcoming 4x4 will be 0.
+#
+# Decomposition (from 1.3.a, no lambda, pure mu):
+#
+#     sigma_rz^{(s)} = mu * [ d_z u_r + d_r u_z ]
+#
+# Inputs from 1.2 (cos(theta) factors stripped; r kept symbolic):
+#
+#     u_r^{(s)} / cos(theta) = - B p K_0(p r)
+#                              - B K_1(p r) / r
+#                              + D K_1(s r) / r
+#                              - i k_z C K_1(s r)
+#
+#     u_z^{(s)} / cos(theta) = + i k_z B K_1(p r)
+#                              - C s K_0(s r)
+#
+# Both pieces sit naturally on cos(theta): d_z is i k_z * (.) so it
+# preserves the azimuthal factor, and d_r touches r only. No sector
+# flip is needed.
+#
+# Piece (i):  d_z u_r / cos(theta)
+# --------------------------------
+# Pull down i k_z onto every term of u_r:
+#
+#     = i k_z * [ - B p K_0(p r) - B K_1(p r) / r
+#                 + D K_1(s r) / r - i k_z C K_1(s r) ]
+#
+# The C term picks up an extra ``i`` factor; combining
+# (i k_z) * (- i k_z) = + k_z^2:
+#
+#     = - i k_z B p K_0(p r)
+#       - i k_z B K_1(p r) / r
+#       + i k_z D K_1(s r) / r
+#       + k_z^2 C K_1(s r)
+#
+# Piece (ii):  d_r u_z / cos(theta)
+# ---------------------------------
+# Per-amplitude differentiation:
+#
+#     d_r [+ i k_z B K_1(p r)] = + i k_z B p K_1'(p r)
+#         = i k_z B p * [ - K_0(p r) - K_1(p r) / (p r) ]
+#         = - i k_z B p K_0(p r) - i k_z B K_1(p r) / r
+#
+#     d_r [- C s K_0(s r)] = - C s * s K_0'(s r)
+#                          = - C s^2 * (- K_1(s r))
+#                          = + C s^2 K_1(s r)
+#         (uses K_0'(x) = -K_1(x))
+#
+#     Sum:  - i k_z B p K_0(p r) - i k_z B K_1(p r) / r
+#           + C s^2 K_1(s r)
+#
+# Sum, collected by amplitude
+# ---------------------------
+# Multiply piece (i) + piece (ii) by mu.
+#
+# B contributions (each piece contributes one ``- i k_z`` copy on
+# the same two Bessel evaluations):
+#
+#     - i k_z p K_0(p r):  (i) + (ii)  =  - 2 i k_z
+#     - i k_z K_1(p r)/r:  (i) + (ii)  =  - 2 i k_z
+#
+#     ==> B-sum = - 2 i k_z * [ p K_0(p r) + K_1(p r) / r ]
+#
+# C contributions (one piece each):
+#
+#     k_z^2  K_1(s r):    + 1 from (i)
+#     s^2    K_1(s r):    + 1 from (ii)
+#
+#     Sum: (k_z^2 + s^2) C K_1(s r). Using the bound-regime
+#     definition s^2 = k_z^2 - k_S^2, this equals
+#     (2 k_z^2 - k_S^2) C K_1(s r). The same combination
+#     ``2 k_z^2 - k_S^2`` shows up in 1.3.c's sigma_rr B-coefficient,
+#     but via a completely different route -- there it came from the
+#     Lame reduction ``- lambda k_P^2 + 2 mu p^2``; here it comes
+#     from k_z^2 + s^2 directly. The agreement is a structural
+#     consistency check on both derivations.
+#
+#     ==> C-sum = (2 k_z^2 - k_S^2) * K_1(s r)
+#
+# D contributions (only piece (i)):
+#
+#     i k_z K_1(s r) / r:  + 1 from (i)
+#
+#     ==> D-sum = i k_z * K_1(s r) / r
+#
+# Result (cos(theta) factor reinstated, r = a)
+# --------------------------------------------
+#
+#     sigma_rz^{(s)}(a) / cos(theta) = mu * {
+#         - 2 i k_z B [
+#             p K_0(p a) + K_1(p a) / a
+#         ]
+#         + (2 k_z^2 - k_S^2) C K_1(s a)
+#         + i k_z D K_1(s a) / a
+#     }
+#
+# Fluid side at the wall:
+#
+#     sigma_rz^{(f)}(a) = 0     (inviscid fluid, no shear stress)
+#
+# Sector check
+# ------------
+# Every term carries cos(theta) (no sin(theta) appears anywhere in
+# either piece). This will be row 4 of the 4x4 in 1.4, with A = 0
+# in that row from the fluid-side identity above. Both B and D
+# entries carry an i k_z factor that the substep-1.5 phase rescaling
+# will kill; the C entry is already real (no i factor).
+#
+# Comparison with n = 0 and 1.3.c
+# -------------------------------
+# The n = 0 row 3 has B-coefficient ``2 k_z p mu K_1(p a)``
+# (post-rescaling; see ``_modal_determinant_n0`` row 3) and
+# C-coefficient ``mu * (2 k_z^2 - k_S^2) K_1(s a)``. The C entry
+# is structurally identical at n = 1 (still ``mu * (2 k_z^2 - k_S^2)
+# K_1(s a)``) because the SV potential ``psi_theta`` has the same
+# K_1(s r) shape at both orders. The B entry gains a second term
+# at n = 1: the n = 0 form had only ``K_1(p a)`` from
+# ``u_r ~ - B p K_1(p r)``, while at n = 1 the K_1-vs-K_0
+# splitting from ``u_r ~ - B p K_0(p r) - B K_1(p r)/r`` produces
+# the two-term bracket ``[p K_0(p a) + K_1(p a)/a]``. The D entry
+# is new at n = 1 (no SH potential at n = 0).
+#
+# Note: the (2 k_z^2 - k_S^2) combination in the C-coefficient of
+# sigma_rz is the *same number* as the (2 k_z^2 - k_S^2) in the
+# B-coefficient of sigma_rr (1.3.c), but they arrive there by
+# different routes -- the sigma_rr one is from the Lame reduction
+# applied to a B K_1(p a) term, the sigma_rz one is from
+# ``k_z^2 + s^2`` applied to a C K_1(s a) term. The shared identity
+# is one of the cross-checks substep 1.6 will exercise.
 #
 # Status
 # ------
@@ -1045,7 +1182,7 @@ def stoneley_dispersion(
 # Substep 1.3.b (Bessel second-derivative identities): done.
 # Substep 1.3.c (sigma_rr with Lame reduction)       : done.
 # Substep 1.3.d (sigma_r_theta on sin sector)        : done.
-# Substep 1.3.e (sigma_rz on cos sector)             : TODO.
+# Substep 1.3.e (sigma_rz on cos sector)             : done.
 # Substep 1.3.f (wall summary + sector check)        : TODO.
 # Substep 1.4 (BCs, azimuthal-factor strip)          : TODO.
 # Substep 1.5 (phase-rescale to real entries)        : TODO.
