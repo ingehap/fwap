@@ -1818,6 +1818,139 @@ def stoneley_dispersion(
 #   *Geophysics* 59(7), 1037-1052. Eq. 14 confirms the same
 #   ``s_low = 1 / V_Sv`` low-frequency limit on a different
 #   (isotropic-and-VTI) starting point.
+
+# =====================================================================
+# Substep 1.6.c -- large-x Bessel asymptotics + exponential structure
+# =====================================================================
+#
+# Goal: pin the large-argument forms of the modified Bessel
+# functions, tabulate the dominant exponential factor of each of
+# the 16 entries of M_1, and show that the exponentials factor
+# globally out of det M_1, leaving a planar-Rayleigh-style
+# secular equation for substep 1.6.d to reduce.
+#
+# Bessel functions in the large-argument limit (x -> infinity)
+# ------------------------------------------------------------
+# Standard expansions (Abramowitz & Stegun 9.7, NIST DLMF 10.40):
+#
+#     I_0(x) ~ e^x / sqrt(2 pi x) * [ 1 + 1/(8 x) + O(1/x^2) ]
+#     I_1(x) ~ e^x / sqrt(2 pi x) * [ 1 - 3/(8 x) + O(1/x^2) ]
+#
+#     K_0(x) ~ sqrt(pi / (2 x)) * e^{-x}
+#                              * [ 1 - 1/(8 x) + O(1/x^2) ]
+#     K_1(x) ~ sqrt(pi / (2 x)) * e^{-x}
+#                              * [ 1 + 3/(8 x) + O(1/x^2) ]
+#
+# Note: in the high-f limit Fa, pa, sa all scale linearly with
+# ``omega a`` (since F, p, s -> omega/V_R, omega/V_R^2-correction,
+# etc., as ``k_z -> omega / V_R``). All three Bessel arguments are
+# therefore large together; no parameter sub-asymptote is needed
+# to land in the large-x regime.
+#
+# Per-entry exponential factor
+# ----------------------------
+# Substituting the leading-order ``e^{+x}`` (I-Bessels) and
+# ``e^{-x}`` (K-Bessels) into each entry of M_1 (from substep 1.5)
+# gives a column-only pattern: every entry's exponential factor
+# is determined solely by which column it sits in.
+#
+#     Column   Bessel       Exponential factor      Rows where non-zero
+#     A        I_0, I_1     e^{+ Fa}                rows 1, 2 only
+#     B        K_0, K_1     e^{- pa}                all 4 rows
+#     C        K_0, K_1     e^{- sa}                all 4 rows
+#     D        K_0, K_1     e^{- sa}                all 4 rows
+#
+# Per-entry table (matching the 1.6.a low-f table column-for-column;
+# the same shorthand Fa, pa, sa applies):
+#
+#     [1, A] ~ e^{+ Fa}      [1, B] ~ e^{- pa}
+#     [1, C] ~ e^{- sa}      [1, D] ~ e^{- sa}
+#
+#     [2, A] ~ e^{+ Fa}      [2, B] ~ e^{- pa}
+#     [2, C] ~ e^{- sa}      [2, D] ~ e^{- sa}
+#
+#     [3, A] = 0             [3, B] ~ e^{- pa}
+#     [3, C] ~ e^{- sa}      [3, D] ~ e^{- sa}
+#
+#     [4, A] = 0             [4, B] ~ e^{- pa}
+#     [4, C] ~ e^{- sa}      [4, D] ~ e^{- sa}
+#
+# Column-uniformity argument
+# --------------------------
+# In the Leibniz expansion of det M_1, each term is a product
+# ``sign(sigma) * M[1, sigma(1)] * M[2, sigma(2)] * M[3, sigma(3)]
+# * M[4, sigma(4)]`` over a permutation sigma of (A, B, C, D).
+# Because the exponential factor of each entry depends only on its
+# column, the exponential factor of the product is
+#
+#     e^{eta_A + eta_B + eta_C + eta_D}
+#         = e^{Fa - pa - sa - sa}
+#         = e^{Fa - pa - 2 sa},
+#
+# *the same factor for every non-zero permutation*. The 12 of 24
+# permutations that put A on row 3 or row 4 are zero (since
+# [3, A] = [4, A] = 0); the remaining 12 all carry the same global
+# exponential.
+#
+# Consequence:
+#
+#     det M_1(omega, k_z) = e^{Fa - pa - 2 sa} * D_red(omega, k_z)
+#
+# where D_red is built from the algebraic Bessel prefactors
+# ``sqrt(2 pi Fa)``, ``sqrt(2 pi / pa)``, etc. plus the M_1
+# entry coefficients (F, p, s, k_z, mu, kz2_kS2, ...). D_red has
+# no exponential dependence at leading order in 1 / (omega a).
+#
+# Since e^{Fa - pa - 2 sa} > 0 for all bound-mode parameters, the
+# dispersion equation
+#
+#     det M_1 = 0    <==>    D_red = 0
+#
+# in the high-f limit. The structural observation is that D_red is
+# precisely the planar half-space modal determinant -- substep
+# 1.6.d will show the explicit reduction to the Rayleigh secular
+# equation that ``rayleigh_speed`` already implements.
+#
+# Subleading corrections
+# ----------------------
+# The ``1 + O(1/x)`` correction factors from the I_n / K_n
+# expansions become ``1 + O(1 / (omega a))`` corrections to D_red.
+# These are responsible for:
+#
+#   1. Cylindrical-radius corrections to the planar Rayleigh
+#      asymptote -- finite a vs the planar half-space limit.
+#   2. The Scholte / fluid-loading offset -- the few-percent
+#      reduction below the vacuum-loaded Rayleigh speed that
+#      ``rayleigh_speed`` returns. The fluid loading enters via
+#      the e^{Fa} I-Bessel column A; the size of the offset
+#      depends on rho_f / rho_solid and V_f / V_S.
+#
+# Both corrections are mentioned in the existing
+# ``flexural_dispersion_physical`` docstring (see
+# ``cylindrical.py`` around line 145, "fluid-loading correction")
+# as a noted limitation of the vacuum-loaded asymptote. The full
+# modal solver this module implements does include them; the
+# Rayleigh asymptote is just the leading-order term.
+#
+# Hand-off to substep 1.6.d
+# -------------------------
+# 1.6.d will:
+#
+#   1. Substitute the per-entry algebraic prefactors (after
+#      stripping e^{Fa}, e^{-pa}, e^{-sa}) into D_red.
+#   2. Eliminate the column scaling factors by row / column
+#      operations (the planar-limit reduction).
+#   3. Match the resulting polynomial in (V_R/V_S)^2 and
+#      (V_R/V_P)^2 against the Rayleigh secular equation in
+#      ``rayleigh_speed`` (cylindrical.py:48).
+#
+# References
+# ----------
+# * Abramowitz, M., & Stegun, I. A. (1964). *Handbook of
+#   Mathematical Functions*. Dover. Sect. 9.7 (large-argument
+#   modified Bessel asymptotics).
+# * NIST Digital Library of Mathematical Functions, sect. 10.40
+#   (online: https://dlmf.nist.gov/10.40).
 #
 # Status
 # ------
@@ -1833,7 +1966,7 @@ def stoneley_dispersion(
 # Substep 1.5 (phase-rescale to real entries)        : done.
 # Substep 1.6.a (small-x Bessel + low-f entry table) : done.
 # Substep 1.6.b (low-f dominant balance)             : done.
-# Substep 1.6.c (large-x Bessel + exponential structure): TODO.
+# Substep 1.6.c (large-x Bessel + exponential structure): done.
 # Substep 1.6.d (high-f Rayleigh-secular reduction)  : TODO.
 # Substep 1.6.e (cross-consistency + n=0 + hand-off) : TODO.
 # Substep 1.7 (_modal_determinant_n1 in code)        : TODO.
