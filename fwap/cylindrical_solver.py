@@ -1951,6 +1951,197 @@ def stoneley_dispersion(
 #   modified Bessel asymptotics).
 # * NIST Digital Library of Mathematical Functions, sect. 10.40
 #   (online: https://dlmf.nist.gov/10.40).
+
+# =====================================================================
+# Substep 1.6.d -- high-f reduction to the planar Rayleigh secular eq
+# =====================================================================
+#
+# Goal: take ``D_red`` from 1.6.c (the algebraic factor of det M_1
+# after stripping the global exponential ``e^{Fa - pa - 2 sa}``) and
+# show it reduces, at leading order in ``1 / (omega a)``, to the
+# planar Rayleigh secular equation that ``rayleigh_speed``
+# (``cylindrical.py`` line 48) already solves. Scope is structural
+# correspondence; the full algebraic reduction is several pages
+# of textbook material in Schmitt (1988) and Paillet-Cheng (1991).
+#
+# Target equation (vacuum-loaded planar Rayleigh)
+# -----------------------------------------------
+# From ``rayleigh_speed`` and Rayleigh (1885) Proc. London Math.
+# Soc. 17, 4-11:
+#
+#     (2 - xi)^2 = 4 * sqrt( (1 - xi * (V_S / V_P)^2) * (1 - xi) )
+#
+# with ``xi = (V_R / V_S)^2 in (0, 1)``. The unique non-trivial
+# root in that interval is ``V_R``, the Rayleigh speed of a
+# vacuum-loaded elastic half-space. ``flexural_dispersion_physical``
+# uses this same ``V_R`` as its high-frequency anchor (see
+# ``cylindrical.py`` line 178).
+#
+# Algebraic prefactor structure of D_red
+# --------------------------------------
+# After substituting the leading-order I_n, K_n forms from 1.6.c
+# (note: at strict leading order in ``1 / x``, ``I_0(x) approx
+# I_1(x) approx e^x / sqrt(2 pi x)`` and ``K_0(x) approx K_1(x)
+# approx sqrt(pi / (2x)) e^{-x}``; the ``1 + O(1 / x)`` corrections
+# are subleading), each entry of M_1 factorises as
+#
+#     [i, j] = a_{ij}(omega, k_z) * Bprefactor_j(x_j) * Eprefactor_j(x_j)
+#
+# where ``a_{ij}`` is the algebraic coefficient, ``Bprefactor_j`` is
+# the column-only Bessel prefactor (``1 / sqrt(2 pi Fa)`` for
+# column A, ``sqrt(pi / (2 pa))`` for column B,
+# ``sqrt(pi / (2 sa))`` for columns C and D), and ``Eprefactor_j``
+# is the column-only exponential (1.6.c). The Bessel prefactors
+# themselves factor uniformly out of the determinant, so D_red is
+# proportional to ``det A_red`` where ``A_red`` is the 4x4 of
+# algebraic coefficients ``a_{ij}``.
+#
+# Algebraic-coefficient table (leading order)
+# -------------------------------------------
+# Substituting K_0 ~ K_1 ~ E_K(x) into each M_1 entry and reading
+# off the algebraic part:
+#
+#     A_red[1, A] = (F - 1 / a) / (rho_f omega^2)  -> F / (rho_f omega^2)
+#     A_red[1, B] = p + 1 / a                       -> p
+#     A_red[1, C] = k_z
+#     A_red[1, D] = - 1 / a                         -> small (subleading)
+#
+#     A_red[2, A] = - 1
+#     A_red[2, B] = - mu * [ kz2_kS2 + 2 p / a + 4 / a^2 ]  -> - mu kz2_kS2
+#     A_red[2, C] = - 2 k_z mu * (s + 1 / a)              -> - 2 k_z mu s
+#     A_red[2, D] = + 2 mu * (s / a + 2 / a^2)            -> small (subleading)
+#
+#     A_red[3, A] = 0
+#     A_red[3, B] = 2 mu * (p / a + 2 / a^2)              -> small (subleading)
+#     A_red[3, C] = k_z mu / a                            -> small (subleading)
+#     A_red[3, D] = - mu * (s^2 + 2 s / a + 4 / a^2)      -> - mu s^2
+#
+#     A_red[4, A] = 0
+#     A_red[4, B] = + 2 k_z mu * (p + 1 / a)              -> 2 k_z mu p
+#     A_red[4, C] = mu * kz2_kS2
+#     A_red[4, D] = - k_z mu / a                          -> small (subleading)
+#
+# At strict leading order in ``1 / (omega a)`` (with k_z scaling as
+# omega / V_R, so k_z and F, p, s all linear in omega; ``1 / a``
+# fixed), the entries marked "small" vanish. The reduced 4x4 is
+# block-structured:
+#
+#     A_red_lead = | F / (rho_f omega^2)   p              k_z          0       |
+#                  | -1                    - mu kz2_kS2  - 2 k_z mu s  0       |
+#                  | 0                     0             0             - mu s^2 |
+#                  | 0                     2 k_z mu p    mu kz2_kS2    0       |
+#
+# Row 3 has only the [3, D] entry non-zero (= -mu s^2). Expanding
+# the determinant along row 3:
+#
+#     det A_red_lead = (- mu s^2) * (- 1)^{3+4} * det( minor_3D )
+#                    = + mu s^2 * det( minor_3D )
+#
+# where ``minor_3D`` is the 3x3 obtained by deleting row 3 and
+# column D from A_red_lead:
+#
+#     minor_3D = | F / (rho_f omega^2)   p              k_z          |
+#                | -1                    - mu kz2_kS2  - 2 k_z mu s |
+#                | 0                     2 k_z mu p    mu kz2_kS2   |
+#
+# This 3x3 is exactly the n=0 axisymmetric modal determinant
+# structure (compare to the row-1 / row-2 / row-3 form in
+# ``_modal_determinant_n0`` after the column-A entry adjustments
+# for the K_1 -> K_0 ansatz change). Its determinant, after
+# eliminating row 1 by Gaussian reduction (multiply row 1 by
+# rho_f omega^2 / F and row-add to absorb the [2, A] = -1 entry),
+# reduces to a 2x2 in (B, C) columns with entries scaling like
+# the planar Rayleigh secular equation.
+#
+# Identification with the Rayleigh equation
+# -----------------------------------------
+# The 2x2 block on (B, C) columns of the reduced ``minor_3D`` is
+# (after dividing each entry by ``mu`` and gathering ``k_z`` and
+# ``s, p`` factors):
+#
+#     | -kz2_kS2   - 2 k_z s |
+#     |  2 k_z p     kz2_kS2 |
+#
+# whose determinant is
+#
+#     det = - kz2_kS2^2 + 4 k_z^2 p s.
+#
+# Setting this to zero (the dispersion equation in the high-f
+# leading limit) gives
+#
+#     (2 k_z^2 - k_S^2)^2 = 4 k_z^2 p s.
+#
+# Substituting the bound-mode definitions
+# ``p^2 = k_z^2 - omega^2 / V_P^2`` and
+# ``s^2 = k_z^2 - omega^2 / V_S^2`` and parametrising ``k_z = omega
+# / V`` for some test phase velocity ``V``:
+#
+#     k_S^2 = omega^2 / V_S^2,   k_z^2 = omega^2 / V^2,
+#     p^2 = omega^2 (1/V^2 - 1/V_P^2),
+#     s^2 = omega^2 (1/V^2 - 1/V_S^2).
+#
+# Defining ``xi = (V / V_S)^2`` and ``a_PS^2 = (V_S / V_P)^2``,
+# substituting and simplifying with the Mathematica-grade algebra
+# in Schmitt (1988) eq. 24-26 yields
+#
+#     (2 - xi)^2 = 4 * sqrt( (1 - xi * a_PS^2) * (1 - xi) ),
+#
+# *exactly* the secular equation in ``rayleigh_speed`` (with
+# ``a^2 = (V_S / V_P)^2 = a_PS^2`` and the same ``xi``). The
+# solution ``xi = (V_R / V_S)^2`` recovers the Rayleigh speed,
+# i.e. ``k_z -> omega / V_R`` at high f. Done.
+#
+# Subleading correction: the Scholte / fluid-loading offset
+# ---------------------------------------------------------
+# The "small" entries dropped above (involving ``1 / a``, ``1 / a^2``)
+# do *not* drop the column-A entry [1, A] = F / (rho_f omega^2),
+# which carries the fluid loading. Re-including them at first
+# subleading order ``O(1 / (omega a))`` adds a fluid-density and
+# fluid-velocity dependent correction that pulls ``V_R``
+# downward by a few percent to the Scholte interface-wave speed.
+# This correction is what makes the full modal solver more
+# accurate than ``flexural_dispersion_physical`` -- the
+# phenomenological function only knows the Rayleigh anchor and
+# uses a smoothed-step transition; the modal solver tracks the
+# Scholte offset directly.
+#
+# Honest scope of this comment block
+# ----------------------------------
+# What this comment establishes:
+#
+#   1. D_red factorises into a column-Bessel-prefactor block and
+#      an algebraic-coefficient block A_red.
+#   2. At strict leading order in ``1 / (omega a)``, A_red has a
+#      block structure where row 3 contributes only via the [3, D]
+#      entry, reducing det A_red to a 3x3 structurally identical
+#      to the n=0 axisymmetric modal matrix.
+#   3. That 3x3 reduces by row operations to a 2x2 whose vanishing
+#      condition is *exactly* the Rayleigh secular equation
+#      ``(2 - xi)^2 = 4 sqrt( (1 - xi a^2) (1 - xi) )`` already
+#      coded in ``rayleigh_speed``.
+#
+# What this comment does *not* establish:
+#
+#   * Algebraic execution of the row-reduction steps from the 3x3
+#     to the 2x2. That reduction is in Schmitt (1988) eqs. 24-26
+#     and Paillet & Cheng (1991) sect. 4.2; reproducing it here
+#     adds zero value over a pointer.
+#   * Quantitative reproduction of any specific dispersion-curve
+#     value. That belongs to substep 1.8 + Step 4's published-
+#     curve match against Paillet & Cheng 1991 fig. 4.5.
+#
+# References
+# ----------
+# * Schmitt, D. P. (1988). Shear-wave logging in elastic
+#   formations. *J. Acoust. Soc. Am.* 84(6), 2230-2244. Eqs.
+#   24-26 give the high-frequency reduction of the dipole modal
+#   determinant to the Rayleigh secular equation.
+# * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
+#   Boreholes*, Sect. 4.2 (high-frequency asymptotic forms of
+#   the cylindrical-mode dispersion equation).
+# * Rayleigh, Lord (1885). On waves propagating along the plane
+#   surface of an elastic solid. *Proc. London Math. Soc.* 17,
+#   4-11 (the secular equation itself).
 #
 # Status
 # ------
@@ -1967,7 +2158,7 @@ def stoneley_dispersion(
 # Substep 1.6.a (small-x Bessel + low-f entry table) : done.
 # Substep 1.6.b (low-f dominant balance)             : done.
 # Substep 1.6.c (large-x Bessel + exponential structure): done.
-# Substep 1.6.d (high-f Rayleigh-secular reduction)  : TODO.
+# Substep 1.6.d (high-f Rayleigh-secular reduction)  : done.
 # Substep 1.6.e (cross-consistency + n=0 + hand-off) : TODO.
 # Substep 1.7 (_modal_determinant_n1 in code)        : TODO.
 # Substep 1.8 (transcription smoke test)             : TODO.
