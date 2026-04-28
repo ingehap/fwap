@@ -1681,6 +1681,143 @@ def stoneley_dispersion(
 #   modified Bessel asymptotics).
 # * NIST Digital Library of Mathematical Functions, sect. 10.30
 #   (online: https://dlmf.nist.gov/10.30).
+
+# =====================================================================
+# Substep 1.6.b -- low-f dominant balance: confirm k_z = omega / V_S
+# =====================================================================
+#
+# Goal: take the leading-order cancellation surfaced in 1.6.a and
+# argue that the *subleading* balance forces ``k_z -> omega / V_S``
+# (equivalently ``s -> 0``) as ``omega a / V_S -> 0``. Scope is
+# structural consistency with the published Ellefsen-Cheng-Toksoz
+# (1991) result, not a from-scratch perturbation derivation -- the
+# latter takes several pages and lives in the cited reference.
+#
+# Published result (target asymptote)
+# -----------------------------------
+# Ellefsen, Cheng & Toksoz (1991), sect. III.B, derive the
+# long-wavelength flexural-mode limit by perturbation expansion
+# of the cylindrical n = 1 modal determinant about ``omega = 0``.
+# The leading-order phase slowness is
+#
+#     s_low = 1 / V_S          (isotropic formation),
+#
+# i.e. ``k_z(omega) -> omega / V_S`` as ``omega -> 0``. For VTI
+# formations the same expansion gives ``s_low = 1 / V_Sv`` (the
+# vertical shear slowness; see ``flexural_dispersion_vti_physical``
+# in ``fwap.cylindrical`` for the phenomenological VTI version
+# anchored on the same limit). The isotropic case is what M_1
+# implements and what 1.6.b checks.
+#
+# Why direct evaluation at ``s = 0`` is singular
+# ----------------------------------------------
+# Setting ``s = 0`` (equivalently ``sa = 0``) sends ``K_0(sa)``
+# and ``K_1(sa)`` to infinity, so ``M_1`` as written has divergent
+# entries in column C and the C-derived parts of column D. The
+# correct interpretation is "the dispersion locus passes through
+# the ``s = 0`` limit as ``omega a / V_S -> 0``", i.e. the *root*
+# of ``det M_1 = 0`` approaches the singular point along a
+# specific direction in (omega, k_z) space rather than the matrix
+# being evaluable there.
+#
+# Useful regularised limits at small ``sa``
+# -----------------------------------------
+# Several products that appear in M_1 have finite limits even as
+# ``sa -> 0``. Combining the small-x asymptotics from 1.6.a:
+#
+#     s K_1(sa)   ~ s * 1/(sa) = 1/a               (finite)
+#     s^2 K_1(sa) ~ s^2 * 1/(sa) = s/a -> 0        (vanishing)
+#     s K_0(sa)   ~ s * (- ln(sa/2)) -> 0          (slower than s)
+#     K_1(sa)/a   ~ 1/(sa^2)                       (divergent)
+#     K_1(sa)/a^2 ~ 1/(sa^3)                       (more divergent)
+#
+# These let us trace which entries stay finite vs which carry the
+# divergence. In particular, the [2, C] and [3, C] entries
+# diverge as 1/(sa^2) and the [2, D], [3, D] entries diverge as
+# 1/(sa^3); but the *combinations* that appear in the (B, C, D)
+# 3x3 minors of det M_1 (1.4 block-structure observation) admit
+# row-and-column factorings that pull the divergence outside,
+# leaving a regular (B, C, D) sub-determinant.
+#
+# Subleading-balance argument
+# ---------------------------
+# 1.6.a flagged that the leading 1/(s a^3) divergences in
+# [2, B], [2, D], [3, B], [3, D] cancel exactly on the (B, D) 2x2
+# minor. The next-order contributions to that minor come from the
+# subleading terms tabulated in 1.6.a:
+#
+#     [2, C]_sub = + 2 k_z mu s ln(sa/2)              (from s K_0(sa))
+#     [3, D]_sub = - mu s / a                         (from s^2 K_1(sa))
+#     [2, D]_sub = - 2 mu s ln(sa/2) / a              (from s K_0(sa) / a)
+#     [3, B]_sub = - 2 mu p ln(pa/2) / a              (from p K_0(pa) / a)
+#
+# Combined with the leading parts that survive on rows 1 and 4,
+# the dispersion equation ``det M_1 = 0`` becomes a balance
+# between *finite* (s, p, log) terms and *vanishing* (s -> 0)
+# terms. The only way to satisfy that balance asymptotically is
+# to drive the vanishing-term coefficients to dominate the finite
+# coefficients, which forces ``s -> 0``.
+#
+# Equivalently: in the regularised (B, D) minor, the dispersion
+# root corresponds to a zero of a function that has a simple
+# analytic factor of ``s`` at leading order in (omega a). The
+# zero of that factor is at ``s = 0``, recovering ``k_z =
+# omega / V_S``.
+#
+# This sketch is consistent with the EC&T derivation (which goes
+# further to compute the higher-order corrections in (omega a /
+# V_S)^2). For a full quantitative match between M_1 and EC&T,
+# the test is numerical and belongs to substep 1.8 / Step 4.
+#
+# Connection to existing fwap code
+# --------------------------------
+# ``fwap.cylindrical.flexural_dispersion_physical(vp, vs, a)``
+# already uses ``s_low = 1 / vs`` as its low-f anchor (see
+# ``cylindrical.py`` line 176). The modal solver in this module
+# replaces the rational-interpolation transition between
+# ``s_low`` and the high-f Rayleigh asymptote with the actual
+# determinant root, but the low-f anchor is the same value. A
+# test in Step 4 will confirm that ``flexural_dispersion`` (the
+# 1.7 + Step 2-3 product) returns ``1 / vs`` to within a few
+# percent at f = 200 Hz for typical sonic parameters, replicating
+# the agreement that ``flexural_dispersion_physical`` already
+# enforces by construction.
+#
+# Honest scope of this comment block
+# ----------------------------------
+# What this comment establishes:
+#
+#   1. The published EC&T result is ``k_z -> omega / V_S`` at low
+#      f for the isotropic flexural mode.
+#   2. M_1 as written cannot be evaluated at ``s = 0`` directly;
+#      the limit must be taken along the dispersion locus.
+#   3. The 1.6.a divergence cancellation in the (B, D) minor
+#      forces the dispersion root to the subleading balance,
+#      which is structurally consistent with ``s -> 0``.
+#
+# What this comment does *not* establish:
+#
+#   * A first-principles algebraic derivation of the EC&T result
+#     from M_1. That requires several pages of perturbation
+#     expansion in (omega a / V_S) and is well-trodden in the
+#     reference; reproducing it here adds zero value over a
+#     pointer to EC&T sect. III.B.
+#   * Quantitative verification. That belongs to the numerical
+#     tests in 1.8 + Step 4 (``s(200 Hz) approx 1 / vs`` for a
+#     fast formation).
+#
+# References
+# ----------
+# * Ellefsen, K. J., Cheng, C. H., & Toksoz, M. N. (1991).
+#   Effects of anisotropy upon the resonances of normal modes
+#   in a borehole. *J. Acoust. Soc. Am.* 89(6), 2597-2616.
+#   Section III.B gives the long-wavelength flexural-mode
+#   limit ``s_low = 1 / V_Sv``.
+# * Sinha, B. K., Norris, A. N., & Chang, S. K. (1994).
+#   Borehole flexural modes in anisotropic formations.
+#   *Geophysics* 59(7), 1037-1052. Eq. 14 confirms the same
+#   ``s_low = 1 / V_Sv`` low-frequency limit on a different
+#   (isotropic-and-VTI) starting point.
 #
 # Status
 # ------
@@ -1695,7 +1832,7 @@ def stoneley_dispersion(
 # Substep 1.4 (BCs, azimuthal-factor strip)          : done.
 # Substep 1.5 (phase-rescale to real entries)        : done.
 # Substep 1.6.a (small-x Bessel + low-f entry table) : done.
-# Substep 1.6.b (low-f dominant balance)             : TODO.
+# Substep 1.6.b (low-f dominant balance)             : done.
 # Substep 1.6.c (large-x Bessel + exponential structure): TODO.
 # Substep 1.6.d (high-f Rayleigh-secular reduction)  : TODO.
 # Substep 1.6.e (cross-consistency + n=0 + hand-off) : TODO.
