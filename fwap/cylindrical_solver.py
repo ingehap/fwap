@@ -2314,7 +2314,194 @@ def stoneley_dispersion(
 # Substep 1.6.c (large-x Bessel + exponential structure): done.
 # Substep 1.6.d (high-f Rayleigh-secular reduction)  : done.
 # Substep 1.6.e (cross-consistency + n=0 + hand-off) : done.
-# Substep 1.7 (_modal_determinant_n1 in code)        : TODO.
-# Substep 1.8 (transcription smoke test)             : TODO.
+# Substep 1.7 (_modal_determinant_n1 in code)        : done.
+# Substep 1.8 (transcription smoke test)             : done.
 # Then Step 2 (root-finder) and Step 3 (public ``flexural_dispersion``
 # API) per the parent implementation plan.
+#
+# Substep-1.8 smoke-test results (slow formation, vp=2200, vs=800,
+# rho=2200, vf=1500, rho_f=1000, a=0.1):
+#
+#   f = 2 kHz   : sign change at k_z corresponding to slowness ~1251 us/m
+#                 (low-f asymptote 1/V_S = 1250 us/m matched).
+#   f = 5 kHz   : sign change at slowness ~1337 us/m
+#                 (high-f asymptote 1/V_R = 1322 us/m + ~1.1% Scholte
+#                  fluid-loading offset; matches 1.6.c-d predictions).
+#   f = 10 kHz  : sign change at slowness ~1338 us/m (asymptote saturated).
+#
+# Note on the bound-mode regime: the matrix is built assuming
+# k_z > omega / V_alpha for every wave speed V_alpha (V_f, V_P, V_S),
+# so all radial wavenumbers F, p, s are real. In a *fast* formation
+# (V_S > V_f) the flexural mode has phase velocity between V_R and
+# V_S, which is above V_f -- the mode is then *narrowly leaky* into
+# the fluid (F^2 < 0) and outside the scope of this solver. The
+# leaky-flexural regime is on the roadmap as a follow-up to this
+# bound-mode solver.
+
+
+# ---------------------------------------------------------------------
+# n = 1 dipole flexural modal determinant (Schmitt 1988)
+# ---------------------------------------------------------------------
+
+
+def _modal_determinant_n1(
+    kz: float,
+    omega: float,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> float:
+    r"""
+    4x4 dipole modal determinant in the bound-mode regime.
+
+    Four boundary conditions at ``r = a``:
+
+    1. continuity of radial displacement
+       :math:`u_r^{(f)}(a) = u_r^{(s)}(a)` (cos sector),
+    2. normal-stress balance
+       :math:`\sigma_{rr}^{(s)}(a) = -P^{(f)}(a)` (cos sector;
+       row negated to match the n=0 sign convention),
+    3. tangential-shear vanishing on the formation side
+       :math:`\sigma_{r\theta}^{(s)}(a) = 0` (sin sector;
+       fluid-side identically zero),
+    4. axial-shear vanishing on the formation side
+       :math:`\sigma_{rz}^{(s)}(a) = 0` (cos sector;
+       fluid-side identically zero).
+
+    A guided dipole mode at fixed ``omega`` is a value of ``k_z``
+    that makes ``det(M) = 0``. Returns a real scalar; after the
+    substep-1.5 phase rescaling (row 4 by ``i``, column C by
+    ``-i``, net factor 1) every entry of M is real, so the
+    determinant is itself real and root-findable with
+    :func:`scipy.optimize.brentq`.
+
+    Field representation (bound regime):
+
+    * Fluid pressure:  :math:`P = A I_1(F r) \cos\theta`,
+      :math:`F = \sqrt{k_z^2 - \omega^2 / V_f^2}`
+    * Formation P scalar potential:
+      :math:`\phi = B K_1(p r) \cos\theta`,
+      :math:`p = \sqrt{k_z^2 - \omega^2 / V_P^2}`
+    * Formation SV vector-potential, theta component:
+      :math:`\psi_\theta = C K_1(s r) \cos\theta`,
+      :math:`s = \sqrt{k_z^2 - \omega^2 / V_S^2}`
+    * Formation SH vector-potential, z component:
+      :math:`\psi_z = D K_1(s r) \sin\theta`
+
+    The full derivation -- field-from-potential expansions, stress
+    components with the Lame reduction
+    :math:`-\lambda k_P^2 + 2\mu p^2 = \mu (2 k_z^2 - k_S^2)`,
+    and the row-4 / column-C phase rescaling that makes M real --
+    is in the substep blocks above (1.1 through 1.6.e) ending at
+    :func:`stoneley_dispersion`.
+
+    The 16 entries below are the substep-1.5 final form; each row's
+    derivation is summarised next to the entry. The ``cos(theta)``
+    and ``sin(theta)`` azimuthal factors have been stripped (substep
+    1.4); after the row-4 / column-C phase rescaling (substep 1.5)
+    every entry is real.
+
+    Row 1 (BC1, ``u_r^{(f)} - u_r^{(s)} = 0``, cos sector):
+        ``[ (F I_0(Fa) - I_1(Fa) / a) / (rho_f omega^2),
+            p K_0(pa) + K_1(pa) / a,
+            k_z K_1(sa),
+            -K_1(sa) / a ]``
+
+    Row 2 (BC2, ``-(sigma_rr^{(s)} + P) = 0``, cos sector,
+    row negated for n=0 visual parallel):
+        ``[ -I_1(Fa),
+            -mu * [ (2 k_z^2 - k_S^2) K_1(pa)
+                    + 2 p K_0(pa) / a
+                    + 4 K_1(pa) / a^2 ],
+            -2 k_z mu * [ s K_0(sa) + K_1(sa) / a ],
+            +2 mu * [ s K_0(sa) / a + 2 K_1(sa) / a^2 ] ]``
+
+    Row 3 (BC3, ``sigma_r_theta^{(s)} = 0``, sin sector):
+        ``[ 0,
+            2 mu * [ p K_0(pa) / a + 2 K_1(pa) / a^2 ],
+            k_z mu K_1(sa) / a,
+            -mu * [ s^2 K_1(sa) + 2 s K_0(sa) / a
+                    + 4 K_1(sa) / a^2 ] ]``
+
+    Row 4 (BC4, ``sigma_rz^{(s)} = 0``, cos sector,
+    after row-4 by ``i`` and column-C by ``-i`` rescale):
+        ``[ 0,
+            +2 k_z mu * [ p K_0(pa) + K_1(pa) / a ],
+            mu * (2 k_z^2 - k_S^2) K_1(sa),
+            -k_z mu K_1(sa) / a ]``
+
+    Where ``Fa = F a``, ``pa = p a``, ``sa = s a``, ``mu = rho V_S^2``,
+    ``k_S = omega / V_S``.
+
+    See Also
+    --------
+    _modal_determinant_n0 : The n=0 axisymmetric (Stoneley)
+        counterpart. Structurally similar 3x3 form; the n=1
+        problem has an extra row (sigma_r_theta = 0) and an
+        extra column (the SH potential D) on top.
+
+    References
+    ----------
+    * Schmitt, D. P. (1988). Shear-wave logging in elastic
+      formations. *J. Acoust. Soc. Am.* 84(6), 2230-2244
+      (the n=1 dipole modal determinant).
+    * Kurkjian, A. L., & Chang, S.-K. (1986). Acoustic multipole
+      sources in fluid-filled boreholes. *Geophysics* 51(1),
+      148-163 (most explicit derivation of the 4x4 dipole system).
+    * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
+      Boreholes.* CRC Press, Ch. 4.
+    """
+    F = np.sqrt(kz * kz - (omega / vf) ** 2)
+    p = np.sqrt(kz * kz - (omega / vp) ** 2)
+    s = np.sqrt(kz * kz - (omega / vs) ** 2)
+    Fa, pa, sa = F * a, p * a, s * a
+
+    I0Fa, I1Fa = _i0_i1(Fa)
+    K0pa, K1pa = _k0_k1(pa)
+    K0sa, K1sa = _k0_k1(sa)
+
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    # Row 1: u_r^{(f)} - u_r^{(s)} = 0 at r = a (cos sector).
+    M11 = (F * I0Fa - I1Fa / a) / (rho_f * omega ** 2)
+    M12 = p * K0pa + K1pa / a
+    M13 = kz * K1sa
+    M14 = -K1sa / a
+
+    # Row 2: -(sigma_rr^{(s)} + P) = 0 at r = a (cos sector;
+    # row negated for visual parallel with the n=0 form).
+    M21 = -I1Fa
+    M22 = -mu * (two_kz2_minus_kS2 * K1pa
+                 + 2.0 * p * K0pa / a
+                 + 4.0 * K1pa / (a * a))
+    M23 = -2.0 * kz * mu * (s * K0sa + K1sa / a)
+    M24 = 2.0 * mu * (s * K0sa / a + 2.0 * K1sa / (a * a))
+
+    # Row 3: sigma_r_theta^{(s)} = 0 at r = a (sin sector;
+    # fluid carries no shear, so M31 = 0).
+    M31 = 0.0
+    M32 = 2.0 * mu * (p * K0pa / a + 2.0 * K1pa / (a * a))
+    M33 = kz * mu * K1sa / a
+    M34 = -mu * (s * s * K1sa
+                 + 2.0 * s * K0sa / a
+                 + 4.0 * K1sa / (a * a))
+
+    # Row 4: sigma_rz^{(s)} = 0 at r = a (cos sector; M41 = 0
+    # for the same fluid-no-shear reason). Entries below are the
+    # substep-1.5 form: row 4 has been multiplied by i and
+    # column C (= column 3 here) by -i, leaving a real matrix.
+    M41 = 0.0
+    M42 = 2.0 * kz * mu * (p * K0pa + K1pa / a)
+    M43 = mu * two_kz2_minus_kS2 * K1sa
+    M44 = -kz * mu * K1sa / a
+
+    M = np.array([[M11, M12, M13, M14],
+                  [M21, M22, M23, M24],
+                  [M31, M32, M33, M34],
+                  [M41, M42, M43, M44]], dtype=float)
+    return float(np.linalg.det(M))
