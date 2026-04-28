@@ -1537,6 +1537,150 @@ def stoneley_dispersion(
 # possible without numerical evaluation; the published-curve match
 # (Paillet & Cheng 1991 fig. 4.5) waits for substep 1.7 + 1.8 +
 # Step 4's validation tests.
+
+# =====================================================================
+# Substep 1.6.a -- small-x Bessel asymptotics + low-f entry table
+# =====================================================================
+#
+# Goal: pin the small-argument forms of the four modified Bessel
+# functions used in M_1, substitute them into each of the 16
+# entries, and tabulate the leading + subleading behavior. Substep
+# 1.6.b uses the table to identify the dominant balance that
+# defines the flexural-mode low-f asymptote.
+#
+# Bessel functions in the small-argument limit (x -> 0+)
+# ------------------------------------------------------
+# Standard expansions (Abramowitz & Stegun 9.6, NIST DLMF 10.30):
+#
+#     I_0(x) = 1 + x^2 / 4 + O(x^4)
+#     I_1(x) = x / 2 + x^3 / 16 + O(x^5)
+#
+#     K_0(x) = - ln(x / 2) - gamma_E + O(x^2 ln x)
+#     K_1(x) = 1 / x + (x / 2) [ ln(x / 2) + gamma_E - 1/2 ]
+#                    + O(x^3 ln x)
+#
+# where gamma_E = 0.5772... is the Euler-Mascheroni constant.
+#
+# Key observation: the I-Bessels are regular at the origin, but
+# K_0 is logarithmically divergent and K_1 is algebraically
+# divergent (1/x). The flexural mode at low f sits at
+# ``k_z ~ omega / V_S`` so ``s = sqrt(k_z^2 - k_S^2) -> 0`` faster
+# than F or p; this is what makes ``K_0(sa)`` and ``K_1(sa)`` the
+# most strongly divergent objects in the small-x limit and what
+# drives the dominant-balance argument in 1.6.b.
+#
+# Entry-by-entry leading-order substitution
+# -----------------------------------------
+# Substitute the small-x forms directly into each of the 16 entries
+# of M_1 (from substep 1.5). "Leading" means the most strongly
+# divergent term in (Fa, pa, sa); "subleading" lists the next-order
+# correction when it's qualitatively different (logarithmic
+# corrections from K_0, etc.). All entries below are quoted
+# verbatim from M_1; only the Bessel evaluations are replaced.
+#
+# Row 1 (BC1, u_r continuity)
+#
+#     [1, A] = (F I0 - I1 / a) / (rho_f omega^2)
+#       I0 ~ 1, I1 ~ Fa/2 ==> F I0 - I1 / a ~ F - F / 2 = F / 2
+#       LEADING:  F / (2 rho_f omega^2)        (cancellation by 1/2)
+#
+#     [1, B] = p K0p + K1p / a
+#       K0p ~ -ln(pa/2) - gamma_E,  K1p ~ 1 / (pa)
+#       LEADING:  1 / (p a^2)                 (from K1p / a)
+#       SUBLEADING:  -p ln(pa/2) - p gamma_E  (from p K0p)
+#
+#     [1, C] = k_z K1s
+#       K1s ~ 1 / (sa)
+#       LEADING:  k_z / (s a)
+#
+#     [1, D] = - K1s / a
+#       LEADING:  - 1 / (s a^2)
+#
+# Row 2 (BC2, sigma_rr balance, with the 1.4 row-2 sign convention)
+#
+#     [2, A] = - I1
+#       I1 ~ Fa / 2
+#       LEADING:  - F a / 2                   (regular, vanishes as omega -> 0)
+#
+#     [2, B] = - mu [ kz2_kS2 K1p + 2 p K0p / a + 4 K1p / a^2 ]
+#       K1p ~ 1 / (pa), K0p ~ -ln(pa/2) - gamma_E
+#       (a) kz2_kS2 K1p     ~ kz2_kS2 / (pa)        ~  kz2_kS2 / (p a)
+#       (b) 2 p K0p / a     ~ -2 p ln(pa/2) / a     ~  log-correction
+#       (c) 4 K1p / a^2     ~ 4 / (pa) / a^2         ~  4 / (p a^3)
+#       LEADING:  - 4 mu / (p a^3)            (from (c))
+#       SUBLEADING:  -mu kz2_kS2 / (p a)      (from (a); important when k_z >> omega/V_S)
+#
+#     [2, C] = - 2 k_z mu [ s K0s + K1s / a ]
+#       K0s ~ -ln(sa/2) - gamma_E,  K1s ~ 1 / (sa)
+#       LEADING:  - 2 k_z mu / (s a^2)        (from K1s / a)
+#       SUBLEADING:  + 2 k_z mu s ln(sa/2)    (from s K0s)
+#
+#     [2, D] = + 2 mu [ s K0s / a + 2 K1s / a^2 ]
+#       LEADING:  + 4 mu / (s a^3)            (from K1s / a^2)
+#       SUBLEADING:  - 2 mu s ln(sa/2) / a    (from s K0s / a)
+#
+# Row 3 (BC3, sigma_r_theta = 0)
+#
+#     [3, A] = 0
+#
+#     [3, B] = 2 mu [ p K0p / a + 2 K1p / a^2 ]
+#       LEADING:  + 4 mu / (p a^3)            (from K1p / a^2)
+#       SUBLEADING:  - 2 mu p ln(pa/2) / a    (from p K0p / a)
+#
+#     [3, C] = k_z mu K1s / a
+#       LEADING:  k_z mu / (s a^2)
+#
+#     [3, D] = - mu [ s^2 K1s + 2 s K0s / a + 4 K1s / a^2 ]
+#       (a) s^2 K1s       ~ s^2 / (sa) = s / a
+#       (b) 2 s K0s / a   ~ -2 s ln(sa/2) / a    log-correction
+#       (c) 4 K1s / a^2   ~ 4 / (sa) / a^2 = 4 / (s a^3)
+#       LEADING:  - 4 mu / (s a^3)            (from (c))
+#       SUBLEADING:  - mu s / a               (from (a); regular at sa = 0)
+#
+# Row 4 (BC4, sigma_rz = 0)
+#
+#     [4, A] = 0
+#
+#     [4, B] = + 2 k_z mu [ p K0p + K1p / a ]
+#       LEADING:  + 2 k_z mu / (p a^2)        (from K1p / a)
+#       SUBLEADING:  - 2 k_z mu p ln(pa/2)    (from p K0p)
+#
+#     [4, C] = mu kz2_kS2 K1s
+#       LEADING:  mu kz2_kS2 / (s a)
+#
+#     [4, D] = - k_z mu K1s / a
+#       LEADING:  - k_z mu / (s a^2)
+#
+# Cross-check on the divergence pattern
+# -------------------------------------
+# Among the entries above, the most strongly divergent ones (those
+# scaling as ``1 / (s a^3)`` or ``1 / (p a^3)``) are:
+#
+#     [2, B] ~ -4 mu / (p a^3)      (P-divergent)
+#     [2, D] ~ +4 mu / (s a^3)      (S-divergent)
+#     [3, B] ~ +4 mu / (p a^3)      (P-divergent)
+#     [3, D] ~ -4 mu / (s a^3)      (S-divergent)
+#
+# Notice the sign flip between rows 2 and 3 on each column, which
+# anticipates a determinant cancellation: at the leading divergent
+# order, the rows-2-and-3 sub-block contributes
+# ``[+4 mu / (p a^3)] [-4 mu / (s a^3)] - [-4 mu / (p a^3)]
+# [+4 mu / (s a^3)]`` to the (B, D) 2x2 minor, which is *zero* --
+# the leading divergence cancels exactly, leaving the next-order
+# terms to govern the dispersion equation.
+#
+# This is the cleanest hint that the low-f flexural root sits at
+# the *subleading* balance, not the leading one. Substep 1.6.b
+# turns this observation into a dominant-balance argument that
+# locks down ``k_z = omega / V_S`` as the asymptote.
+#
+# References
+# ----------
+# * Abramowitz, M., & Stegun, I. A. (1964). *Handbook of
+#   Mathematical Functions*. Dover. Sect. 9.6 (small-argument
+#   modified Bessel asymptotics).
+# * NIST Digital Library of Mathematical Functions, sect. 10.30
+#   (online: https://dlmf.nist.gov/10.30).
 #
 # Status
 # ------
@@ -1550,7 +1694,11 @@ def stoneley_dispersion(
 # Substep 1.3.f (wall summary + sector check)        : done.
 # Substep 1.4 (BCs, azimuthal-factor strip)          : done.
 # Substep 1.5 (phase-rescale to real entries)        : done.
-# Substep 1.6 (analytical-limit cross-check)         : TODO.
+# Substep 1.6.a (small-x Bessel + low-f entry table) : done.
+# Substep 1.6.b (low-f dominant balance)             : TODO.
+# Substep 1.6.c (large-x Bessel + exponential structure): TODO.
+# Substep 1.6.d (high-f Rayleigh-secular reduction)  : TODO.
+# Substep 1.6.e (cross-consistency + n=0 + hand-off) : TODO.
 # Substep 1.7 (_modal_determinant_n1 in code)        : TODO.
 # Substep 1.8 (transcription smoke test)             : TODO.
 # Then Step 2 (root-finder) and Step 3 (public ``flexural_dispersion``
