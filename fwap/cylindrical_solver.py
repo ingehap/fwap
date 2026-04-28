@@ -1173,6 +1173,125 @@ def stoneley_dispersion(
 # applied to a B K_1(p a) term, the sigma_rz one is from
 # ``k_z^2 + s^2`` applied to a C K_1(s a) term. The shared identity
 # is one of the cross-checks substep 1.6 will exercise.
+
+# =====================================================================
+# Substep 1.3.f -- wall summary at r = a + sector closure check
+# =====================================================================
+#
+# Goal: consolidate the per-amplitude coefficients from 1.2 (u_r at
+# the wall) and 1.3.c-e (the three solid stress components) into one
+# table that 1.4 can strip the azimuthal factors from and 1.7 can
+# transcribe row-by-row. Document all imaginary entries explicitly
+# so the substep-1.5 phase rescaling has a complete inventory.
+#
+# Boundary conditions (4) -> rows of the upcoming 4x4
+# ---------------------------------------------------
+# Each BC is enforced at r = a; each lives on exactly one azimuthal
+# sector. Sector tags are tracked so 1.4's strip-the-azimuthal-factor
+# step is mechanical:
+#
+#     Row 1 (BC1):  u_r^{(f)}(a) = u_r^{(s)}(a)         (cos sector)
+#     Row 2 (BC2):  sigma_rr^{(s)}(a) = - P(a)          (cos sector)
+#     Row 3 (BC3):  sigma_r_theta^{(s)}(a) = 0          (sin sector)
+#     Row 4 (BC4):  sigma_rz^{(s)}(a) = 0               (cos sector)
+#
+# The fluid carries no shear, so the fluid contributions to BC3 and
+# BC4 are identically zero, which gives those two rows ``A = 0``
+# entries automatically.
+#
+# Pre-rescaling 4x4 coefficient table M_pre[BC, amplitude]
+# --------------------------------------------------------
+# All entries below are written as the coefficient of the listed
+# amplitude in the LHS of the BC, with the BC normalised so each row
+# evaluates to zero at the modal root. Common shorthand:
+#
+#     Fa = F * a,   pa = p * a,   sa = s * a
+#     I0 = I_0(Fa), I1 = I_1(Fa)
+#     K0p = K_0(pa), K1p = K_1(pa)
+#     K0s = K_0(sa), K1s = K_1(sa)
+#     kz2_kS2 = 2 * k_z^2 - k_S^2
+#
+# Row 1 (BC1, cos sector, u_r^{(f)} - u_r^{(s)} = 0):
+#
+#     M_pre[1, A] = (F * I0 - I1 / a) / (rho_f * omega^2)
+#     M_pre[1, B] = p * K0p + K1p / a
+#     M_pre[1, C] = i * k_z * K1s
+#     M_pre[1, D] = - K1s / a
+#
+# Row 2 (BC2, cos sector, sigma_rr^{(s)} + P = 0):
+#
+#     M_pre[2, A] = I1
+#     M_pre[2, B] = mu * [ kz2_kS2 * K1p
+#                          + 2 * p * K0p / a
+#                          + 4 * K1p / a^2 ]
+#     M_pre[2, C] = 2 * i * k_z * mu * [ s * K0s + K1s / a ]
+#     M_pre[2, D] = - 2 * mu * [ s * K0s / a + 2 * K1s / a^2 ]
+#
+# Row 3 (BC3, sin sector, sigma_r_theta^{(s)} = 0):
+#
+#     M_pre[3, A] = 0
+#     M_pre[3, B] = 2 * mu * [ p * K0p / a + 2 * K1p / a^2 ]
+#     M_pre[3, C] = i * k_z * mu * K1s / a
+#     M_pre[3, D] = - mu * [ s^2 * K1s
+#                            + 2 * s * K0s / a
+#                            + 4 * K1s / a^2 ]
+#
+# Row 4 (BC4, cos sector, sigma_rz^{(s)} = 0):
+#
+#     M_pre[4, A] = 0
+#     M_pre[4, B] = - 2 * i * k_z * mu * [ p * K0p + K1p / a ]
+#     M_pre[4, C] = mu * kz2_kS2 * K1s
+#     M_pre[4, D] = i * k_z * mu * K1s / a
+#
+# Sector closure check across all four rows
+# -----------------------------------------
+# Rows 1, 2, 4: cos(theta) sector. Strip cos(theta) from each side
+# of the BC; the four amplitudes (A, B, C, D) survive.
+# Row 3: sin(theta) sector. Strip sin(theta); the same four
+# amplitudes survive but A is identically zero from the fluid-side
+# fact ``sigma_r_theta^{(f)} = 0``.
+#
+# No row mixes sectors. No amplitude appears with an unmatched
+# azimuthal factor. The 4x4 system on (A, B, C, D) closes exactly,
+# matching the substep-1.1 prediction.
+#
+# Imaginary-entry inventory (for substep 1.5)
+# -------------------------------------------
+# Five entries carry an explicit ``i`` factor (each from an i k_z
+# z-derivative of u_r or u_z, never from the Bessel-recurrence
+# algebra):
+#
+#     M_pre[1, C]   = + i * k_z * (...)
+#     M_pre[2, C]   = + 2 i * k_z * mu * (...)
+#     M_pre[3, C]   = + i * k_z * mu * K1s / a
+#     M_pre[4, B]   = - 2 i * k_z * mu * (...)
+#     M_pre[4, D]   = + i * k_z * mu * K1s / a
+#
+# All other 11 entries are real. The rescaling target in 1.5 is to
+# absorb the ``i`` factors via row/column multiplications whose
+# product is 1 (so ``det M_1`` is invariant); the per-entry pattern
+# above is what 1.5 will engineer against. A spoiler for 1.5:
+# multiplying *row 4* by i and *column C* by (-i) (overall factor
+# i * (-i) = 1) leaves det unchanged and -- by inspection of the
+# pattern above -- produces a fully real matrix. Verification of
+# that, plus a comparison with the n = 0 ``row 3 by i, column 3 by
+# (-i)`` rescaling, is 1.5's job.
+#
+# Hand-off to substep 1.4
+# -----------------------
+# 1.4 takes M_pre as written and:
+#
+#   1. Strips ``cos(theta)`` and ``sin(theta)`` from each row's BC
+#      (mechanical; the table above already shows what survives).
+#   2. Confirms that the four BCs are independent (rank check before
+#      the determinant search starts).
+#   3. Documents the n=0-style row-2 sign convention (multiplied by
+#      -1 vs the natural form) to keep the n=0 and n=1 code visually
+#      consistent.
+#
+# The matrix entries do not change between 1.4 and 1.7; only the
+# substep-1.5 phase rescaling and the 1.5/1.7 cosmetic sign
+# adjustments touch them.
 #
 # Status
 # ------
@@ -1183,7 +1302,7 @@ def stoneley_dispersion(
 # Substep 1.3.c (sigma_rr with Lame reduction)       : done.
 # Substep 1.3.d (sigma_r_theta on sin sector)        : done.
 # Substep 1.3.e (sigma_rz on cos sector)             : done.
-# Substep 1.3.f (wall summary + sector check)        : TODO.
+# Substep 1.3.f (wall summary + sector check)        : done.
 # Substep 1.4 (BCs, azimuthal-factor strip)          : TODO.
 # Substep 1.5 (phase-rescale to real entries)        : TODO.
 # Substep 1.6 (analytical-limit cross-check)         : TODO.
