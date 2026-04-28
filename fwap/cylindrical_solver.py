@@ -1292,6 +1292,117 @@ def stoneley_dispersion(
 # The matrix entries do not change between 1.4 and 1.7; only the
 # substep-1.5 phase rescaling and the 1.5/1.7 cosmetic sign
 # adjustments touch them.
+
+# =====================================================================
+# Substep 1.4 -- BC application and azimuthal-factor strip
+# =====================================================================
+#
+# Goal: turn the four wall equations from 1.3.f into a 4x4 linear
+# system on (A, B, C, D) with no theta dependence, confirm the
+# system is generically non-degenerate, and document the row-2 sign
+# convention that 1.7 will adopt to match the n=0 code visually.
+#
+# Azimuthal-factor strip (Fourier orthogonality)
+# ----------------------------------------------
+# Each of the four BCs is enforced at every point on the borehole
+# wall ``r = a``, i.e. for all ``theta in [0, 2 pi)``. Each LHS in
+# 1.3.f has the form
+#
+#     [ coefficient bracket on (A, B, C, D) ] * cos(theta)         (BC1, BC2, BC4)
+#     [ coefficient bracket on (A, B, C, D) ] * sin(theta)         (BC3)
+#
+# Since ``{1, cos(theta), sin(theta)}`` are pairwise orthogonal under
+# the L^2(0, 2 pi) inner product, requiring the LHS to vanish for
+# every theta forces each bracket to vanish independently. The four
+# scalar equations are exactly the rows of the M_pre table from
+# 1.3.f; "stripping cos / sin" is the explicit name for taking each
+# bracket as a self-contained linear equation in (A, B, C, D).
+#
+# After the strip, the modal equation is
+#
+#     M_pre(omega, k_z) @ (A, B, C, D)^T = 0,
+#
+# with M_pre real-valued except on the five entries flagged in
+# 1.3.f's imaginary-entry inventory. The dispersion curve k_z(omega)
+# is the locus where ``det M_pre = 0`` (equivalently, where the
+# system has a non-trivial null vector).
+#
+# Block structure
+# ---------------
+# M_pre has a clean 2x4 / 2x3 block split because the fluid does not
+# carry shear stress:
+#
+#                     |  A     B     C     D  |
+#               BC1   |  *     *     *     *  |   <-- cos sector
+#               BC2   |  *     *     *     *  |   <-- cos sector
+#               BC3   |  0     *     *     *  |   <-- sin sector
+#               BC4   |  0     *     *     *  |   <-- cos sector
+#
+# Rows 3 and 4 live entirely in the (B, C, D) sub-block; only rows
+# 1 and 2 couple the fluid amplitude A to the solid amplitudes.
+# Expanding ``det M_pre`` along the A column gives the structurally
+# meaningful identity
+#
+#     det M_pre = M_pre[1, A] * det(rows={2,3,4}, cols={B,C,D})
+#               - M_pre[2, A] * det(rows={1,3,4}, cols={B,C,D}),
+#
+# i.e. the dispersion equation is a difference of two 3x3 minors
+# weighted by the two non-zero fluid-side entries. The signs and
+# magnitudes of those minors govern the low-f and high-f limits
+# 1.6 will check.
+#
+# Rank / generic non-degeneracy check
+# -----------------------------------
+# For the dispersion equation ``det M_pre = 0`` to define a curve
+# (rather than to be satisfied identically), M_pre must have full
+# rank 4 generically. Two structural observations confirm this:
+#
+# 1. **No identically-zero column.** Every column has at least one
+#    entry that is a positive multiple of an evaluated Bessel
+#    function (and Bessels have isolated zeros at most). The A
+#    column has a non-zero entry on rows 1 and 2 (the I_0 / I_1
+#    forms), so it is not the zero vector. Columns B, C, D each
+#    have non-zero entries on all four rows, so likewise.
+#
+# 2. **No identically-zero row.** Each of the four rows has at
+#    least one non-vanishing entry on the (B, C, D) sub-columns.
+#
+# Together these rule out the two trivial ways the determinant
+# could vanish identically. Linear dependence among rows or among
+# columns at specific (omega, k_z) is exactly what defines the
+# dispersion curve; the substep-1.6 limit checks confirm that
+# those special points reduce to the expected analytical forms
+# (low-f -> ``k_z = omega / V_S``; high-f -> Scholte / Rayleigh).
+#
+# Row-2 sign convention (matches the n=0 code)
+# --------------------------------------------
+# The natural form of BC2 is ``sigma_rr^{(s)}(a) + P(a) = 0`` with
+# coefficients as written in 1.3.f. The existing n=0 code
+# (``_modal_determinant_n0`` row 2 in the docstring) multiplies the
+# row by -1 to write it as ``-sigma_rr^{(s)} - P = 0``, which puts
+# the negative sign on every entry. This is purely cosmetic --
+# multiplying a row of M by -1 multiplies ``det M`` by -1, leaving
+# the locus ``det M = 0`` unchanged.
+#
+# Substep 1.7's transcription should adopt the same convention so
+# the n=0 and n=1 code blocks are visually parallel. The signs
+# come out as:
+#
+#     M[2, A] = - I1
+#     M[2, B] = - mu * [ kz2_kS2 * K1p + 2 p K0p / a + 4 K1p / a^2 ]
+#     M[2, C] = - 2 i k_z mu * [ s K0s + K1s / a ]
+#     M[2, D] = + 2 mu * [ s K0s / a + 2 K1s / a^2 ]
+#
+# (each entry has its 1.3.f form negated).
+#
+# Hand-off to substep 1.5
+# -----------------------
+# 1.4 leaves M_pre as a 4x4 real matrix with five complex entries
+# explicitly flagged. Substep 1.5 will absorb the ``i`` factors via
+# a row/column rescaling whose product is 1, leaving ``det M_pre``
+# numerically invariant but ensuring every entry of the rescaled
+# matrix is real. The spoiler from 1.3.f -- "row 4 by i, column C
+# by (-i)" -- is the rescaling that 1.5 will verify and apply.
 #
 # Status
 # ------
@@ -1303,7 +1414,7 @@ def stoneley_dispersion(
 # Substep 1.3.d (sigma_r_theta on sin sector)        : done.
 # Substep 1.3.e (sigma_rz on cos sector)             : done.
 # Substep 1.3.f (wall summary + sector check)        : done.
-# Substep 1.4 (BCs, azimuthal-factor strip)          : TODO.
+# Substep 1.4 (BCs, azimuthal-factor strip)          : done.
 # Substep 1.5 (phase-rescale to real entries)        : TODO.
 # Substep 1.6 (analytical-limit cross-check)         : TODO.
 # Substep 1.7 (_modal_determinant_n1 in code)        : TODO.
