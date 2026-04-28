@@ -234,6 +234,7 @@ from fwap.cylindrical import (
 )
 from fwap.cylindrical_solver import (
     BoreholeMode,
+    flexural_dispersion,
     stoneley_dispersion,
 )
 
@@ -331,7 +332,7 @@ __all__ = [
     "rayleigh_speed", "flexural_dispersion_physical",
     "flexural_dispersion_vti_physical",
     # Cylindrical-borehole modal-determinant solver (Schmitt 1988)
-    "BoreholeMode", "stoneley_dispersion",
+    "BoreholeMode", "stoneley_dispersion", "flexural_dispersion",
     # LWD phenomenological layer
     "lwd_collar_mode", "synthesize_lwd_gather", "notch_slowness_band",
     "DEFAULT_COLLAR_SLOWNESS_S_PER_M",

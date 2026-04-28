@@ -7,6 +7,37 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **n=1 dipole flexural modal-determinant solver**
+  (`fwap.cylindrical_solver.flexural_dispersion`). Companion to the
+  existing n=0 Stoneley solver (Schmitt 1988); root-finds the
+  zeros of the 4x4 isotropic-elastic dipole modal determinant in
+  the bound-mode regime to produce the dipole flexural dispersion
+  curve directly from the underlying boundary-value problem,
+  replacing the rational-interpolation phenomenology in
+  `fwap.cylindrical.flexural_dispersion_physical` with the
+  cylindrical-Biot physics. Public surface: `flexural_dispersion(
+  freq, *, vp, vs, rho, vf, rho_f, a)` returns a `BoreholeMode`
+  with `name="flexural"` and `azimuthal_order=1`. Bound-mode
+  regime only -- requires slow formations (`V_S < V_f`); fast
+  formations and below-cutoff frequencies return NaN, matching
+  the existing `stoneley_dispersion` out-of-regime convention.
+  In a typical slow formation the recovered slowness sits at
+  `1 / V_S` just above the geometric cutoff and rises toward
+  slightly above `1 / V_R` at high frequency (the few-percent
+  Scholte / fluid-loading offset that the phenomenological model
+  does not capture). 12 new tests (slow-formation asymptotes,
+  monotonicity, qualitative agreement with the phenomenological
+  model, fast-formation NaN behavior, modal-determinant zero
+  structure, input validation, dataclass contract). The full
+  algebraic derivation -- field ansatz, displacements, stresses
+  with the Lame reduction, BC strip, phase rescaling to a real
+  4x4, low-f and high-f asymptotic cross-checks -- is documented
+  in line in `cylindrical_solver.py` (substeps 1.1 through
+  1.6.e). Closes the dipole half of the Open Item A
+  ("Full cylindrical-Biot dispersion solver") on the roadmap;
+  leaky-mode pseudo-Rayleigh and quadrupole n=2 remain open for
+  follow-up via complex-`k_z` Mueller iteration with outgoing
+  Hankel-function boundary conditions.
 - **LWD (logging-while-drilling) phenomenological layer**
   (`fwap.lwd`). Models the steel-drill-collar contamination Tang &
   Cheng (2004) sect. 2.4-2.5 frame as the defining processing

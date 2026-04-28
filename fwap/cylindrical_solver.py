@@ -2505,3 +2505,194 @@ def _modal_determinant_n1(
                   [M31, M32, M33, M34],
                   [M41, M42, M43, M44]], dtype=float)
     return float(np.linalg.det(M))
+
+
+# ---------------------------------------------------------------------
+# Flexural dispersion: track the lowest n=1 root across frequency
+# ---------------------------------------------------------------------
+
+
+def _flexural_kz_bracket(
+    omega: float, vp: float, vs: float, rho: float,
+    vf: float, rho_f: float, a: float,
+) -> tuple[float, float]:
+    """
+    Bracket the n=1 dipole flexural root in (k_z_lo, k_z_hi).
+
+    The flexural mode in a slow formation (V_S < V_f) is bound;
+    its phase velocity ranges from V_S at low f down to the
+    Rayleigh / Scholte speed at high f. Slowness sits between
+    1/V_S and slightly above 1/V_R.
+
+    Lower bound: just above omega / V_S (the bound-regime floor;
+    s = sqrt(k_z^2 - k_S^2) must be real and positive).
+
+    Upper bound: 10% above omega / V_R, generous enough to capture
+    the few-percent Scholte / fluid-loading offset that puts the
+    actual root above the vacuum-loaded Rayleigh slowness. The
+    caller may expand if no sign change is found in this range.
+    """
+    # Vacuum-loaded Rayleigh-speed proxy for the high-f asymptote.
+    # ``rayleigh_speed`` validates vp > vs internally.
+    from fwap.cylindrical import rayleigh_speed
+    vR = rayleigh_speed(vp, vs)
+    kz_lo = omega / vs * (1.0 + 1.0e-6)
+    kz_hi = omega / vR * 1.10
+    return kz_lo, kz_hi
+
+
+def flexural_dispersion(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> BoreholeMode:
+    r"""
+    Dipole flexural-wave phase slowness vs frequency from the n=1
+    isotropic-elastic modal determinant (Schmitt 1988).
+
+    Tracks the lowest-:math:`k_z` zero of the n=1 4x4 modal
+    determinant across the supplied frequency grid. At each
+    frequency the bound regime is :math:`k_z > \omega/V_S`; a
+    bracketing search seeded just above ``omega / V_S`` and
+    extending past the vacuum-loaded Rayleigh asymptote
+    refines the root via :func:`scipy.optimize.brentq`.
+
+    Parameters
+    ----------
+    freq : ndarray
+        Frequency grid (Hz). Must be strictly positive.
+    vp, vs, rho : float
+        Formation P-wave velocity (m/s), S-wave velocity (m/s),
+        and bulk density (kg/m^3). Must satisfy ``vp > vs > 0``
+        and ``rho > 0``.
+    vf, rho_f : float
+        Borehole-fluid velocity (m/s) and density (kg/m^3).
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "flexural"``, ``azimuthal_order = 1``, with
+        ``freq`` echoed and ``slowness[i]`` the phase slowness
+        ``k_z(omega[i]) / omega[i]``. ``NaN`` at any frequency
+        where the bracket failed; two physically distinct cases:
+
+        1. **Fast formation** (``V_S > V_f``): the flexural mode
+           has phase velocity above ``V_f``, putting it in the
+           narrowly-leaky regime that needs outgoing-wave Hankel
+           BCs. All frequencies return NaN.
+
+        2. **Below the geometric cutoff** in a slow formation
+           (typically ``f < V_S / (2 pi a)``): no propagating
+           bound flexural mode exists at low f; the determinant
+           has the same sign throughout the bound bracket and
+           no root is found. NaN returned for those frequencies
+           individually.
+
+        Above the cutoff in a slow formation, the slowness is
+        well-defined and approaches ``1 / V_S`` from above as
+        ``f -> cutoff^+`` (substep-1.6.b asymptote) and tapers
+        toward slightly above ``1 / V_R`` at high f (Scholte /
+        fluid-loading offset; substep-1.6.c-d).
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive, ``vp <= vs``, or ``freq``
+        contains a non-positive entry.
+
+    Notes
+    -----
+    For fast formations (``V_S > V_f``), the flexural mode has
+    phase velocity between ``V_R`` and ``V_S``, both above
+    ``V_f``. The fluid-side radial wavenumber
+    :math:`F = \sqrt{k_z^2 - (\omega/V_f)^2}` becomes imaginary,
+    putting the mode in the narrowly-leaky regime that needs
+    outgoing-wave (Hankel) boundary conditions and complex-
+    :math:`k_z` Mueller iteration -- the same extension pattern
+    that turns the n=0 Stoneley solver into a leaky pseudo-
+    Rayleigh solver. ``flexural_dispersion`` returns NaN for
+    such frequencies; callers that need the high-f flexural
+    branch in fast formations should fall back to
+    :func:`fwap.cylindrical.flexural_dispersion_physical` for
+    the phenomenological smoothed-step model.
+
+    References
+    ----------
+    * Schmitt, D. P. (1988). Shear-wave logging in elastic
+      formations. *J. Acoust. Soc. Am.* 84(6), 2230-2244.
+    * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
+      Boreholes.* CRC Press, Ch. 4.
+    """
+    if vp <= 0 or vs <= 0 or rho <= 0:
+        raise ValueError("vp, vs, rho must all be positive")
+    if vf <= 0 or rho_f <= 0:
+        raise ValueError("vf and rho_f must be positive")
+    if a <= 0:
+        raise ValueError("a must be positive")
+    if vp <= vs:
+        raise ValueError("require vp > vs")
+    f_arr = np.asarray(freq, dtype=float)
+    if np.any(f_arr <= 0):
+        raise ValueError("freq must be strictly positive")
+
+    slowness = np.full_like(f_arr, np.nan, dtype=float)
+    for i, f in enumerate(f_arr):
+        omega = 2.0 * np.pi * float(f)
+
+        def _det(kz):
+            return _modal_determinant_n1(
+                kz, omega, vp, vs, rho, vf, rho_f, a)
+
+        kz_lo, kz_hi = _flexural_kz_bracket(
+            omega, vp, vs, rho, vf, rho_f, a)
+        try:
+            d_lo = _det(kz_lo)
+            d_hi = _det(kz_hi)
+            # If the bracket doesn't straddle a sign change, expand
+            # the upper bound outward in steps of 1.5x. Matches the
+            # n=0 stoneley_dispersion expansion pattern.
+            n_expand = 0
+            while (np.isfinite(d_lo) and np.isfinite(d_hi)
+                   and np.sign(d_lo) == np.sign(d_hi)
+                   and n_expand < 8):
+                kz_hi *= 1.5
+                d_hi = _det(kz_hi)
+                n_expand += 1
+            if (not np.isfinite(d_lo)) or (not np.isfinite(d_hi)):
+                # Typically the fast-formation case (F^2 < 0,
+                # det evaluates to NaN). Outside the bound-mode
+                # regime; leave slowness NaN.
+                logger.debug(
+                    "flexural_dispersion: bound regime failed at "
+                    "f=%.1f Hz (likely fast formation V_S > V_f)",
+                    f,
+                )
+                continue
+            if np.sign(d_lo) == np.sign(d_hi):
+                logger.debug(
+                    "flexural_dispersion: failed to bracket at "
+                    "f=%.1f Hz",
+                    f,
+                )
+                continue
+            kz_root = optimize.brentq(_det, kz_lo, kz_hi, xtol=1.0e-10)
+            slowness[i] = kz_root / omega
+        except (ValueError, RuntimeError) as exc:
+            logger.debug(
+                "flexural_dispersion: brentq failed at f=%.1f Hz: %s",
+                f, exc,
+            )
+
+    return BoreholeMode(
+        name="flexural",
+        azimuthal_order=1,
+        freq=f_arr,
+        slowness=slowness,
+    )
