@@ -2142,6 +2142,160 @@ def stoneley_dispersion(
 # * Rayleigh, Lord (1885). On waves propagating along the plane
 #   surface of an elastic solid. *Proc. London Math. Soc.* 17,
 #   4-11 (the secular equation itself).
+
+# =====================================================================
+# Substep 1.6.e -- cross-consistency, n=0 comparison, hand-off to 1.7
+# =====================================================================
+#
+# Goal: three short structural cross-checks that confirm 1.6.a-d
+# are internally consistent, then compile a transcription-ready
+# reference table for 1.7.
+#
+# Cross-check 1: the (2 k_z^2 - k_S^2) combination
+# ------------------------------------------------
+# This combination appears in M_1 in two distinct entries via two
+# distinct routes (already noted in 1.3.c and 1.3.e):
+#
+#   * ``M_1[2, B] = - mu * [ kz2_kS2 K1(pa) + ... ]``
+#     -- arrived via the Lame reduction
+#     ``- lambda k_P^2 + 2 mu p^2 = mu (2 k_z^2 - k_S^2)``
+#     applied to the K_1(p r) part of u_r.
+#
+#   * ``M_1[4, C] = mu * kz2_kS2 K1(sa)``
+#     -- arrived via the bound-regime identity
+#     ``s^2 + k_z^2 = 2 k_z^2 - k_S^2``
+#     applied to the K_1(s r) part of u_z.
+#
+# 1.6.d showed that these two entries are exactly the *diagonal*
+# entries of the (B, C) 2x2 sub-block whose vanishing condition,
+# in the high-f leading limit, is the Rayleigh secular equation
+# ``(2 - xi)^2 = 4 sqrt((1 - xi a^2) (1 - xi))``. The off-diagonal
+# entries pair them with ``2 k_z s`` (in [2, C]) and ``2 k_z p``
+# (in [4, B]), which are exactly the cross-terms of the Rayleigh
+# equation. So the two-route derivation of the same number lands
+# in the structurally correct places of the high-f sub-block --
+# confirming that 1.3.c and 1.3.e were not just numerically
+# right but algebraically right.
+#
+# Cross-check 2: monotonic dispersion between the two limits
+# ----------------------------------------------------------
+# 1.6.b: low-f asymptote ``s_low = 1 / V_S``, i.e.
+#        ``k_z -> omega / V_S``.
+# 1.6.d: high-f asymptote ``s_high = 1 / V_R``, with
+#        ``V_R < V_S``, so ``k_z -> omega / V_R > omega / V_S``.
+#
+# Since V_R < V_S strictly (Rayleigh speed is always strictly
+# less than the shear speed; see ``rayleigh_speed`` for the
+# Poisson-ratio dependence), the slowness ``s(omega) = k_z / omega``
+# *increases* monotonically from ``1 / V_S`` at low f to
+# ``1 / V_R`` at high f. The dispersion curve is monotonic in
+# this slowness sense, which matches:
+#
+#   * The qualitative shape coded in
+#     ``flexural_dispersion_physical(vp, vs, a)``
+#     (``cylindrical.py`` line 109) -- a smoothed-step rise
+#     from ``s_low`` to ``s_high``.
+#   * The fast-formation dipole-flexural curves in Paillet &
+#     Cheng (1991) fig. 4.5 and Tang & Cheng (2004) fig. 3.4.
+#
+# A non-monotonic dispersion would indicate a sign error somewhere
+# in the 1.3.c / 1.3.d / 1.3.e / 1.5 chain. The two endpoints
+# being on opposite sides of ``1 / V_S`` is the cleanest single
+# cross-check that the matrix is built right.
+#
+# Cross-check 3: structural reduction to the n=0 modal form
+# ---------------------------------------------------------
+# At n = 0, the sigma_r_theta = 0 BC is trivially satisfied (no
+# theta dependence to differentiate), so row 3 of M_1 disappears.
+# The SH potential ``psi_z`` is also absent at n = 0, so column D
+# disappears. Removing row 3 and column D from M_1 should give a
+# 3x3 structurally identical to ``_modal_determinant_n0``.
+#
+# 1.6.d's ``minor_3D`` is exactly this 3x3 (rows 1, 2, 4 / columns
+# A, B, C). At the algebraic level, ``minor_3D`` matches
+# ``_modal_determinant_n0`` row-for-row and column-for-column,
+# with two notation differences:
+#
+#   1. **Bessel order swap**: at n = 0 the P-potential ansatz uses
+#      ``phi = B K_0(p r)`` (not K_1); at n = 1 it's K_1(p r). So
+#      the K_1(pa) entries in ``minor_3D`` correspond to K_0(pa)
+#      entries in ``_modal_determinant_n0`` and vice versa. This
+#      is a structural difference, not a transcription mistake.
+#   2. **No ``+ 4 K_1(p a) / a^2`` term**: the n = 0 derivation
+#      doesn't have this 1/r^2 correction in its B-coefficient
+#      (it arises at n = 1 from the K_1''(p r) identity, which
+#      doesn't apply when the radial dependence is K_0(p r)).
+#      See 1.3.c "Comparison with n = 0".
+#
+# Modulo those two structural changes, ``minor_3D`` is the n = 0
+# modal determinant. The fact that the high-f reduction
+# (1.6.d) lands on ``minor_3D``, and that ``minor_3D`` is
+# structurally the n=0 form, is reassuring: both n = 0 and n = 1
+# share the same Rayleigh asymptote at high f, which is
+# physically correct because both modes localise within ~one
+# wavelength of the borehole wall and propagate as surface waves
+# on the fluid-solid interface.
+#
+# Hand-off table for substep 1.7 (the actual code transcription)
+# --------------------------------------------------------------
+# 1.7 will write the function ``_modal_determinant_n1(kz, omega,
+# vp, vs, rho, vf, rho_f, a)`` mirroring the n = 0 counterpart.
+# The body should follow this template, in order:
+#
+#     1. Compute radial decay constants:
+#            F = sqrt(kz^2 - (omega / vf)^2)
+#            p = sqrt(kz^2 - (omega / vp)^2)
+#            s = sqrt(kz^2 - (omega / vs)^2)
+#
+#     2. Compute Bessel arguments:
+#            Fa, pa, sa = F * a, p * a, s * a
+#
+#     3. Evaluate Bessels (use existing helpers):
+#            I0, I1   = _i0_i1(Fa)
+#            K0p, K1p = _k0_k1(pa)
+#            K0s, K1s = _k0_k1(sa)
+#
+#     4. Compute auxiliary scalars:
+#            mu      = rho * vs**2
+#            kS2     = (omega / vs)**2
+#            kz2_kS2 = 2.0 * kz * kz - kS2
+#
+#     5. Assemble M_1 (16 real entries; the 1.5 + 1.4 forms):
+#
+#         Row 1 (BC1, u_r continuity, cos sector):
+#             M[0, 0] = (F * I0 - I1 / a) / (rho_f * omega**2)
+#             M[0, 1] = p * K0p + K1p / a
+#             M[0, 2] = kz * K1s
+#             M[0, 3] = - K1s / a
+#
+#         Row 2 (BC2, sigma_rr balance, cos sector, row negated):
+#             M[1, 0] = - I1
+#             M[1, 1] = - mu * (kz2_kS2 * K1p
+#                               + 2.0 * p * K0p / a
+#                               + 4.0 * K1p / a**2)
+#             M[1, 2] = - 2.0 * kz * mu * (s * K0s + K1s / a)
+#             M[1, 3] = + 2.0 * mu * (s * K0s / a + 2.0 * K1s / a**2)
+#
+#         Row 3 (BC3, sigma_r_theta = 0, sin sector):
+#             M[2, 0] = 0.0
+#             M[2, 1] = 2.0 * mu * (p * K0p / a + 2.0 * K1p / a**2)
+#             M[2, 2] = kz * mu * K1s / a
+#             M[2, 3] = - mu * (s * s * K1s
+#                               + 2.0 * s * K0s / a
+#                               + 4.0 * K1s / a**2)
+#
+#         Row 4 (BC4, sigma_rz = 0, cos sector, after 1.5 row+col rescale):
+#             M[3, 0] = 0.0
+#             M[3, 1] = + 2.0 * kz * mu * (p * K0p + K1p / a)
+#             M[3, 2] = mu * kz2_kS2 * K1s
+#             M[3, 3] = - kz * mu * K1s / a
+#
+#     6. Return ``float(np.linalg.det(M))``.
+#
+# Validation (substep 1.8 + Step 4): bound-mode bracket scan
+# starting from the existing ``flexural_dispersion_physical``
+# anchor ``s_low = 1 / vs`` at f = 200 Hz; published-curve match
+# against Paillet & Cheng 1991 fig. 4.5 in Step 4.
 #
 # Status
 # ------
@@ -2159,7 +2313,7 @@ def stoneley_dispersion(
 # Substep 1.6.b (low-f dominant balance)             : done.
 # Substep 1.6.c (large-x Bessel + exponential structure): done.
 # Substep 1.6.d (high-f Rayleigh-secular reduction)  : done.
-# Substep 1.6.e (cross-consistency + n=0 + hand-off) : TODO.
+# Substep 1.6.e (cross-consistency + n=0 + hand-off) : done.
 # Substep 1.7 (_modal_determinant_n1 in code)        : TODO.
 # Substep 1.8 (transcription smoke test)             : TODO.
 # Then Step 2 (root-finder) and Step 3 (public ``flexural_dispersion``
