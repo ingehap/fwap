@@ -134,14 +134,48 @@ A second sweep (after the docx pair `Paillet1991.docx` and
 
 ### A. Full cylindrical-Biot dispersion solver
 
-**Status**: fwap currently ships a phenomenological flexural
-dispersion (`fwap.synthetic.dipole_flexural_dispersion`) and a
-Rayleigh-speed-asymptote improvement
-(`fwap.cylindrical.flexural_dispersion_physical`). Neither solves the
-full 3×3 modal determinant. A production sonic-processing package
-needs the Schmitt / Paillet–Cheng / Tang solver.
+**Status (updated)**: the **bound-mode** halves of the Schmitt /
+Paillet–Cheng solver are now both shipped:
 
-**What to build**:
+- n=0 monopole Stoneley solver: `fwap.stoneley_dispersion` (3×3
+  modal determinant in the bound regime; `_modal_determinant_n0`).
+- n=1 dipole flexural solver: `fwap.flexural_dispersion` (4×4
+  modal determinant in the bound regime; `_modal_determinant_n1`).
+  Closed in the [Unreleased] cycle. Slow-formation only
+  (`V_S < V_f`); produces slowness ~ `1/V_S` just above the
+  geometric cutoff and ~ `1/V_R + Scholte offset` at high f.
+
+The phenomenological models stay shipped
+(`fwap.synthetic.dipole_flexural_dispersion`,
+`fwap.cylindrical.flexural_dispersion_physical`) for callers that
+need a closed-form smoothed-step dispersion curve without solving
+the determinant per frequency.
+
+**What's still open** in the cylindrical-Biot family:
+
+**What to build (remaining work, leaky-mode regime)**:
+
+Both bound-mode solvers ship; what remains is the leaky-mode
+extension. The bound-mode solver uses real-valued ``k_z >
+omega/V_alpha`` for every wave speed ``V_alpha``, so all radial
+wavenumbers F, p, s are real and positive. Leaky modes
+(pseudo-Rayleigh, fast-formation flexural, leaky-quadrupole)
+sit at complex ``k_z`` with at least one of F, p, s having
+non-zero imaginary part. Their solver needs:
+
+1. Outgoing Hankel-function (rather than decaying Bessel) BCs for
+   the radiating component(s);
+2. Complex-``k_z`` root-finding via Mueller iteration (real-axis
+   ``brentq`` no longer applies);
+3. Branch tracking across the leaky cutoff at the corresponding
+   wave-speed boundary.
+
+The same scaffolding (modal-determinant assembly, dispersion-
+curve marching, BoreholeMode return type) extends straight from
+the bound-mode solver.
+
+For reference, the original from-scratch problem statement is
+preserved below.
 
 Root-find the zeros of the modal determinant ``M_n(ω, k) = 0`` in
 complex phase-slowness (axial wavenumber ``k`` for mode order ``n``),

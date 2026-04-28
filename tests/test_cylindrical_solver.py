@@ -10,9 +10,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from fwap.cylindrical import flexural_dispersion_physical, rayleigh_speed
 from fwap.cylindrical_solver import (
     BoreholeMode,
     _modal_determinant_n0,
+    _modal_determinant_n1,
+    flexural_dispersion,
     stoneley_dispersion,
 )
 
@@ -261,5 +264,209 @@ def test_stoneley_dispersion_returns_borehole_mode_dataclass():
     assert isinstance(res, BoreholeMode)
     assert res.name == "Stoneley"
     assert res.azimuthal_order == 0
+    np.testing.assert_array_equal(res.freq, f)
+    assert res.slowness.shape == f.shape
+
+
+# =====================================================================
+# n=1 dipole flexural modal-determinant solver tests
+# =====================================================================
+#
+# Slow-formation parameters used throughout (V_S < V_f so the
+# flexural mode is bound). Geometric cutoff f_cut ~ V_S / (2 pi a)
+# is around 1273 Hz for these values; tests sit above ~2 kHz where
+# the bound mode is well-defined.
+
+SLOW_VP = 2200.0
+SLOW_VS = 800.0
+SLOW_RHO = 2200.0
+SLOW_VF = 1500.0
+SLOW_RHO_F = 1000.0
+SLOW_A = 0.1
+
+
+# ---------------------------------------------------------------------
+# Asymptotic limits (substep 1.6.b and 1.6.c-d predictions)
+# ---------------------------------------------------------------------
+
+
+def test_flexural_low_f_slowness_approaches_inverse_vs():
+    """Just above the geometric cutoff, the modal flexural slowness
+    must approach 1 / V_S (Ellefsen-Cheng-Toksoz 1991 sect. III.B
+    long-wavelength asymptote). Tests f = 2 kHz where the slowness
+    should be within 2% of 1/V_S."""
+    res = flexural_dispersion(np.array([2000.0]),
+                              vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
+                              vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A)
+    assert np.isfinite(res.slowness[0])
+    assert res.slowness[0] == pytest.approx(1.0 / SLOW_VS, rel=2.0e-2)
+
+
+def test_flexural_high_f_slowness_above_inverse_rayleigh():
+    """At high f, the modal flexural slowness must sit above
+    1 / V_R (Rayleigh-asymptote with positive Scholte / fluid-
+    loading offset; substep 1.6.c-d). Tests f = 10 kHz where the
+    slowness should be above 1/V_R but within 10% of it."""
+    res = flexural_dispersion(np.array([10000.0]),
+                              vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
+                              vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A)
+    assert np.isfinite(res.slowness[0])
+    vR = rayleigh_speed(SLOW_VP, SLOW_VS)
+    s_R = 1.0 / vR
+    # Above 1/V_R: this is the genuine physical correction the
+    # modal solver captures that flexural_dispersion_physical does
+    # not (it uses the vacuum-loaded Rayleigh asymptote exactly).
+    assert res.slowness[0] > s_R
+    assert res.slowness[0] == pytest.approx(s_R, rel=0.10)
+
+
+def test_flexural_dispersion_is_monotonic_above_cutoff():
+    """Slowness increases monotonically from ~1/V_S to ~1/V_R as
+    f rises (substep 1.6.e cross-check 2). Tests f = 2-15 kHz."""
+    f = np.linspace(2000.0, 15000.0, 14)
+    res = flexural_dispersion(f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
+                              vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A)
+    s = res.slowness
+    assert np.all(np.isfinite(s))
+    # Monotonically non-decreasing in slowness (= phase velocity
+    # decreasing). Allow tiny numerical wobble at the high end.
+    assert np.all(np.diff(s) >= -1.0e-9)
+
+
+def test_flexural_dispersion_qualitative_match_with_phenomenological():
+    """The modal solver and ``flexural_dispersion_physical`` agree
+    qualitatively (low-f anchor at 1/V_S, high-f anchor near 1/V_R)
+    with a few-percent quantitative offset from the Scholte / fluid-
+    loading correction the modal solver captures and the
+    phenomenological one does not."""
+    f = np.array([2000.0, 5000.0, 10000.0])
+    s_modal = flexural_dispersion(f, vp=SLOW_VP, vs=SLOW_VS,
+                                  rho=SLOW_RHO, vf=SLOW_VF,
+                                  rho_f=SLOW_RHO_F,
+                                  a=SLOW_A).slowness
+    phen = flexural_dispersion_physical(SLOW_VP, SLOW_VS, SLOW_A)
+    s_phen = phen(f)
+    # Both are within 10% of each other across the band
+    rel_diff = np.abs(s_modal - s_phen) / s_phen
+    assert np.all(rel_diff < 0.10)
+
+
+# ---------------------------------------------------------------------
+# Out-of-regime behavior: NaN return rather than raise
+# ---------------------------------------------------------------------
+
+
+def test_flexural_returns_nan_in_fast_formation():
+    """Fast formations (V_S > V_f) put the flexural mode above
+    the fluid speed, making F^2 < 0 and the bound-mode solver
+    inapplicable. ``flexural_dispersion`` returns NaN throughout
+    rather than raising; the leaky-flexural regime is a roadmap
+    follow-up."""
+    f = np.array([2000.0, 5000.0, 10000.0])
+    res = flexural_dispersion(f, vp=4500.0, vs=2500.0, rho=2400.0,
+                              vf=1500.0, rho_f=1000.0, a=0.1)
+    assert np.all(np.isnan(res.slowness))
+
+
+def test_flexural_returns_nan_below_geometric_cutoff():
+    """The dipole flexural mode in slow formations has a low-f
+    geometric cutoff near V_S / (2 pi a) ~ 1273 Hz for these
+    parameters. Below that, no bound flexural root exists and
+    NaN is returned."""
+    f = np.array([500.0, 800.0, 1100.0])  # all below cutoff
+    res = flexural_dispersion(f, vp=SLOW_VP, vs=SLOW_VS,
+                              rho=SLOW_RHO, vf=SLOW_VF,
+                              rho_f=SLOW_RHO_F, a=SLOW_A)
+    assert np.all(np.isnan(res.slowness))
+
+
+# ---------------------------------------------------------------------
+# Modal-determinant zero structure
+# ---------------------------------------------------------------------
+
+
+def test_modal_determinant_n1_changes_sign_across_root():
+    """Direct check: det(M) at k_z slightly below the recovered
+    flexural root has opposite sign to det(M) slightly above it."""
+    omega = 2.0 * np.pi * 5000.0
+    res = flexural_dispersion(np.array([5000.0]),
+                              vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
+                              vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A)
+    s_root = res.slowness[0]
+    kz_root = s_root * omega
+    d_lo = _modal_determinant_n1(
+        kz_root * 0.999, omega, SLOW_VP, SLOW_VS, SLOW_RHO,
+        SLOW_VF, SLOW_RHO_F, SLOW_A)
+    d_hi = _modal_determinant_n1(
+        kz_root * 1.001, omega, SLOW_VP, SLOW_VS, SLOW_RHO,
+        SLOW_VF, SLOW_RHO_F, SLOW_A)
+    assert np.sign(d_lo) != np.sign(d_hi)
+
+
+def test_modal_determinant_n1_at_root_is_near_zero():
+    """det(M) at the recovered k_z is many orders of magnitude
+    smaller than at a nearby k_z."""
+    omega = 2.0 * np.pi * 5000.0
+    s_root = flexural_dispersion(np.array([5000.0]),
+                                 vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
+                                 vf=SLOW_VF, rho_f=SLOW_RHO_F,
+                                 a=SLOW_A).slowness[0]
+    kz_root = s_root * omega
+    d_at = abs(_modal_determinant_n1(
+        kz_root, omega, SLOW_VP, SLOW_VS, SLOW_RHO,
+        SLOW_VF, SLOW_RHO_F, SLOW_A))
+    d_near = abs(_modal_determinant_n1(
+        kz_root * 1.05, omega, SLOW_VP, SLOW_VS, SLOW_RHO,
+        SLOW_VF, SLOW_RHO_F, SLOW_A))
+    assert d_at < d_near * 1.0e-6
+
+
+# ---------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------
+
+
+def test_flexural_dispersion_rejects_non_positive_inputs():
+    f = np.array([5000.0])
+    base = dict(vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
+                vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A)
+    with pytest.raises(ValueError, match="vp, vs, rho"):
+        flexural_dispersion(f, **{**base, "rho": 0.0})
+    with pytest.raises(ValueError, match="vp, vs, rho"):
+        flexural_dispersion(f, **{**base, "vs": -1.0})
+    with pytest.raises(ValueError, match="vf and rho_f"):
+        flexural_dispersion(f, **{**base, "vf": 0.0})
+    with pytest.raises(ValueError, match="vf and rho_f"):
+        flexural_dispersion(f, **{**base, "rho_f": -100.0})
+    with pytest.raises(ValueError, match="^a must"):
+        flexural_dispersion(f, **{**base, "a": 0.0})
+
+
+def test_flexural_dispersion_rejects_vp_le_vs():
+    f = np.array([5000.0])
+    with pytest.raises(ValueError, match="vp > vs"):
+        flexural_dispersion(f, vp=800.0, vs=800.0, rho=SLOW_RHO,
+                            vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A)
+
+
+def test_flexural_dispersion_rejects_non_positive_freq():
+    f = np.array([2000.0, 0.0, 5000.0])
+    with pytest.raises(ValueError, match="freq"):
+        flexural_dispersion(f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
+                            vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A)
+
+
+# ---------------------------------------------------------------------
+# Output dataclass contract
+# ---------------------------------------------------------------------
+
+
+def test_flexural_dispersion_returns_borehole_mode_dataclass():
+    f = np.linspace(2000.0, 10000.0, 5)
+    res = flexural_dispersion(f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
+                              vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A)
+    assert isinstance(res, BoreholeMode)
+    assert res.name == "flexural"
+    assert res.azimuthal_order == 1
     np.testing.assert_array_equal(res.freq, f)
     assert res.slowness.shape == f.shape
