@@ -247,18 +247,23 @@ def test_viterbi_pick_joint_rejects_length_mismatch():
         viterbi_pick_joint(stcs, depths=np.array([0.0, 0.1]))
 
 
-def test_viterbi_pick_joint_raises_on_triple_explosion():
-    """An unreasonably loose threshold + max_triples_per_depth=1 raises."""
-    import pytest
-
+def test_viterbi_pick_joint_auto_fallback_on_tight_budget():
+    """An unreasonably loose threshold + tight max_triples_per_depth
+    used to raise ValueError; now the auto-fallback variable-candidate-
+    budget tightens per-mode top-K to fit the budget and the call
+    succeeds. Confirms graceful degradation rather than a hard raise."""
     from fwap.picker import viterbi_pick_joint
     stcs = _stc_sequence(n_depth=2, seed=17)
-    with pytest.raises(ValueError, match="max_triples_per_depth"):
-        viterbi_pick_joint(
-            stcs, depths=np.array([0.0, 0.15]),
-            threshold=0.1,
-            max_triples_per_depth=1,
-        )
+    # max_triples_per_depth=1 forces auto_K = 0 (every mode reduced
+    # to "absent only"), so the trellis collapses to 1 row per
+    # depth. Picks remain a list of length n_depth even when every
+    # mode is absent.
+    picks = viterbi_pick_joint(
+        stcs, depths=np.array([0.0, 0.15]),
+        threshold=0.1,
+        max_triples_per_depth=1,
+    )
+    assert len(picks) == 2
 
 
 def test_viterbi_pick_joint_top_k_keeps_overflow_working():
@@ -289,6 +294,30 @@ def test_viterbi_pick_joint_top_k_agrees_with_full_on_clean_data():
             if mode in a.picks and mode in b.picks:
                 assert abs(a.picks[mode].slowness
                            - b.picks[mode].slowness) < 1.0e-12
+
+
+def test_auto_fallback_k_finds_largest_fitting_K():
+    """_auto_fallback_k finds the largest K such that
+    prod(min(n_i, K) + 1) <= budget. Spot-check on a few configurations."""
+    from fwap.picker import _auto_fallback_k
+    # n=[10, 10, 10] (3-mode, each 10 candidates), budget 1000:
+    # K=9 -> 10*10*10 = 1000 (fits exactly)
+    # K=10 -> 11*11*11 = 1331 (over)
+    assert _auto_fallback_k([10, 10, 10], 1000) == 9
+    # 4-mode, each 10 candidates, budget 2000:
+    # K=5 -> 6^4 = 1296 (fits); K=6 -> 7^4 = 2401 (over)
+    assert _auto_fallback_k([10, 10, 10, 10], 2000) == 5
+    # Asymmetric n: smaller modes are not over-tightened
+    # K=2: min(3,2)+1=3; min(20,2)+1=3; min(20,2)+1=3 -> 27 (fits 100)
+    # K=3: min(3,3)+1=4; min(20,3)+1=4; min(20,3)+1=4 -> 64 (fits)
+    # K=4: min(3,4)+1=4; min(20,4)+1=5; min(20,4)+1=5 -> 100 (fits exactly)
+    # K=5: 4*6*6 = 144 (over)
+    assert _auto_fallback_k([3, 20, 20], 100) == 4
+    # Edge: empty input
+    assert _auto_fallback_k([], 1000) == 0
+    # Edge: budget tight enough that K=0 (only "absent")
+    # K=0: prod(1) = 1 fits any budget >= 1
+    assert _auto_fallback_k([10, 10, 10], 1) == 0
 
 
 def test_viterbi_posterior_marginals_returns_valid_probabilities():
@@ -486,25 +515,54 @@ def test_pseudo_rayleigh_dispersion_endpoints():
     assert abs(s[1] - 1.0 / Vf) / (1.0 / Vf) < 1.0e-3
 
 
-def test_viterbi_pick_joint_rejects_4_mode_priors():
-    """Joint Viterbi is hardcoded for (P, S, Stoneley) and should refuse
-    to silently mis-handle a 4-mode prior dict."""
+def test_viterbi_pick_joint_accepts_4_mode_priors():
+    """Joint Viterbi is now N-mode generic; passing the full
+    DEFAULT_PRIORS (4 modes including PseudoRayleigh) no longer raises.
+    Confirms the relaxation of the old (P, S, Stoneley)-only hardcoding."""
     from fwap.picker import viterbi_pick_joint
     stcs = _stc_sequence(n_depth=3)
     depths = np.arange(3) * 0.1524
-    with pytest.raises(ValueError, match="hardcoded"):
-        viterbi_pick_joint(stcs, depths=depths, priors=DEFAULT_PRIORS)
+    picks = viterbi_pick_joint(stcs, depths=depths, priors=DEFAULT_PRIORS)
+    assert len(picks) == 3
+    # Picks may include any subset of the 4 modes (including
+    # PseudoRayleigh) depending on which peaks survive the priors.
+    for dp in picks:
+        assert set(dp.picks) <= set(DEFAULT_PRIORS)
 
 
-def test_viterbi_pick_joint_default_priors_still_work():
-    """Default-priors path continues to work after PseudoRayleigh was
-    added: viterbi_pick_joint quietly subsets to (P, S, Stoneley)."""
+def test_viterbi_pick_joint_default_priors_now_4_modes():
+    """The default-priors path now uses the full DEFAULT_PRIORS
+    (4 modes). Picks are drawn from any of {P, S, PseudoRayleigh,
+    Stoneley}, not just the (P, S, Stoneley) subset."""
     from fwap.picker import viterbi_pick_joint
     stcs = _stc_sequence(n_depth=4)
     depths = np.arange(4) * 0.1524
     picks = viterbi_pick_joint(stcs, depths=depths, threshold=0.4)
+    assert len(picks) == 4
+    for dp in picks:
+        assert set(dp.picks) <= set(DEFAULT_PRIORS)
+
+
+def test_viterbi_pick_joint_subset_priors_still_work():
+    """Explicitly passing a 3-mode subset preserves the old behavior;
+    PseudoRayleigh stays out of the trellis."""
+    from fwap.picker import viterbi_pick_joint
+    subset = {m: DEFAULT_PRIORS[m] for m in ("P", "S", "Stoneley")}
+    stcs = _stc_sequence(n_depth=4)
+    depths = np.arange(4) * 0.1524
+    picks = viterbi_pick_joint(stcs, depths=depths, priors=subset,
+                                threshold=0.4)
     for dp in picks:
         assert set(dp.picks) <= {"P", "S", "Stoneley"}
+
+
+def test_viterbi_pick_joint_rejects_empty_priors():
+    """Empty priors dict raises ValueError -- nothing to pick."""
+    from fwap.picker import viterbi_pick_joint
+    stcs = _stc_sequence(n_depth=2)
+    depths = np.arange(2) * 0.1524
+    with pytest.raises(ValueError, match="at least one mode"):
+        viterbi_pick_joint(stcs, depths=depths, priors={})
 
 
 # ---------------------------------------------------------------------
