@@ -7,6 +7,47 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Inclined-wellbore stability** -- generalized Kirsch wall
+  stresses (Hiramatsu-Oka 1962, Fairhurst 1968) and Mohr-Coulomb
+  shear-breakout pressure for arbitrarily oriented wells in
+  ``fwap.geomechanics``. Two new functions:
+  ``inclined_wellbore_wall_stresses(sigma_v, sigma_H, sigma_h, *,
+  well_inclination_deg, well_azimuth_deg,
+  azimuth_around_wall_deg, mud_pressure, poisson)`` returns the
+  four wall stress components ``(sigma_theta, sigma_z,
+  sigma_theta_z, sigma_r)`` after rotating the principal-stress
+  tensor into well-aligned coordinates;
+  ``inclined_breakout_pressure(...)`` finds the critical mud
+  pressure by scanning over wall azimuth, computing principal
+  stresses (via 2x2 eigenvalue decomposition of the (theta, z)
+  sub-block plus the trivial radial principal stress), applying
+  Mohr-Coulomb at each azimuth, and bisecting on the worst-
+  azimuth failure margin.
+
+  Vertical-well consistency: at ``well_inclination_deg = 0`` the
+  wall-stress formulas reduce exactly to the existing
+  ``kirsch_wall_stresses``, and the breakout pressure agrees
+  with the closed-form ``mohr_coulomb_breakout_pressure`` to
+  within the azimuth grid resolution. Inclined wells in normal-
+  fault stress regimes need progressively more mud-pressure
+  support (verified by test on a drillable scenario: 33.75 MPa
+  vertical -> ~40 MPa horizontal).
+
+  Documented assumptions: principal-stress-aligned far-field
+  stresses (sigma_v vertical, sigma_H/sigma_h horizontal); no
+  shear stresses in the un-rotated frame (the rotation introduces
+  them in the well frame). The wall is assumed to fail in shear
+  per Mohr-Coulomb; tensile-breakdown for inclined wells is a
+  follow-up. The function raises informatively when the wall is
+  unconditionally unstable (no mud pressure can stabilise the
+  geometry) or when ``friction_angle_deg`` is out of range.
+  10 new tests cover: vertical-well wall-stress and breakout-
+  pressure consistency with the closed forms; inclination
+  monotonicity; horizontal-well azimuth dependence; periodicity
+  and symmetry of the wall stresses; sigma_r = mud pressure
+  identity; isotropic-horizontal-stress vertical-well limit;
+  input validation; not-drillable-geometry error message.
+
 - **Bowers (1995) sonic pore-pressure with unloading branch**
   (``fwap.geomechanics.pore_pressure_bowers``). Closes the
   Bowers-method follow-up flagged in PR #27's CHANGELOG.

@@ -1402,3 +1402,247 @@ def test_bowers_rejects_negative_sigma_v():
             np.array([-1.0e6]),
             np.array([2000.0]),
         )
+
+
+# =====================================================================
+# Inclined-wellbore stability (generalized Kirsch + MC scan)
+# =====================================================================
+
+
+# Drillable scenario from PR #29 -- weak rock + low horizontal-stress
+# anisotropy gives a positive-width vertical-well safe window that
+# survives moderate inclinations.
+INCL_SIGMA_V = 60.0e6
+INCL_SIGMA_H = 50.0e6
+INCL_SIGMA_H_MIN = 45.0e6
+INCL_PORE_PRESSURE = 20.0e6
+INCL_UCS = 10.0e6
+INCL_FRICTION = 30.0
+INCL_NU = 0.25
+
+
+# ---------------------------------------------------------------------
+# Vertical-well consistency
+# ---------------------------------------------------------------------
+
+
+def test_inclined_wall_stresses_at_iota_zero_match_kirsch():
+    """At well_inclination_deg = 0 the inclined wall-stress
+    formulas must reduce exactly to the vertical Kirsch
+    formulas. The off-diagonal sigma_theta_z is identically zero
+    in this limit."""
+    from fwap.geomechanics import (
+        inclined_wellbore_wall_stresses,
+        kirsch_wall_stresses,
+    )
+
+    azimuths = np.linspace(0.0, 360.0, 19)
+    P_w = 35.0e6
+    s_t_v, s_z_v, s_r_v = kirsch_wall_stresses(
+        INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+        azimuth_deg=azimuths, mud_pressure=P_w, poisson=INCL_NU,
+    )
+    s_t_i, s_z_i, s_tz_i, s_r_i = inclined_wellbore_wall_stresses(
+        INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+        well_inclination_deg=0.0, well_azimuth_deg=0.0,
+        azimuth_around_wall_deg=azimuths,
+        mud_pressure=P_w, poisson=INCL_NU,
+    )
+    np.testing.assert_allclose(s_t_i, s_t_v, atol=1.0e-6)
+    np.testing.assert_allclose(s_z_i, s_z_v, atol=1.0e-6)
+    np.testing.assert_allclose(s_r_i, s_r_v, atol=1.0e-6)
+    # The off-diagonal shear is identically zero at iota=0.
+    np.testing.assert_allclose(s_tz_i, 0.0, atol=1.0e-12)
+
+
+def test_inclined_breakout_at_iota_zero_matches_closed_form():
+    """At well_inclination_deg = 0 the inclined breakout pressure
+    must agree with the vertical closed-form
+    ``mohr_coulomb_breakout_pressure``."""
+    from fwap.geomechanics import (
+        inclined_breakout_pressure,
+        mohr_coulomb_breakout_pressure,
+    )
+
+    P_v = float(mohr_coulomb_breakout_pressure(
+        INCL_SIGMA_H, INCL_SIGMA_H_MIN, INCL_PORE_PRESSURE, INCL_UCS,
+        friction_angle_deg=INCL_FRICTION,
+    ))
+    P_i = inclined_breakout_pressure(
+        INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+        INCL_PORE_PRESSURE, INCL_UCS,
+        well_inclination_deg=0.0, well_azimuth_deg=0.0,
+        friction_angle_deg=INCL_FRICTION, n_azimuth=360,
+    )
+    # The numerical scan agrees with the closed form to within the
+    # azimuth grid resolution. n_azimuth=360 (1-deg) gives ~0.1% rel.
+    assert abs(P_i - P_v) / P_v < 1.0e-3
+
+
+# ---------------------------------------------------------------------
+# Inclined-well sensitivity
+# ---------------------------------------------------------------------
+
+
+def test_inclined_breakout_increases_with_inclination():
+    """For a normal-fault stress regime (sigma_v > sigma_H >
+    sigma_h), wells inclined from vertical require MORE mud
+    pressure to be stable -- the wall stresses become asymmetric
+    around the borehole and the worst-azimuth Mohr-Coulomb
+    margin tightens."""
+    from fwap.geomechanics import inclined_breakout_pressure
+
+    P_iota = []
+    for iota in [0.0, 30.0, 60.0, 90.0]:
+        P = inclined_breakout_pressure(
+            INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+            INCL_PORE_PRESSURE, INCL_UCS,
+            well_inclination_deg=iota, well_azimuth_deg=0.0,
+            friction_angle_deg=INCL_FRICTION, n_azimuth=360,
+        )
+        P_iota.append(P)
+    # Monotonically non-decreasing with inclination.
+    assert all(P_iota[i] <= P_iota[i + 1] + 1.0e-3
+               for i in range(len(P_iota) - 1))
+    # Strictly higher at 90 deg than at 0 deg.
+    assert P_iota[-1] > P_iota[0] + 1.0e6  # 1 MPa margin
+
+
+def test_inclined_breakout_horizontal_well_azimuth_dependence():
+    """For a horizontal well (iota = 90), the worst azimuth is
+    along sigma_H (well perpendicular to sigma_h) -- the wall hoop
+    stress is most amplified there. Compare a few orientations."""
+    from fwap.geomechanics import inclined_breakout_pressure
+
+    base = dict(
+        sigma_v=INCL_SIGMA_V, sigma_H=INCL_SIGMA_H,
+        sigma_h=INCL_SIGMA_H_MIN, pore_pressure=INCL_PORE_PRESSURE,
+        ucs=INCL_UCS, friction_angle_deg=INCL_FRICTION,
+        well_inclination_deg=90.0, n_azimuth=360,
+    )
+    P_along_H = inclined_breakout_pressure(**base, well_azimuth_deg=0.0)
+    P_along_h = inclined_breakout_pressure(**base, well_azimuth_deg=90.0)
+    # The two horizontal-well orientations have different P_breakout.
+    assert abs(P_along_H - P_along_h) > 1.0e6
+
+
+# ---------------------------------------------------------------------
+# Wall-stress symmetry checks
+# ---------------------------------------------------------------------
+
+
+def test_inclined_wall_stresses_periodic_over_360_deg():
+    """sigma_theta and sigma_z are periodic in azimuth-around-wall
+    with period 180 deg (factor of 2 in the 2*theta argument).
+    sigma_theta_z is periodic with period 360 deg."""
+    from fwap.geomechanics import inclined_wellbore_wall_stresses
+
+    azimuths = np.array([0.0, 90.0, 180.0, 270.0, 360.0])
+    s_t, s_z, s_tz, _ = inclined_wellbore_wall_stresses(
+        INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+        well_inclination_deg=45.0, well_azimuth_deg=30.0,
+        azimuth_around_wall_deg=azimuths,
+        mud_pressure=30.0e6, poisson=INCL_NU,
+    )
+    # 0 and 360 must match (full period for everything)
+    assert abs(s_t[0] - s_t[-1]) < 1.0e-6
+    assert abs(s_z[0] - s_z[-1]) < 1.0e-6
+    assert abs(s_tz[0] - s_tz[-1]) < 1.0e-6
+    # 0 and 180 must match for sigma_theta and sigma_z (cos(2t) period)
+    assert abs(s_t[0] - s_t[2]) < 1.0e-6
+    assert abs(s_z[0] - s_z[2]) < 1.0e-6
+
+
+def test_inclined_wall_stresses_sigma_r_equals_mud_pressure():
+    """sigma_rr at the wall is identically the mud pressure,
+    independent of azimuth and well orientation."""
+    from fwap.geomechanics import inclined_wellbore_wall_stresses
+
+    P_w = 28.5e6
+    azimuths = np.linspace(0.0, 360.0, 13)
+    _, _, _, s_r = inclined_wellbore_wall_stresses(
+        INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+        well_inclination_deg=45.0, well_azimuth_deg=30.0,
+        azimuth_around_wall_deg=azimuths,
+        mud_pressure=P_w, poisson=INCL_NU,
+    )
+    np.testing.assert_allclose(s_r, P_w, atol=1.0e-6)
+
+
+def test_inclined_wall_stresses_isotropic_horizontal_at_iota_zero_constant():
+    """For a vertical well (iota = 0) with isotropic horizontal
+    stress (sigma_H = sigma_h), the wall stresses sigma_theta and
+    sigma_z lose their cos(2 theta) dependence because the (xx-yy)
+    deviator vanishes in the well frame. NOTE: this only holds at
+    iota = 0; inclined wells in horizontally-isotropic stress
+    still have a cos(2 theta) dependence on sigma_z because the
+    rotation into well coordinates introduces a (sigma_v - sigma_h)
+    deviator on the in-plane stresses."""
+    from fwap.geomechanics import inclined_wellbore_wall_stresses
+
+    s_iso = INCL_SIGMA_H
+    azimuths = np.linspace(0.0, 360.0, 13)
+    s_t, s_z, _, _ = inclined_wellbore_wall_stresses(
+        INCL_SIGMA_V, s_iso, s_iso,
+        well_inclination_deg=0.0, well_azimuth_deg=0.0,
+        azimuth_around_wall_deg=azimuths,
+        mud_pressure=30.0e6, poisson=INCL_NU,
+    )
+    np.testing.assert_allclose(s_t, s_t[0], atol=1.0e-6)
+    np.testing.assert_allclose(s_z, s_z[0], atol=1.0e-6)
+
+
+# ---------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------
+
+
+def test_inclined_breakout_rejects_friction_outside_range():
+    """Friction angle must be in (-90, 90)."""
+    import pytest
+
+    from fwap.geomechanics import inclined_breakout_pressure
+
+    with pytest.raises(ValueError, match="friction_angle_deg"):
+        inclined_breakout_pressure(
+            INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+            INCL_PORE_PRESSURE, INCL_UCS,
+            well_inclination_deg=30.0, well_azimuth_deg=0.0,
+            friction_angle_deg=90.0,
+        )
+
+
+def test_inclined_breakout_rejects_too_few_azimuth_points():
+    """n_azimuth < 8 is not enough for the worst-azimuth scan."""
+    import pytest
+
+    from fwap.geomechanics import inclined_breakout_pressure
+
+    with pytest.raises(ValueError, match="n_azimuth"):
+        inclined_breakout_pressure(
+            INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+            INCL_PORE_PRESSURE, INCL_UCS,
+            well_inclination_deg=30.0, well_azimuth_deg=0.0,
+            friction_angle_deg=INCL_FRICTION, n_azimuth=4,
+        )
+
+
+def test_inclined_breakout_raises_on_undrillable_geometry():
+    """Strong horizontal-stress anisotropy + strong rock + high
+    pore pressure can produce a geometry where no mud pressure
+    stabilises the wall (no sign change in the failure margin
+    across the scan range). The function raises with a clear
+    message rather than returning a non-informative number."""
+    import pytest
+
+    from fwap.geomechanics import inclined_breakout_pressure
+
+    # The PR #28/#29 not-drillable scenario: high anisotropy +
+    # strong rock + high pore pressure.
+    with pytest.raises(ValueError, match="unconditionally unstable"):
+        inclined_breakout_pressure(
+            sigma_v=70.0e6, sigma_H=80.0e6, sigma_h=30.0e6,
+            pore_pressure=40.0e6, ucs=80.0e6,
+            well_inclination_deg=0.0, well_azimuth_deg=0.0,
+            friction_angle_deg=INCL_FRICTION,
+        )
