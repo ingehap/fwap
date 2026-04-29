@@ -1264,3 +1264,244 @@ def thomsen_epsilon_delta_from_walkaway_vsp(
         residual_rms=residual_rms,
         n_shots=n_shots,
     )
+
+
+# ---------------------------------------------------------------------
+# Backus averaging: layered isotropic media -> effective VTI tensor
+# ---------------------------------------------------------------------
+
+
+@dataclass
+class BackusResult:
+    r"""
+    Effective VTI elastic tensor from Backus (1962) averaging.
+
+    Output of :func:`backus_average`. The five independent VTI
+    elastic constants in Voigt notation, plus the volume-weighted
+    effective density. The symmetry axis is :math:`x_3` (vertical),
+    matching the standard VTI convention used elsewhere in
+    ``fwap.anisotropy``.
+
+    Layer-parallel components ``c11`` and ``c66`` are arithmetic
+    volume averages (Voigt-like upper bounds); layer-perpendicular
+    components ``c33`` and ``c44`` are harmonic volume averages
+    (Reuss-like lower bounds). The cross-coupling component ``c13``
+    is the standard Backus combination of ``lambda / (lambda + 2 mu)``
+    weighted averages.
+
+    Attributes
+    ----------
+    c11 : float
+        In-plane P-wave modulus :math:`\rho V_{P,h}^2` (Pa) for
+        propagation parallel to the layering.
+    c13 : float
+        Off-axis cross-coupling elastic constant (Pa).
+    c33 : float
+        Vertical P-wave modulus :math:`\rho V_P^2` (Pa) for
+        propagation perpendicular to the layering.
+    c44 : float
+        Vertical shear modulus :math:`\rho V_{Sv}^2` (Pa); SV-wave
+        with vertical propagation.
+    c66 : float
+        Horizontal shear modulus :math:`\rho V_{Sh}^2` (Pa); SH-wave
+        with horizontal propagation.
+    rho : float
+        Volume-weighted effective density (kg/m^3).
+    """
+
+    c11: float
+    c13: float
+    c33: float
+    c44: float
+    c66: float
+    rho: float
+
+
+def backus_average(
+    thickness: np.ndarray,
+    vp: np.ndarray,
+    vs: np.ndarray,
+    rho: np.ndarray,
+) -> BackusResult:
+    r"""
+    Backus (1962) long-wavelength average of a layered isotropic stack.
+
+    Homogenises a sequence of N isotropic layers into a single
+    transversely-isotropic (VTI) effective medium with vertical
+    symmetry axis. Valid in the long-wavelength limit
+    (wavelength :math:`\gg` total stack thickness); typical use
+    is upscaling thinly-bedded sonic-log intervals to seismic
+    resolution.
+
+    Per-layer Lame parameters are computed from the inputs:
+
+    .. math::
+
+        \mu_i &= \rho_i\,V_{S,i}^2,
+        \\
+        M_i &= \rho_i\,V_{P,i}^2 \;=\; \lambda_i + 2\mu_i,
+        \\
+        \lambda_i &= M_i - 2\mu_i.
+
+    Volume fractions :math:`\phi_i = h_i / \sum_j h_j` weight the
+    arithmetic and harmonic averages :math:`\langle X \rangle =
+    \sum_i \phi_i X_i`. The five effective VTI elastic constants
+    are (Backus 1962; Mavko et al. 2009 Section 1.5):
+
+    .. math::
+
+        C_{33} &= 1 \,/\, \langle 1/M \rangle,
+        \\
+        C_{13} &= \langle \lambda/M \rangle \;\big/\;
+                  \langle 1/M \rangle,
+        \\
+        C_{11} &= \langle M - \lambda^2/M \rangle
+                  + \langle \lambda/M \rangle^2 \;\big/\;
+                    \langle 1/M \rangle,
+        \\
+        C_{44} &= 1 \,/\, \langle 1/\mu \rangle,
+        \\
+        C_{66} &= \langle \mu \rangle.
+
+    The effective density is the arithmetic volume average
+    :math:`\rho_\mathrm{eff} = \langle \rho \rangle`.
+
+    Parameters
+    ----------
+    thickness : ndarray, shape (n_layers,)
+        Per-layer thickness (m). Must be strictly positive (zero-
+        thickness layers are not allowed; drop them upstream). The
+        absolute scale does not matter; only volume fractions
+        ``thickness / sum(thickness)`` enter the result.
+    vp : ndarray, shape (n_layers,)
+        Per-layer P-wave velocity (m/s). Strictly positive.
+    vs : ndarray, shape (n_layers,)
+        Per-layer S-wave velocity (m/s). Strictly positive and less
+        than the corresponding ``vp``.
+    rho : ndarray, shape (n_layers,)
+        Per-layer mass density (kg/m^3). Strictly positive.
+
+    Returns
+    -------
+    BackusResult
+        Five independent VTI elastic constants (Pa) plus the
+        volume-weighted effective density (kg/m^3). Use
+        :func:`thomsen_gamma` on ``c44, c66`` for shear anisotropy
+        and the standard Thomsen formulas on the full set
+        (``epsilon = (c11 - c33) / (2 c33)``,
+        ``delta = ((c13 + c44)^2 - (c33 - c44)^2) /
+        (2 c33 (c33 - c44))``) for the full Thomsen triple.
+
+    Raises
+    ------
+    ValueError
+        If any input array is empty, has shape mismatching the
+        others, or contains a non-positive value; or if any
+        ``vs >= vp`` (the isotropic-layer constraint that keeps
+        :math:`\lambda + 2\mu > 0` and :math:`\mu > 0`).
+
+    Notes
+    -----
+    Long-wavelength regime: the Backus average represents the
+    layered stack as a *single* effective TI medium. It is exact
+    for vertically-propagating waves whose wavelength is much
+    larger than the stack thickness; for waves with wavelength
+    comparable to layer thicknesses, the stack acts as a periodic
+    medium with dispersion (Bragg scattering) and Backus is no
+    longer applicable.
+
+    Layer-parallel vs layer-perpendicular limits:
+
+    * ``C_{66} = \langle \mu \rangle`` is an arithmetic volume
+      average (Voigt-like upper bound). The SH wave parallel to
+      the layering experiences the *stiffest* bulk-mu pathway.
+    * ``C_{44} = 1 / \langle 1/\mu \rangle`` is a harmonic volume
+      average (Reuss-like lower bound). The SV wave vertical to
+      the layering experiences the *most-compliant* path.
+    * The Voigt-Reuss inequality :math:`C_{66} \ge C_{44}`
+      always holds with equality iff every layer has the same
+      :math:`\mu` -- i.e. ``gamma >= 0`` always for any layered
+      stack of isotropic layers, with ``gamma = 0`` only in the
+      degenerate identical-layer case. This is one consequence
+      that the test suite checks.
+
+    For an isotropic stack (all layers identical), the result
+    reduces to the per-layer isotropic moduli:
+    ``C_{11} = C_{33} = lambda + 2 mu``,
+    ``C_{13} = lambda``, ``C_{44} = C_{66} = mu``.
+
+    See Also
+    --------
+    thomsen_gamma : Thomsen :math:`\gamma` from ``c44, c66``.
+    vti_moduli_from_logs : Per-depth VTI moduli from a sonic +
+        density log (the inverse direction: log -> moduli).
+    fwap.rockphysics.reuss_average : Isotropic Reuss bound (the
+        layer-perpendicular average direction in spirit, but
+        applied to bulk modulus rather than the full tensor).
+    fwap.rockphysics.voigt_average : Isotropic Voigt bound
+        (analogous to ``c66``).
+
+    References
+    ----------
+    * Backus, G. E. (1962). Long-wave elastic anisotropy produced
+      by horizontal layering. *J. Geophys. Res.* 67(11),
+      4427-4440.
+    * Mavko, G., Mukerji, T., & Dvorkin, J. (2009). *The Rock
+      Physics Handbook*, 2nd ed., Section 1.5. Cambridge
+      University Press.
+    * Thomsen, L. (1986). Weak elastic anisotropy. *Geophysics*
+      51(10), 1954-1966 (Thomsen-parameter conventions used by
+      callers of this function).
+    """
+    h = np.asarray(thickness, dtype=float)
+    Vp = np.asarray(vp, dtype=float)
+    Vs = np.asarray(vs, dtype=float)
+    rho_arr = np.asarray(rho, dtype=float)
+
+    if h.ndim != 1:
+        raise ValueError("thickness must be 1-D")
+    if Vp.shape != h.shape or Vs.shape != h.shape or rho_arr.shape != h.shape:
+        raise ValueError(
+            "thickness, vp, vs, rho must all be 1-D arrays of the same length"
+        )
+    if h.size == 0:
+        raise ValueError("at least one layer required")
+    if np.any(h <= 0):
+        raise ValueError("thickness must be strictly positive")
+    if np.any(Vp <= 0) or np.any(Vs <= 0) or np.any(rho_arr <= 0):
+        raise ValueError("vp, vs, rho must all be strictly positive")
+    if np.any(Vs >= Vp):
+        raise ValueError("require vs < vp on every layer")
+
+    phi = h / np.sum(h)
+
+    mu = rho_arr * Vs**2
+    M = rho_arr * Vp**2  # lambda + 2 mu
+    lam = M - 2.0 * mu
+
+    inv_M = 1.0 / M
+    inv_mu = 1.0 / mu
+    lam_over_M = lam / M
+    lam_sq_over_M = lam * lam_over_M  # = lambda^2 / M
+
+    avg_inv_M = float(np.sum(phi * inv_M))
+    avg_inv_mu = float(np.sum(phi * inv_mu))
+    avg_lam_over_M = float(np.sum(phi * lam_over_M))
+    avg_M_minus_lam_sq_over_M = float(np.sum(phi * (M - lam_sq_over_M)))
+    avg_mu = float(np.sum(phi * mu))
+    avg_rho = float(np.sum(phi * rho_arr))
+
+    c33 = 1.0 / avg_inv_M
+    c13 = avg_lam_over_M / avg_inv_M
+    c11 = avg_M_minus_lam_sq_over_M + (avg_lam_over_M**2) / avg_inv_M
+    c44 = 1.0 / avg_inv_mu
+    c66 = avg_mu
+
+    return BackusResult(
+        c11=c11,
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c66,
+        rho=avg_rho,
+    )

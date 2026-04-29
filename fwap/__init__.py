@@ -176,12 +176,14 @@ from fwap.attenuation import (
 # Cross-dipole
 from fwap.anisotropy import (
     AlfordResult,
+    BackusResult,
     StressAnisotropyEstimate,
     ThomsenEpsilonDeltaResult,
     ThomsenGammaResult,
     VtiModuli,
     alford_rotation,
     alford_rotation_from_tensor,
+    backus_average,
     c33_from_p_pick,
     stoneley_horizontal_shear_modulus,
     stoneley_horizontal_shear_modulus_corrected,
@@ -364,6 +366,8 @@ __all__ = [
     "vti_moduli_from_logs",
     "ThomsenEpsilonDeltaResult",
     "thomsen_epsilon_delta_from_walkaway_vsp",
+    "BackusResult",
+    "backus_average",
     # Rock physics
     "ElasticModuli",
     "elastic_moduli",

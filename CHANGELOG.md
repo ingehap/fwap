@@ -6,6 +6,27 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Backus (1962) layered-medium averaging**
+  (``fwap.anisotropy.backus_average``). Long-wavelength
+  homogenisation of a stack of N isotropic layers into a single
+  effective transversely-isotropic (VTI) elastic tensor with
+  vertical symmetry axis. Returns a ``BackusResult`` with the
+  five independent VTI elastic constants
+  ``c11, c13, c33, c44, c66`` (Pa) plus the volume-weighted
+  effective density. Layer-parallel components ``c11, c66`` are
+  Voigt-like arithmetic averages; layer-perpendicular
+  ``c33, c44`` are Reuss-like harmonic averages; ``c13`` is the
+  standard Backus combination of ``lambda / (lambda + 2 mu)``
+  averages. Useful for upscaling thinly-bedded sonic-log
+  intervals to seismic resolution. 12 new tests cover: isotropic-
+  limit recovery (single layer or uniform stack -> exact
+  per-layer moduli), thickness-scale invariance (only volume
+  fractions matter), Voigt-Reuss inequalities (``c66 >= c44`` and
+  ``c11 >= c33`` always hold), positive-definiteness of the
+  resulting tensor, hand-derived two-layer numerical check, and
+  input validation.
+
 ### Changed
 - **Repository-wide ``ruff format`` sweep**: 42 files reformatted to
   ruff-format defaults. Behaviour-preserving (full test suite still
