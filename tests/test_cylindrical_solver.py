@@ -972,3 +972,141 @@ def test_march_recovers_existing_stoneley_curve_in_bound_regime():
         assert abs(kz_marcher.real - kz_existing) / kz_existing < 1.0e-10
         # Imaginary parts are tiny (Stoneley is bound -> kz real).
         assert abs(kz_marcher.imag) < 1.0e-9 * kz_existing
+
+
+# ---------------------------------------------------------------------
+# L4 -- BoreholeMode extension + pseudo-Rayleigh experimental scaffolding
+# ---------------------------------------------------------------------
+
+
+def test_borehole_mode_attenuation_per_meter_field_optional():
+    """``BoreholeMode`` now has an optional ``attenuation_per_meter``
+    field defaulting to None. Existing constructors that don't pass
+    it (e.g., the bound-mode Stoneley and flexural solvers)
+    continue to work unchanged."""
+    from fwap.cylindrical_solver import BoreholeMode
+
+    # Construct without the new field -- still works.
+    bm = BoreholeMode(
+        name="Stoneley", azimuthal_order=0,
+        freq=np.array([1000.0, 2000.0]),
+        slowness=np.array([7e-4, 7e-4]),
+    )
+    assert bm.attenuation_per_meter is None
+
+
+def test_borehole_mode_attenuation_per_meter_field_accepts_array():
+    """The new field accepts an ndarray for leaky modes carrying
+    spatial attenuation Im(k_z)."""
+    from fwap.cylindrical_solver import BoreholeMode
+
+    bm = BoreholeMode(
+        name="pseudo_rayleigh", azimuthal_order=0,
+        freq=np.array([15000.0, 20000.0]),
+        slowness=np.array([4.5e-4, 4.2e-4]),
+        attenuation_per_meter=np.array([1e-3, 5e-4]),
+    )
+    assert bm.attenuation_per_meter is not None
+    np.testing.assert_array_equal(
+        bm.attenuation_per_meter, np.array([1e-3, 5e-4]),
+    )
+
+
+def test_existing_stoneley_solver_attenuation_field_is_None():
+    """The existing ``stoneley_dispersion`` doesn't populate
+    ``attenuation_per_meter`` (Stoneley is bound -> attenuation is
+    zero -> no field needed). Verify the default-None behaviour
+    survives the dataclass extension."""
+    res = stoneley_dispersion(
+        np.array([1000.0]), vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert res.attenuation_per_meter is None
+
+
+def test_pseudo_rayleigh_seed_is_just_below_S_asymptote():
+    """The seed for the pseudo-Rayleigh marcher should sit at
+    slowness ~ 0.99/V_S with a small positive imaginary part. This
+    pins the convention; the physics interpretation is in the
+    L1.1 / L4 doc blocks."""
+    from fwap.cylindrical_solver import _pseudo_rayleigh_kz_seed
+
+    omega = 2.0 * np.pi * 15000.0
+    vs = 2500.0
+    seed = _pseudo_rayleigh_kz_seed(omega, vs)
+    expected_re = omega * 0.99 / vs
+    expected_im = omega * 0.99 * 1e-3 / vs
+    assert abs(seed.real - expected_re) < 1.0e-9
+    assert abs(seed.imag - expected_im) < 1.0e-9
+
+
+def test_pseudo_rayleigh_experimental_rejects_slow_formation():
+    """The experimental pseudo-Rayleigh function requires a fast
+    formation (V_S > V_f). Slow formations raise."""
+    import pytest
+
+    from fwap.cylindrical_solver import _pseudo_rayleigh_dispersion_experimental
+
+    with pytest.raises(ValueError, match="fast formation"):
+        _pseudo_rayleigh_dispersion_experimental(
+            np.array([5000.0]),
+            vp=2200.0, vs=800.0, rho=2200.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+        )
+
+
+def test_pseudo_rayleigh_experimental_returns_BoreholeMode_with_attenuation():
+    """Even though the experimental function isn't fully reliable
+    yet, it must return a properly-typed ``BoreholeMode`` with
+    populated ``attenuation_per_meter`` (the leaky-mode marker
+    field). Tests the dataclass contract on the leaky path."""
+    from fwap.cylindrical_solver import (
+        BoreholeMode,
+        _pseudo_rayleigh_dispersion_experimental,
+    )
+
+    res = _pseudo_rayleigh_dispersion_experimental(
+        np.array([20000.0, 25000.0]),
+        vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert isinstance(res, BoreholeMode)
+    assert res.name == "pseudo_rayleigh"
+    assert res.azimuthal_order == 0
+    assert res.attenuation_per_meter is not None
+    assert res.attenuation_per_meter.shape == res.slowness.shape
+
+
+def test_pseudo_rayleigh_experimental_band_filter_rejects_stoneley_branch():
+    """The slowness-band filter rejects any slowness >= 1/V_f
+    (which would be Stoneley-branch contamination from a
+    misconverged marcher step). Verify the filter is in effect:
+    no returned slowness exceeds 1/V_f."""
+    from fwap.cylindrical_solver import _pseudo_rayleigh_dispersion_experimental
+
+    vf = 1500.0
+    res = _pseudo_rayleigh_dispersion_experimental(
+        np.linspace(1000.0, 30000.0, 10),
+        vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=vf, rho_f=1000.0, a=0.1,
+    )
+    finite = np.isfinite(res.slowness)
+    if np.any(finite):
+        # Whatever slownesses survive must be in the pseudo-Rayleigh
+        # band (below 1/V_f). The filter contract: anything else is
+        # NaN-ed.
+        assert np.all(res.slowness[finite] < 1.0 / vf)
+
+
+def test_pseudo_rayleigh_experimental_rejects_non_positive_freq():
+    """Input validation parallels stoneley_dispersion."""
+    import pytest
+
+    from fwap.cylindrical_solver import _pseudo_rayleigh_dispersion_experimental
+
+    with pytest.raises(ValueError, match="freq"):
+        _pseudo_rayleigh_dispersion_experimental(
+            np.array([10.0, 0.0, 100.0]),
+            vp=4500.0, vs=2500.0, rho=2400.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+        )

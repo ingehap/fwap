@@ -94,23 +94,32 @@ class BoreholeMode:
     ----------
     name : str
         Mode label (``"Stoneley"`` for the n=0 first root,
-        ``"flexural"`` for the n=1 first root).
+        ``"flexural"`` for the n=1 first root,
+        ``"pseudo_rayleigh"`` for the n=0 leaky branch).
     azimuthal_order : int
         Cylindrical mode index (``0`` for monopole, ``1`` for
         dipole).
     freq : ndarray, shape (n_f,)
         Frequencies (Hz).
     slowness : ndarray, shape (n_f,)
-        Phase slowness (s/m): ``slowness[i] = k_z(omega[i]) /
-        omega[i]``. ``NaN`` at frequencies where the root
-        bracketing failed (typically the leaky regime above the
-        bound-mode band, which is out of scope here).
+        Phase slowness (s/m): ``slowness[i] = Re(k_z(omega[i])) /
+        omega[i]``. ``NaN`` at frequencies where the root finder
+        failed (typically below the geometric cutoff for guided
+        modes, or in the wrong physical regime for the chosen
+        solver).
+    attenuation_per_meter : ndarray or None, optional
+        Spatial attenuation rate ``Im(k_z(omega[i]))`` in 1/m, for
+        leaky modes only. ``None`` (default) for purely-bound
+        modes (Stoneley, slow-formation flexural) where the
+        attenuation is zero by construction. ``NaN`` at the same
+        frequencies where ``slowness`` is NaN.
     """
 
     name: str
     azimuthal_order: int
     freq: np.ndarray
     slowness: np.ndarray
+    attenuation_per_meter: np.ndarray | None = None
 
 
 # ---------------------------------------------------------------------
@@ -3257,3 +3266,231 @@ def _march_complex_dispersion(
         kz_prev = kz_root
         f_prev = f
     return kz_curve
+
+
+# ---------------------------------------------------------------------
+# L4 -- Pseudo-Rayleigh public API.
+# ---------------------------------------------------------------------
+
+
+def _pseudo_rayleigh_kz_seed(
+    omega_high: float, vs: float
+) -> complex:
+    """
+    Initial-guess seed for the pseudo-Rayleigh marcher.
+
+    At high frequency the pseudo-Rayleigh mode merges with the
+    body S-wave (slowness -> 1/V_S from below); the mode is
+    slightly faster than V_S and weakly leaky into the body S
+    field. Seed:
+
+        k_z = 0.99 * omega_high / V_S * (1 + 1e-3 j)
+
+    The 0.99 factor places the seed slightly inside the (V_P, V_S)
+    pseudo-Rayleigh band (the mode lives just above V_S in phase
+    velocity, i.e. just below 1/V_S in slowness). The 1e-3 j
+    perturbation gives a small positive imaginary part so the
+    2D root finder iterates in the (Re, Im) space rather than
+    sticking to the real axis.
+    """
+    slowness = (1.0 + 1.0e-3j) * 0.99 / vs
+    return complex(omega_high * slowness)
+
+
+def _pseudo_rayleigh_dispersion_experimental(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> BoreholeMode:
+    r"""
+    n=0 leaky pseudo-Rayleigh mode dispersion (EXPERIMENTAL).
+
+    This is a private, work-in-progress function. The robust
+    public ``pseudo_rayleigh_dispersion`` requires more careful
+    branch-tracking infrastructure than the L1+L2+L3 scaffolding
+    provides; in particular, ``scipy.optimize.root`` with method
+    ``hybr`` (used by :func:`_track_complex_root`) tends to
+    converge onto the Stoneley branch near the pseudo-Rayleigh
+    cutoff frequency, since the two roots are close in residual
+    landscape. The slowness-band filter below
+    (``slowness < 1/V_f``) cleanly removes the branch-crossed
+    artefacts but does NOT recover the pseudo-Rayleigh values
+    that should have been there -- they end up as NaN.
+
+    This function is exposed at module level only so that the L5
+    and L6 leaky-mode follow-ups can build on the same scaffolding
+    pattern. End users should NOT consume this function directly
+    yet; the production-grade ``pseudo_rayleigh_dispersion`` will
+    be added in a future PR alongside Mueller-iteration root
+    finding and root deflation.
+
+    The pseudo-Rayleigh wave is the n=0 leaky branch of the
+    cylindrical-Biot modal determinant: a guided mode with phase
+    velocity in :math:`(V_S, V_P)`, leaky into the body shear
+    wave (``s^2 < 0``) and into the borehole fluid
+    (``F^2 < 0`` for typical fast-formation parameters); the
+    formation P branch stays bound. As frequency increases the
+    mode merges with the body S head wave at slowness
+    :math:`1/V_S` from below; below a geometric cutoff at
+    :math:`f_\mathrm{cut} \approx V_S / (2 \pi a)` the mode does
+    not exist as a physically meaningful guided wave.
+
+    Existence requires a fast formation (:math:`V_S > V_f`); slow-
+    formation cases raise :class:`ValueError`.
+
+    Algorithm
+    ---------
+    1. Sort the input ``freq`` grid in DESCENDING order. The
+       high-frequency end is where the mode is well-approximated
+       by ``slowness ~ 1/V_S``, giving a robust seed.
+    2. Seed with ``k_z = 0.99 omega_high / V_S * (1 + 1e-3j)``
+       (just below the body-S asymptote, with a small positive
+       imaginary part for the 2D root iteration).
+    3. March down in frequency via :func:`_march_complex_dispersion`,
+       with each step's ``det_fn`` re-classifying the
+       ``(F, p, s)`` branches via :func:`_detect_leaky_branches`.
+    4. At the geometric cutoff the mode disappears; the marcher's
+       per-step root finder fails and the remaining frequencies
+       are NaN.
+    5. Re-sort the result back to the input frequency order.
+
+    Parameters
+    ----------
+    freq : ndarray, shape (n_f,)
+        Frequency grid (Hz). Must be strictly positive.
+    vp, vs, rho : float
+        Formation velocities (m/s) and bulk density (kg/m^3).
+        Must satisfy ``vp > vs > vf > 0``.
+    vf, rho_f : float
+        Borehole-fluid velocity (m/s) and density (kg/m^3).
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "pseudo_rayleigh"``, ``azimuthal_order = 0``.
+        ``slowness`` is :math:`\mathrm{Re}(k_z) / \omega`;
+        ``attenuation_per_meter`` is :math:`\mathrm{Im}(k_z)`.
+        Both are NaN at frequencies below the geometric cutoff.
+
+    Raises
+    ------
+    ValueError
+        If ``vs <= vf`` (slow formation; pseudo-Rayleigh does
+        not exist as a leaky-S mode in that regime); if any
+        input is non-positive; if ``vp <= vs`` or ``vs <= 0``;
+        if ``freq`` contains a non-positive entry.
+
+    See Also
+    --------
+    stoneley_dispersion : The bound n=0 mode (Stoneley wave).
+        Coexists with pseudo-Rayleigh at every frequency in fast
+        formations; the two are distinct branches of the same
+        modal determinant.
+    flexural_dispersion : The bound n=1 mode in slow formations.
+
+    Notes
+    -----
+    The pseudo-Rayleigh mode is what borehole acoustic logging
+    tools call the "first-arriving guided wave" in fast carbonates
+    and tight sandstones; it sits between the body P arrival and
+    the body S arrival in the recorded waveform and carries
+    formation S-wave information that is unavailable from a
+    direct S head-wave pick.
+
+    The function uses the L1+L2+L3 leaky-mode scaffolding
+    (``_modal_determinant_n0_complex``,
+    ``_detect_leaky_branches``, ``_march_complex_dispersion``).
+    Branch detection is automatic per evaluation; the marcher
+    handles the multiplicative ``k_z`` jumps from the high-f
+    asymptote down to the cutoff.
+
+    References
+    ----------
+    * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
+      Acoustic Methods.* Elsevier, sect. 3.3 (pseudo-Rayleigh
+      dispersion in fast formations).
+    * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves
+      in Boreholes.* CRC Press, ch. 3.
+    """
+    if vp <= 0 or vs <= 0 or rho <= 0:
+        raise ValueError("vp, vs, rho must all be positive")
+    if vf <= 0 or rho_f <= 0:
+        raise ValueError("vf and rho_f must be positive")
+    if a <= 0:
+        raise ValueError("a must be positive")
+    if vp <= vs:
+        raise ValueError("require vp > vs")
+    if vs <= vf:
+        raise ValueError(
+            "pseudo-Rayleigh requires fast formation V_S > V_f; "
+            f"got vs={vs}, vf={vf}"
+        )
+    f_arr = np.asarray(freq, dtype=float)
+    if np.any(f_arr <= 0):
+        raise ValueError("freq must be strictly positive")
+
+    if f_arr.size == 0:
+        return BoreholeMode(
+            name="pseudo_rayleigh",
+            azimuthal_order=0,
+            freq=f_arr,
+            slowness=np.empty(0, dtype=float),
+            attenuation_per_meter=np.empty(0, dtype=float),
+        )
+
+    def det_fn(kz: complex, omega: float) -> complex:
+        leaky_F, leaky_p, leaky_s = _detect_leaky_branches(
+            kz, omega, vp, vs, vf,
+        )
+        return _modal_determinant_n0_complex(
+            kz, omega, vp, vs, rho, vf, rho_f, a,
+            leaky_p=leaky_p, leaky_s=leaky_s,
+        )
+
+    # Sort freq descending (high f first); march down to the cutoff.
+    sort_desc = np.argsort(-f_arr)
+    f_desc = f_arr[sort_desc]
+    omega_high = 2.0 * np.pi * float(f_desc[0])
+    kz_start = _pseudo_rayleigh_kz_seed(omega_high, vs)
+
+    curve_desc = _march_complex_dispersion(det_fn, f_desc, kz_start)
+
+    # Re-sort to input order.
+    inv_sort = np.argsort(sort_desc)
+    curve = curve_desc[inv_sort]
+
+    # Decompose into slowness (real) and attenuation (imag).
+    omega = 2.0 * np.pi * f_arr
+    with np.errstate(invalid="ignore"):
+        slowness = curve.real / omega
+    attenuation = curve.imag.copy()
+
+    # Slowness-band filter to reject branch-crossing artefacts.
+    #
+    # Below the pseudo-Rayleigh cutoff frequency, the marcher's
+    # continuation can converge to the Stoneley root instead of the
+    # vanished pseudo-Rayleigh root (Stoneley always exists; its
+    # residual basin overlaps with the pseudo-Rayleigh region near
+    # cutoff). Pseudo-Rayleigh has phase velocity > V_f (slowness
+    # < 1/V_f) by definition; Stoneley has slowness > 1/V_f. Reject
+    # any slowness that's not < 1/V_f -- this cleanly removes the
+    # branch-crossed artefacts while keeping all genuine pseudo-
+    # Rayleigh values, including the dispersive near-cutoff tail.
+    valid = np.isfinite(slowness) & (slowness < 1.0 / vf)
+    slowness = np.where(valid, slowness, np.nan)
+    attenuation = np.where(valid, attenuation, np.nan)
+
+    return BoreholeMode(
+        name="pseudo_rayleigh",
+        azimuthal_order=0,
+        freq=f_arr,
+        slowness=slowness,
+        attenuation_per_meter=attenuation,
+    )
