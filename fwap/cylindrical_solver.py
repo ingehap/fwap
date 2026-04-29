@@ -2707,3 +2707,357 @@ def flexural_dispersion(
         freq=f_arr,
         slowness=slowness,
     )
+
+
+# =====================================================================
+# Leaky-mode extension (Roadmap A continuation, phases L1 + L2)
+# =====================================================================
+#
+# The bound-mode solvers above (Stoneley n=0 + flexural n=1) require
+# real ``k_z > omega / V_alpha`` for every wave speed ``V_alpha``, so
+# all radial wavenumbers ``F, p, s`` are real and positive and the
+# K-Bessel functions decay outward. That covers the Stoneley mode
+# universally and the flexural mode in slow formations.
+#
+# Three borehole modes need a *complex* ``k_z`` and outgoing
+# (Hankel-function) boundary conditions:
+#
+#   * **Pseudo-Rayleigh (n=0 leaky)**: fast-formation guided mode at
+#     slowness between ``1/V_P`` and ``1/V_S``. ``s^2 = k_z^2 -
+#     k_S^2 < 0`` so the formation S wave radiates outward; ``F`` and
+#     ``p`` stay bound. Has a low-frequency cutoff at ``f =
+#     V_S / (2 pi a)`` (geometric).
+#   * **Fast-formation flexural (n=1 leaky)**: dipole flexural in
+#     formations with ``V_S > V_f``. Phase velocity sits between
+#     ``V_R`` and ``V_S``, both above ``V_f``, so the fluid radial
+#     wavenumber ``F^2 < 0`` and the wave radiates into the borehole
+#     fluid. The ``flexural_dispersion`` function above returns NaN
+#     for these depths.
+#   * **Quadrupole (n=2)**: the m=2 azimuthal mode used by LWD tools
+#     to bypass steel-collar contamination (Tang & Cheng 2004 sect.
+#     2.5). Bound in slow formations, leaky in fast formations.
+#
+# Phases L1 + L2 below build the mathematical scaffolding (sign
+# conventions, Hankel-function ansatz, branch-cut handling) and
+# generalise the n=0 modal determinant to accept complex ``k_z`` and
+# return a complex value. Phase L3 (the complex-``k_z`` root finder)
+# and phases L4-L6 (the three public-API leaky-mode functions) are
+# planned follow-ups; see ``docs/roadmap.md`` item A for the full
+# sequencing.
+
+# ---------------------------------------------------------------------
+# L1.1 -- Sign conventions for complex ``k_z`` and complex radial
+# wavenumbers.
+# ---------------------------------------------------------------------
+#
+# The bound-mode conventions (top-of-module docstring) carry over
+# verbatim:
+#
+#   * Time dependence ``e^{-i omega t}``.
+#   * Axial dependence ``e^{i k_z z}``.
+#
+# What's new at the leaky regime:
+#
+#   * ``k_z`` is in general complex: ``k_z = k_z' + i k_z''`` with
+#     ``k_z' > 0`` (forward-propagating) and ``k_z'' >= 0`` (energy
+#     decays in the +z direction). For perfectly bound modes,
+#     ``k_z'' = 0``.
+#
+#   * The radial wavenumbers
+#
+#         F^2 = k_z^2 - omega^2 / V_f^2
+#         p^2 = k_z^2 - omega^2 / V_P^2
+#         s^2 = k_z^2 - omega^2 / V_S^2
+#
+#     are complex too. For each of the three body waves
+#     (alpha = f, P, S):
+#
+#       - **Bound**: ``Re(alpha^2) > 0`` and ``Im(alpha^2)`` small.
+#         The wave decays in radius via ``K_n(alpha r)``.
+#       - **Leaky**: ``Re(alpha^2) < 0``. The wave propagates
+#         outward as a radiating cylindrical wave, expressed via
+#         ``H_n^{(2)}(i alpha r)``.
+#
+#   * The square root of a complex ``alpha^2`` follows the principal
+#     branch convention with one sign flip on the leaky side: pick
+#     the root with ``Im(alpha) > 0`` so that
+#     ``H_n^{(2)}(i alpha r)`` decays as ``Im(alpha r) > 0`` -- the
+#     standard "outgoing-wave at infinity" condition for an
+#     ``e^{-i omega t}`` time convention. (For ``e^{+i omega t}``
+#     the convention is ``H_n^{(1)}`` instead; we use ``H_n^{(2)}``
+#     to match the existing time convention in the bound-mode
+#     module docstring.)
+#
+# Per-mode regime table:
+#
+#     Mode                    F-branch    p-branch    s-branch
+#     ---------------------------------------------------------
+#     Stoneley (n=0)          bound       bound       bound
+#     Pseudo-Rayleigh (n=0)   bound       bound       leaky
+#     Flexural slow (n=1)     bound       bound       bound
+#     Flexural fast (n=1)     leaky       bound       bound
+#     Quadrupole slow (n=2)   bound       bound       bound
+#     Quadrupole fast (n=2)   leaky       bound       bound
+#
+# Note that ``p`` (formation P-wave radial wavenumber) stays bound
+# for every mode of practical interest; the ``F`` (fluid) and ``s``
+# (S-wave) branches are the ones that flip between bound and leaky.
+
+# ---------------------------------------------------------------------
+# L1.2 -- Hankel-function ansatz for the radiating components.
+# ---------------------------------------------------------------------
+#
+# In the leaky regime, the regular-at-infinity ``K_n(alpha r)``
+# Bessel function is replaced by the outgoing Hankel function
+# ``H_n^{(2)}(i alpha r)``. The two are related by the analytic
+# continuation
+#
+#     K_n(z) = (pi / 2) * i^{n+1} * H_n^{(2)}(i z),
+#
+# i.e. they differ only by a constant ``i^{n+1}`` phase factor at
+# fixed ``n``. For the modal-determinant calculation this phase is
+# absorbed into the unknown amplitude (one of A, B, C, D), so the
+# matrix structure is the same in both regimes -- only the Bessel
+# evaluation routine changes per branch.
+#
+# Per-field ansatz for the four scalar potentials (n=0 case shown;
+# n=1 and n=2 extend with cos/sin azimuthal factors per substep
+# 1.1):
+#
+#     Fluid pressure:        P    = A * I_1(F r) cos(n theta)
+#     Solid P potential:     phi  = B * J_n^{p}(p r) cos(n theta)
+#     Solid SV potential:    psi  = C * J_n^{s}(s r) sin/cos(...)
+#     Solid SH potential:    psi  = D * J_n^{s}(s r) sin/cos(...)
+#
+# where the ``J_n^{alpha}`` symbol is shorthand for "K_n if alpha is
+# bound, H_n^{(2)} of (i alpha r) (with the constant phase factor
+# from L1.1) if alpha is leaky". The fluid pressure always uses
+# ``I_1`` (regular at the borehole axis r=0, regardless of whether
+# F is bound or leaky); the F-branch leaky behaviour shows up only
+# in how F enters the BC equations (complex F is fine, no Hankel
+# substitution needed because the I-Bessel is what's used).
+#
+# scipy support: ``scipy.special.iv``, ``kv``, and ``hankel2`` all
+# accept complex arguments. The bound-mode solver above already uses
+# ``iv`` and ``kv`` with real inputs; switching to complex inputs is
+# transparent.
+
+# ---------------------------------------------------------------------
+# L1.3 -- Branch cuts and outgoing-wave selection.
+# ---------------------------------------------------------------------
+#
+# For each radial wavenumber ``alpha = sqrt(k_z^2 - omega^2 / V^2)``,
+# the principal-branch ``numpy.sqrt`` returns the value with
+# ``Re(alpha) >= 0``. That gives the right sign in the bound regime
+# (``alpha`` real and positive). In the leaky regime, ``alpha^2``
+# has negative real part and the principal sqrt has positive real
+# part with positive imaginary part:
+#
+#     alpha = sqrt(alpha^2)  -- numpy default
+#         -> Re(alpha) >= 0, Im(alpha) >= 0.
+#
+# For the outgoing-wave condition with ``e^{-i omega t}`` time
+# dependence, we need ``Im(alpha) > 0`` (so ``e^{i alpha r}`` decays
+# as r grows). The numpy default already satisfies this on the
+# principal branch -- no sign flip needed. This is the cleanest
+# convention; document it explicitly because the other common
+# textbook choice (``Re(alpha) < 0``) flips the sign and uses
+# ``H_n^{(1)}``.
+#
+# Detection rule for the regime classifier (L2 below):
+#
+#   * Bound:  ``Re(alpha^2) > tolerance``  --> use ``K_n(alpha r)``.
+#   * Leaky:  ``Re(alpha^2) < -tolerance`` --> use
+#                                  ``H_n^{(2)}(i alpha r)``.
+#   * Marginal:  ``|Re(alpha^2)| < tolerance`` --> the mode is at
+#                                  its cutoff frequency; the
+#                                  numerical solution is
+#                                  ill-conditioned. Caller's job
+#                                  to skip / interpolate.
+#
+# The marginal-region tolerance can be tightened in L3 once the
+# complex root finder is in place.
+
+# ---------------------------------------------------------------------
+# L2 -- Complex-aware n=0 modal determinant.
+# ---------------------------------------------------------------------
+
+
+def _detect_leaky_branches(
+    kz: complex,
+    omega: float,
+    vp: float,
+    vs: float,
+    vf: float,
+    tolerance: float = 1.0e-9,
+) -> tuple[bool, bool, bool]:
+    """
+    Classify the (F, p, s) branches at a given (kz, omega) as
+    bound or leaky.
+
+    Returns a tuple ``(leaky_F, leaky_p, leaky_s)`` of booleans.
+    ``True`` means the corresponding wave is leaky (radiates
+    outward); ``False`` means bound (decays outward).
+
+    Classification uses the sign of ``Re(alpha^2)`` for each wave
+    speed; values within ``tolerance`` of zero are treated as
+    bound by convention (the numerical solution is ill-
+    conditioned at the cutoff, but the K-Bessel evaluation is
+    well-defined there while the H-Bessel limit is not).
+    """
+    kz_c = complex(kz)
+    F2 = kz_c * kz_c - (omega / vf) ** 2
+    p2 = kz_c * kz_c - (omega / vp) ** 2
+    s2 = kz_c * kz_c - (omega / vs) ** 2
+    leaky_F = float(F2.real) < -tolerance
+    leaky_p = float(p2.real) < -tolerance
+    leaky_s = float(s2.real) < -tolerance
+    return leaky_F, leaky_p, leaky_s
+
+
+def _k_or_hankel(
+    n: int, alpha: complex, r: float, *, leaky: bool
+) -> tuple[complex, complex]:
+    """
+    Return ``(K_n(alpha r), K_{n+1}(alpha r))`` -- bound branch -- or
+    the leaky-equivalent Hankel-via-analytic-continuation values.
+
+    Bound branch (``leaky=False``): the standard modified Bessel
+    function K of the second kind, evaluated at the (possibly
+    complex) argument ``alpha r``.
+
+    Leaky branch (``leaky=True``): for outgoing-radiation BCs with
+    ``e^{-i omega t}`` time convention, replace ``K_n(alpha r)``
+    with ``(pi / 2) * i^{n+1} * H_n^{(2)}(i alpha r)``. The
+    ``i^{n+1}`` constant phase factor is absorbed into the unknown
+    amplitudes of the modal determinant, but we keep it here so
+    that the BOUND limit (alpha real and positive) of the Hankel
+    formula matches the corresponding K_n value -- a structural
+    consistency check that the regression test exercises.
+
+    Returns the same ``(K_n, K_{n+1})`` tuple shape regardless of
+    branch, so the matrix-building code is identical in both
+    regimes.
+    """
+    z = alpha * r
+    if leaky:
+        # K_n(z) = (pi/2) i^{n+1} H_n^{(2)}(i z) by analytic
+        # continuation. Use ``ix = 1j * z`` as the Hankel argument.
+        ix = 1j * z
+        h_n = special.hankel2(n, ix)
+        h_np1 = special.hankel2(n + 1, ix)
+        phase_n = (np.pi / 2.0) * (1j ** (n + 1))
+        phase_np1 = (np.pi / 2.0) * (1j ** (n + 2))
+        return complex(phase_n * h_n), complex(phase_np1 * h_np1)
+    return complex(special.kv(n, z)), complex(special.kv(n + 1, z))
+
+
+def _modal_determinant_n0_complex(
+    kz: complex,
+    omega: float,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    *,
+    leaky_p: bool = False,
+    leaky_s: bool = False,
+) -> complex:
+    """
+    Complex-``k_z`` n=0 modal determinant with optional leaky-wave
+    branches.
+
+    Mirrors the matrix structure of the real-valued
+    :func:`_modal_determinant_n0` (see its docstring for the full
+    Kirchhoff derivation): three boundary conditions at ``r = a``
+    (continuity of u_r, sigma_rr balance, sigma_rz = 0), three
+    unknown amplitudes (A in the fluid, B and C in the solid),
+    and the same row/column phase rescaling that makes the matrix
+    real in the fully-bound regime.
+
+    What's new:
+
+    * Inputs ``kz`` is complex. The radial wavenumbers F, p, s are
+      complex too.
+    * ``leaky_p`` and ``leaky_s`` flags select the K-Bessel (bound)
+      vs Hankel (leaky) evaluator for the formation P and S waves.
+      The fluid I-Bessel always uses ``iv`` (regular at the
+      borehole axis); ``F`` complex is handled transparently.
+    * Returns a complex scalar. In the fully-bound regime
+      (real ``kz``, both ``leaky_*`` flags False) the imaginary
+      part is zero to floating-point precision and the real part
+      matches the real-only :func:`_modal_determinant_n0` exactly
+      -- a regression invariant tested in
+      ``tests/test_cylindrical_solver.py``.
+
+    Parameters
+    ----------
+    kz : complex
+        Axial wavenumber. May be complex.
+    omega, vp, vs, rho, vf, rho_f, a : float
+        Same as :func:`_modal_determinant_n0`.
+    leaky_p, leaky_s : bool, default False
+        Select the leaky branch (Hankel evaluator) for the
+        formation P and S waves. Use :func:`_detect_leaky_branches`
+        to set these from ``(kz, omega)`` for typical regime-
+        detection workflows.
+
+    Returns
+    -------
+    complex
+        ``det M(kz, omega)`` evaluated with the chosen branches.
+
+    See Also
+    --------
+    _modal_determinant_n0 : The real-valued bound-only counterpart.
+        The two functions agree exactly when ``kz`` is real and
+        both ``leaky_*`` flags are False.
+    _detect_leaky_branches : Helper to classify ``(F, p, s)`` as
+        bound or leaky from ``(kz, omega)``.
+    """
+    kz_c = complex(kz)
+    F = np.sqrt(kz_c * kz_c - (omega / vf) ** 2)
+    p = np.sqrt(kz_c * kz_c - (omega / vp) ** 2)
+    s = np.sqrt(kz_c * kz_c - (omega / vs) ** 2)
+    Fa = F * a
+
+    # Fluid: I-Bessel always (regular at r=0). scipy.special.iv
+    # supports complex arguments transparently.
+    I0Fa = complex(special.iv(0, Fa))
+    I1Fa = complex(special.iv(1, Fa))
+
+    # Formation P (K or Hankel via analytic continuation).
+    K0pa, K1pa = _k_or_hankel(0, p, a, leaky=leaky_p)
+
+    # Formation S (K or Hankel).
+    K0sa, K1sa = _k_or_hankel(0, s, a, leaky=leaky_s)
+
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz_c * kz_c - kS2
+
+    # Same matrix layout as _modal_determinant_n0; entries are now
+    # complex but the structure is identical.
+
+    # Row 1 (continuity of u_r at r = a):
+    M11 = F * I1Fa / (rho_f * omega ** 2)
+    M12 = p * K1pa
+    M13 = kz_c * K1sa
+
+    # Row 2 (sigma_rr^{(s)} = -P^{(f)}):
+    M21 = -I0Fa
+    M22 = -mu * (two_kz2_minus_kS2 * K0pa + 2.0 * p * K1pa / a)
+    M23 = -2.0 * kz_c * mu * (s * K0sa + K1sa / a)
+
+    # Row 3 (sigma_rz^{(s)} = 0; rescaled by i so that entries are
+    # real in the fully-bound regime):
+    M31 = 0.0 + 0j
+    M32 = 2.0 * kz_c * p * mu * K1pa
+    M33 = mu * two_kz2_minus_kS2 * K1sa
+
+    M = np.array([[M11, M12, M13],
+                  [M21, M22, M23],
+                  [M31, M32, M33]], dtype=complex)
+    return complex(np.linalg.det(M))

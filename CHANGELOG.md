@@ -7,6 +7,40 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Leaky-mode scaffolding for the cylindrical-Biot solver**
+  (Roadmap A continuation, phases L1 + L2). Mathematical
+  scaffolding -- complex-``k_z`` sign conventions, Hankel-
+  function ansatz for outgoing-wave BCs, branch-cut handling --
+  plus a complex-aware n=0 modal determinant
+  ``_modal_determinant_n0_complex(kz, omega, vp, vs, rho, vf,
+  rho_f, a, *, leaky_p=False, leaky_s=False)`` that supports
+  complex ``k_z`` and switchable K-Bessel / Hankel evaluators
+  per radial branch. Plus two helpers:
+  ``_detect_leaky_branches(kz, omega, vp, vs, vf)`` classifies
+  ``(F, p, s)`` as bound or leaky from the sign of
+  ``Re(alpha^2)``;
+  ``_k_or_hankel(n, alpha, r, *, leaky)`` returns
+  ``(K_n, K_{n+1})`` either as standard modified Bessels (bound)
+  or as the Hankel-via-analytic-continuation
+  ``(pi/2) i^{n+1} H_n^{(2)}(i alpha r)`` (leaky). The whole
+  family is private (underscore-prefixed) because the public
+  leaky-mode APIs (pseudo-Rayleigh, fast-formation flexural,
+  quadrupole) require the L3 complex root finder which is the
+  next planned PR. Regression invariant: in the bound regime
+  (real ``kz``, both leaky flags ``False``) the complex
+  evaluator agrees with the existing real ``_modal_determinant_n0``
+  to floating-point precision (rel < 1e-12; imaginary part
+  identically zero) -- this is the test guard that lets future
+  L3+ work refactor confidently. 9 new tests cover: real-vs-
+  complex agreement at multiple ``kz``; sign-change preservation
+  across the Stoneley root; branch-detector classification in
+  three regimes (bound, pseudo-Rayleigh, fast-flexural); Bessel-
+  vs-Hankel helper agreement on the bound branch; finiteness of
+  Hankel-branch evaluations and complex-``kz`` evaluations. The
+  ``[Unreleased]`` section in ``docs/roadmap.md`` (item A) gets
+  the L1-L7 sequencing detail; the bound-mode half of A remains
+  shipped, the leaky-mode half is now mid-flight.
+
 - **Tensile-strength rock-physics correlation**
   (``fwap.geomechanics.tensile_strength_from_ucs``). One-line
   convenience function returning ``T = ratio * UCS`` with default
