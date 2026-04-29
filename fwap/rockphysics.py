@@ -988,6 +988,217 @@ def hornby_fracture_aperture(
     return aperture
 
 
+def stoneley_fracture_density(
+    slowness_indicator: np.ndarray,
+    amplitude_indicator: np.ndarray | None = None,
+    matrix_permeability: np.ndarray | None = None,
+    fracture_aperture: np.ndarray | None = None,
+    *,
+    slowness_weight: float = 0.5,
+    amplitude_weight: float = 0.5,
+    aperture_weight: float = 0.0,
+    slowness_scale: float = 0.1,
+    aperture_scale: float = 1.0e-3,
+) -> np.ndarray:
+    r"""
+    Unified Stoneley fracture-density log from the four indicator family.
+
+    Combines the dimensionless slowness and amplitude indicators with
+    the Tang-Cheng-Toksoz matrix-permeability inversion and the
+    Hornby fracture-aperture inversion into a single per-depth
+    fracture-intensity score in ``[0, 1]``. Pure combiner: no new
+    physics, just a calibrated mixture of the four primitive
+    quantities the rest of the module computes.
+
+    The score is heuristic, not a calibrated geomechanical fracture
+    density. Callers wanting quantitative fracture-density work
+    should use the four primitive quantities directly.
+
+    Definition
+    ----------
+    Let :math:`\alpha_S` = ``slowness_indicator`` (dimensionless
+    fractional Stoneley-slowness shift; output of
+    :func:`stoneley_permeability_indicator`),
+    :math:`\alpha_A` = ``amplitude_indicator`` (fractional
+    amplitude deficit; output of
+    :func:`stoneley_amplitude_fracture_indicator`), and let
+    ``L_0`` = ``fracture_aperture`` (fracture aperture in metres;
+    output of :func:`hornby_fracture_aperture`).
+
+    The fracture-only slowness contribution :math:`\alpha_S^{(F)}`
+    depends on whether matrix-permeability information is supplied:
+
+    * No ``matrix_permeability``: :math:`\alpha_S^{(F)} = \alpha_S`
+      (full slowness shift counts).
+    * With ``matrix_permeability`` (output of
+      :func:`stoneley_permeability_tang_cheng`): the shift is
+      "explained" by matrix flow at depths where the inversion
+      returned a finite kappa, and fracture-driven where it
+      returned NaN (out-of-model = simplified Biot-Rosenbaum
+      cannot account for the observed shift). So
+      :math:`\alpha_S^{(F)} = \alpha_S` where ``matrix_permeability``
+      is NaN, ``0`` elsewhere.
+
+    The fracture-density score is then
+
+    .. math::
+
+        \mathrm{FI} \;=\; \mathrm{clip}\!\Big(
+            w_s \cdot \frac{\alpha_S^{(F)}}{\sigma_s}
+            \;+\; w_a \cdot \alpha_A
+            \;+\; w_\kappa \cdot \tanh\!\big(L_0 / \sigma_\kappa\big),
+            \;0,\;1
+        \Big),
+
+    with weights :math:`w_s, w_a, w_\kappa` (default 0.5, 0.5, 0.0
+    -- aperture is opt-in because Hornby data is not always
+    available) and scaling parameters
+    :math:`\sigma_s` = ``slowness_scale`` (default 0.1; a 10%
+    slowness shift saturates the slowness contribution) and
+    :math:`\sigma_\kappa` = ``aperture_scale`` (default 1 mm).
+
+    Aperture contribution uses ``tanh`` to saturate gracefully:
+    a 1 mm aperture contributes ~0.76 to the un-weighted aperture
+    term; 5 mm saturates at ~1.0.
+
+    Parameters
+    ----------
+    slowness_indicator : ndarray, shape (n_depths,)
+        Dimensionless fractional Stoneley-slowness shift, e.g.
+        ``stoneley_permeability_indicator(s_obs, s_ref)``.
+    amplitude_indicator : ndarray, shape (n_depths,), optional
+        Dimensionless amplitude deficit, e.g.
+        ``stoneley_amplitude_fracture_indicator(A_obs, A_ref)``.
+        If omitted, the amplitude term contributes zero.
+    matrix_permeability : ndarray, shape (n_depths,), optional
+        Per-depth matrix permeability in m^2 (e.g.
+        ``stoneley_permeability_tang_cheng(...)``). Used to
+        partition the slowness shift into matrix-explained and
+        fracture-driven components. NaN entries flag fracture-
+        suspected depths; finite entries flag matrix-explained
+        depths. If omitted, the slowness term uses the raw
+        :math:`\alpha_S` without partitioning.
+    fracture_aperture : ndarray, shape (n_depths,), optional
+        Per-depth fracture aperture in metres
+        (``hornby_fracture_aperture``). Contributes only if
+        ``aperture_weight > 0``.
+    slowness_weight, amplitude_weight, aperture_weight : float
+        Mixing weights (default 0.5 / 0.5 / 0.0). Negative weights
+        are not allowed.
+    slowness_scale : float, default 0.1
+        Slowness-indicator value at which the slowness term reaches
+        the value 1.0 before clipping. The default 0.1 corresponds
+        to a 10% slowness shift -- typical for moderately
+        permeable / lightly fractured zones.
+    aperture_scale : float, default 1e-3
+        Aperture (m) at which the ``tanh`` aperture term has the
+        value :math:`\tanh(1) \approx 0.76`. Default 1 mm matches
+        the typical low-frequency Hornby-inversion sensitivity band.
+
+    Returns
+    -------
+    ndarray, shape (n_depths,)
+        Per-depth fracture-density score in ``[0, 1]``. Zero where
+        all indicators are zero. Increasing values flag stronger
+        fracture activity.
+
+    Raises
+    ------
+    ValueError
+        If any non-negative weight is negative; if any positive
+        scale is non-positive; if any optional array shape
+        disagrees with ``slowness_indicator``.
+
+    See Also
+    --------
+    stoneley_permeability_indicator : The primitive that returns
+        :math:`\alpha_S`.
+    stoneley_amplitude_fracture_indicator : The primitive that
+        returns :math:`\alpha_A`.
+    stoneley_permeability_tang_cheng : The matrix-permeability
+        inversion this combiner uses to partition the slowness shift.
+    hornby_fracture_aperture : The reflection-coefficient inversion
+        this combiner consumes via the aperture term.
+
+    Notes
+    -----
+    The matrix-subtraction logic uses a binary in/out-of-model
+    flag rather than an explicit "fracture excess slowness"
+    calculation. The TCT inversion saturates the model when
+    :math:`\alpha_S \ge K_f / (2 K_\phi)`, so any depth where it
+    returns NaN is one where matrix flow alone cannot account for
+    the observed shift -- structurally equivalent to flagging that
+    depth as fracture-suspected. A continuous "fracture excess"
+    formulation would require running the forward model with the
+    inverted kappa, which is circular.
+
+    The default weights (0.5 slowness + 0.5 amplitude, no aperture)
+    treat slowness and amplitude as equally informative. In
+    practice the amplitude indicator is more fracture-specific
+    because matrix Darcy flow is largely energy-conservative at
+    low frequency, while it absolutely produces a slowness shift.
+    Callers may want to bump ``amplitude_weight`` toward 0.7-0.8
+    when the amplitude data is reliable, or set
+    ``matrix_permeability`` to suppress the matrix-explained
+    slowness contribution entirely.
+
+    References
+    ----------
+    * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
+      Acoustic Methods*, Section 5.2 (joint slowness-amplitude
+      Stoneley analysis as a permeable-zone discriminator).
+    * Hornby, B. E., Johnson, D. L., Winkler, K. W., & Plumb,
+      R. A. (1989). Fracture evaluation using reflected
+      Stoneley-wave arrivals. *Geophysics* 54(10), 1274-1288.
+    """
+    if slowness_weight < 0:
+        raise ValueError("slowness_weight must be non-negative")
+    if amplitude_weight < 0:
+        raise ValueError("amplitude_weight must be non-negative")
+    if aperture_weight < 0:
+        raise ValueError("aperture_weight must be non-negative")
+    if slowness_scale <= 0:
+        raise ValueError("slowness_scale must be positive")
+    if aperture_scale <= 0:
+        raise ValueError("aperture_scale must be positive")
+
+    alpha_s = np.asarray(slowness_indicator, dtype=float)
+    n = alpha_s.shape
+
+    def _check(name: str, arr: np.ndarray) -> np.ndarray:
+        out = np.asarray(arr, dtype=float)
+        if out.shape != n:
+            raise ValueError(
+                f"{name} shape {out.shape} does not match "
+                f"slowness_indicator shape {n}"
+            )
+        return out
+
+    if matrix_permeability is not None:
+        kappa = _check("matrix_permeability", matrix_permeability)
+        # Fracture-only slowness: full alpha_s where the matrix
+        # model failed (NaN), zero where matrix flow explains the
+        # shift (finite kappa).
+        alpha_s_frac = np.where(np.isnan(kappa), alpha_s, 0.0)
+    else:
+        alpha_s_frac = alpha_s
+
+    score = slowness_weight * (alpha_s_frac / slowness_scale)
+
+    if amplitude_indicator is not None:
+        alpha_a = _check("amplitude_indicator", amplitude_indicator)
+        score = score + amplitude_weight * alpha_a
+
+    if fracture_aperture is not None and aperture_weight > 0:
+        L0 = _check("fracture_aperture", fracture_aperture)
+        # tanh saturation; treat NaN apertures as no contribution.
+        with np.errstate(invalid="ignore"):
+            ap_term = np.tanh(np.where(np.isnan(L0), 0.0, L0) / aperture_scale)
+        score = score + aperture_weight * ap_term
+
+    return np.clip(score, 0.0, 1.0)
+
+
 def vs_from_stoneley_slow_formation(
     slowness_stoneley: np.ndarray,
     rho: np.ndarray,

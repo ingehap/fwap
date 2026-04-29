@@ -7,6 +7,29 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Unified Stoneley fracture-density log**
+  (``fwap.rockphysics.stoneley_fracture_density``). Pure combiner
+  that mixes the four primitive Stoneley indicators
+  (``stoneley_permeability_indicator``,
+  ``stoneley_amplitude_fracture_indicator``,
+  ``stoneley_permeability_tang_cheng``,
+  ``hornby_fracture_aperture``) into a single per-depth fracture-
+  intensity score in ``[0, 1]``. The matrix-permeability output
+  is used as a binary partitioning flag: depths where the TCT
+  inversion returned NaN (out-of-model = simplified Biot-Rosenbaum
+  cannot account for the observed slowness shift) keep the full
+  slowness contribution; depths with finite kappa (matrix-explained)
+  have the slowness contribution suppressed. Aperture term uses
+  a tanh saturation with a 1 mm reference scale; weights and
+  scales are tunable via keyword arguments. Heuristic combiner,
+  not a calibrated geomechanical fracture density -- documented
+  as such. 12 new tests cover: zero-indicator tight zone, score
+  clipping to [0, 1], default-weight slowness-only and
+  amplitude-only paths, matrix-partitioning logic, tanh-saturated
+  aperture, NaN-aperture handling, partial monotonicity, and
+  input validation.
+
+### Added
 - **Backus (1962) layered-medium averaging**
   (``fwap.anisotropy.backus_average``). Long-wavelength
   homogenisation of a stack of N isotropic layers into a single
