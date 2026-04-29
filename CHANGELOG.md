@@ -7,6 +7,29 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Variable candidate budget for joint Viterbi picker**: when the
+  raw per-depth tuple count ``prod(n_i + 1)`` would exceed
+  ``max_triples_per_depth``, the trellis builder now automatically
+  tightens per-mode top-K (preferring high-coherence candidates
+  within each mode) to fit the budget rather than raising. Replaces
+  the earlier hard-fail-on-overflow with graceful degradation;
+  pathological peak-heavy STC surfaces no longer kill the sweep.
+- **4-mode joint Viterbi**: ``viterbi_pick_joint`` and
+  ``viterbi_posterior_marginals`` are now N-mode generic. Default
+  priors changed from the (P, S, Stoneley) subset to the full
+  ``DEFAULT_PRIORS`` (4 modes including PseudoRayleigh). Pass an
+  explicit 3-mode subset to ``priors=`` if the previous default
+  behavior is preferred. The 4-mode trellis is kept tractable by
+  the variable-candidate-budget machinery above. Closes Open Item
+  C on the roadmap (both sub-items).
+
+### Changed
+- ``viterbi_pick_joint`` and ``viterbi_posterior_marginals`` no
+  longer reject 4-mode prior dicts. Empty prior dicts now raise
+  ``ValueError`` with a clear message instead of silently producing
+  empty picks.
+
+### Added
 - **Quantitative Stoneley permeability** via the Tang-Cheng-Toksoz
   (1991) simplified Biot-Rosenbaum closed form
   (`fwap.rockphysics.stoneley_permeability_tang_cheng`).

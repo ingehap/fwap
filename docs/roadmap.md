@@ -378,33 +378,25 @@ reference open.
 
 ### C. Fully-joint Viterbi extensions
 
-`fwap.picker.viterbi_pick_joint` already does joint 3-mode Viterbi
-across depths, ``viterbi_posterior_marginals`` runs the
-forward-backward pass for per-mode posterior marginals, and the
-``soft_time_order`` keyword on both turns the strict ordering
-constraint into a soft penalty -- so the only remaining sub-item
-from the original 0.4.0 roadmap is:
+**Status**: closed in the [Unreleased] cycle. Both sub-items from
+the original 0.4.0 roadmap are now shipped:
 
-1. **Variable candidate budget**: current implementation caps valid
-   triples per depth at ``max_triples_per_depth`` (default 2000) and
-   raises on overflow. A smarter top-K pruning per mode (keep the K
-   most coherent candidates per mode before triple enumeration)
-   would handle pathological peak-heavy STC surfaces gracefully
-   without raising.
+1. **Variable candidate budget** (done): the trellis builder
+   automatically tightens per-mode top-K when the raw tuple count
+   ``prod(n_i + 1)`` would exceed ``max_triples_per_depth``,
+   preferring high-coherence candidates within each mode. Replaces
+   the earlier hard-fail-on-overflow with graceful degradation.
+   Helper ``_auto_fallback_k`` computes the largest K that fits
+   the budget; ``logger.debug`` records the per-depth fallback for
+   diagnostic visibility.
 
-A natural follow-on now that the picker supports four default modes
-(P / S / pseudo-Rayleigh / Stoneley) is:
-
-2. **4-mode joint Viterbi**: currently both `viterbi_pick_joint`
-   and `viterbi_posterior_marginals` are hardcoded to the (P, S,
-   Stoneley) triple and subset `DEFAULT_PRIORS` accordingly; full
-   4-mode picking still falls back to the per-mode sequential
-   `viterbi_pick`. Extending the trellis to quadruples squares its
-   width but is otherwise mechanical.
-
-**Scope**: each is a few-hours patch. Lower leverage than the
-algorithms above because the current picker already handles the
-hard-to-handle cases.
+2. **4-mode joint Viterbi** (done): ``viterbi_pick_joint`` and
+   ``viterbi_posterior_marginals`` are now N-mode generic.
+   Default priors changed from the (P, S, Stoneley) subset to the
+   full ``DEFAULT_PRIORS`` (4 modes); explicit subsets via
+   ``priors=`` are supported for users who prefer the prior
+   3-mode behaviour. The wider 4-mode trellis is kept tractable
+   by the variable-candidate-budget machinery from sub-item 1.
 
 ### D. Conda-forge recipe
 

@@ -60,7 +60,7 @@ SlowAxis = np.ndarray
 TimeAxis = np.ndarray
 STCSurface = np.ndarray
 
-from fwap._common import US_PER_FT, _phase_shift
+from fwap._common import US_PER_FT, _phase_shift, logger
 from fwap.coherence import STCResult, find_peaks
 
 # Per-mode prior windows used by :func:`pick_modes`. Slowness bounds
@@ -94,11 +94,12 @@ DEFAULT_PRIORS: dict[str, dict[str, float]] = {
                      coherence_min=0.4, order=3),
 }
 
-# 3-mode subset used by :func:`viterbi_pick_joint`, which is hardcoded
-# to a triple-state DP over (P, S, Stoneley). Sequential pickers
-# (:func:`pick_modes`, :func:`track_modes`, :func:`viterbi_pick`)
-# handle the full :data:`DEFAULT_PRIORS` including PseudoRayleigh.
-_JOINT_VITERBI_MODES = ("P", "S", "Stoneley")
+# Both :func:`viterbi_pick_joint` and :func:`viterbi_posterior_marginals`
+# are now N-mode generic and default to the full :data:`DEFAULT_PRIORS`
+# (4 modes: P / S / PseudoRayleigh / Stoneley). The auto-fallback
+# variable-candidate-budget in :func:`_build_triple_trellis` keeps the
+# wider trellis tractable; pass an explicit subset via the ``priors``
+# argument to restrict to fewer modes.
 
 # Mnemonic suffix per canonical mode name, used by
 # :func:`track_to_log_curves` to build LAS/DLIS-friendly column names
@@ -713,6 +714,30 @@ class _TripleTrellis:
     slows: list[np.ndarray]
 
 
+def _auto_fallback_k(n_per_mode: list[int], budget: int) -> int:
+    """Find largest K such that prod(min(n_i, K) + 1) <= budget.
+
+    Used by ``_build_triple_trellis`` to tighten per-mode top-K when
+    the raw triple count would otherwise exceed
+    ``max_triples_per_depth``. Returns the largest non-negative
+    integer K fitting the budget; iterates from max(n_per_mode)
+    downward, which is O(max_n * n_modes) -- trivial for typical
+    sonic gathers.
+    """
+    if not n_per_mode:
+        return 0
+    max_n = max(n_per_mode)
+    for K in range(max_n, -1, -1):
+        prod = 1
+        for n in n_per_mode:
+            prod *= (min(n, K) + 1)
+            if prod > budget:
+                break
+        if prod <= budget:
+            return K
+    return 0
+
+
 def _build_triple_trellis(
     stc_results: Sequence[STCResult],
     n_depth: int,
@@ -763,6 +788,33 @@ def _build_triple_trellis(
                           for name in mode_names]
         n_per_mode = [c.shape[0] for c in per_mode_cands]
 
+        # Variable candidate budget: if the raw triple count
+        # ``prod(n_i + 1)`` would exceed ``max_triples_per_depth``,
+        # tighten the per-mode top-K to fit -- preferring high-
+        # coherence candidates within each mode. This replaces the
+        # earlier "raise on overflow" behaviour with graceful
+        # degradation; pathological peak-heavy STC surfaces no
+        # longer kill the whole sweep.
+        raw_count = 1
+        for n in n_per_mode:
+            raw_count *= (n + 1)
+        if raw_count > max_triples_per_depth:
+            auto_K = _auto_fallback_k(n_per_mode, max_triples_per_depth)
+            for i, name in enumerate(mode_names):
+                cands = per_mode_cands[i]
+                if cands.shape[0] > auto_K:
+                    order = np.argsort(-cands[:, 2])
+                    cands = cands[order[:auto_K]]
+                    per_mode_cands[i] = cands
+                    per_mode_per_depth[name][d] = cands
+            new_n_per_mode = [c.shape[0] for c in per_mode_cands]
+            logger.debug(
+                "trellis: depth %d auto-fallback K=%d "
+                "(raw=%d, n_per_mode %s -> %s)",
+                d, auto_K, raw_count, n_per_mode, new_n_per_mode,
+            )
+            n_per_mode = new_n_per_mode
+
         t_min_at_d = np.inf
         for cand in per_mode_cands:
             if cand.size > 0:
@@ -812,13 +864,18 @@ def _build_triple_trellis(
             rows_emission.append(em)
             rows_slow.append(slow_row)
 
+        # Final safety net: the auto-fallback above guarantees
+        # ``prod(n_i + 1) <= max_triples_per_depth``, so the time-
+        # ordering filter can only reduce the count further. If we
+        # somehow still exceed the budget, that's a bug in the
+        # auto-fallback math; raise rather than silently passing.
         if len(rows_triples) > max_triples_per_depth:
-            raise ValueError(
+            raise RuntimeError(
                 f"depth {d} produced {len(rows_triples)} candidate "
-                f"triples, exceeding max_triples_per_depth="
-                f"{max_triples_per_depth}. Tighten the coherence "
-                f"``threshold``, the prior windows, or set "
-                f"``top_k_per_mode``."
+                f"triples post-auto-fallback, exceeding "
+                f"max_triples_per_depth={max_triples_per_depth}. "
+                f"This is an internal bug in _auto_fallback_k; "
+                f"please report it."
             )
 
         triples.append(np.asarray(rows_triples, dtype=np.intp).reshape(
@@ -873,22 +930,22 @@ def viterbi_pick_joint(
     max_triples_per_depth: int = 2000,
 ) -> list[DepthPicks]:
     r"""
-    Fully-joint 3-mode Viterbi picker.
+    Fully-joint N-mode Viterbi picker.
 
-    State at each depth is a triple ``(c_P, c_S, c_St)`` of per-mode
-    candidate indices (with an "absent" option per mode), subject to
-    the within-depth time-ordering constraint
-    ``t_P <= t_S <= t_Stoneley`` (strict by default, soft if
-    ``soft_time_order`` is set). Viterbi DP runs over
-    ``(depth, triple)``; the result is the globally optimal per-mode
-    path across the full sweep.
+    State at each depth is an N-tuple of per-mode candidate indices
+    (with an "absent" option per mode), subject to the within-depth
+    time-ordering constraint along the prior ``order`` field (strict
+    by default, soft if ``soft_time_order`` is set). Viterbi DP
+    runs over ``(depth, tuple)``; the result is the globally optimal
+    per-mode path across the full sweep.
 
-    The trellis is hardcoded for the (P, S, Stoneley) triple; the
-    pseudo-Rayleigh / guided mode in :data:`DEFAULT_PRIORS` is *not*
-    handled here, because adding a fourth mode squares the trellis
-    width. Use :func:`track_modes` or :func:`viterbi_pick` for full
-    4-mode picking; both run per-mode Viterbi and scale linearly in
-    the number of modes.
+    Defaults to the full :data:`DEFAULT_PRIORS` (4 modes: P, S,
+    PseudoRayleigh, Stoneley). The trellis builder is N-mode
+    generic; the auto-fallback variable-candidate-budget machinery
+    keeps the wider 4-mode trellis tractable on noisy gathers
+    (substep "variable candidate budget" in roadmap item C).
+    Pass an explicit ``priors`` subset to restrict to fewer modes
+    (e.g. just ``("P", "S", "Stoneley")`` to skip pseudo-Rayleigh).
 
     Differences vs :func:`viterbi_pick`
     -----------------------------------
@@ -904,25 +961,25 @@ def viterbi_pick_joint(
 
     Cost
     ----
-    Per-depth triple enumeration is ``(n_P + 1) * (n_S + 1) *
-    (n_St + 1)`` before ordering filter, typically reducing to
-    ~500-1000 valid triples (fewer with ``top_k_per_mode`` set).
-    Transition cost for the trellis at each depth step is
-    ``n_prev * n_curr`` -- bounded by ``max_triples_per_depth``. On
-    realistic 30-depth sweeps with ~15 peaks per mode, total
-    runtime is under half a second.
+    Per-depth tuple enumeration is ``prod(n_i + 1)`` before the
+    time-ordering filter. Transition cost between depth steps is
+    ``n_prev * n_curr`` and is bounded by ``max_triples_per_depth``.
+    On a realistic 30-depth, 4-mode sweep with ~15 peaks per mode,
+    total runtime is well under one second.
 
     Complexity
     ----------
-    Time is ``O(n_depth * T^2)`` where ``T`` is the per-depth triple
+    Time is ``O(n_depth * T^2)`` where ``T`` is the per-depth tuple
     count; memory is ``O(n_depth * T)``. ``T`` grows as the *product*
     of per-mode candidate counts before the time-ordering filter,
-    so very peaky STC surfaces can blow up the trellis quickly.
-    Use ``top_k_per_mode`` (typical: 5-10) to cap that product, or
-    raise the coherence ``threshold`` to thin the candidate pool;
-    the safety check at ``max_triples_per_depth`` stops a runaway
-    expansion with a descriptive error instead of an out-of-memory
-    crash.
+    so very peaky STC surfaces can blow up the trellis quickly. The
+    variable-candidate-budget machinery handles this gracefully:
+    when ``prod(n_i + 1) > max_triples_per_depth`` for any depth,
+    the per-mode top-K is automatically tightened (preferring high-
+    coherence candidates within each mode) so the budget is met.
+    Set ``top_k_per_mode`` (typical: 5-10) explicitly to bound
+    runtime more aggressively, or raise the coherence ``threshold``
+    to thin the candidate pool.
 
     Parameters
     ----------
@@ -942,16 +999,21 @@ def viterbi_pick_joint(
         prior window + coherence-threshold filter.
     soft_time_order : float, optional
         If set to a positive value ``lambda``, the strict
-        ``t_P <= t_S <= t_Stoneley`` constraint is replaced with a
-        soft penalty ``lambda * violation_magnitude`` added to the
-        emission. Useful in altered zones where S legitimately
-        arrives before P and the strict constraint would kill the
-        entire triple. ``None`` (default) keeps the hard
-        constraint.
+        within-depth ordering constraint (along each prior's
+        ``order`` field) is replaced with a soft penalty
+        ``lambda * violation_magnitude`` added to the emission.
+        Useful in altered zones where S legitimately arrives before
+        P and the strict constraint would kill the entire tuple.
+        ``None`` (default) keeps the hard constraint.
     max_triples_per_depth : int, default 2000
-        Safety cap on the per-depth triple count. Hitting this
-        limit raises ``ValueError``; set ``top_k_per_mode`` or
-        tighten the coherence ``threshold`` / prior windows.
+        Per-depth tuple-count budget. When the raw count
+        ``prod(n_i + 1)`` would exceed the budget, the per-mode
+        top-K is automatically tightened to fit (preferring high-
+        coherence candidates within each mode). The default 2000 is
+        comfortable for 3-mode picking and triggers mild auto-
+        fallback for 4-mode picking on peaky surfaces; bump to
+        ~5000 for 4-mode picking that needs to retain ~5+
+        candidates per mode without auto-fallback.
 
     Returns
     -------
@@ -964,17 +1026,16 @@ def viterbi_pick_joint(
       Transactions on Information Theory* 13(2), 260-269.
     """
     if priors is None:
-        # Joint Viterbi is hardcoded for the (P, S, Stoneley) triple;
-        # take the 3-mode subset of DEFAULT_PRIORS so adding new
-        # default modes (e.g. PseudoRayleigh) does not break this
-        # entry point. Use ``track_modes`` or ``viterbi_pick`` for
-        # the full 4-mode default.
-        priors = {m: DEFAULT_PRIORS[m] for m in _JOINT_VITERBI_MODES}
-    elif set(priors) != set(_JOINT_VITERBI_MODES):
+        # Default to the full DEFAULT_PRIORS (4 modes including
+        # PseudoRayleigh). Joint Viterbi is now N-mode generic; the
+        # auto-fallback variable-candidate-budget machinery in
+        # ``_build_triple_trellis`` handles the larger trellis width
+        # gracefully. Use ``track_modes`` or ``viterbi_pick`` if
+        # per-mode independence is preferable to joint optimisation.
+        priors = dict(DEFAULT_PRIORS)
+    if not priors:
         raise ValueError(
-            f"viterbi_pick_joint is hardcoded for the {_JOINT_VITERBI_MODES} "
-            f"triple; got priors with modes {sorted(priors)}. Use "
-            f"viterbi_pick or track_modes for N-mode picking."
+            "priors must contain at least one mode; got an empty dict."
         )
     depths = np.asarray(depths, dtype=float)
     n_depth = depths.size
@@ -1115,16 +1176,21 @@ def viterbi_posterior_marginals(
     max_triples_per_depth: int = 2000,
 ) -> tuple[list[DepthPicks], list[dict[str, PosteriorPick]]]:
     r"""
-    Joint 3-mode forward-backward: MAP picks plus per-mode posterior
+    Joint N-mode forward-backward: MAP picks plus per-mode posterior
     marginals.
 
     Runs exactly the same trellis as :func:`viterbi_pick_joint`, but
     in addition to the max-sum forward pass it also computes the
     log-sum-exp forward and backward messages. Marginalising the
-    posterior over the (depth, triple) lattice yields, at every
+    posterior over the (depth, tuple) lattice yields, at every
     depth, the probability that each mode is picked at each of its
     candidate slownesses -- plus the probability that the mode is
     absent.
+
+    Defaults to the full :data:`DEFAULT_PRIORS` (4 modes); pass an
+    explicit ``priors`` subset to restrict to fewer modes. Same
+    auto-fallback variable-candidate-budget machinery as
+    :func:`viterbi_pick_joint` keeps the trellis tractable.
 
     Useful for:
 
@@ -1161,16 +1227,14 @@ def viterbi_posterior_marginals(
       the IEEE* 77(2), 257-286 (Algorithm 2, forward-backward).
     """
     if priors is None:
-        # Same trellis as viterbi_pick_joint -- restricted to the
-        # (P, S, Stoneley) triple. PseudoRayleigh is picked
-        # sequentially by track_modes / viterbi_pick.
-        priors = {m: DEFAULT_PRIORS[m] for m in _JOINT_VITERBI_MODES}
-    elif set(priors) != set(_JOINT_VITERBI_MODES):
+        # Default to the full DEFAULT_PRIORS (4 modes including
+        # PseudoRayleigh). N-mode generic; the variable-candidate-
+        # budget auto-fallback in ``_build_triple_trellis`` keeps
+        # the wider trellis tractable.
+        priors = dict(DEFAULT_PRIORS)
+    if not priors:
         raise ValueError(
-            f"viterbi_posterior_marginals is hardcoded for the "
-            f"{_JOINT_VITERBI_MODES} triple; got priors with modes "
-            f"{sorted(priors)}. Use viterbi_pick or track_modes for "
-            f"N-mode picking."
+            "priors must contain at least one mode; got an empty dict."
         )
     depths = np.asarray(depths, dtype=float)
     n_depth = depths.size
