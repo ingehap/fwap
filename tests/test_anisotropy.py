@@ -1108,3 +1108,287 @@ def test_thomsen_eps_delta_preserves_n_shots():
     p, u = _synth_walkaway_vsp(theta_deg, vp0, 0.15, 0.08)
     res = thomsen_epsilon_delta_from_walkaway_vsp(p, u, vp0=vp0)
     assert res.n_shots == 7
+
+
+# =====================================================================
+# Backus (1962) layered-medium averaging
+# =====================================================================
+
+
+def _berea_layer():
+    """Berea-sandstone-like single layer."""
+    return dict(thickness=2.0, vp=3500.0, vs=2000.0, rho=2200.0)
+
+
+# ---------------------------------------------------------------------
+# Isotropic limit: single layer == per-layer moduli
+# ---------------------------------------------------------------------
+
+
+def test_backus_single_layer_recovers_isotropic_moduli():
+    """One-layer input must give back the layer's isotropic Lame
+    moduli: c11 = c33 = lambda + 2 mu; c44 = c66 = mu; c13 = lambda."""
+    from fwap.anisotropy import backus_average
+
+    layer = _berea_layer()
+    out = backus_average(
+        thickness=np.array([layer["thickness"]]),
+        vp=np.array([layer["vp"]]),
+        vs=np.array([layer["vs"]]),
+        rho=np.array([layer["rho"]]),
+    )
+    mu = layer["rho"] * layer["vs"] ** 2
+    M = layer["rho"] * layer["vp"] ** 2
+    lam = M - 2.0 * mu
+
+    assert abs(out.c11 - M) / M < 1.0e-12
+    assert abs(out.c33 - M) / M < 1.0e-12
+    assert abs(out.c13 - lam) / lam < 1.0e-12
+    assert abs(out.c44 - mu) / mu < 1.0e-12
+    assert abs(out.c66 - mu) / mu < 1.0e-12
+    assert out.rho == layer["rho"]
+
+
+def test_backus_uniform_stack_equals_single_layer():
+    """A stack of N identical layers equals the single-layer result
+    -- the volume averages all collapse to the layer's value."""
+    from fwap.anisotropy import backus_average
+
+    layer = _berea_layer()
+    n = 7
+    out_uniform = backus_average(
+        thickness=np.full(n, layer["thickness"]),
+        vp=np.full(n, layer["vp"]),
+        vs=np.full(n, layer["vs"]),
+        rho=np.full(n, layer["rho"]),
+    )
+    out_single = backus_average(
+        thickness=np.array([layer["thickness"]]),
+        vp=np.array([layer["vp"]]),
+        vs=np.array([layer["vs"]]),
+        rho=np.array([layer["rho"]]),
+    )
+    for field in ("c11", "c13", "c33", "c44", "c66", "rho"):
+        a = getattr(out_uniform, field)
+        b = getattr(out_single, field)
+        assert abs(a - b) / max(abs(b), 1.0) < 1.0e-12, field
+
+
+def test_backus_thickness_scale_is_irrelevant():
+    """Multiplying every thickness by a constant doesn't change the
+    averages -- only volume *fractions* matter, not absolute scale."""
+    from fwap.anisotropy import backus_average
+
+    h = np.array([1.0, 0.5, 2.0])
+    vp = np.array([3500.0, 2500.0, 4000.0])
+    vs = np.array([2000.0, 1200.0, 2400.0])
+    rho = np.array([2200.0, 2300.0, 2400.0])
+
+    out_a = backus_average(thickness=h, vp=vp, vs=vs, rho=rho)
+    out_b = backus_average(thickness=100.0 * h, vp=vp, vs=vs, rho=rho)
+    for field in ("c11", "c13", "c33", "c44", "c66", "rho"):
+        a = getattr(out_a, field)
+        b = getattr(out_b, field)
+        assert abs(a - b) / max(abs(b), 1.0) < 1.0e-12, field
+
+
+# ---------------------------------------------------------------------
+# Voigt-Reuss inequalities and induced anisotropy
+# ---------------------------------------------------------------------
+
+
+def test_backus_two_layer_produces_positive_thomsen_gamma():
+    """Backus-averaging two layers with different shear moduli must
+    give c66 > c44 (Voigt-Reuss inequality), i.e. Thomsen
+    gamma > 0. Equality only in the degenerate uniform-layer case."""
+    from fwap.anisotropy import backus_average, thomsen_gamma
+
+    out = backus_average(
+        thickness=np.array([1.0, 1.0]),
+        vp=np.array([3500.0, 2500.0]),
+        vs=np.array([2000.0, 1200.0]),
+        rho=np.array([2200.0, 2300.0]),
+    )
+    assert out.c66 > out.c44
+    gamma = thomsen_gamma(out.c44, out.c66)
+    assert gamma > 0.0
+
+
+def test_backus_horizontal_p_modulus_at_least_vertical():
+    """Layered medium has c11 >= c33 always: the horizontal P-mode
+    sees the stiffer-bulk-modulus path. Equality only in the
+    uniform-layer case."""
+    from fwap.anisotropy import backus_average
+
+    out = backus_average(
+        thickness=np.array([1.0, 1.0]),
+        vp=np.array([3500.0, 2500.0]),
+        vs=np.array([2000.0, 1200.0]),
+        rho=np.array([2200.0, 2300.0]),
+    )
+    assert out.c11 >= out.c33
+
+
+def test_backus_density_is_arithmetic_volume_average():
+    """rho_eff = sum(phi_i * rho_i) for thickness-weighted phi_i."""
+    from fwap.anisotropy import backus_average
+
+    h = np.array([2.0, 1.0, 1.0])
+    rho = np.array([2200.0, 2400.0, 2300.0])
+    expected = np.sum(h * rho) / np.sum(h)
+
+    out = backus_average(
+        thickness=h,
+        vp=np.array([3500.0, 4000.0, 3000.0]),
+        vs=np.array([2000.0, 2400.0, 1500.0]),
+        rho=rho,
+    )
+    assert abs(out.rho - expected) < 1.0e-9
+
+
+# ---------------------------------------------------------------------
+# Hand-derived two-layer numerical check
+# ---------------------------------------------------------------------
+
+
+def test_backus_two_layer_hand_derived_values():
+    """Hand-computed two-layer case: equal volumes of layer A
+    (mu_A = 1e10 Pa, M_A = 3e10 Pa, lam_A = 1e10) and layer B
+    (mu_B = 4e9 Pa, M_B = 2e10 Pa, lam_B = 1.2e10)."""
+    from fwap.anisotropy import backus_average
+
+    rho_a, mu_a, M_a = 2500.0, 1.0e10, 3.0e10
+    rho_b, mu_b, M_b = 2000.0, 4.0e9, 2.0e10
+    vs_a = np.sqrt(mu_a / rho_a)
+    vp_a = np.sqrt(M_a / rho_a)
+    vs_b = np.sqrt(mu_b / rho_b)
+    vp_b = np.sqrt(M_b / rho_b)
+    lam_a = M_a - 2.0 * mu_a  # 1e10
+    lam_b = M_b - 2.0 * mu_b  # 1.2e10
+
+    out = backus_average(
+        thickness=np.array([1.0, 1.0]),
+        vp=np.array([vp_a, vp_b]),
+        vs=np.array([vs_a, vs_b]),
+        rho=np.array([rho_a, rho_b]),
+    )
+
+    avg_inv_M = 0.5 * (1.0 / M_a + 1.0 / M_b)
+    avg_inv_mu = 0.5 * (1.0 / mu_a + 1.0 / mu_b)
+    avg_lam_over_M = 0.5 * (lam_a / M_a + lam_b / M_b)
+    avg_M_minus_lam2_over_M = 0.5 * (M_a - lam_a**2 / M_a + M_b - lam_b**2 / M_b)
+    avg_mu = 0.5 * (mu_a + mu_b)
+
+    c33_expected = 1.0 / avg_inv_M
+    c13_expected = avg_lam_over_M / avg_inv_M
+    c11_expected = avg_M_minus_lam2_over_M + avg_lam_over_M**2 / avg_inv_M
+    c44_expected = 1.0 / avg_inv_mu
+    c66_expected = avg_mu
+
+    assert abs(out.c33 - c33_expected) / c33_expected < 1.0e-9
+    assert abs(out.c13 - c13_expected) / c13_expected < 1.0e-9
+    assert abs(out.c11 - c11_expected) / c11_expected < 1.0e-9
+    assert abs(out.c44 - c44_expected) / c44_expected < 1.0e-9
+    assert abs(out.c66 - c66_expected) / c66_expected < 1.0e-9
+
+
+# ---------------------------------------------------------------------
+# Positive-definiteness of the resulting tensor
+# ---------------------------------------------------------------------
+
+
+def test_backus_result_satisfies_positive_definite_tensor():
+    """The 6x6 Voigt elastic matrix of the result must be positive
+    definite -- a thermodynamic stability requirement for any
+    physically realisable medium. For a VTI tensor with
+    {C11, C13, C33, C44, C66}, this reduces to:
+    C44 > 0, C66 > 0, C33 > 0, C11 > 0, and the determinant of the
+    {C11, C13; C13, C33} 2x2 sub-block is positive."""
+    from fwap.anisotropy import backus_average
+
+    rng = np.random.default_rng(seed=42)
+    n_layers = 5
+    rho = rng.uniform(2000.0, 2600.0, n_layers)
+    vs = rng.uniform(1000.0, 2500.0, n_layers)
+    vp = vs * rng.uniform(1.5, 2.5, n_layers)
+    h = rng.uniform(0.1, 5.0, n_layers)
+
+    out = backus_average(thickness=h, vp=vp, vs=vs, rho=rho)
+    assert out.c44 > 0
+    assert out.c66 > 0
+    assert out.c33 > 0
+    assert out.c11 > 0
+    assert out.c11 * out.c33 - out.c13**2 > 0
+
+
+# ---------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------
+
+
+def test_backus_rejects_empty_input():
+    """Empty input arrays raise ValueError -- nothing to average."""
+    import pytest
+
+    from fwap.anisotropy import backus_average
+
+    with pytest.raises(ValueError, match="at least one layer"):
+        backus_average(
+            thickness=np.array([]),
+            vp=np.array([]),
+            vs=np.array([]),
+            rho=np.array([]),
+        )
+
+
+def test_backus_rejects_shape_mismatch():
+    """Mismatched array lengths raise ValueError."""
+    import pytest
+
+    from fwap.anisotropy import backus_average
+
+    with pytest.raises(ValueError, match="same length"):
+        backus_average(
+            thickness=np.array([1.0, 1.0]),
+            vp=np.array([3500.0]),
+            vs=np.array([2000.0]),
+            rho=np.array([2200.0]),
+        )
+
+
+def test_backus_rejects_non_positive_inputs():
+    """Zero or negative thickness, vp, vs, or rho raises."""
+    import pytest
+
+    from fwap.anisotropy import backus_average
+
+    base = dict(
+        thickness=np.array([1.0]),
+        vp=np.array([3500.0]),
+        vs=np.array([2000.0]),
+        rho=np.array([2200.0]),
+    )
+    with pytest.raises(ValueError, match="thickness"):
+        backus_average(**{**base, "thickness": np.array([0.0])})
+    with pytest.raises(ValueError, match="vp, vs, rho"):
+        backus_average(**{**base, "vp": np.array([0.0])})
+    with pytest.raises(ValueError, match="vp, vs, rho"):
+        backus_average(**{**base, "vs": np.array([-1.0])})
+    with pytest.raises(ValueError, match="vp, vs, rho"):
+        backus_average(**{**base, "rho": np.array([0.0])})
+
+
+def test_backus_rejects_vs_ge_vp():
+    """vs >= vp on any layer is unphysical (lambda + 2 mu would not
+    be positive); raise rather than produce garbage."""
+    import pytest
+
+    from fwap.anisotropy import backus_average
+
+    with pytest.raises(ValueError, match="vs < vp"):
+        backus_average(
+            thickness=np.array([1.0]),
+            vp=np.array([2000.0]),
+            vs=np.array([2500.0]),  # vs > vp
+            rho=np.array([2200.0]),
+        )
