@@ -192,6 +192,7 @@ def test_stress_anisotropy_rotation_quality_matches_alford():
 def test_stoneley_c66_round_trips_through_white_formula():
     """Plant C66, build the matching Stoneley slowness, recover C66."""
     import pytest
+
     from fwap.anisotropy import stoneley_horizontal_shear_modulus
 
     rho_f, v_f = 1000.0, 1500.0
@@ -217,6 +218,7 @@ def test_stoneley_c66_vector_input():
 def test_stoneley_c66_rejects_slowness_below_fluid_slowness():
     """Stoneley slowness must exceed fluid slowness; reject otherwise."""
     import pytest
+
     from fwap.anisotropy import stoneley_horizontal_shear_modulus
 
     rho_f, v_f = 1000.0, 1500.0
@@ -230,6 +232,7 @@ def test_stoneley_c66_rejects_slowness_below_fluid_slowness():
 def test_stoneley_c66_rejects_non_positive_fluid_params():
     """rho_fluid and v_fluid must be strictly positive."""
     import pytest
+
     from fwap.anisotropy import stoneley_horizontal_shear_modulus
 
     with pytest.raises(ValueError, match="rho_fluid"):
@@ -249,6 +252,7 @@ def test_thomsen_gamma_zero_for_isotropic_inputs():
 def test_thomsen_gamma_positive_for_horizontal_stiffer_than_vertical():
     """Typical VTI shale: C66 > C44 -> gamma > 0."""
     import pytest
+
     from fwap.anisotropy import thomsen_gamma
 
     g = thomsen_gamma(c44=8.0e9, c66=1.2e10)
@@ -267,6 +271,7 @@ def test_thomsen_gamma_negative_when_horizontal_softer():
 def test_thomsen_gamma_rejects_non_positive_moduli():
     """C44 or C66 <= 0 raises ValueError."""
     import pytest
+
     from fwap.anisotropy import thomsen_gamma
 
     with pytest.raises(ValueError, match="c44"):
@@ -278,6 +283,7 @@ def test_thomsen_gamma_rejects_non_positive_moduli():
 def test_thomsen_gamma_from_logs_recovers_planted_anisotropy():
     """End-to-end: plant Vsv, C66, rho; recover gamma from the formulas."""
     import pytest
+
     from fwap.anisotropy import thomsen_gamma_from_logs
 
     rho = 2400.0
@@ -329,6 +335,7 @@ def test_thomsen_gamma_from_logs_vector_inputs_broadcast():
 def test_thomsen_gamma_from_logs_rejects_non_positive_inputs():
     """Negative or zero slowness / density is rejected with a clear message."""
     import pytest
+
     from fwap.anisotropy import thomsen_gamma_from_logs
 
     with pytest.raises(ValueError, match="slowness_dipole"):
@@ -396,6 +403,7 @@ def test_thomsen_gamma_from_logs_round_trips_through_write_las(tmp_path):
 def test_c33_from_p_pick_round_trips_through_rho_Vp_squared():
     """C33 = rho * Vp^2 = rho / S_P^2."""
     import pytest
+
     from fwap.anisotropy import c33_from_p_pick
 
     rho = 2400.0
@@ -419,6 +427,7 @@ def test_c33_from_p_pick_vector_input_broadcasts():
 def test_c33_from_p_pick_rejects_non_positive_inputs():
     """Slowness and density must both be strictly positive."""
     import pytest
+
     from fwap.anisotropy import c33_from_p_pick
 
     with pytest.raises(ValueError, match="slowness_p"):
@@ -430,6 +439,7 @@ def test_c33_from_p_pick_rejects_non_positive_inputs():
 def test_vti_moduli_from_logs_recovers_planted_isotropic_case():
     """C66 == C44 -> gamma = 0, Vsh == Vsv exactly."""
     import pytest
+
     from fwap.anisotropy import vti_moduli_from_logs
 
     rho_f, v_f = 1000.0, 1500.0
@@ -461,6 +471,7 @@ def test_vti_moduli_from_logs_recovers_planted_isotropic_case():
 def test_vti_moduli_from_logs_planted_vti_case():
     """C66 = 1.3 C44 -> gamma = 0.15; Vsh > Vsv."""
     import pytest
+
     from fwap.anisotropy import vti_moduli_from_logs
 
     rho_f, v_f = 1000.0, 1500.0
@@ -544,6 +555,7 @@ def test_vti_moduli_from_logs_internal_consistency():
 def test_vti_moduli_from_logs_rejects_non_positive_inputs():
     """All slownesses and density must be strictly positive."""
     import pytest
+
     from fwap.anisotropy import vti_moduli_from_logs
 
     with pytest.raises(ValueError, match="slowness_p"):
@@ -636,6 +648,7 @@ def test_vti_moduli_from_logs_round_trips_through_write_las(tmp_path):
 def test_stoneley_c66_corrected_round_trips_through_forward_model():
     """Plant C66 + V_P, build the corrected forward S_ST, recover C66."""
     import pytest
+
     from fwap.anisotropy import stoneley_horizontal_shear_modulus_corrected
 
     rho_f, v_f = 1000.0, 1500.0
@@ -657,6 +670,7 @@ def test_stoneley_c66_corrected_exceeds_uncorrected_for_finite_vp():
     White (1983) reading of the same observed slowness; the ratio
     matches the closed-form factor 1/(1 - rho_f V_f^2 / (rho V_P^2))."""
     import pytest
+
     from fwap.anisotropy import (
         stoneley_horizontal_shear_modulus,
         stoneley_horizontal_shear_modulus_corrected,
@@ -751,6 +765,7 @@ def test_stoneley_c66_corrected_rejects_unphysical_p_modulus():
     """rho V_P^2 <= rho_f V_f^2 makes the correction factor non-positive
     -- rejected explicitly with a named error."""
     import pytest
+
     from fwap.anisotropy import stoneley_horizontal_shear_modulus_corrected
 
     rho_f, v_f = 1000.0, 1500.0
@@ -772,6 +787,7 @@ def test_stoneley_c66_corrected_rejects_unphysical_p_modulus():
 def test_stoneley_c66_corrected_rejects_non_positive_inputs():
     """All slownesses + densities + fluid params must be positive."""
     import pytest
+
     from fwap.anisotropy import stoneley_horizontal_shear_modulus_corrected
 
     base = dict(
@@ -825,6 +841,7 @@ def test_vti_moduli_correct_for_p_modulus_false_matches_white_helper():
     """The legacy uncorrected mode (correct_for_p_modulus=False) gives
     exactly the same gamma as thomsen_gamma_from_logs."""
     import pytest
+
     from fwap.anisotropy import (
         thomsen_gamma_from_logs,
         vti_moduli_from_logs,
@@ -858,6 +875,7 @@ def test_vti_moduli_correct_for_p_modulus_false_matches_white_helper():
 def test_vti_moduli_corrected_and_white_diverge_for_typical_inputs():
     """Corrected gamma > White gamma by ~5-10 % for typical sandstone."""
     import pytest
+
     from fwap.anisotropy import vti_moduli_from_logs
 
     rho_f, v_f = 1000.0, 1500.0
@@ -936,6 +954,7 @@ def test_thomsen_eps_delta_round_trips_through_forward_model():
     the forward formulas; recover epsilon and delta to floating-point
     precision in the noise-free case."""
     import pytest
+
     from fwap.anisotropy import thomsen_epsilon_delta_from_walkaway_vsp
 
     vp0 = 4500.0
@@ -953,6 +972,7 @@ def test_thomsen_eps_delta_round_trips_through_forward_model():
 def test_thomsen_eps_delta_recovers_isotropic():
     """epsilon = delta = 0 round-trips on an isotropic synthetic."""
     import pytest
+
     from fwap.anisotropy import thomsen_epsilon_delta_from_walkaway_vsp
 
     vp0 = 4500.0
@@ -992,6 +1012,7 @@ def test_thomsen_eps_delta_separates_eps_and_delta():
     sin^4 / sin^2 cos^2 angular dependence that breaks degeneracy
     above ~30 degrees."""
     import pytest
+
     from fwap.anisotropy import thomsen_epsilon_delta_from_walkaway_vsp
 
     vp0 = 4500.0
@@ -1004,6 +1025,7 @@ def test_thomsen_eps_delta_separates_eps_and_delta():
 
 def test_thomsen_eps_delta_rejects_non_positive_vp0():
     import pytest
+
     from fwap.anisotropy import thomsen_epsilon_delta_from_walkaway_vsp
 
     p = np.array([[0.1, 0.9]]) / 4500.0
@@ -1016,6 +1038,7 @@ def test_thomsen_eps_delta_rejects_non_positive_vp0():
 
 def test_thomsen_eps_delta_rejects_misshaped_inputs():
     import pytest
+
     from fwap.anisotropy import thomsen_epsilon_delta_from_walkaway_vsp
 
     # Wrong second-dim size.
@@ -1034,6 +1057,7 @@ def test_thomsen_eps_delta_rejects_misshaped_inputs():
 
 def test_thomsen_eps_delta_rejects_zero_vectors():
     import pytest
+
     from fwap.anisotropy import thomsen_epsilon_delta_from_walkaway_vsp
 
     with pytest.raises(ValueError, match="slowness vector"):
@@ -1064,6 +1088,7 @@ def test_thomsen_eps_delta_minimum_two_shots_exactly_determined():
     """Two shots give an exactly-determined 4x2 system; solution
     matches the truth and residual_rms ~ 0."""
     import pytest
+
     from fwap.anisotropy import thomsen_epsilon_delta_from_walkaway_vsp
 
     vp0 = 4500.0

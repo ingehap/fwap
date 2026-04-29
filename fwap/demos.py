@@ -1123,7 +1123,7 @@ def demo_lwd(figdir: str = "figures", show: bool = False) -> None:
             alpha=0.7,
             label="Collar slowness",
         )
-        for V, lbl in ((Vp, "P"), (Vs, "S"), (Vst, "Stoneley")):
+        for V, _lbl in ((Vp, "P"), (Vs, "S"), (Vst, "Stoneley")):
             ax.axhline((1.0 / V) / US_PER_FT, color="white", ls="--", alpha=0.4)
         ax.set_xlim(0, 5.0)
         ax.set_ylim(30, 320)

@@ -380,6 +380,7 @@ def test_classify_flexural_quality_threshold_filters_out_noise():
 def test_classify_flexural_rejects_mismatched_freq_axes():
     """Different freq axes are a caller error."""
     import pytest
+
     from fwap.dispersion import classify_flexural_anisotropy
 
     f1 = np.linspace(500.0, 10000.0, 50)
@@ -393,6 +394,7 @@ def test_classify_flexural_rejects_mismatched_freq_axes():
 def test_classify_flexural_rejects_overlapping_bands():
     """f_low_band and f_high_band must not overlap."""
     import pytest
+
     from fwap.dispersion import classify_flexural_anisotropy
 
     f = np.linspace(500.0, 10000.0, 50)
@@ -410,6 +412,7 @@ def test_classify_flexural_rejects_touching_bands():
     """Bands sharing a single endpoint are rejected (a sample at the
     touch point would otherwise land in both band means)."""
     import pytest
+
     from fwap.dispersion import classify_flexural_anisotropy
 
     f = np.linspace(500.0, 10000.0, 50)
@@ -452,6 +455,7 @@ def test_classify_flexural_crossover_search_is_restricted_to_bracket():
 def test_classify_flexural_rejects_inverted_bands():
     """lo >= hi within a band is a caller error."""
     import pytest
+
     from fwap.dispersion import classify_flexural_anisotropy
 
     f = np.linspace(500.0, 10000.0, 50)
