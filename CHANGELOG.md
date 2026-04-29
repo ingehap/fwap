@@ -7,6 +7,40 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Bowers (1995) sonic pore-pressure with unloading branch**
+  (``fwap.geomechanics.pore_pressure_bowers``). Closes the
+  Bowers-method follow-up flagged in PR #27's CHANGELOG.
+  Velocity-effective-stress closed form
+  ``V = V_ml + A * sigma_eff^B`` with two branches:
+
+  * **Loading (virgin curve)**: pore pressure from
+    ``sigma_eff = ((V - V_ml) / A)^(1/B)``. Selected when
+    ``sigma_max_pa`` is None.
+  * **Unloading**: pore pressure from
+    ``sigma_eff = sigma_max * ((V - V_ml) / (A * sigma_max^B))^(U/B)``,
+    selected when ``sigma_max_pa`` is supplied. The unloading
+    exponent ``U > B`` makes the curve steeper than loading,
+    which is the physical signature of unloading-driven
+    overpressure (gas generation, clay diagenesis,
+    hydrocarbon expulsion) that Eaton's method
+    (``pore_pressure_eaton``) under-estimates.
+
+  Both branches close in closed form with no numerical inversion.
+  Default calibration ``(V_ml, A, B, U) = (1524, 14.02, 0.673,
+  3.13)`` is Bowers' (1995) Gulf of Mexico shale fit; users
+  should re-calibrate against well data for other basins.
+  Unit convention: SI throughout (Pa for stresses, m/s for
+  velocity); ``A`` is in (m/s) / MPa^B with the Pa↔MPa conversion
+  internal. Loading/unloading branch selection is the user's
+  responsibility -- the function does not auto-detect the regime
+  because that requires burial-history information not on the log.
+  11 new tests cover: round-trip recovery on both branches; mudline-
+  velocity edge case (V = V_ml gives sigma_eff = 0); monotonicity
+  in V; unloading > loading prediction at the same V (the
+  Eaton-fix signature); end-to-end pipeline with closure_stress;
+  and input validation (V < mudline, non-positive calibration
+  constants and sigma_max).
+
 - **VTI group velocities** (``fwap.anisotropy.vti_group_velocities``,
   ``VtiGroupVelocities``). Closes the wavefront-modelling deliverable
   flagged as a follow-up in PR #30: group velocity (the speed of
