@@ -784,3 +784,191 @@ def test_complex_n0_complex_kz_with_imaginary_part_finite():
     # The determinant is non-trivially complex (i.e. has a non-zero
     # imaginary part) when kz itself has a non-zero imaginary part.
     assert d.imag != 0.0
+
+
+# ---------------------------------------------------------------------
+# L3 -- complex-k_z root finder + frequency-marcher
+# ---------------------------------------------------------------------
+
+
+# Synthetic det functions
+# -----------------------
+
+
+def test_track_complex_root_finds_simple_linear_root():
+    """A linear det function ``det(kz) = kz - target`` has its
+    root at ``kz = target``. The tracker must find it from any
+    nearby starting guess."""
+    from fwap.cylindrical_solver import _track_complex_root
+
+    target = 3.0 + 0.5j
+    root = _track_complex_root(lambda kz: kz - target, kz_start=2.5 + 0.3j)
+    assert root is not None
+    assert abs(root - target) < 1.0e-9
+
+
+def test_track_complex_root_picks_root_closest_to_initial_guess():
+    """A quadratic det function has two roots; the tracker picks
+    whichever is closer to the initial guess."""
+    from fwap.cylindrical_solver import _track_complex_root
+
+    r1 = 3.0 + 0.5j
+    r2 = 5.0 - 0.2j
+
+    def det(kz):
+        return (kz - r1) * (kz - r2)
+
+    root_near_r1 = _track_complex_root(det, kz_start=2.5 + 0.3j)
+    root_near_r2 = _track_complex_root(det, kz_start=5.5 + 0.0j)
+    assert root_near_r1 is not None
+    assert root_near_r2 is not None
+    assert abs(root_near_r1 - r1) < 1.0e-9
+    assert abs(root_near_r2 - r2) < 1.0e-9
+
+
+def test_track_complex_root_does_not_propagate_det_exceptions():
+    """``_track_complex_root`` catches exceptions raised by
+    ``det_fn`` and converts them to large penalty residuals, so
+    the tracker either returns a (possibly off-target) root or
+    None -- never raises. Documents the exception-safety
+    contract."""
+    from fwap.cylindrical_solver import _track_complex_root
+
+    def det_always_raises(kz):
+        raise ValueError("synthetic always-raise")
+
+    # Should not raise. Result may be anything (None or a non-root
+    # iterate); the only hard contract is that no exception
+    # escapes the tracker.
+    root = _track_complex_root(det_always_raises, kz_start=1.0 + 0.0j)
+    # No assertion on root value: scipy.optimize.root may return
+    # success=True on a degenerate residual landscape; the
+    # contract is exception-safety.
+    del root  # unused; documents the no-raise behaviour
+
+
+# Frequency marcher
+# -----------------
+
+
+def test_march_synthetic_linear_dispersion_curve():
+    """A synthetic det whose root scales linearly with frequency
+    (constant slowness with a small imaginary part) is the simplest
+    test case. The marcher should follow the curve exactly."""
+    from fwap.cylindrical_solver import _march_complex_dispersion
+
+    slowness = 1.0 / 2500.0 * (1.0 + 0.05j)
+
+    def det(kz, omega):
+        return kz - omega * slowness
+
+    freqs = np.array([1000.0, 2000.0, 3000.0, 5000.0])
+    kz_start = 2.0 * np.pi * freqs[0] * slowness
+    curve = _march_complex_dispersion(det, freqs, kz_start)
+    expected = 2.0 * np.pi * freqs * slowness
+    np.testing.assert_allclose(curve, expected, rtol=1.0e-12)
+
+
+def test_march_marches_along_a_smoothly_drifting_dispersion():
+    """A synthetic dispersion where the root has both a real-axis
+    drift (slowness changing with frequency) and a complex-plane
+    drift (attenuation changing with frequency). The marcher
+    must follow both."""
+    from fwap.cylindrical_solver import _march_complex_dispersion
+
+    # Slowness changes from 1/2500 + 0.05j/2500 at f=1 kHz to
+    # 1/2400 + 0.10j/2400 at f=10 kHz (linear interpolation).
+    def slowness_at_f(f):
+        t = (f - 1000.0) / 9000.0
+        s_re = 1.0 / 2500.0 * (1.0 - t) + 1.0 / 2400.0 * t
+        s_im = 0.05 / 2500.0 * (1.0 - t) + 0.10 / 2400.0 * t
+        return s_re + 1j * s_im
+
+    def det(kz, omega):
+        f = omega / (2.0 * np.pi)
+        return kz - omega * slowness_at_f(f)
+
+    freqs = np.linspace(1000.0, 10000.0, 10)
+    kz_start = 2.0 * np.pi * freqs[0] * slowness_at_f(freqs[0])
+    curve = _march_complex_dispersion(det, freqs, kz_start)
+    expected = np.array(
+        [2.0 * np.pi * f * slowness_at_f(f) for f in freqs]
+    )
+    np.testing.assert_allclose(curve, expected, rtol=1.0e-10)
+
+
+def test_march_scale_invariant_continuation_handles_large_kz_jumps():
+    """Stoneley kz scales linearly with frequency (slowness ~constant
+    across the band), so successive frequencies have ``k_z`` values
+    differing by factors of 2-10x. The marcher's scale-invariant
+    continuation -- seeding the next step with
+    ``k_z_prev * (f / f_prev)`` -- handles this without
+    re-bracketing problems."""
+    from fwap.cylindrical_solver import _march_complex_dispersion
+
+    slowness = 1.0 / 1399.0  # White-Stoneley low-f closed form
+
+    def det(kz, omega):
+        return kz - omega * slowness
+
+    # Big multiplicative jumps in frequency
+    freqs = np.array([100.0, 1000.0, 5000.0, 15000.0])
+    kz_start = 2.0 * np.pi * freqs[0] * slowness
+    curve = _march_complex_dispersion(det, freqs, kz_start)
+    expected = 2.0 * np.pi * freqs * slowness
+    np.testing.assert_allclose(curve.real, expected, rtol=1.0e-12)
+
+
+# Composition with the L1+L2 complex-aware modal determinant
+# ----------------------------------------------------------
+
+
+def test_march_recovers_existing_stoneley_curve_in_bound_regime():
+    """End-to-end check that L1+L2+L3 compose correctly: use
+    ``_modal_determinant_n0_complex`` with the auto-detected
+    bound-regime branches as the marcher's det function, seeding
+    from the White (1983) low-f closed form, and verify the
+    recovered ``k_z`` curve matches the existing brentq-based
+    ``stoneley_dispersion`` to floating-point precision (the bound-
+    regime regression invariant from L2 carried through L3)."""
+    from fwap.cylindrical_solver import (
+        _detect_leaky_branches,
+        _march_complex_dispersion,
+        _modal_determinant_n0_complex,
+        stoneley_dispersion,
+    )
+
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+
+    def stoneley_det(kz, omega):
+        leaky_F, leaky_p, leaky_s = _detect_leaky_branches(
+            kz, omega, vp, vs, vf,
+        )
+        return _modal_determinant_n0_complex(
+            kz, omega, vp, vs, rho, vf, rho_f, a,
+            leaky_p=leaky_p, leaky_s=leaky_s,
+        )
+
+    # White (1983) low-f closed form: S_ST^2 = 1/V_f^2 + rho_f / mu.
+    mu = rho * vs * vs
+    s_st_lf = float(np.sqrt(1.0 / vf**2 + rho_f / mu))
+
+    freqs = np.array([1000.0, 2000.0, 5000.0, 10000.0])
+    omega_low = 2.0 * np.pi * float(freqs[0])
+    kz_start = complex(omega_low * s_st_lf, 0.0)
+    curve = _march_complex_dispersion(stoneley_det, freqs, kz_start)
+
+    # Reference: the existing brentq-based solver.
+    res = stoneley_dispersion(
+        freqs, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+
+    for kz_marcher, s_existing, f in zip(curve, res.slowness, freqs):
+        omega = 2.0 * np.pi * float(f)
+        kz_existing = omega * s_existing
+        # Real parts agree to ~1e-11 relative (brentq xtol is
+        # 1e-10; root xtol is 1e-12 here).
+        assert abs(kz_marcher.real - kz_existing) / kz_existing < 1.0e-10
+        # Imaginary parts are tiny (Stoneley is bound -> kz real).
+        assert abs(kz_marcher.imag) < 1.0e-9 * kz_existing
