@@ -613,3 +613,310 @@ def test_eaton_rejects_negative_sigma_v():
             np.array([2.5e-4]),
             hydrostatic_pressure_pa=np.array([10.0e6]),
         )
+
+
+# =====================================================================
+# Wellbore stability: Kirsch + Mohr-Coulomb
+# =====================================================================
+
+
+# Standard parameter set used across the wellbore-stability tests.
+# 3 km depth in a normal-fault stress regime.
+WB_SIGMA_V = 70.0e6   # Pa
+WB_SIGMA_H = 60.0e6   # Pa (max horizontal)
+WB_SIGMA_H_MIN = 40.0e6  # Pa (min horizontal)
+WB_PORE_PRESSURE = 30.0e6
+WB_UCS = 50.0e6
+WB_FRICTION = 30.0     # degrees
+WB_NU = 0.25
+
+
+# ---------------------------------------------------------------------
+# Kirsch wall stresses
+# ---------------------------------------------------------------------
+
+
+def test_kirsch_at_breakout_azimuth_matches_closed_form():
+    """At theta = 90 deg (perpendicular to sigma_H, the breakout
+    azimuth), sigma_theta = 3*sigma_H - sigma_h - P_w."""
+    from fwap.geomechanics import kirsch_wall_stresses
+
+    P_w = 35.0e6
+    sigma_t, sigma_z, sigma_r = kirsch_wall_stresses(
+        WB_SIGMA_V, WB_SIGMA_H, WB_SIGMA_H_MIN,
+        azimuth_deg=90.0, mud_pressure=P_w, poisson=WB_NU,
+    )
+    expected_theta = 3.0 * WB_SIGMA_H - WB_SIGMA_H_MIN - P_w
+    assert abs(float(sigma_t) - expected_theta) < 1.0e-6
+    assert abs(float(sigma_r) - P_w) < 1.0e-6
+
+
+def test_kirsch_at_breakdown_azimuth_matches_closed_form():
+    """At theta = 0 deg (in sigma_H direction, the tensile-failure
+    azimuth), sigma_theta = 3*sigma_h - sigma_H - P_w."""
+    from fwap.geomechanics import kirsch_wall_stresses
+
+    P_w = 35.0e6
+    sigma_t, _, _ = kirsch_wall_stresses(
+        WB_SIGMA_V, WB_SIGMA_H, WB_SIGMA_H_MIN,
+        azimuth_deg=0.0, mud_pressure=P_w, poisson=WB_NU,
+    )
+    expected_theta = 3.0 * WB_SIGMA_H_MIN - WB_SIGMA_H - P_w
+    assert abs(float(sigma_t) - expected_theta) < 1.0e-6
+
+
+def test_kirsch_isotropic_horizontal_independent_of_azimuth():
+    """When sigma_H == sigma_h, sigma_theta does not depend on
+    azimuth (the cos(2 theta) coefficient vanishes)."""
+    from fwap.geomechanics import kirsch_wall_stresses
+
+    azimuths = np.array([0.0, 30.0, 60.0, 90.0, 120.0])
+    P_w = 35.0e6
+    sigma_iso = WB_SIGMA_H
+    sigma_t, _, _ = kirsch_wall_stresses(
+        WB_SIGMA_V, sigma_iso, sigma_iso,
+        azimuth_deg=azimuths, mud_pressure=P_w, poisson=WB_NU,
+    )
+    assert np.allclose(sigma_t, sigma_t[0])
+
+
+def test_kirsch_higher_mud_lowers_sigma_theta_uniformly():
+    """Sigma_theta has a linear -P_w term, so a unit increase in
+    mud pressure decreases sigma_theta by exactly that amount at
+    every azimuth."""
+    from fwap.geomechanics import kirsch_wall_stresses
+
+    azimuths = np.linspace(0.0, 180.0, 7)
+    sigma_t_low, _, _ = kirsch_wall_stresses(
+        WB_SIGMA_V, WB_SIGMA_H, WB_SIGMA_H_MIN,
+        azimuth_deg=azimuths, mud_pressure=30.0e6, poisson=WB_NU,
+    )
+    sigma_t_high, _, _ = kirsch_wall_stresses(
+        WB_SIGMA_V, WB_SIGMA_H, WB_SIGMA_H_MIN,
+        azimuth_deg=azimuths, mud_pressure=40.0e6, poisson=WB_NU,
+    )
+    np.testing.assert_allclose(sigma_t_low - sigma_t_high, 10.0e6, atol=1.0)
+
+
+def test_kirsch_sigma_z_depends_on_poisson_in_horizontal_deviator():
+    """sigma_z = sigma_v - 2 nu (sigma_H - sigma_h) cos(2 theta).
+    For an isotropic horizontal stress (sigma_H == sigma_h),
+    sigma_z = sigma_v regardless of azimuth or Poisson."""
+    from fwap.geomechanics import kirsch_wall_stresses
+
+    sigma_iso = WB_SIGMA_H
+    _, sigma_z, _ = kirsch_wall_stresses(
+        WB_SIGMA_V, sigma_iso, sigma_iso,
+        azimuth_deg=np.array([0.0, 45.0, 90.0]), poisson=0.5,
+    )
+    np.testing.assert_allclose(sigma_z, WB_SIGMA_V, atol=1.0)
+
+
+# ---------------------------------------------------------------------
+# Mohr-Coulomb breakout pressure
+# ---------------------------------------------------------------------
+
+
+def test_mohr_coulomb_at_critical_pressure_just_satisfies_failure():
+    """Plug the breakout pressure back into the Kirsch formula at
+    the breakout azimuth, apply effective-stress subtraction, and
+    confirm Mohr-Coulomb is satisfied with equality."""
+    from fwap.geomechanics import (
+        kirsch_wall_stresses,
+        mohr_coulomb_breakout_pressure,
+    )
+
+    P_crit = float(mohr_coulomb_breakout_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, WB_PORE_PRESSURE, WB_UCS,
+        friction_angle_deg=WB_FRICTION,
+    ))
+    sigma_t, _, sigma_r = kirsch_wall_stresses(
+        WB_SIGMA_V, WB_SIGMA_H, WB_SIGMA_H_MIN,
+        azimuth_deg=90.0, mud_pressure=P_crit, poisson=WB_NU,
+    )
+    sigma_1_eff = float(sigma_t) - WB_PORE_PRESSURE
+    sigma_3_eff = float(sigma_r) - WB_PORE_PRESSURE
+    phi = np.deg2rad(WB_FRICTION)
+    q = (1.0 + np.sin(phi)) / (1.0 - np.sin(phi))
+    # MC failure envelope: sigma_1' = q * sigma_3' + UCS
+    rhs = q * sigma_3_eff + WB_UCS
+    assert abs(sigma_1_eff - rhs) < 1.0e-3
+
+
+def test_mohr_coulomb_higher_ucs_lowers_breakout_pressure():
+    """Stronger rock (higher UCS) needs less mud-pressure support
+    to prevent shear failure."""
+    from fwap.geomechanics import mohr_coulomb_breakout_pressure
+
+    P_weak = mohr_coulomb_breakout_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, WB_PORE_PRESSURE,
+        ucs=20.0e6, friction_angle_deg=WB_FRICTION,
+    )
+    P_strong = mohr_coulomb_breakout_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, WB_PORE_PRESSURE,
+        ucs=80.0e6, friction_angle_deg=WB_FRICTION,
+    )
+    assert P_strong < P_weak
+
+
+def test_mohr_coulomb_higher_friction_lowers_breakout_pressure():
+    """Higher friction angle (steeper failure envelope) means lower
+    critical mud pressure -- the rock supports more deviatoric
+    stress before failing."""
+    from fwap.geomechanics import mohr_coulomb_breakout_pressure
+
+    P_low_friction = mohr_coulomb_breakout_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, WB_PORE_PRESSURE, WB_UCS,
+        friction_angle_deg=15.0,
+    )
+    P_high_friction = mohr_coulomb_breakout_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, WB_PORE_PRESSURE, WB_UCS,
+        friction_angle_deg=40.0,
+    )
+    assert P_high_friction < P_low_friction
+
+
+def test_mohr_coulomb_higher_pore_pressure_increases_breakout_pressure():
+    """In the typical regime (q > 1, friction angle > 0), higher
+    pore pressure makes the rock weaker in effective stress and
+    raises the required mud pressure."""
+    from fwap.geomechanics import mohr_coulomb_breakout_pressure
+
+    P_low_pp = mohr_coulomb_breakout_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN,
+        pore_pressure=20.0e6, ucs=WB_UCS,
+        friction_angle_deg=WB_FRICTION,
+    )
+    P_high_pp = mohr_coulomb_breakout_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN,
+        pore_pressure=40.0e6, ucs=WB_UCS,
+        friction_angle_deg=WB_FRICTION,
+    )
+    assert P_high_pp > P_low_pp
+
+
+def test_mohr_coulomb_higher_horizontal_anisotropy_increases_breakout():
+    """Larger sigma_H - sigma_h amplifies the Kirsch hoop stress at
+    the breakout azimuth, requiring more mud-pressure support."""
+    from fwap.geomechanics import mohr_coulomb_breakout_pressure
+
+    # Same mean horizontal stress, increasing anisotropy
+    P_isotropic = mohr_coulomb_breakout_pressure(
+        50.0e6, 50.0e6, WB_PORE_PRESSURE, WB_UCS,
+        friction_angle_deg=WB_FRICTION,
+    )
+    P_anisotropic = mohr_coulomb_breakout_pressure(
+        70.0e6, 30.0e6, WB_PORE_PRESSURE, WB_UCS,
+        friction_angle_deg=WB_FRICTION,
+    )
+    assert P_anisotropic > P_isotropic
+
+
+def test_mohr_coulomb_zero_friction_is_tresca_limit():
+    """At friction_angle_deg = 0, q = 1 and the formula reduces
+    to P_crit = (3*sigma_H - sigma_h - UCS) / 2 with no
+    pore-pressure dependence (the (q-1) term vanishes)."""
+    from fwap.geomechanics import mohr_coulomb_breakout_pressure
+
+    P_pp_low = mohr_coulomb_breakout_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, pore_pressure=10.0e6, ucs=WB_UCS,
+        friction_angle_deg=0.0,
+    )
+    P_pp_high = mohr_coulomb_breakout_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, pore_pressure=50.0e6, ucs=WB_UCS,
+        friction_angle_deg=0.0,
+    )
+    assert abs(float(P_pp_low) - float(P_pp_high)) < 1.0e-6
+    expected = 0.5 * (3.0 * WB_SIGMA_H - WB_SIGMA_H_MIN - WB_UCS)
+    assert abs(float(P_pp_low) - expected) < 1.0e-6
+
+
+def test_mohr_coulomb_biot_alpha_zero_removes_pore_pressure_term():
+    """Setting biot_alpha = 0 zeroes the effective-stress
+    correction; the formula reduces to (3*sigma_H - sigma_h - UCS)
+    / (1 + q) with no pore-pressure dependence."""
+    from fwap.geomechanics import mohr_coulomb_breakout_pressure
+
+    P_pp_low = mohr_coulomb_breakout_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN,
+        pore_pressure=10.0e6, ucs=WB_UCS,
+        friction_angle_deg=WB_FRICTION, biot_alpha=0.0,
+    )
+    P_pp_high = mohr_coulomb_breakout_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN,
+        pore_pressure=50.0e6, ucs=WB_UCS,
+        friction_angle_deg=WB_FRICTION, biot_alpha=0.0,
+    )
+    assert abs(float(P_pp_low) - float(P_pp_high)) < 1.0e-6
+
+
+# Input validation
+# ---------------------------------------------------------------------
+
+
+def test_mohr_coulomb_rejects_friction_outside_range():
+    """Friction angle must be in (-90, 90); +/- 90 makes sin(phi)
+    = +/-1 and the formula divides by zero."""
+    import pytest
+
+    from fwap.geomechanics import mohr_coulomb_breakout_pressure
+
+    with pytest.raises(ValueError, match="friction_angle_deg"):
+        mohr_coulomb_breakout_pressure(
+            WB_SIGMA_H, WB_SIGMA_H_MIN, WB_PORE_PRESSURE, WB_UCS,
+            friction_angle_deg=90.0,
+        )
+    with pytest.raises(ValueError, match="friction_angle_deg"):
+        mohr_coulomb_breakout_pressure(
+            WB_SIGMA_H, WB_SIGMA_H_MIN, WB_PORE_PRESSURE, WB_UCS,
+            friction_angle_deg=-90.0,
+        )
+
+
+# Integration: full stress-state pipeline overburden -> pore -> closure -> breakout
+# ---------------------------------------------------------------------
+
+
+def test_wellbore_stability_pipeline_end_to_end():
+    """Compute the full stress-state pipeline from a synthetic
+    density + sonic log: overburden -> pore pressure (Eaton) ->
+    closure stress (Eaton) -> wellbore breakout pressure
+    (Mohr-Coulomb). Sanity checks on the pressure ordering."""
+    from fwap.geomechanics import (
+        closure_stress,
+        hydrostatic_pressure,
+        mohr_coulomb_breakout_pressure,
+        overburden_stress,
+        pore_pressure_eaton,
+    )
+
+    z = np.linspace(0.0, 3000.0, 31)
+    rho = np.full_like(z, 2400.0)
+    sigma_v = overburden_stress(z, rho)
+
+    s_normal = 2.5e-4 * np.exp(-z / 6000.0)
+    s_obs = s_normal.copy()
+    s_obs[(z >= 1500.0) & (z <= 2000.0)] *= 1.3
+
+    P_p = pore_pressure_eaton(sigma_v, s_obs, s_normal, depth=z)
+
+    # Estimate horizontal stresses from closure-stress (uniaxial-strain
+    # Eaton 1969 with nu = 0.25). Treat sigma_h ~ closure and pick
+    # sigma_H = sigma_h + 0.4 * (sigma_v - P_p) as a generic anisotropy.
+    nu = np.full_like(z, 0.25)
+    sigma_h_min = closure_stress(nu, sigma_v, pore_pressure_pa=P_p)
+    sigma_H_max = sigma_h_min + 0.4 * (sigma_v - P_p)
+
+    UCS = np.full_like(z, 50.0e6)
+    P_crit = mohr_coulomb_breakout_pressure(
+        sigma_H_max, sigma_h_min, P_p, UCS, friction_angle_deg=30.0,
+    )
+
+    P_hydro = hydrostatic_pressure(z)
+
+    # All four logs are well-defined arrays of the right shape.
+    assert sigma_v.shape == P_p.shape == P_crit.shape == P_hydro.shape == z.shape
+    # Shallow depths trivially meet the "P_p >= 0" sanity check.
+    assert np.all(P_p[1:] > 0)
+    # Overburden bounds the pore pressure from above.
+    assert np.all(P_p <= sigma_v + 1.0e-6)

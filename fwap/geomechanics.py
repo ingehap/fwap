@@ -776,3 +776,276 @@ def geomechanics_indices(
         sand_stability=stable,
         closure_stress=sh,
     )
+
+
+# ---------------------------------------------------------------------
+# Wellbore stability: Kirsch wall stresses + Mohr-Coulomb breakout
+# ---------------------------------------------------------------------
+
+
+def kirsch_wall_stresses(
+    sigma_v: np.ndarray,
+    sigma_H: np.ndarray,
+    sigma_h: np.ndarray,
+    *,
+    azimuth_deg: np.ndarray,
+    mud_pressure: np.ndarray = 0.0,
+    poisson: np.ndarray = 0.25,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    r"""
+    Kirsch (1898) borehole-wall stresses for a vertical well.
+
+    Stress concentration around a circular hole drilled vertically
+    through a homogeneous, isotropic, elastic medium under far-field
+    horizontal stresses :math:`\sigma_H` (max), :math:`\sigma_h`
+    (min), and vertical stress :math:`\sigma_v`. At the borehole
+    wall (``r = a``), at azimuth :math:`\theta` measured from the
+    :math:`\sigma_H` direction:
+
+    .. math::
+
+        \sigma_{\theta\theta}(\theta) &=
+            \sigma_H + \sigma_h
+            - 2 (\sigma_H - \sigma_h)\cos(2\theta) - P_w,
+        \\
+        \sigma_{zz}(\theta) &=
+            \sigma_v - 2\nu(\sigma_H - \sigma_h)\cos(2\theta),
+        \\
+        \sigma_{rr} &= P_w.
+
+    The shear stresses :math:`\sigma_{r\theta}, \sigma_{rz},
+    \sigma_{\theta z}` vanish at the wall when the well axis is
+    aligned with one of the principal stress directions, which is
+    the convention used here. The three stresses returned are then
+    principal stresses of the local stress tensor at the wall.
+
+    Special azimuths:
+
+    * :math:`\theta = 0\degree` (in the :math:`\sigma_H` direction):
+      :math:`\sigma_{\theta\theta} = 3\sigma_h - \sigma_H - P_w`
+      (least compressive; tensile-failure / fracture-initiation
+      azimuth).
+    * :math:`\theta = 90\degree` (in the :math:`\sigma_h`
+      direction): :math:`\sigma_{\theta\theta} = 3\sigma_H -
+      \sigma_h - P_w` (most compressive; shear-failure / breakout
+      azimuth).
+
+    Parameters
+    ----------
+    sigma_v : scalar or ndarray
+        Vertical (overburden) stress (Pa). Use
+        :func:`overburden_stress`.
+    sigma_H, sigma_h : scalar or ndarray
+        Maximum and minimum horizontal stresses (Pa). Convention:
+        ``sigma_H >= sigma_h``; the function does not enforce this
+        because the user may pass either as the "long" or "short"
+        principal direction.
+    azimuth_deg : scalar or ndarray
+        Azimuth (degrees) measured from the :math:`\sigma_H`
+        direction.
+    mud_pressure : scalar or ndarray, default 0.0
+        Wellbore (mud) pressure :math:`P_w` (Pa). Default 0.0
+        models a dry hole.
+    poisson : scalar or ndarray, default 0.25
+        Poisson's ratio (dimensionless). Enters the
+        :math:`\sigma_{zz}` formula via the plane-strain
+        coupling between horizontal stress deviator and axial
+        stress. Default 0.25 is typical for sandstones.
+
+    Returns
+    -------
+    (sigma_theta, sigma_z, sigma_r) : tuple of ndarrays
+        Hoop, axial, and radial stresses at the wall (Pa),
+        broadcast to the common shape of the inputs. All three
+        are total stresses (no pore-pressure subtraction); pass
+        through ``sigma - alpha * P_p`` for effective stresses.
+
+    See Also
+    --------
+    mohr_coulomb_breakout_pressure : Critical mud pressure for
+        shear breakout, derived from the Kirsch hoop stress at the
+        breakout azimuth.
+
+    References
+    ----------
+    * Kirsch, E. G. (1898). Die Theorie der Elastizitaet und die
+      Beduerfnisse der Festigkeitslehre. *Z. Verein. Deutsch.
+      Ing.* 42, 797-807.
+    * Jaeger, J. C., Cook, N. G. W., & Zimmerman, R. W. (2007).
+      *Fundamentals of Rock Mechanics*, 4th ed., Chapter 8
+      (borehole-stress analysis).
+    """
+    theta = np.deg2rad(np.asarray(azimuth_deg, dtype=float))
+    sH = np.asarray(sigma_H, dtype=float)
+    sh = np.asarray(sigma_h, dtype=float)
+    sv = np.asarray(sigma_v, dtype=float)
+    Pw = np.asarray(mud_pressure, dtype=float)
+    nu = np.asarray(poisson, dtype=float)
+
+    cos2 = np.cos(2.0 * theta)
+    deviator = sH - sh
+    sigma_theta = sH + sh - 2.0 * deviator * cos2 - Pw
+    sigma_z = sv - 2.0 * nu * deviator * cos2
+    sigma_r = np.broadcast_to(Pw, sigma_theta.shape).astype(float).copy()
+    return sigma_theta, sigma_z, sigma_r
+
+
+def mohr_coulomb_breakout_pressure(
+    sigma_H: np.ndarray,
+    sigma_h: np.ndarray,
+    pore_pressure: np.ndarray,
+    ucs: np.ndarray,
+    *,
+    friction_angle_deg: float = 30.0,
+    biot_alpha: float = 1.0,
+) -> np.ndarray:
+    r"""
+    Mohr-Coulomb shear-breakout mud pressure for a vertical well.
+
+    Returns the minimum mud pressure :math:`P_w^{\,\mathrm{crit}}`
+    below which Mohr-Coulomb shear failure initiates at the
+    breakout azimuth (perpendicular to :math:`\sigma_H`). For
+    :math:`P_w < P_w^{\,\mathrm{crit}}` the wellbore wall fails in
+    shear, leading to wellbore breakout / enlargement /
+    eventually collapse.
+
+    Derivation
+    ----------
+    At the breakout azimuth, the Kirsch hoop stress is
+    :math:`\sigma_{\theta\theta} = 3\sigma_H - \sigma_h - P_w`
+    (most compressive); the radial stress is
+    :math:`\sigma_{rr} = P_w` (least compressive). For a vertical
+    well in a normal-fault stress regime where
+    :math:`\sigma_{\theta\theta} > \sigma_{zz} > \sigma_{rr}`,
+    these are the maximum and minimum principal stresses at the
+    wall. Pass through effective stresses by subtracting
+    :math:`\alpha P_p`:
+
+    .. math::
+
+        \sigma_1' &= \sigma_{\theta\theta} - \alpha P_p
+                  = 3\sigma_H - \sigma_h - P_w - \alpha P_p,
+        \\
+        \sigma_3' &= \sigma_{rr} - \alpha P_p
+                  = P_w - \alpha P_p.
+
+    Apply the Mohr-Coulomb failure criterion in principal-stress
+    form
+    :math:`\sigma_1' = q\,\sigma_3' + \mathrm{UCS}` where
+    :math:`q = (1+\sin\phi)/(1-\sin\phi)` for friction angle
+    :math:`\phi`. Solving for :math:`P_w`:
+
+    .. math::
+
+        P_w^{\,\mathrm{crit}} \;=\;
+            \frac{3\sigma_H \;-\; \sigma_h
+                  \;+\; (q - 1)\,\alpha P_p
+                  \;-\; \mathrm{UCS}}{1 + q}.
+
+    Sensitivity (typical regimes with :math:`q > 1`):
+
+    * Higher horizontal stress anisotropy
+      (:math:`3\sigma_H - \sigma_h`): higher
+      :math:`P_w^{\,\mathrm{crit}}` (more support needed).
+    * Higher pore pressure: higher
+      :math:`P_w^{\,\mathrm{crit}}` (the rock is weaker in
+      effective stress).
+    * Higher UCS or friction angle (stronger rock): lower
+      :math:`P_w^{\,\mathrm{crit}}`.
+
+    Parameters
+    ----------
+    sigma_H, sigma_h : scalar or ndarray
+        Maximum and minimum horizontal stresses (Pa).
+    pore_pressure : scalar or ndarray
+        Pore pressure :math:`P_p` (Pa). Use
+        :func:`pore_pressure_eaton` to estimate from sonic data.
+    ucs : scalar or ndarray
+        Unconfined compressive strength :math:`\mathrm{UCS}` (Pa).
+        Use :func:`unconfined_compressive_strength` from a sonic
+        log, or pass a measured value.
+    friction_angle_deg : float, default 30.0
+        Internal friction angle :math:`\phi` (degrees). Typical
+        ranges: 25-35 for shales, 30-40 for sandstones, 35-45 for
+        limestones. Set to 0 for the cohesion-only (Tresca) limit.
+    biot_alpha : float, default 1.0
+        Biot poro-elastic coefficient. ``1.0`` is the textbook
+        upper bound for a soft frame; tight rocks may be 0.7-0.8.
+
+    Returns
+    -------
+    ndarray
+        Critical mud pressure :math:`P_w^{\,\mathrm{crit}}` (Pa)
+        for shear breakout, broadcast to the common shape of the
+        inputs. Negative values indicate the rock is strong
+        enough to remain stable even with negative wellbore
+        pressure (i.e. shear-failure-free); in practice, the
+        actual mud pressure should be at least
+        :math:`P_p` to balance pore pressure regardless of the
+        Mohr-Coulomb result.
+
+    Raises
+    ------
+    ValueError
+        If ``friction_angle_deg`` is not in the open interval
+        ``(-90, 90)`` (which keeps :math:`\cos\phi > 0` so
+        :math:`q` is finite and positive).
+
+    Notes
+    -----
+    The formula assumes:
+
+    * Vertical well, vertical principal stress (normal-fault
+      regime). Strike-slip and reverse-fault regimes need a
+      different :math:`\sigma_1, \sigma_3` identification at
+      the wall and are not handled here.
+    * :math:`\sigma_{\theta\theta} > \sigma_{zz}` at the
+      breakout azimuth, which is the typical case but can fail
+      in regimes where :math:`\sigma_v` greatly exceeds
+      :math:`\sigma_H`. Callers in non-typical regimes should
+      use :func:`kirsch_wall_stresses` directly and apply the
+      Mohr-Coulomb criterion to the actual maximum principal
+      stress.
+    * No tensile failure (fracture initiation, the upper bound
+      of the safe mud-weight window). The companion tensile-
+      breakdown calculation is a planned follow-up.
+
+    See Also
+    --------
+    kirsch_wall_stresses : Underlying primitive that gives the
+        wall stresses at any azimuth.
+    unconfined_compressive_strength : Sonic-derived UCS estimate
+        suitable as the ``ucs`` input.
+    pore_pressure_eaton : Sonic-derived pore-pressure estimate
+        suitable as the ``pore_pressure`` input.
+    closure_stress : Closure stress (the lower bound of the safe
+        mud-weight window when the limiting failure is tensile).
+
+    References
+    ----------
+    * Mohr, O. (1900). Welche Umstaende bedingen die
+      Elastizitaetsgrenze und den Bruch eines Materiales? *Z.
+      Verein. Deutsch. Ing.* 44, 1524-1530.
+    * Coulomb, C. A. (1776). Essai sur une application des
+      regles de maximis et minimis a quelques problemes de
+      statique relatifs a l'architecture. *Mem. Acad. Sci. Paris*
+      7, 343-382.
+    * Zoback, M. D. (2007). *Reservoir Geomechanics.* Cambridge
+      University Press, Chapter 6.
+    * Jaeger, J. C., Cook, N. G. W., & Zimmerman, R. W. (2007).
+      *Fundamentals of Rock Mechanics*, 4th ed., Section 8.6.
+    """
+    if not (-90.0 < friction_angle_deg < 90.0):
+        raise ValueError("friction_angle_deg must be in (-90, 90)")
+
+    sH = np.asarray(sigma_H, dtype=float)
+    sh = np.asarray(sigma_h, dtype=float)
+    Pp = np.asarray(pore_pressure, dtype=float)
+    UCS = np.asarray(ucs, dtype=float)
+
+    phi = np.deg2rad(friction_angle_deg)
+    sin_phi = np.sin(phi)
+    q = (1.0 + sin_phi) / (1.0 - sin_phi)
+
+    return (3.0 * sH - sh + (q - 1.0) * biot_alpha * Pp - UCS) / (1.0 + q)
+
