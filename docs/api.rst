@@ -20,6 +20,7 @@ book.
    fwap.rockphysics
    fwap.geomechanics
    fwap.cylindrical
+   fwap.cylindrical_solver
    fwap.lwd
    fwap.synthetic
    fwap.io
