@@ -1683,3 +1683,175 @@ def vti_phase_velocities(
     v_SH = np.sqrt((c44 * cos2 + c66 * sin2) / rho)
 
     return v_qP, v_qSV, v_SH
+
+
+@dataclass
+class VtiGroupVelocities:
+    r"""
+    Output of :func:`vti_group_velocities`.
+
+    Group velocity (the speed of energy / wavefront propagation)
+    and group angle (the direction of energy propagation, generally
+    different from the phase-angle direction in anisotropic media)
+    for the three VTI modes, on the same phase-angle grid the
+    function was called with.
+
+    Attributes
+    ----------
+    v_qP, v_qSV, v_SH : ndarray
+        Group velocities (m/s) for the three modes at each phase
+        angle in the input grid.
+    psi_qP, psi_qSV, psi_SH : ndarray
+        Group angles (radians, measured from the vertical
+        :math:`x_3` axis) for the three modes. In an isotropic
+        medium ``psi == phase_angle_rad``; in an anisotropic
+        medium they differ except at the symmetry-aligned angles
+        :math:`\theta = 0, \pi/2` where the wavefront is locally
+        aligned with the symmetry direction.
+    """
+
+    v_qP: np.ndarray
+    v_qSV: np.ndarray
+    v_SH: np.ndarray
+    psi_qP: np.ndarray
+    psi_qSV: np.ndarray
+    psi_SH: np.ndarray
+
+
+def vti_group_velocities(
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    *,
+    phase_angle_rad: np.ndarray,
+) -> VtiGroupVelocities:
+    r"""
+    Group velocities and group angles for the three VTI modes.
+
+    Group velocity (the speed of energy propagation, which
+    determines wavefront shapes) follows from the phase velocity
+    and its derivative with respect to phase angle:
+
+    .. math::
+
+        v_{g,x}(\theta) &= v_p(\theta) \sin\theta
+                          + \frac{\partial v_p}{\partial\theta}
+                            \cos\theta,
+        \\
+        v_{g,z}(\theta) &= v_p(\theta) \cos\theta
+                          - \frac{\partial v_p}{\partial\theta}
+                            \sin\theta,
+        \\
+        |v_g(\theta)| &= \sqrt{v_p^{\,2}(\theta)
+                               + \big(\partial v_p / \partial\theta\big)^2},
+
+    with the group angle :math:`\psi` (measured from the symmetry
+    axis) given by :math:`\tan\psi = v_{g,x} / v_{g,z}`. In an
+    isotropic medium :math:`\partial v_p / \partial\theta = 0`,
+    so :math:`v_g = v_p` and :math:`\psi = \theta`.
+
+    The :math:`\partial v_p / \partial\theta` derivative is
+    computed numerically via :func:`numpy.gradient` (central
+    differences in the interior, one-sided at the grid endpoints).
+    This is conventional for wavefront-plotting workflows and
+    avoids the algebraic complexity of the analytic Tsvankin-2001
+    closed form. For high-accuracy boundary derivatives at
+    :math:`\theta = 0` and :math:`\pi/2`, supply a grid with
+    additional points slightly outside the quadrant of interest.
+
+    Parameters
+    ----------
+    c11, c13, c33, c44, c66 : float
+        Five independent VTI elastic constants (Pa).
+    rho : float
+        Mass density (kg/m^3).
+    phase_angle_rad : ndarray, shape (n,)
+        Strictly-increasing 1-D phase-angle grid (radians) with at
+        least two points. Typical use:
+        ``np.linspace(0, np.pi/2, 91)``.
+
+    Returns
+    -------
+    VtiGroupVelocities
+        Dataclass with the three group velocities and three group
+        angles, all the same shape as ``phase_angle_rad``.
+
+    Raises
+    ------
+    ValueError
+        If ``phase_angle_rad`` has fewer than two points or is not
+        strictly increasing; otherwise the same physical-input
+        validations as :func:`vti_phase_velocities`.
+
+    See Also
+    --------
+    vti_phase_velocities : The phase-velocity primitive this
+        function differentiates.
+
+    Notes
+    -----
+    The :math:`v_g(\theta), \psi(\theta)` relation is implicit:
+    the group velocity is parameterised by the *phase* angle, not
+    by the group angle directly. Plotting the wavefront in
+    Cartesian coordinates uses the group angle for direction and
+    the group magnitude for distance:
+
+    .. code-block:: python
+
+        out = vti_group_velocities(...)
+        x = out.v_qP * np.sin(out.psi_qP)
+        z = out.v_qP * np.cos(out.psi_qP)
+
+    For a unit-time wavefront, this gives the Cartesian
+    coordinates of the wavefront tip; sample finely enough in
+    :math:`\theta` to resolve any qSV cuspidal triplications,
+    which can occur in strongly-anellipsoidal VTI media.
+
+    References
+    ----------
+    * Tsvankin, I. (2001). *Seismic Signatures and Analysis of
+      Reflection Data in Anisotropic Media.* Pergamon, Section
+      1.3 (group velocity and group angle in anisotropic media).
+    * Carcione, J. M. (2014). *Wave Fields in Real Media*, 3rd
+      ed., Section 1.4. Elsevier.
+    """
+    theta = np.asarray(phase_angle_rad, dtype=float)
+    if theta.ndim != 1 or theta.size < 2:
+        raise ValueError(
+            "phase_angle_rad must be a 1-D array with at least 2 points"
+        )
+    if not np.all(np.diff(theta) > 0):
+        raise ValueError("phase_angle_rad must be strictly increasing")
+
+    v_qP, v_qSV, v_SH = vti_phase_velocities(
+        c11, c13, c33, c44, c66, rho, phase_angle_rad=theta,
+    )
+
+    dv_qP = np.gradient(v_qP, theta)
+    dv_qSV = np.gradient(v_qSV, theta)
+    dv_SH = np.gradient(v_SH, theta)
+
+    sin_t = np.sin(theta)
+    cos_t = np.cos(theta)
+
+    def _group(v_p: np.ndarray, dv_p: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        v_g_x = v_p * sin_t + dv_p * cos_t
+        v_g_z = v_p * cos_t - dv_p * sin_t
+        v_g = np.hypot(v_g_x, v_g_z)
+        # arctan2 with (x, z) gives the angle measured from z, i.e.
+        # from the vertical symmetry axis -- the standard "group
+        # angle from symmetry" convention.
+        psi = np.arctan2(v_g_x, v_g_z)
+        return v_g, psi
+
+    v_g_P, psi_P = _group(v_qP, dv_qP)
+    v_g_SV, psi_SV = _group(v_qSV, dv_qSV)
+    v_g_SH, psi_SH = _group(v_SH, dv_SH)
+
+    return VtiGroupVelocities(
+        v_qP=v_g_P, v_qSV=v_g_SV, v_SH=v_g_SH,
+        psi_qP=psi_P, psi_qSV=psi_SV, psi_SH=psi_SH,
+    )

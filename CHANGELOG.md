@@ -7,6 +7,36 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **VTI group velocities** (``fwap.anisotropy.vti_group_velocities``,
+  ``VtiGroupVelocities``). Closes the wavefront-modelling deliverable
+  flagged as a follow-up in PR #30: group velocity (the speed of
+  energy / wavefront propagation) and group angle (the direction of
+  energy propagation, generally different from the phase-angle
+  direction in anisotropic media) for the three VTI modes
+  (qP, qSV, SH). Tsvankin (2001) sect. 1.3 closed forms:
+
+      v_g_x = v_p sin(theta) + (dv_p/dtheta) cos(theta)
+      v_g_z = v_p cos(theta) - (dv_p/dtheta) sin(theta)
+      |v_g| = sqrt(v_p^2 + (dv_p/dtheta)^2)
+      tan(psi) = v_g_x / v_g_z
+
+  The dv_p/dtheta derivative is computed numerically via
+  np.gradient (central differences in the interior, one-sided at
+  the grid endpoints); avoids the algebraic complexity of the
+  closed-form Tsvankin derivatives at minimal accuracy cost. Output
+  is a ``VtiGroupVelocities`` dataclass with three velocities and
+  three group angles. Wavefront-plotting use:
+  ``x = v_g * sin(psi); z = v_g * cos(psi)``. 12 new tests cover:
+  isotropic limit (group exactly equals phase, psi exactly equals
+  theta to floating-point precision); dataclass contract; group =
+  phase at theta = 0 and pi/2; psi = 0 at theta = 0 and psi = pi/2
+  at theta = pi/2 (symmetry-axis-aligned wavefronts); group angle
+  differs from phase angle off-axis (qSV refracts toward symmetry
+  for the Berea-VTI fixture, SH refracts away); all velocities
+  positive and qP > qSV everywhere; input validation rejecting
+  one-point and non-increasing grids; end-to-end Cartesian-
+  wavefront monotonicity check on a Backus-derived medium.
+
 - **VTI phase velocities** (``fwap.anisotropy.vti_phase_velocities``).
   Christoffel-determinant solution for the three plane-wave modes
   (quasi-P, quasi-SV, SH) in a transversely-isotropic medium with

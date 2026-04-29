@@ -180,6 +180,7 @@ from fwap.anisotropy import (
     StressAnisotropyEstimate,
     ThomsenEpsilonDeltaResult,
     ThomsenGammaResult,
+    VtiGroupVelocities,
     VtiModuli,
     alford_rotation,
     alford_rotation_from_tensor,
@@ -191,6 +192,7 @@ from fwap.anisotropy import (
     thomsen_epsilon_delta_from_walkaway_vsp,
     thomsen_gamma,
     thomsen_gamma_from_logs,
+    vti_group_velocities,
     vti_moduli_from_logs,
     vti_phase_velocities,
 )
@@ -378,6 +380,8 @@ __all__ = [
     "BackusResult",
     "backus_average",
     "vti_phase_velocities",
+    "VtiGroupVelocities",
+    "vti_group_velocities",
     # Rock physics
     "ElasticModuli",
     "elastic_moduli",

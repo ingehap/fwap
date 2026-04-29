@@ -1623,3 +1623,251 @@ def test_vti_phase_rejects_non_positive_elastic_constants():
         vti_phase_velocities(**{**base, "c44": 0.0})
     with pytest.raises(ValueError, match="c66"):
         vti_phase_velocities(**{**base, "c66": -1.0})
+
+
+# =====================================================================
+# vti_group_velocities (numerical differentiation of phase velocity)
+# =====================================================================
+
+
+# ---------------------------------------------------------------------
+# Isotropic limit: group velocity exactly equals phase velocity
+# ---------------------------------------------------------------------
+
+
+def test_vti_group_isotropic_limit_equals_phase():
+    """In an isotropic medium dv_p/dtheta = 0, so group velocity
+    equals phase velocity at every angle and group angle equals
+    phase angle. Numerical differentiation reproduces this to
+    floating-point precision."""
+    from fwap.anisotropy import vti_group_velocities, vti_phase_velocities
+
+    mu, M, rho = 8.0e9, 27.0e9, 2200.0
+    lam = M - 2.0 * mu
+    theta = np.linspace(0.0, np.pi / 2, 19)
+
+    vP_p, vSV_p, vSH_p = vti_phase_velocities(
+        c11=M, c13=lam, c33=M, c44=mu, c66=mu, rho=rho,
+        phase_angle_rad=theta,
+    )
+    out = vti_group_velocities(
+        c11=M, c13=lam, c33=M, c44=mu, c66=mu, rho=rho,
+        phase_angle_rad=theta,
+    )
+    np.testing.assert_allclose(out.v_qP, vP_p, rtol=1.0e-10)
+    np.testing.assert_allclose(out.v_qSV, vSV_p, rtol=1.0e-10)
+    np.testing.assert_allclose(out.v_SH, vSH_p, rtol=1.0e-10)
+    np.testing.assert_allclose(out.psi_qP, theta, atol=1.0e-12)
+    np.testing.assert_allclose(out.psi_qSV, theta, atol=1.0e-12)
+    np.testing.assert_allclose(out.psi_SH, theta, atol=1.0e-12)
+
+
+# ---------------------------------------------------------------------
+# Output dataclass contract
+# ---------------------------------------------------------------------
+
+
+def test_vti_group_returns_VtiGroupVelocities_with_six_fields():
+    """The output dataclass holds three velocities and three group
+    angles, all with the same shape as the input grid."""
+    from fwap.anisotropy import VtiGroupVelocities, vti_group_velocities
+
+    p = _berea_vti()
+    theta = np.linspace(0.0, np.pi / 2, 19)
+    out = vti_group_velocities(**p, phase_angle_rad=theta)
+    assert isinstance(out, VtiGroupVelocities)
+    for name in ("v_qP", "v_qSV", "v_SH", "psi_qP", "psi_qSV", "psi_SH"):
+        arr = getattr(out, name)
+        assert arr.shape == theta.shape
+        assert np.all(np.isfinite(arr))
+
+
+# ---------------------------------------------------------------------
+# Group velocity magnitude has the right shape
+# ---------------------------------------------------------------------
+
+
+def test_vti_group_qP_velocity_close_to_phase_at_endpoints():
+    """At theta = 0 and pi/2 the wavefront is locally aligned with
+    a symmetry direction so v_g should be very close to v_p (small
+    numerical-differentiation boundary error). Spot-check a 1-deg
+    grid: 0.5% tolerance is well within the boundary one-sided
+    difference."""
+    from fwap.anisotropy import vti_group_velocities, vti_phase_velocities
+
+    p = _berea_vti()
+    theta = np.linspace(0.0, np.pi / 2, 91)  # 1-deg grid
+
+    vP_p, _, _ = vti_phase_velocities(**p, phase_angle_rad=theta)
+    out = vti_group_velocities(**p, phase_angle_rad=theta)
+
+    rel_err_0 = abs(out.v_qP[0] - vP_p[0]) / vP_p[0]
+    rel_err_pi2 = abs(out.v_qP[-1] - vP_p[-1]) / vP_p[-1]
+    assert rel_err_0 < 5.0e-3
+    assert rel_err_pi2 < 5.0e-3
+
+
+def test_vti_group_psi_at_theta_zero_is_zero():
+    """At vertical phase propagation, energy flows along the
+    symmetry axis, so the group angle is zero (psi(0) = 0)."""
+    from fwap.anisotropy import vti_group_velocities
+
+    p = _berea_vti()
+    theta = np.linspace(0.0, np.pi / 2, 91)
+    out = vti_group_velocities(**p, phase_angle_rad=theta)
+    # Boundary one-sided difference at theta=0 may give a small
+    # nonzero psi; allow a 1-deg tolerance on the 1-deg grid.
+    assert abs(out.psi_qP[0]) < np.deg2rad(1.0)
+    assert abs(out.psi_SH[0]) < np.deg2rad(1.0)
+
+
+def test_vti_group_psi_at_theta_pi_over_2_is_pi_over_2():
+    """At horizontal phase propagation, energy also flows along a
+    symmetry direction (the x_1 axis), so the group angle equals
+    the phase angle pi/2."""
+    from fwap.anisotropy import vti_group_velocities
+
+    p = _berea_vti()
+    theta = np.linspace(0.0, np.pi / 2, 91)
+    out = vti_group_velocities(**p, phase_angle_rad=theta)
+    assert abs(out.psi_qP[-1] - np.pi / 2) < np.deg2rad(1.0)
+    assert abs(out.psi_SH[-1] - np.pi / 2) < np.deg2rad(1.0)
+
+
+# ---------------------------------------------------------------------
+# Anisotropy signature: group angle differs from phase angle off-axis
+# ---------------------------------------------------------------------
+
+
+def test_vti_group_psi_differs_from_phase_for_anisotropic_medium():
+    """At an interior phase angle (e.g. theta=pi/4) the group and
+    phase angles differ in any anisotropic medium. Magnitude of the
+    difference depends on the anellipticity."""
+    from fwap.anisotropy import vti_group_velocities
+
+    p = _berea_vti()
+    theta = np.linspace(0.0, np.pi / 2, 91)
+    out = vti_group_velocities(**p, phase_angle_rad=theta)
+
+    idx_45 = np.argmin(np.abs(theta - np.pi / 4))
+    diff_qSV = out.psi_qSV[idx_45] - theta[idx_45]
+    diff_SH = out.psi_SH[idx_45] - theta[idx_45]
+    # The Berea-VTI fixture has positive gamma, so SH group angle
+    # is larger than phase at theta = pi/4 (energy refracted toward
+    # the faster horizontal direction).
+    assert diff_SH > 0
+    # qSV behaviour depends on the sign of the qSV anellipticity
+    # parameter; the Berea-VTI fixture has the typical sign that
+    # gives qSV group angle SMALLER than phase at theta = pi/4.
+    assert diff_qSV < 0
+
+
+# ---------------------------------------------------------------------
+# Wavefront-shape sanity: group velocity is finite and positive
+# ---------------------------------------------------------------------
+
+
+def test_vti_group_velocities_strictly_positive():
+    """All three group-velocity arrays must be strictly positive
+    everywhere on a sensible phase-angle grid -- no zero crossings
+    or near-zeros that would correspond to triplication / cuspidal
+    behaviour for the Berea-VTI fixture (which is mild enough to
+    avoid cusps)."""
+    from fwap.anisotropy import vti_group_velocities
+
+    p = _berea_vti()
+    theta = np.linspace(0.0, np.pi / 2, 91)
+    out = vti_group_velocities(**p, phase_angle_rad=theta)
+    assert np.all(out.v_qP > 0)
+    assert np.all(out.v_qSV > 0)
+    assert np.all(out.v_SH > 0)
+
+
+def test_vti_group_qP_above_qSV_everywhere():
+    """qP is always faster than qSV in stable VTI media -- a
+    consequence of the strong-ellipticity constraint on the
+    elastic tensor."""
+    from fwap.anisotropy import vti_group_velocities
+
+    p = _berea_vti()
+    theta = np.linspace(0.0, np.pi / 2, 91)
+    out = vti_group_velocities(**p, phase_angle_rad=theta)
+    assert np.all(out.v_qP > out.v_qSV)
+
+
+# ---------------------------------------------------------------------
+# Input validation on the phase-angle grid
+# ---------------------------------------------------------------------
+
+
+def test_vti_group_rejects_one_point_grid():
+    """A single-point phase-angle grid cannot be differentiated."""
+    import pytest
+
+    from fwap.anisotropy import vti_group_velocities
+
+    p = _berea_vti()
+    with pytest.raises(ValueError, match="at least 2 points"):
+        vti_group_velocities(**p, phase_angle_rad=np.array([0.0]))
+
+
+def test_vti_group_rejects_non_increasing_grid():
+    """Non-increasing or unsorted phase-angle grids raise."""
+    import pytest
+
+    from fwap.anisotropy import vti_group_velocities
+
+    p = _berea_vti()
+    with pytest.raises(ValueError, match="strictly increasing"):
+        vti_group_velocities(
+            **p, phase_angle_rad=np.array([0.5, 0.3, 0.1]),
+        )
+    with pytest.raises(ValueError, match="strictly increasing"):
+        vti_group_velocities(
+            **p, phase_angle_rad=np.array([0.1, 0.1, 0.5]),
+        )
+
+
+def test_vti_group_rejects_non_1d_grid():
+    """A multi-D phase-angle array doesn't make sense for the
+    underlying np.gradient call."""
+    import pytest
+
+    from fwap.anisotropy import vti_group_velocities
+
+    p = _berea_vti()
+    grid = np.array([[0.0, 0.5], [1.0, 1.5]])
+    with pytest.raises(ValueError, match="1-D"):
+        vti_group_velocities(**p, phase_angle_rad=grid)
+
+
+# ---------------------------------------------------------------------
+# Round-trip with backus_average + plotting use case
+# ---------------------------------------------------------------------
+
+
+def test_vti_group_wavefront_cartesian_coordinates_form_smooth_curve():
+    """The natural plotting use: convert (v_g, psi) into Cartesian
+    wavefront coordinates and confirm the resulting curve is
+    monotonically winding around the origin with no kinks. Spot-
+    check on a Backus-derived VTI medium."""
+    from fwap.anisotropy import backus_average, vti_group_velocities
+
+    b = backus_average(
+        thickness=np.array([1.0, 1.0]),
+        vp=np.array([3500.0, 2500.0]),
+        vs=np.array([2000.0, 1200.0]),
+        rho=np.array([2200.0, 2300.0]),
+    )
+    theta = np.linspace(0.0, np.pi / 2, 91)
+    out = vti_group_velocities(
+        c11=b.c11, c13=b.c13, c33=b.c33, c44=b.c44, c66=b.c66, rho=b.rho,
+        phase_angle_rad=theta,
+    )
+    # Wavefront tip in Cartesian (x_1, x_3) for the qP mode.
+    x = out.v_qP * np.sin(out.psi_qP)
+    z = out.v_qP * np.cos(out.psi_qP)
+    # x is monotonically increasing as theta sweeps 0 -> pi/2.
+    assert np.all(np.diff(x) > 0)
+    # z is monotonically decreasing.
+    assert np.all(np.diff(z) < 0)
