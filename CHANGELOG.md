@@ -7,6 +7,50 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Complex-``k_z`` root finder + frequency-marching tracker for
+  the leaky-mode solver** (Roadmap A continuation, phase L3). Two
+  new private helpers in ``fwap.cylindrical_solver``:
+
+  * ``_track_complex_root(det_fn, kz_start, *, xtol=1e-12)`` --
+    single-frequency complex root finder. Wraps
+    ``scipy.optimize.root(method='hybr')`` on the (Re, Im) split
+    of the complex residual. Catches det-evaluation exceptions
+    and converts them to large penalty residuals so the iterator
+    backs off rather than aborting. Returns the converged
+    complex ``k_z`` or ``None`` on failure.
+
+  * ``_march_complex_dispersion(det_fn, freq_grid, kz_start, *,
+    xtol)`` -- frequency-marching loop with **scale-invariant
+    continuation**: the next step's initial guess is
+    ``k_z_prev * (f / f_prev)``, which keeps the seed on the
+    constant-slowness extrapolation of the previous step. This
+    handles the multiplicative ``k_z`` jumps typical of bound-
+    mode dispersion (Stoneley ``k_z`` doubles when frequency
+    doubles) without losing the local-quadratic convergence of
+    the per-step solver. Returns a NaN-padded complex array;
+    once a step fails, the remaining steps stay NaN.
+
+  Branch tracking across leaky-vs-bound transitions is the
+  caller's responsibility (the marcher just walks the grid as
+  given). Standard pattern: ``det_fn`` internally calls
+  ``_detect_leaky_branches`` from L2 to re-classify the regime
+  at each evaluation, OR the caller splits the frequency grid
+  at the cutoff and calls the marcher separately on each side.
+
+  This phase is purely the root-finding mechanics. The leaky-
+  mode public APIs (``pseudo_rayleigh_dispersion``, fast-
+  formation flexural, quadrupole) build on top in phases L4-L6.
+
+  7 new tests cover: linear synthetic root (exact recovery);
+  closest-root selection on a quadratic; exception-safety of the
+  tracker; synthetic linear dispersion (constant complex
+  slowness); large-multiplicative-frequency-jump continuation
+  (Stoneley-like ``k_z`` scaling); smoothly drifting complex
+  dispersion (both Re and Im of slowness drifting with
+  frequency); end-to-end regression -- the marcher composed with
+  ``_modal_determinant_n0_complex`` recovers the existing
+  ``stoneley_dispersion`` result to ~1e-10 relative precision.
+
 - **Leaky-mode scaffolding for the cylindrical-Biot solver**
   (Roadmap A continuation, phases L1 + L2). Mathematical
   scaffolding -- complex-``k_z`` sign conventions, Hankel-

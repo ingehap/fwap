@@ -3061,3 +3061,199 @@ def _modal_determinant_n0_complex(
                   [M21, M22, M23],
                   [M31, M32, M33]], dtype=complex)
     return complex(np.linalg.det(M))
+
+
+# ---------------------------------------------------------------------
+# L3 -- Complex-``k_z`` root finder + frequency-marching tracker.
+# ---------------------------------------------------------------------
+#
+# The bound-mode solvers above use ``scipy.optimize.brentq`` on a
+# real-valued determinant: at each frequency, bracket the root
+# along the real ``k_z`` axis and bisect. That doesn't extend to
+# complex ``k_z`` because there's no 1D bracketing in 2D.
+#
+# For the leaky regime, ``det M(k_z, omega)`` is a complex-valued
+# function of complex ``k_z``. A root is a point where both
+# ``Re(det)`` and ``Im(det)`` vanish simultaneously -- a 2D root-
+# finding problem. We solve it with ``scipy.optimize.root(method=
+# 'hybr')`` on the (Re, Im) split and chain successive frequencies
+# via a continuation marcher that uses each frequency's root as
+# the initial guess for the next.
+#
+# Algorithm summary:
+#
+#   * Single-frequency: :func:`_track_complex_root` wraps
+#     ``scipy.optimize.root`` and returns the converged complex
+#     ``k_z`` (or None on convergence failure).
+#
+#   * Frequency-marching: :func:`_march_complex_dispersion` walks
+#     a frequency grid, seeding the next step's initial guess
+#     from the previous step's converged root. Returns an array
+#     of complex ``k_z`` values, NaN where convergence failed.
+#
+# This module covers the ROOT-FINDING mechanics only. The
+# leaky-mode public APIs (pseudo-Rayleigh, fast-formation
+# flexural, quadrupole) build on top of these helpers in phases
+# L4-L6.
+
+
+def _track_complex_root(
+    det_fn,
+    kz_start: complex,
+    *,
+    xtol: float = 1.0e-12,
+) -> complex | None:
+    r"""
+    Find a complex root of ``det_fn`` near ``kz_start``.
+
+    Splits the complex determinant ``det_fn(kz)`` into its real
+    and imaginary parts and feeds them to
+    :func:`scipy.optimize.root` (Powell's hybrid method, ``hybr``)
+    as a 2-equation, 2-unknown nonlinear system.
+
+    Parameters
+    ----------
+    det_fn : callable
+        Function ``det_fn(kz: complex) -> complex``.
+    kz_start : complex
+        Initial guess for the root.
+    xtol : float, default 1e-12
+        Parameter-space convergence tolerance passed to
+        :func:`scipy.optimize.root`.
+
+    Returns
+    -------
+    complex or None
+        Converged complex ``k_z`` if successful; ``None`` if the
+        root finder failed (e.g. no root within the convergence
+        radius, det_fn raised on an iterate, etc.).
+
+    Notes
+    -----
+    The hybrid method works well for analytic complex det
+    functions when the initial guess is within the local-quadratic
+    convergence radius of the root. For dispersion-curve work the
+    typical use is via :func:`_march_complex_dispersion`, which
+    seeds each step from the previous step's root -- the local-
+    quadratic radius is then never the limiting factor.
+
+    The function is private because it's designed for the
+    leaky-mode public APIs in phases L4-L6, not as a general-
+    purpose user tool. Callers wanting a general complex-root
+    finder should use :func:`scipy.optimize.root` directly.
+    """
+    def _residual(x):
+        kz = complex(x[0], x[1])
+        try:
+            d = det_fn(kz)
+        except (ValueError, OverflowError, ZeroDivisionError):
+            # Return a large penalty residual so the solver
+            # backs off; raising would abort the iteration.
+            return [1.0e300, 1.0e300]
+        return [d.real, d.imag]
+
+    try:
+        result = optimize.root(
+            _residual,
+            x0=[float(kz_start.real), float(kz_start.imag)],
+            method='hybr',
+            options={'xtol': xtol},
+        )
+    except (ValueError, RuntimeError):
+        return None
+
+    if not result.success:
+        return None
+    return complex(result.x[0], result.x[1])
+
+
+def _march_complex_dispersion(
+    det_fn,
+    freq_grid: np.ndarray,
+    kz_start: complex,
+    *,
+    xtol: float = 1.0e-12,
+) -> np.ndarray:
+    r"""
+    Walk a complex root through a frequency grid via continuation.
+
+    For each frequency ``f`` in ``freq_grid`` (in ascending or
+    descending order, the marcher just consumes the grid as
+    given), call :func:`_track_complex_root` seeded by the
+    previous frequency's converged ``k_z``. The first step uses
+    ``kz_start`` as the seed.
+
+    Parameters
+    ----------
+    det_fn : callable
+        Function ``det_fn(kz: complex, omega: float) -> complex``.
+        The marcher binds ``omega`` per step and passes a
+        single-argument closure to :func:`_track_complex_root`.
+    freq_grid : ndarray, shape (n_f,)
+        Frequency grid in Hz. Order matters: the marcher walks
+        the grid sequentially, so a descending grid (high to low
+        frequency) is appropriate for modes that are easier to
+        bracket near a high-frequency asymptote (e.g., pseudo-
+        Rayleigh near ``1/V_S``).
+    kz_start : complex
+        Initial guess for the root at the FIRST frequency in
+        ``freq_grid``.
+    xtol : float, default 1e-12
+        Per-step convergence tolerance.
+
+    Returns
+    -------
+    ndarray, shape (n_f,) complex
+        Complex ``k_z`` at each frequency. NaN+NaNj where the
+        per-step root finder failed; once a step fails the
+        remaining steps stay NaN (the marcher cannot recover
+        without a fresh seed).
+
+    Notes
+    -----
+    The continuation strategy is what makes 2D root-finding
+    tractable for dispersion problems: the per-step problem only
+    needs to handle a *small* perturbation in ``k_z``, so
+    ``scipy.optimize.root`` always converges quickly when the
+    underlying physical mode is continuous. Cutoff frequencies
+    where the mode disappears appear naturally as convergence
+    failures, leaving NaN values that signal "mode not present
+    here" to downstream callers.
+
+    Branch tracking across leaky-vs-bound transitions is the
+    caller's responsibility: ``det_fn`` should internally re-
+    classify the regime via :func:`_detect_leaky_branches`
+    each time it's called, OR the caller should split the
+    frequency grid at the cutoff and call
+    :func:`_march_complex_dispersion` separately on each side.
+    """
+    f_arr = np.asarray(freq_grid, dtype=float)
+    n = f_arr.size
+    kz_curve = np.full(n, np.nan + 1j * np.nan, dtype=complex)
+    kz_prev = complex(kz_start)
+    f_prev: float | None = None
+    for i in range(n):
+        f = float(f_arr[i])
+        omega = 2.0 * np.pi * f
+        # Scale-invariant continuation in SLOWNESS: dispersion
+        # slowness varies slowly across frequency, while ``k_z``
+        # scales linearly with frequency. Seed the next step
+        # with ``k_z_prev * (f / f_prev)`` so the seed is on the
+        # constant-slowness extrapolation of the previous step --
+        # close to the actual root for any smooth dispersion law.
+        if f_prev is None:
+            kz_seed = kz_prev
+        else:
+            kz_seed = kz_prev * (f / f_prev)
+        det_at_omega = (lambda kz, _omega=omega:  # noqa: E731
+                        det_fn(kz, _omega))
+        kz_root = _track_complex_root(det_at_omega, kz_seed, xtol=xtol)
+        if kz_root is None:
+            # Mode disappeared at this frequency. Leave the rest
+            # of the curve as NaN; the marcher cannot continue
+            # without a fresh seed.
+            break
+        kz_curve[i] = kz_root
+        kz_prev = kz_root
+        f_prev = f
+    return kz_curve
