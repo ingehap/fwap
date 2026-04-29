@@ -187,6 +187,118 @@ a monopole gather and pseudo-Rayleigh does not exist:
        rho_fluid=1000.0, v_fluid=1500.0,
    )
 
+Drilling-decision stress-state pipeline -- from a density + sonic
+acquisition to a per-depth safe-mud-weight window for a vertical
+well:
+
+.. code-block:: python
+
+   from fwap import (
+       overburden_stress, hydrostatic_pressure,
+       pore_pressure_eaton, closure_stress,
+       unconfined_compressive_strength, tensile_strength_from_ucs,
+       safe_mud_weight_window,
+   )
+
+   # 1. Vertical stress from the density log.
+   sigma_v = overburden_stress(depth, density)
+   P_hydro = hydrostatic_pressure(depth)
+
+   # 2. Pore pressure from sonic via Eaton's normal-trend method.
+   #    Use ``pore_pressure_bowers`` instead when unloading
+   #    overpressure mechanisms (gas, diagenesis) are suspected.
+   P_p = pore_pressure_eaton(
+       sigma_v, slowness_observed, slowness_normal, depth=depth,
+   )
+
+   # 3. Minimum horizontal stress (Eaton 1969 closure).
+   sigma_h = closure_stress(poisson, sigma_v, pore_pressure_pa=P_p)
+
+   # 4. Rock strength from sonic + density (Lacy 1997 / Chang 2006).
+   ucs = unconfined_compressive_strength(vp, rho)
+   T = tensile_strength_from_ucs(ucs)            # ~10% rule
+
+   # 5. Safe mud-weight window: shear-breakout floor (Mohr-Coulomb)
+   #    and tensile-breakdown ceiling (Hubbert-Willis).
+   sigma_H = sigma_h + 0.4 * (sigma_v - P_p)     # generic anisotropy
+   window = safe_mud_weight_window(
+       sigma_H, sigma_h, P_p, ucs, tensile_strength=T,
+   )
+   # window.breakout_pressure (Pa); window.breakdown_pressure (Pa)
+   # window.width = breakdown - breakout
+   # window.is_drillable: True where the window has positive width
+
+For inclined / horizontal wells, swap to
+``inclined_safe_mud_weight_window(sigma_v, sigma_H, sigma_h, P_p,
+ucs, well_inclination_deg=..., well_azimuth_deg=...)`` -- same
+:class:`MudWeightWindow` return type, but the bounds come from a
+worst-azimuth scan around the wall after rotating the principal
+stresses into well-aligned coordinates.
+
+VTI forward modelling -- effective elastic tensor from a layered
+isotropic stack (Backus averaging) plus the qP / qSV / SH velocity
+surfaces:
+
+.. code-block:: python
+
+   from fwap import (
+       backus_average, vti_phase_velocities, vti_group_velocities,
+   )
+   import numpy as np
+
+   # Backus-average a thinly-bedded shale / sand interval.
+   b = backus_average(
+       thickness=np.array([0.5, 0.5, 0.3]),    # m
+       vp=np.array([2500.0, 3500.0, 2400.0]),
+       vs=np.array([1200.0, 2000.0, 1100.0]),
+       rho=np.array([2300.0, 2200.0, 2350.0]),
+   )
+   # b is a BackusResult with c11, c13, c33, c44, c66 (Pa) + rho.
+
+   # Phase velocities of qP / qSV / SH at 0-90 deg from the
+   # symmetry axis.
+   theta = np.linspace(0.0, np.pi / 2, 91)
+   v_qP, v_qSV, v_SH = vti_phase_velocities(
+       b.c11, b.c13, b.c33, b.c44, b.c66, b.rho,
+       phase_angle_rad=theta,
+   )
+
+   # Group velocities + group angles (the wavefront surface).
+   g = vti_group_velocities(
+       b.c11, b.c13, b.c33, b.c44, b.c66, b.rho,
+       phase_angle_rad=theta,
+   )
+   # Cartesian wavefront for the qP mode, unit-time:
+   x = g.v_qP * np.sin(g.psi_qP)
+   z = g.v_qP * np.cos(g.psi_qP)
+
+Cylindrical-Biot modal solver -- Stoneley and dipole-flexural
+dispersion curves directly from the Schmitt (1988) modal
+determinants:
+
+.. code-block:: python
+
+   from fwap import stoneley_dispersion, flexural_dispersion
+   import numpy as np
+
+   freq = np.linspace(500.0, 15000.0, 60)
+
+   # n=0 axisymmetric Stoneley mode (works in fast formations).
+   st = stoneley_dispersion(
+       freq, vp=4500.0, vs=2500.0, rho=2400.0,
+       vf=1500.0, rho_f=1000.0, a=0.1,
+   )
+
+   # n=1 dipole flexural mode. Slow-formation only (V_S < V_f);
+   # in fast formations the mode is narrowly leaky and outside
+   # the bound-mode solver scope.
+   fl = flexural_dispersion(
+       freq, vp=2200.0, vs=800.0, rho=2200.0,
+       vf=1500.0, rho_f=1000.0, a=0.1,
+   )
+   # st.slowness, fl.slowness arrays in s/m, NaN where the
+   # bracket failed (out-of-regime depths).
+
 LWD (logging-while-drilling) phenomenological layer -- collar
 contamination synthesis + slowness-band rejection:
 
