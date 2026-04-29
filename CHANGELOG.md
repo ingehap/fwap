@@ -7,6 +7,36 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Wellbore-stability analysis** — Kirsch (1898) wall-stress
+  primitive plus Mohr-Coulomb shear-breakout pressure
+  (``fwap.geomechanics.kirsch_wall_stresses`` and
+  ``mohr_coulomb_breakout_pressure``). Extends the geomechanics
+  module from indices to a drilling-decision deliverable: the
+  critical mud pressure below which the borehole wall fails in
+  shear at the breakout azimuth (perpendicular to the maximum
+  horizontal stress). Combined with the existing
+  ``overburden_stress`` -> ``pore_pressure_eaton`` ->
+  ``closure_stress`` -> ``unconfined_compressive_strength``
+  pipeline, the geomechanics module now produces the full
+  drilling stress-state log from a sonic + density acquisition
+  alone. Closed-form derivation:
+  ``P_w_crit = (3 sigma_H - sigma_h + (q-1) alpha P_p - UCS)
+  / (1 + q)`` with ``q = (1 + sin phi) / (1 - sin phi)``.
+  Documented assumptions: vertical well, normal-fault stress
+  regime (sigma_v as the intermediate principal stress is
+  assumed to be safe), no tensile-failure check
+  (the upper bound of the safe mud-weight window is a planned
+  follow-up). 14 new tests cover: Kirsch hand-derived values at
+  the breakout and breakdown azimuths, isotropic-horizontal-
+  stress azimuth-independence, mud-pressure linearity,
+  Poisson-and-deviator coupling for sigma_z; MC at-critical-
+  pressure inverse check, monotonicity in UCS / friction angle /
+  pore pressure / horizontal-stress anisotropy, Tresca
+  (zero-friction) and dry-rock (alpha=0) limits, friction-angle
+  validation; and an end-to-end pipeline test that chains
+  overburden -> pore pressure -> closure -> breakout from a
+  synthetic 30-depth log.
+
 - **Eaton (1975) sonic pore-pressure prediction**
   (``fwap.geomechanics.pore_pressure_eaton``). Closed-form
   pore-pressure log from a sonic-slowness log, an overburden-
