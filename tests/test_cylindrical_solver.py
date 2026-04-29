@@ -535,3 +535,252 @@ def test_flexural_dispersion_returns_borehole_mode_dataclass():
     assert res.azimuthal_order == 1
     np.testing.assert_array_equal(res.freq, f)
     assert res.slowness.shape == f.shape
+
+
+# =====================================================================
+# Leaky-mode scaffolding (Roadmap A continuation, phases L1 + L2)
+# =====================================================================
+#
+# Tests for the complex-aware n=0 modal determinant and its
+# supporting helpers. Phase L3 (the complex root finder) and
+# phases L4-L6 (public API for pseudo-Rayleigh, fast-formation
+# flexural, quadrupole) are planned follow-ups; this file pins the
+# regression invariants for L1+L2 only.
+
+
+# Standard parameter set used across the leaky-mode regression tests.
+LEAKY_VP = 4500.0
+LEAKY_VS = 2500.0
+LEAKY_RHO = 2400.0
+LEAKY_VF = 1500.0
+LEAKY_RHO_F = 1000.0
+LEAKY_A = 0.1
+
+
+# ---------------------------------------------------------------------
+# Regression: complex evaluator matches real evaluator in bound regime
+# ---------------------------------------------------------------------
+
+
+def test_complex_n0_matches_real_in_bound_regime():
+    """Real-valued ``_modal_determinant_n0`` and complex-valued
+    ``_modal_determinant_n0_complex`` must agree to floating-point
+    precision when called with real ``kz`` and both ``leaky_*``
+    flags False (the bound Stoneley regime).
+
+    This is THE regression invariant for the L2 refactor: as long
+    as it holds, the existing 16+ Stoneley tests cover the bound-
+    regime physics; the complex evaluator only adds new capability
+    on top."""
+    from fwap.cylindrical_solver import (
+        _modal_determinant_n0,
+        _modal_determinant_n0_complex,
+    )
+
+    omega = 2.0 * np.pi * 1000.0
+    # Stoneley-region bracket on a fast formation.
+    for kz in [5.0, 5.5, 6.0, 7.0]:
+        d_real = _modal_determinant_n0(
+            kz, omega, LEAKY_VP, LEAKY_VS, LEAKY_RHO,
+            LEAKY_VF, LEAKY_RHO_F, LEAKY_A,
+        )
+        d_complex = _modal_determinant_n0_complex(
+            complex(kz), omega, LEAKY_VP, LEAKY_VS, LEAKY_RHO,
+            LEAKY_VF, LEAKY_RHO_F, LEAKY_A,
+        )
+        # Real part agrees exactly.
+        assert abs(d_complex.real - d_real) / abs(d_real) < 1.0e-12, (
+            f"real-vs-complex mismatch at kz={kz}: "
+            f"real={d_real}, complex={d_complex}"
+        )
+        # Imaginary part is identically zero (complex arithmetic on
+        # purely real inputs).
+        assert d_complex.imag == 0.0
+
+
+def test_complex_n0_changes_sign_across_stoneley_root_in_bound_regime():
+    """The complex evaluator preserves the sign-change behaviour of
+    the real evaluator across the Stoneley root. Combined with the
+    matching-values test above, this guarantees that any future
+    real-axis root finder built on the complex evaluator finds
+    the same Stoneley root as the existing brentq-based solver."""
+    from fwap.cylindrical_solver import (
+        _modal_determinant_n0_complex,
+        stoneley_dispersion,
+    )
+
+    omega = 2.0 * np.pi * 1000.0
+    res = stoneley_dispersion(
+        np.array([1000.0]), vp=LEAKY_VP, vs=LEAKY_VS, rho=LEAKY_RHO,
+        vf=LEAKY_VF, rho_f=LEAKY_RHO_F, a=LEAKY_A,
+    )
+    kz_root = res.slowness[0] * omega
+    d_lo = _modal_determinant_n0_complex(
+        complex(kz_root * 0.999), omega, LEAKY_VP, LEAKY_VS,
+        LEAKY_RHO, LEAKY_VF, LEAKY_RHO_F, LEAKY_A,
+    )
+    d_hi = _modal_determinant_n0_complex(
+        complex(kz_root * 1.001), omega, LEAKY_VP, LEAKY_VS,
+        LEAKY_RHO, LEAKY_VF, LEAKY_RHO_F, LEAKY_A,
+    )
+    assert np.sign(d_lo.real) != np.sign(d_hi.real)
+
+
+# ---------------------------------------------------------------------
+# Branch detector
+# ---------------------------------------------------------------------
+
+
+def test_detect_leaky_branches_bound_regime_all_false():
+    """In the fully-bound regime (kz above ALL of omega/V_alpha),
+    every branch is bound. For a fast formation the binding
+    constraint is kz > omega/V_f (the largest of the three
+    omega/V_alpha thresholds when V_f < V_S < V_P). Pick a kz
+    well above that floor."""
+    from fwap.cylindrical_solver import _detect_leaky_branches
+
+    omega = 2.0 * np.pi * 1000.0
+    # In fast formation V_f is the smallest velocity, so omega/V_f
+    # is the largest of the three thresholds. Pick kz comfortably
+    # above it.
+    kz = omega / LEAKY_VF * 1.5
+    leaky_F, leaky_p, leaky_s = _detect_leaky_branches(
+        complex(kz), omega, LEAKY_VP, LEAKY_VS, LEAKY_VF,
+    )
+    assert leaky_F is False
+    assert leaky_p is False
+    assert leaky_s is False
+
+
+def test_detect_leaky_branches_pseudo_rayleigh_regime():
+    """In the pseudo-Rayleigh regime (kz between omega/V_P and
+    omega/V_S, fast formation V_S > V_f), the S branch is leaky;
+    the P branch stays bound. The fluid F branch is leaky in this
+    region too because kz < omega/V_f for typical fast-formation
+    parameters."""
+    from fwap.cylindrical_solver import _detect_leaky_branches
+
+    omega = 2.0 * np.pi * 1000.0
+    # Slowness just above 1/V_S; fast formation means kz < omega/V_f.
+    kz = omega / LEAKY_VS * 0.95
+    leaky_F, leaky_p, leaky_s = _detect_leaky_branches(
+        complex(kz), omega, LEAKY_VP, LEAKY_VS, LEAKY_VF,
+    )
+    assert leaky_s is True   # S radiates outward
+    assert leaky_p is False  # P stays bound (kz still > omega/V_P)
+    # F is leaky here because kz_pr = 2.4 < omega/V_f = 4.2.
+    assert leaky_F is True
+
+
+def test_detect_leaky_branches_fast_flexural_regime():
+    """In a fast formation, the flexural mode at slowness ~1/V_R
+    has phase velocity above V_f, so F^2 < 0 and the F branch is
+    leaky; p and s stay bound."""
+    from fwap.cylindrical import rayleigh_speed
+    from fwap.cylindrical_solver import _detect_leaky_branches
+
+    omega = 2.0 * np.pi * 5000.0
+    vR = rayleigh_speed(LEAKY_VP, LEAKY_VS)
+    # Slowness ~1/V_R for the high-f flexural asymptote.
+    kz = omega / vR
+    leaky_F, leaky_p, leaky_s = _detect_leaky_branches(
+        complex(kz), omega, LEAKY_VP, LEAKY_VS, LEAKY_VF,
+    )
+    assert leaky_F is True   # fluid radiates (V_R > V_f for fast formation)
+    assert leaky_p is False  # P stays bound
+    assert leaky_s is False  # S stays bound (kz > omega/V_S in flexural band)
+
+
+# ---------------------------------------------------------------------
+# K-or-Hankel helper
+# ---------------------------------------------------------------------
+
+
+def test_k_or_hankel_bound_branch_matches_kv():
+    """In the bound branch, ``_k_or_hankel`` returns exactly
+    ``scipy.special.kv`` values."""
+    from scipy import special
+
+    from fwap.cylindrical_solver import _k_or_hankel
+
+    alpha = 1.5  # arbitrary positive real
+    r = 0.1
+    K0_h, K1_h = _k_or_hankel(0, complex(alpha), r, leaky=False)
+    assert abs(K0_h.real - float(special.kv(0, alpha * r))) < 1.0e-15
+    assert abs(K1_h.real - float(special.kv(1, alpha * r))) < 1.0e-15
+    assert K0_h.imag == 0.0
+    assert K1_h.imag == 0.0
+
+
+def test_k_or_hankel_leaky_branch_returns_finite_complex():
+    """In the leaky branch, the Hankel-via-analytic-continuation
+    formula evaluates to a finite complex number."""
+    from fwap.cylindrical_solver import _k_or_hankel
+
+    # Imaginary alpha (the leaky-S case after sqrt of a negative
+    # alpha^2 with the principal-branch sign convention).
+    alpha = 0.5 + 1.5j
+    r = 0.1
+    K0_h, K1_h = _k_or_hankel(0, alpha, r, leaky=True)
+    assert np.isfinite(K0_h.real)
+    assert np.isfinite(K0_h.imag)
+    assert np.isfinite(K1_h.real)
+    assert np.isfinite(K1_h.imag)
+
+
+# ---------------------------------------------------------------------
+# Complex evaluator handles the leaky regime without exceptions
+# ---------------------------------------------------------------------
+
+
+def test_complex_n0_in_pseudo_rayleigh_regime_is_finite():
+    """The complex evaluator must not raise or return NaN in the
+    leaky regime; the value at a randomly-chosen point is just a
+    complex number whose root will be located by the L3 follow-up
+    root finder."""
+    from fwap.cylindrical_solver import (
+        _detect_leaky_branches,
+        _modal_determinant_n0_complex,
+    )
+
+    omega = 2.0 * np.pi * 5000.0
+    # A pseudo-Rayleigh-region kz: between omega/V_P and omega/V_S
+    # in the fast formation.
+    kz = omega / LEAKY_VS * 0.92
+    leaky_F, leaky_p, leaky_s = _detect_leaky_branches(
+        complex(kz), omega, LEAKY_VP, LEAKY_VS, LEAKY_VF,
+    )
+    d = _modal_determinant_n0_complex(
+        complex(kz), omega, LEAKY_VP, LEAKY_VS, LEAKY_RHO,
+        LEAKY_VF, LEAKY_RHO_F, LEAKY_A,
+        leaky_p=leaky_p, leaky_s=leaky_s,
+    )
+    assert np.isfinite(d.real)
+    assert np.isfinite(d.imag)
+
+
+def test_complex_n0_complex_kz_with_imaginary_part_finite():
+    """A complex kz with non-zero imaginary part (the typical
+    state of a leaky-mode dispersion locus) evaluates without
+    issue. The matrix is now genuinely complex-valued; the
+    determinant is finite."""
+    from fwap.cylindrical_solver import (
+        _detect_leaky_branches,
+        _modal_determinant_n0_complex,
+    )
+
+    omega = 2.0 * np.pi * 5000.0
+    kz = (omega / LEAKY_VS * 0.92) + 0.1j
+    leaky_F, leaky_p, leaky_s = _detect_leaky_branches(
+        kz, omega, LEAKY_VP, LEAKY_VS, LEAKY_VF,
+    )
+    d = _modal_determinant_n0_complex(
+        kz, omega, LEAKY_VP, LEAKY_VS, LEAKY_RHO,
+        LEAKY_VF, LEAKY_RHO_F, LEAKY_A,
+        leaky_p=leaky_p, leaky_s=leaky_s,
+    )
+    assert np.isfinite(d.real)
+    assert np.isfinite(d.imag)
+    # The determinant is non-trivially complex (i.e. has a non-zero
+    # imaginary part) when kz itself has a non-zero imaginary part.
+    assert d.imag != 0.0
