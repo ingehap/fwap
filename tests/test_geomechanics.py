@@ -1138,3 +1138,267 @@ def test_window_drillable_implies_pressure_in_range():
     # require recomputing the failure envelope; spot-check that
     # sigma_theta is finite and positive.
     assert float(sigma_t_breakout) > 0
+
+
+# =====================================================================
+# pore_pressure_bowers (loading + unloading branches)
+# =====================================================================
+
+
+# Bowers' (1995) GoM shale defaults used as the test calibration.
+BOWERS_V_ML = 1524.0   # m/s
+BOWERS_A = 14.02        # (m/s) / MPa^B
+BOWERS_B = 0.673
+BOWERS_U = 3.13
+
+
+def _bowers_loading_forward(sigma_eff_pa, V_ml=BOWERS_V_ML, A=BOWERS_A, B=BOWERS_B):
+    """Forward Bowers loading: V from sigma_eff. sigma_eff in Pa,
+    returns V in m/s. Used to synthesise test data."""
+    sigma_eff_MPa = sigma_eff_pa / 1.0e6
+    return V_ml + A * sigma_eff_MPa**B
+
+
+def _bowers_unloading_forward(sigma_eff_pa, sigma_max_pa,
+                              V_ml=BOWERS_V_ML, A=BOWERS_A,
+                              B=BOWERS_B, U=BOWERS_U):
+    """Forward Bowers unloading: V from sigma_eff and sigma_max.
+
+    V = V_ml + A * (sigma_max * (sigma_eff / sigma_max) ** (1/U)) ** B
+    """
+    sigma_max_MPa = sigma_max_pa / 1.0e6
+    sigma_eff_MPa = sigma_eff_pa / 1.0e6
+    inner = (sigma_eff_MPa / sigma_max_MPa) ** (1.0 / U)
+    return V_ml + A * (sigma_max_MPa * inner) ** B
+
+
+# ---------------------------------------------------------------------
+# Loading branch: round-trip recovery
+# ---------------------------------------------------------------------
+
+
+def test_bowers_loading_round_trip():
+    """Generate V from a known sigma_eff using the Bowers loading
+    forward formula; pass V into ``pore_pressure_bowers`` (default
+    loading branch); confirm round-trip recovery of the pore
+    pressure to high precision."""
+    from fwap.geomechanics import pore_pressure_bowers
+
+    sigma_v = np.array([10.0e6, 20.0e6, 30.0e6, 50.0e6, 70.0e6])
+    sigma_eff_true = np.array([5.0e6, 10.0e6, 15.0e6, 25.0e6, 35.0e6])
+    V = _bowers_loading_forward(sigma_eff_true)
+    P_p_recovered = pore_pressure_bowers(sigma_v, V)
+    P_p_expected = sigma_v - sigma_eff_true
+    np.testing.assert_allclose(P_p_recovered, P_p_expected, rtol=1.0e-9)
+
+
+def test_bowers_loading_at_mudline_velocity_gives_zero_effective_stress():
+    """V == V_ml means sigma_eff = 0, so P_p = sigma_v (full
+    pressure transferred to the fluid). Edge case that must work."""
+    from fwap.geomechanics import pore_pressure_bowers
+
+    sigma_v = np.array([20.0e6])
+    P_p = pore_pressure_bowers(sigma_v, np.array([BOWERS_V_ML]))
+    assert abs(float(P_p[0]) - float(sigma_v[0])) < 1.0e-6
+
+
+def test_bowers_loading_higher_velocity_gives_lower_pore_pressure():
+    """For a fixed overburden, higher V means higher effective
+    stress and thus LOWER pore pressure (the rock is more
+    competent)."""
+    from fwap.geomechanics import pore_pressure_bowers
+
+    sigma_v = 30.0e6
+    V_low = 1700.0
+    V_high = 2000.0
+    P_p_low_V = float(pore_pressure_bowers(
+        np.array([sigma_v]), np.array([V_low])
+    )[0])
+    P_p_high_V = float(pore_pressure_bowers(
+        np.array([sigma_v]), np.array([V_high])
+    )[0])
+    assert P_p_high_V < P_p_low_V
+
+
+# ---------------------------------------------------------------------
+# Unloading branch: round-trip recovery
+# ---------------------------------------------------------------------
+
+
+def test_bowers_unloading_round_trip():
+    """Generate V from a known sigma_eff using the unloading
+    forward formula; recover with the unloading branch."""
+    from fwap.geomechanics import pore_pressure_bowers
+
+    sigma_v = np.array([30.0e6, 50.0e6, 70.0e6])
+    sigma_max = np.array([20.0e6, 35.0e6, 50.0e6])
+    sigma_eff_true = np.array([8.0e6, 15.0e6, 22.0e6])
+    V = _bowers_unloading_forward(sigma_eff_true, sigma_max)
+    P_p_recovered = pore_pressure_bowers(
+        sigma_v, V, sigma_max_pa=sigma_max,
+    )
+    P_p_expected = sigma_v - sigma_eff_true
+    np.testing.assert_allclose(P_p_recovered, P_p_expected, rtol=1.0e-9)
+
+
+def test_bowers_unloading_predicts_higher_pore_pressure_than_loading():
+    """For the same V at a depth where the rock has been unloaded
+    from a higher peak stress, the unloading branch predicts a
+    HIGHER pore pressure than the loading branch -- the velocity
+    is "explained" by unloading rather than by lower-than-expected
+    effective stress on the loading curve. This is the signature
+    Eaton's method misses and Bowers' unloading branch captures."""
+    from fwap.geomechanics import pore_pressure_bowers
+
+    # Choose sigma_max such that V at peak is meaningful, then V_obs
+    # slightly below to simulate unloading.
+    sigma_v = np.array([60.0e6])
+    sigma_max = np.array([50.0e6])
+    # V_at_sigma_max = V_ml + A * sigma_max^B = ~1720 m/s; choose V
+    # below that so we're genuinely in the unloading regime.
+    V_obs = np.array([1700.0])
+
+    P_loading = float(pore_pressure_bowers(sigma_v, V_obs)[0])
+    P_unloading = float(pore_pressure_bowers(
+        sigma_v, V_obs, sigma_max_pa=sigma_max,
+    )[0])
+    assert P_unloading > P_loading
+
+
+# ---------------------------------------------------------------------
+# Comparison with Eaton on a normal-compaction profile
+# ---------------------------------------------------------------------
+
+
+def test_bowers_loading_agrees_with_hydrostatic_on_normal_compaction():
+    """On a perfectly normal-compaction profile (where V is
+    synthesised from sigma_eff = sigma_v - P_hydro), Bowers loading
+    must recover P_hydro to within the round-trip floating-point
+    precision. Skip z = 0 (trivial case) and start the test grid
+    at 100 m with a seed surface_value_pa so sigma_v already
+    incorporates the overburden above 100 m."""
+    from fwap.geomechanics import (
+        hydrostatic_pressure,
+        overburden_stress,
+        pore_pressure_bowers,
+    )
+
+    z = np.linspace(100.0, 3000.0, 30)
+    rho_const = 2400.0
+    rho = np.full_like(z, rho_const)
+    # Seed sigma_v at z[0] = 100 with the overburden of the unlogged
+    # 0-100 m above so sigma_v stays consistent with hydrostatic
+    # pressure (which is computed from absolute z).
+    surface_seed = rho_const * 9.80665 * z[0]
+    sigma_v = overburden_stress(z, rho, surface_value_pa=surface_seed)
+    P_hydro = hydrostatic_pressure(z)
+    sigma_eff_normal = sigma_v - P_hydro
+    assert np.all(sigma_eff_normal > 0)
+    V = _bowers_loading_forward(sigma_eff_normal)
+
+    P_p = pore_pressure_bowers(sigma_v, V)
+    np.testing.assert_allclose(P_p, P_hydro, rtol=1.0e-9)
+
+
+# ---------------------------------------------------------------------
+# Pipeline: overburden -> Bowers -> closure
+# ---------------------------------------------------------------------
+
+
+def test_bowers_feeds_closure_stress_pipeline():
+    """End-to-end: compute sigma_v from a density log, infer P_p
+    via Bowers loading, feed into closure_stress. Sanity checks on
+    the pressure ordering."""
+    from fwap.geomechanics import (
+        closure_stress,
+        hydrostatic_pressure,
+        overburden_stress,
+        pore_pressure_bowers,
+    )
+
+    z = np.linspace(100.0, 3000.0, 30)
+    rho_const = 2400.0
+    rho = np.full_like(z, rho_const)
+    surface_seed = rho_const * 9.80665 * z[0]
+    sigma_v = overburden_stress(z, rho, surface_value_pa=surface_seed)
+    P_hydro = hydrostatic_pressure(z)
+
+    # Slightly overpressured: V_op = V_normal - 50 m/s in mid-section
+    sigma_eff_normal = sigma_v - P_hydro
+    V = _bowers_loading_forward(sigma_eff_normal)
+    op_zone = (z >= 1500.0) & (z <= 2000.0)
+    V[op_zone] -= 50.0
+
+    P_p = pore_pressure_bowers(sigma_v, V)
+    nu = np.full_like(z, 0.25)
+    sigma_h = closure_stress(nu, sigma_v, pore_pressure_pa=P_p)
+
+    # Pressure ordering at every depth: 0 <= P_hydro <= P_p <= sigma_h <= sigma_v.
+    assert np.all(P_p >= P_hydro - 1.0e-3)
+    assert np.all(P_p <= sigma_v + 1.0e-3)
+    assert np.all(sigma_h <= sigma_v + 1.0e-3)
+
+
+# ---------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------
+
+
+def test_bowers_rejects_velocity_below_mudline():
+    """V < V_ml gives a complex effective stress; raise."""
+    import pytest
+
+    from fwap.geomechanics import pore_pressure_bowers
+
+    with pytest.raises(ValueError, match="mudline_velocity"):
+        pore_pressure_bowers(
+            np.array([20.0e6]),
+            np.array([1000.0]),  # below default 1524
+        )
+
+
+def test_bowers_rejects_non_positive_calibration_constants():
+    """Non-positive V_ml, A, B, or U all raise."""
+    import pytest
+
+    from fwap.geomechanics import pore_pressure_bowers
+
+    base = dict(
+        sigma_v_pa=np.array([20.0e6]),
+        sonic_velocity=np.array([2000.0]),
+    )
+    with pytest.raises(ValueError, match="mudline_velocity"):
+        pore_pressure_bowers(**base, mudline_velocity=0.0)
+    with pytest.raises(ValueError, match="bowers_A"):
+        pore_pressure_bowers(**base, bowers_A=0.0)
+    with pytest.raises(ValueError, match="bowers_B"):
+        pore_pressure_bowers(**base, bowers_B=-1.0)
+    with pytest.raises(ValueError, match="unloading_exponent"):
+        pore_pressure_bowers(**base, unloading_exponent=0.0)
+
+
+def test_bowers_rejects_non_positive_sigma_max():
+    """sigma_max_pa must be strictly positive when supplied."""
+    import pytest
+
+    from fwap.geomechanics import pore_pressure_bowers
+
+    with pytest.raises(ValueError, match="sigma_max_pa"):
+        pore_pressure_bowers(
+            np.array([20.0e6]),
+            np.array([2000.0]),
+            sigma_max_pa=np.array([0.0]),
+        )
+
+
+def test_bowers_rejects_negative_sigma_v():
+    """Negative overburden raises."""
+    import pytest
+
+    from fwap.geomechanics import pore_pressure_bowers
+
+    with pytest.raises(ValueError, match="sigma_v_pa"):
+        pore_pressure_bowers(
+            np.array([-1.0e6]),
+            np.array([2000.0]),
+        )

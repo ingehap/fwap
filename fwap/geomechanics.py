@@ -1276,3 +1276,218 @@ def safe_mud_weight_window(
         breakdown_pressure=np.asarray(P_breakdown, dtype=float),
     )
 
+
+# ---------------------------------------------------------------------
+# Bowers (1995) sonic pore-pressure with unloading branch
+# ---------------------------------------------------------------------
+
+
+def pore_pressure_bowers(
+    sigma_v_pa: np.ndarray,
+    sonic_velocity: np.ndarray,
+    *,
+    mudline_velocity: float = 1524.0,
+    bowers_A: float = 14.02,
+    bowers_B: float = 0.673,
+    sigma_max_pa: np.ndarray | float | None = None,
+    unloading_exponent: float = 3.13,
+) -> np.ndarray:
+    r"""
+    Bowers (1995) sonic pore-pressure prediction with optional unloading.
+
+    Velocity-effective-stress closed form
+    :math:`V = V_\mathrm{ml} + A\,\sigma'{}^B`, inverted for the
+    effective stress :math:`\sigma' = \sigma_v - P_p` and then for
+    the pore pressure. Two branches:
+
+    * **Loading (virgin curve)**: when the rock has never
+      experienced a higher effective stress, the velocity is on
+      the loading curve and
+
+      .. math::
+
+          \sigma' \;=\; \left(\frac{V - V_\mathrm{ml}}{A}\right)^{1/B},
+          \qquad
+          P_p \;=\; \sigma_v - \sigma'.
+
+      Selected when ``sigma_max_pa`` is ``None``.
+
+    * **Unloading**: when the rock has been unloaded from a
+      previous peak effective stress :math:`\sigma_\mathrm{max}`
+      (e.g. by overpressure generation post-burial), the velocity
+      is on the unloading curve
+
+      .. math::
+
+          \sigma' \;=\; \sigma_\mathrm{max} \cdot
+              \left(
+                  \frac{V - V_\mathrm{ml}}
+                       {A\,\sigma_\mathrm{max}^B}
+              \right)^{U/B},
+          \qquad
+          P_p \;=\; \sigma_v - \sigma'.
+
+      Selected when ``sigma_max_pa`` is supplied. The unloading
+      exponent :math:`U > B` is what makes the unloading curve
+      steeper than the loading curve for a given velocity drop --
+      the physical signature of unloading-driven overpressure that
+      Eaton's method (which assumes loading-only behaviour)
+      misses.
+
+    Why Bowers vs Eaton (per the geophysics literature)
+    ---------------------------------------------------
+    Eaton's method (:func:`pore_pressure_eaton`) assumes the rock
+    is on a normal-compaction trend, i.e. on the loading curve.
+    For overpressure that arises *during* burial from
+    undercompaction (the most common mechanism), Eaton works well.
+
+    For overpressure caused by post-burial unloading mechanisms --
+    gas generation, clay-diagenetic dehydration, hydrocarbon
+    expulsion, lateral fluid migration -- the rock has been
+    unloaded from a higher peak effective stress and now sits on a
+    different (steeper) velocity-stress curve. Eaton applied to
+    such a rock under-estimates pore pressure (predicts lower than
+    actual). Bowers' unloading branch is the standard correction.
+
+    Parameters
+    ----------
+    sigma_v_pa : ndarray
+        Vertical (overburden) stress at each depth (Pa). Use
+        :func:`overburden_stress`.
+    sonic_velocity : ndarray
+        Sonic compressional-wave velocity at each depth (m/s).
+        Same shape as ``sigma_v_pa``. Must be strictly greater
+        than ``mudline_velocity``.
+    mudline_velocity : float, default 1524.0
+        Sonic velocity at the mudline / surface (m/s). Default
+        1524 m/s (5000 ft/s) is Bowers' (1995) Gulf of Mexico
+        shale calibration.
+    bowers_A : float, default 14.02
+        Bowers' velocity-stress coefficient :math:`A`. Units
+        ``(m/s) / MPa^B``. Default 14.02 is a commonly cited
+        SI conversion of the Gulf of Mexico shale calibration; for
+        production work this should be re-calibrated against well
+        data.
+    bowers_B : float, default 0.673
+        Bowers' velocity-stress exponent :math:`B`. Default 0.673
+        for Gulf of Mexico shales.
+    sigma_max_pa : ndarray, float, or None, optional
+        Per-depth maximum effective stress (Pa) the rock has
+        previously experienced. When supplied, the unloading
+        branch is used. ``None`` (default) selects the loading
+        (virgin) branch.
+    unloading_exponent : float, default 3.13
+        The unloading exponent :math:`U`. Default 3.13 is
+        Bowers' (1995) GoM shale fit. Values 3 to 8 are
+        typical for clay-rich shales; only used when
+        ``sigma_max_pa`` is supplied.
+
+    Returns
+    -------
+    ndarray
+        Estimated pore pressure (Pa) at each depth.
+
+    Raises
+    ------
+    ValueError
+        If ``mudline_velocity``, ``bowers_A``, ``bowers_B``,
+        or ``unloading_exponent`` is non-positive; if any
+        ``sonic_velocity <= mudline_velocity`` (the formula
+        becomes complex / undefined); if ``sigma_max_pa``
+        contains non-positive values.
+
+    Notes
+    -----
+    **Unit convention**: the formula uses :math:`\sigma'` in
+    *megapascals* internally (so ``A`` has units
+    ``(m/s)/MPa^B``). All function inputs and outputs are in SI:
+    pressures in Pa, velocity in m/s. The Pa <-> MPa conversion
+    happens internally; users see a clean SI interface.
+
+    **Calibration is basin-specific**. The default ``A``, ``B``,
+    ``V_ml``, ``U`` come from Bowers' original Gulf of Mexico
+    shale fit. Other basins (Caspian, North Sea, Bohai Bay) need
+    different calibrations -- typically derived by least-squares
+    fitting on a presumed-normal section of the well. See Sayers
+    (2010) for the procedure.
+
+    **Loading vs unloading selection** is the user's call: this
+    function does not auto-detect which branch to use, because the
+    correct choice depends on the rock's burial history (which the
+    function does not have access to). A pragmatic workflow:
+
+    1. Compute Eaton-style P_p first, identify the depths where
+       it predicts overpressure.
+    2. For those depths, check if the lithology is gas-bearing
+       or has experienced clay diagenesis (use mineralogy logs).
+    3. Where unloading mechanisms are plausible, re-compute with
+       Bowers' unloading branch using ``sigma_max_pa`` set to the
+       loading-curve effective stress at peak burial depth (often
+       the maximum of the loading-curve P_p across the well).
+
+    See Also
+    --------
+    pore_pressure_eaton : The undercompaction-based alternative.
+        Suitable for the loading branch of compaction-driven
+        overpressure.
+    overburden_stress : Companion vertical-stress integral.
+    closure_stress : Once P_p is known, feeds directly into
+        the closure-stress estimate.
+
+    References
+    ----------
+    * Bowers, G. L. (1995). Pore pressure estimation from velocity
+      data: Accounting for overpressure mechanisms besides
+      undercompaction. *SPE Drilling & Completion* 10(2), 89-95.
+    * Sayers, C. M. (2010). *Geophysics Under Stress.*
+      Distinguished Instructor Series, SEG, Section 5.4
+      (calibration procedure for the Bowers parameters).
+    * Zhang, J. (2011). Pore pressure prediction from well logs.
+      *Earth-Science Reviews* 108(1-2), 50-63 (review of
+      Bowers + Eaton + competing methods).
+    """
+    if mudline_velocity <= 0:
+        raise ValueError("mudline_velocity must be positive")
+    if bowers_A <= 0:
+        raise ValueError("bowers_A must be positive")
+    if bowers_B <= 0:
+        raise ValueError("bowers_B must be positive")
+    if unloading_exponent <= 0:
+        raise ValueError("unloading_exponent must be positive")
+
+    sigma_v = np.asarray(sigma_v_pa, dtype=float)
+    V = np.asarray(sonic_velocity, dtype=float)
+
+    if np.any(sigma_v < 0):
+        raise ValueError("sigma_v_pa must be non-negative")
+    if np.any(V < mudline_velocity):
+        raise ValueError(
+            "sonic_velocity must be >= mudline_velocity (Bowers' formula "
+            "becomes complex / non-physical below the mudline value; "
+            "V == mudline_velocity is allowed and gives sigma_eff = 0)"
+        )
+
+    # Convert Pa <-> MPa for the velocity-stress relation.
+    PA_PER_MPA = 1.0e6
+
+    if sigma_max_pa is None:
+        # Loading (virgin) branch.
+        sigma_eff_MPa = ((V - mudline_velocity) / bowers_A) ** (1.0 / bowers_B)
+    else:
+        sigma_max = np.asarray(sigma_max_pa, dtype=float)
+        if np.any(sigma_max <= 0):
+            raise ValueError("sigma_max_pa must be strictly positive")
+        sigma_max_MPa = sigma_max / PA_PER_MPA
+        # Unloading branch: sigma_eff = sigma_max * ratio^(U/B)
+        # where ratio = (V - V_ml) / (A * sigma_max^B).
+        ratio = (V - mudline_velocity) / (bowers_A * sigma_max_MPa**bowers_B)
+        if np.any(ratio < 0):
+            raise ValueError(
+                "Bowers unloading-branch ratio went negative; check that "
+                "V > mudline_velocity and that sigma_max is reasonable."
+            )
+        sigma_eff_MPa = sigma_max_MPa * ratio ** (unloading_exponent / bowers_B)
+
+    P_p = sigma_v - sigma_eff_MPa * PA_PER_MPA
+    return P_p
+
