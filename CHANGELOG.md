@@ -7,6 +7,43 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **``BoreholeMode.attenuation_per_meter`` field + experimental
+  pseudo-Rayleigh scaffolding** (Roadmap A continuation, partial
+  L4). Adds an optional ``attenuation_per_meter: ndarray | None``
+  field to the :class:`BoreholeMode` dataclass, default None for
+  backward compatibility with the existing bound-mode solvers
+  (Stoneley and slow-formation flexural). Leaky modes populate
+  the field with ``Im(k_z)`` to expose the spatial attenuation
+  rate in 1/m. Also adds two private helpers:
+  ``_pseudo_rayleigh_kz_seed(omega, vs)`` returns a sensible
+  initial-guess seed at the high-f body-S asymptote with a small
+  positive imaginary perturbation;
+  ``_pseudo_rayleigh_dispersion_experimental(...)`` composes the
+  L1+L2+L3 scaffolding into a first-cut leaky-mode dispersion
+  function.
+
+  **Honest scope statement**: the experimental function is
+  flagged as such because ``scipy.optimize.root`` (used by
+  ``_track_complex_root``) tends to converge to the Stoneley
+  branch near the pseudo-Rayleigh cutoff -- the two roots are
+  close in residual landscape and Newton-style iteration loses
+  the target branch. A slowness-band filter (slowness < 1/V_f)
+  cleanly removes the resulting Stoneley-contaminated values
+  but does not recover the pseudo-Rayleigh values that should
+  have been there. The robust public-API
+  ``pseudo_rayleigh_dispersion`` is deferred to a future PR
+  alongside Mueller-iteration root finding and root deflation.
+  The experimental function is exposed at module level (with
+  underscore prefix, NOT in ``fwap`` exports) so the L5 / L6
+  follow-ups can build on the same scaffolding pattern.
+
+  8 new tests cover: dataclass-extension contract (default-None
+  field; existing solvers still work; field accepts ndarray);
+  experimental function returns a properly-typed BoreholeMode
+  with populated attenuation; slow-formation rejection; non-
+  positive frequency rejection; slowness-band filter (no
+  returned slowness exceeds 1/V_f); seed function correctness.
+
 - **Complex-``k_z`` root finder + frequency-marching tracker for
   the leaky-mode solver** (Roadmap A continuation, phase L3). Two
   new private helpers in ``fwap.cylindrical_solver``:
