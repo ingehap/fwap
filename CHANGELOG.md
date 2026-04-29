@@ -7,6 +7,41 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Inclined tensile-breakdown pressure + inclined safe mud-weight
+  window** -- completes the wellbore-stability symmetry between
+  vertical and inclined wells. Two new public functions in
+  ``fwap.geomechanics``:
+
+  * ``inclined_breakdown_pressure(...)``: Mohr-style tensile-
+    failure scan around the wall of an inclined well. Diagonalises
+    the (theta, z) 2x2 sub-block at each azimuth, finds the
+    smallest eigenvalue lambda_-(theta, P_w), and bisects on the
+    worst-azimuth tensile-failure margin
+    ``min_theta lambda_- - alpha P_p + T``. Convention follows the
+    vertical ``tensile_breakdown_pressure``: ignores the radial
+    principal stress sigma_rr (which would always be most tensile
+    under positive pore pressure and would not match the standard
+    Hubbert-Willis fracture-initiation interpretation).
+
+  * ``inclined_safe_mud_weight_window(...)``: convenience wrapper
+    that combines ``inclined_breakout_pressure`` and
+    ``inclined_breakdown_pressure`` and returns the same
+    :class:`MudWeightWindow` dataclass used by the vertical
+    counterpart, with ``width`` and ``is_drillable`` properties.
+
+  Vertical-well consistency: at ``well_inclination_deg = 0`` both
+  functions match the vertical closed forms to within the
+  azimuth-grid resolution (verified by test). For a typical
+  drillable scenario, the safe window narrows from 31.25 MPa
+  (vertical) to 13.75 MPa (horizontal) -- breakout rises, breakdown
+  falls, net width drops; the well remains drillable but with
+  much less mud-weight margin. 10 new tests cover: vertical
+  consistency for both bounds; monotonicity in inclination,
+  tensile strength, pore pressure; the not-drillable-in-tension-
+  at-zero-mud edge case; ``MudWeightWindow`` dataclass contract;
+  vertical-window equivalence; window narrowing with inclination;
+  horizontal-well drillability; input validation.
+
 - **Inclined-wellbore stability** -- generalized Kirsch wall
   stresses (Hiramatsu-Oka 1962, Fairhurst 1968) and Mohr-Coulomb
   shear-breakout pressure for arbitrarily oriented wells in
