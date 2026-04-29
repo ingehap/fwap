@@ -337,3 +337,279 @@ def test_geomechanics_indices_pipes_into_track_to_log_curves_path(tmp_path):
     np.testing.assert_allclose(
         loaded.curves["BRIT"], out.brittleness, rtol=0, atol=1e-3
     )
+
+
+# =====================================================================
+# hydrostatic_pressure
+# =====================================================================
+
+
+def test_hydrostatic_pressure_at_zero_depth_is_zero():
+    """At surface, P_hydro = 0 by construction."""
+    from fwap.geomechanics import hydrostatic_pressure
+
+    p = hydrostatic_pressure(np.array([0.0]))
+    assert p[0] == 0.0
+
+
+def test_hydrostatic_pressure_linear_in_depth():
+    """P_hydro = rho_w * g * z; should be linear in z with slope
+    rho_w * g."""
+    from fwap.geomechanics import hydrostatic_pressure
+
+    z = np.array([0.0, 1000.0, 2000.0, 3000.0])
+    p = hydrostatic_pressure(z, fluid_density=1000.0)
+    # 1000 m of fresh water = ~9.81 MPa.
+    expected = 1000.0 * 9.80665 * z
+    np.testing.assert_allclose(p, expected, rtol=1.0e-12)
+
+
+def test_hydrostatic_pressure_brine_higher_than_freshwater():
+    """A heavier fluid (brine ~ 1080 kg/m^3) gives higher P_hydro
+    at every depth."""
+    from fwap.geomechanics import hydrostatic_pressure
+
+    z = np.array([1000.0])
+    fresh = hydrostatic_pressure(z, fluid_density=1000.0)
+    brine = hydrostatic_pressure(z, fluid_density=1080.0)
+    assert brine[0] > fresh[0]
+    # Ratio matches the density ratio.
+    assert abs(brine[0] / fresh[0] - 1.08) < 1.0e-12
+
+
+def test_hydrostatic_pressure_rejects_negative_depth():
+    """Negative depth (above datum) is unphysical and raises."""
+    import pytest
+
+    from fwap.geomechanics import hydrostatic_pressure
+
+    with pytest.raises(ValueError, match="depth"):
+        hydrostatic_pressure(np.array([-100.0]))
+
+
+def test_hydrostatic_pressure_rejects_non_positive_density():
+    """Zero or negative fluid density raises."""
+    import pytest
+
+    from fwap.geomechanics import hydrostatic_pressure
+
+    with pytest.raises(ValueError, match="fluid_density"):
+        hydrostatic_pressure(np.array([1000.0]), fluid_density=0.0)
+
+
+# =====================================================================
+# pore_pressure_eaton
+# =====================================================================
+
+
+def test_eaton_normal_compaction_recovers_hydrostatic():
+    """When observed slowness equals the normal-compaction trend,
+    the slowness ratio is 1, and Eaton's formula reduces to
+    P_pore = sigma_v - (sigma_v - P_hydro) * 1 = P_hydro."""
+    from fwap.geomechanics import pore_pressure_eaton
+
+    sigma_v = np.array([20.0e6, 40.0e6, 60.0e6])
+    s_obs = np.array([3.0e-4, 2.5e-4, 2.2e-4])
+    s_normal = s_obs.copy()  # exactly on the trend
+    P_hydro = np.array([10.0e6, 20.0e6, 30.0e6])
+
+    P_pore = pore_pressure_eaton(
+        sigma_v, s_obs, s_normal, hydrostatic_pressure_pa=P_hydro
+    )
+    np.testing.assert_allclose(P_pore, P_hydro, rtol=1.0e-12)
+
+
+def test_eaton_severe_overpressure_approaches_overburden():
+    """In the limit of extreme overpressure (s_obs >> s_normal), the
+    ratio (s_normal/s_obs)^n -> 0, so P_pore -> sigma_v."""
+    from fwap.geomechanics import pore_pressure_eaton
+
+    sigma_v = np.array([40.0e6])
+    s_obs = np.array([1.0e-3])  # very slow (severely undercompacted)
+    s_normal = np.array([2.5e-4])  # normal trend
+    P_hydro = np.array([20.0e6])
+
+    P_pore = pore_pressure_eaton(
+        sigma_v, s_obs, s_normal, hydrostatic_pressure_pa=P_hydro
+    )
+    # ratio = 0.25; ratio^3 = 0.0156; P_pore = 40 - (40-20)*0.0156 = 39.7 MPa
+    assert P_pore[0] > 0.95 * sigma_v[0]
+
+
+def test_eaton_overpressure_between_hydro_and_overburden():
+    """A moderate overpressure (ratio = 0.7) gives P_pore strictly
+    between P_hydro and sigma_v."""
+    from fwap.geomechanics import pore_pressure_eaton
+
+    sigma_v = np.array([40.0e6])
+    s_normal = np.array([2.5e-4])
+    s_obs = s_normal / 0.7  # ratio = 0.7
+    P_hydro = np.array([20.0e6])
+
+    P_pore = pore_pressure_eaton(
+        sigma_v, s_obs, s_normal, hydrostatic_pressure_pa=P_hydro
+    )
+    assert P_hydro[0] < P_pore[0] < sigma_v[0]
+
+
+def test_eaton_subhydrostatic_below_hydrostatic():
+    """If observed slowness is faster than the trend (depleted /
+    overcompacted zone), the ratio > 1 and P_pore < P_hydro."""
+    from fwap.geomechanics import pore_pressure_eaton
+
+    sigma_v = np.array([40.0e6])
+    s_normal = np.array([2.5e-4])
+    s_obs = s_normal / 1.2  # ratio = 1.2
+    P_hydro = np.array([20.0e6])
+
+    P_pore = pore_pressure_eaton(
+        sigma_v, s_obs, s_normal, hydrostatic_pressure_pa=P_hydro
+    )
+    assert P_pore[0] < P_hydro[0]
+
+
+def test_eaton_with_depth_matches_explicit_hydrostatic():
+    """Passing depth (and letting the function compute hydrostatic)
+    must agree with explicitly passing hydrostatic_pressure_pa."""
+    from fwap.geomechanics import hydrostatic_pressure, pore_pressure_eaton
+
+    z = np.array([1000.0, 2000.0, 3000.0])
+    sigma_v = np.array([20.0e6, 40.0e6, 60.0e6])
+    s_obs = np.array([3.0e-4, 2.7e-4, 2.5e-4])
+    s_normal = s_obs * 0.9
+
+    P_explicit = pore_pressure_eaton(
+        sigma_v, s_obs, s_normal,
+        hydrostatic_pressure_pa=hydrostatic_pressure(z),
+    )
+    P_via_depth = pore_pressure_eaton(
+        sigma_v, s_obs, s_normal, depth=z,
+    )
+    np.testing.assert_allclose(P_via_depth, P_explicit, rtol=1.0e-12)
+
+
+def test_eaton_exponent_amplifies_departure_from_normal():
+    """A higher Eaton exponent makes P_pore more sensitive to
+    departures of the slowness ratio from 1. Specifically: at ratio
+    < 1 (overpressure), higher n produces higher P_pore."""
+    from fwap.geomechanics import pore_pressure_eaton
+
+    sigma_v = np.array([40.0e6])
+    s_normal = np.array([2.5e-4])
+    s_obs = np.array([s_normal[0] / 0.8])  # ratio = 0.8
+    P_hydro = np.array([20.0e6])
+
+    P_n3 = pore_pressure_eaton(
+        sigma_v, s_obs, s_normal,
+        hydrostatic_pressure_pa=P_hydro, eaton_exponent=3.0,
+    )
+    P_n6 = pore_pressure_eaton(
+        sigma_v, s_obs, s_normal,
+        hydrostatic_pressure_pa=P_hydro, eaton_exponent=6.0,
+    )
+    assert P_n6[0] > P_n3[0]
+
+
+def test_eaton_round_trip_with_overburden_log():
+    """End-to-end: compute sigma_v from a density log, run Eaton on
+    a synthetic overpressure profile, check the result is bounded
+    below by P_hydro and above by sigma_v at every depth, and
+    matches P_hydro outside the overpressure zone."""
+    from fwap.geomechanics import (
+        hydrostatic_pressure,
+        overburden_stress,
+        pore_pressure_eaton,
+    )
+
+    z = np.linspace(0.0, 3000.0, 31)
+    rho = np.full_like(z, 2400.0)
+    sigma_v = overburden_stress(z, rho)
+    P_hydro = hydrostatic_pressure(z)
+
+    s_normal = 2.5e-4 * np.exp(-z / 6000.0)  # log-linear trend
+    s_obs = s_normal.copy()
+    overpressure = (z >= 1500.0) & (z <= 2000.0)
+    s_obs[overpressure] *= 1.3
+
+    P_pore = pore_pressure_eaton(sigma_v, s_obs, s_normal, depth=z)
+
+    # Outside the overpressure zone, P_pore must equal P_hydro.
+    outside = ~overpressure
+    np.testing.assert_allclose(
+        P_pore[outside], P_hydro[outside], rtol=1.0e-12
+    )
+    # Inside the overpressure zone, P_hydro < P_pore < sigma_v.
+    assert np.all(P_pore[overpressure] > P_hydro[overpressure])
+    assert np.all(P_pore[overpressure] < sigma_v[overpressure])
+
+
+# Input validation
+# ---------------------------------------------------------------------
+
+
+def test_eaton_requires_hydrostatic_or_depth():
+    """At least one of hydrostatic_pressure_pa or depth must be
+    supplied; otherwise raise."""
+    import pytest
+
+    from fwap.geomechanics import pore_pressure_eaton
+
+    with pytest.raises(ValueError, match="hydrostatic_pressure_pa or depth"):
+        pore_pressure_eaton(
+            np.array([20.0e6]),
+            np.array([3.0e-4]),
+            np.array([2.5e-4]),
+        )
+
+
+def test_eaton_rejects_non_positive_slowness():
+    """Zero or negative slowness raises."""
+    import pytest
+
+    from fwap.geomechanics import pore_pressure_eaton
+
+    with pytest.raises(ValueError, match="slowness"):
+        pore_pressure_eaton(
+            np.array([20.0e6]),
+            np.array([0.0]),
+            np.array([2.5e-4]),
+            hydrostatic_pressure_pa=np.array([10.0e6]),
+        )
+    with pytest.raises(ValueError, match="slowness"):
+        pore_pressure_eaton(
+            np.array([20.0e6]),
+            np.array([3.0e-4]),
+            np.array([-1.0]),
+            hydrostatic_pressure_pa=np.array([10.0e6]),
+        )
+
+
+def test_eaton_rejects_non_positive_exponent():
+    """The Eaton exponent must be positive."""
+    import pytest
+
+    from fwap.geomechanics import pore_pressure_eaton
+
+    with pytest.raises(ValueError, match="eaton_exponent"):
+        pore_pressure_eaton(
+            np.array([20.0e6]),
+            np.array([3.0e-4]),
+            np.array([2.5e-4]),
+            hydrostatic_pressure_pa=np.array([10.0e6]),
+            eaton_exponent=0.0,
+        )
+
+
+def test_eaton_rejects_negative_sigma_v():
+    """Negative overburden stress is unphysical and raises."""
+    import pytest
+
+    from fwap.geomechanics import pore_pressure_eaton
+
+    with pytest.raises(ValueError, match="sigma_v_pa"):
+        pore_pressure_eaton(
+            np.array([-1.0e6]),
+            np.array([3.0e-4]),
+            np.array([2.5e-4]),
+            hydrostatic_pressure_pa=np.array([10.0e6]),
+        )

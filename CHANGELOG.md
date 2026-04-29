@@ -7,6 +7,29 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Eaton (1975) sonic pore-pressure prediction**
+  (``fwap.geomechanics.pore_pressure_eaton``). Closed-form
+  pore-pressure log from a sonic-slowness log, an overburden-
+  stress log, and a normal-compaction-trend slowness:
+  ``P_p = sigma_v - (sigma_v - P_hydro) * (Dt_normal / Dt_obs)^n``
+  with the standard Eaton exponent ``n = 3.0``. Plus a helper
+  ``hydrostatic_pressure(depth, fluid_density=1000.0)`` that
+  computes :math:`P_\mathrm{hydro} = \rho_w \, g \, z`. Closes
+  a missing-input gap in the existing ``closure_stress``
+  function: callers can now produce the full
+  ``overburden -> pore -> closure`` stress-state pipeline from
+  a sonic + density log alone. Documented limitations: the
+  sonic Eaton method is calibrated for shales and undercompaction-
+  driven overpressure; unloading mechanisms (gas generation,
+  diagenesis) need Bowers' method, which is left as a follow-up.
+  17 new tests cover: hydrostatic linearity and density scaling;
+  Eaton's normal-compaction reduction to ``P_hydro``; severe-
+  overpressure approach to ``sigma_v``; sub-hydrostatic /
+  depleted-zone case; depth-vs-explicit-hydrostatic agreement;
+  Eaton-exponent sensitivity; round-trip test with
+  ``overburden_stress`` on a synthetic 30-depth log; input
+  validation.
+
 - **Unified Stoneley fracture-density log**
   (``fwap.rockphysics.stoneley_fracture_density``). Pure combiner
   that mixes the four primitive Stoneley indicators

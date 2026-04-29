@@ -436,6 +436,238 @@ def overburden_stress(
     return sigma
 
 
+# ---------------------------------------------------------------------
+# Pore-pressure prediction (Eaton 1975 sonic method)
+# ---------------------------------------------------------------------
+
+
+def hydrostatic_pressure(
+    depth: np.ndarray,
+    *,
+    fluid_density: float = 1000.0,
+    g: float = _STANDARD_G,
+) -> np.ndarray:
+    r"""
+    Hydrostatic pressure :math:`P_\mathrm{hydro}(z) = \rho_w \, g \, z`.
+
+    The reference for "normal compaction" pore pressure: a connected
+    water column from the surface to depth ``z`` exerts this much
+    pressure on the formation. Use as the baseline for
+    :func:`pore_pressure_eaton`.
+
+    Parameters
+    ----------
+    depth : ndarray
+        Depth below datum (m), non-negative. Datum is typically the
+        sea floor for offshore wells, KB (Kelly bushing) for onshore.
+    fluid_density : float, default 1000.0
+        Connate water density (kg/m^3). Default is fresh-water; use
+        ~1030-1080 for typical seawater / brine. Salinity correction
+        is the main reason to override the default.
+    g : float, default 9.80665
+        Standard gravity (m/s^2).
+
+    Returns
+    -------
+    ndarray
+        Hydrostatic pressure at each depth (Pa).
+
+    Raises
+    ------
+    ValueError
+        If ``fluid_density`` is non-positive or ``depth`` is negative.
+
+    See Also
+    --------
+    pore_pressure_eaton : Eaton's pore-pressure prediction. Uses
+        this hydrostatic baseline as ``P_hydro`` if no explicit
+        pressure is supplied.
+    overburden_stress : Companion vertical-stress integral; the two
+        bracket the formation pressure in the dry-rock case.
+    """
+    if fluid_density <= 0:
+        raise ValueError("fluid_density must be positive")
+    z = np.asarray(depth, dtype=float)
+    if np.any(z < 0):
+        raise ValueError("depth must be non-negative")
+    return fluid_density * g * z
+
+
+def pore_pressure_eaton(
+    sigma_v_pa: np.ndarray,
+    slowness_observed: np.ndarray,
+    slowness_normal: np.ndarray,
+    *,
+    hydrostatic_pressure_pa: np.ndarray | float | None = None,
+    depth: np.ndarray | None = None,
+    eaton_exponent: float = 3.0,
+    fluid_density: float = 1000.0,
+    g: float = _STANDARD_G,
+) -> np.ndarray:
+    r"""
+    Eaton (1975) sonic pore-pressure prediction.
+
+    Closed-form pore-pressure log from a sonic slowness log, an
+    overburden-stress log, and a normal-compaction-trend slowness:
+
+    .. math::
+
+        P_p(z) \;=\; \sigma_v(z)
+                  \;-\; \big[\sigma_v(z) - P_\mathrm{hydro}(z)\big]
+                       \cdot
+                       \left(\frac{\Delta t_\mathrm{normal}(z)}
+                                  {\Delta t_\mathrm{observed}(z)}
+                       \right)^{n},
+
+    where :math:`n` is the Eaton exponent (default 3.0; the standard
+    sonic value).
+
+    The ratio
+    :math:`\Delta t_\mathrm{normal} / \Delta t_\mathrm{observed}`
+    measures how "fast" the rock is at depth ``z`` relative to its
+    normal-compaction trend at that depth:
+
+    * Normally compacted rocks (no overpressure):
+      ratio :math:`\approx 1`, so :math:`P_p \to P_\mathrm{hydro}`.
+    * Overpressured rocks (undercompacted; slower than the trend):
+      ratio :math:`< 1`, so the second term shrinks and
+      :math:`P_p` rises toward :math:`\sigma_v`.
+    * Sub-hydrostatic / depleted rocks (faster than the trend):
+      ratio :math:`> 1`, the second term grows, and
+      :math:`P_p < P_\mathrm{hydro}`.
+
+    The normal-compaction trend ``slowness_normal`` is typically a
+    log-linear fit to known-normal intervals, e.g.
+
+    .. math::
+
+        \Delta t_\mathrm{normal}(z) \;=\; \Delta t_0 \,\exp(-k z),
+
+    with the constants :math:`(\Delta t_0, k)` chosen by least
+    squares against the observed slowness in a presumed-normal
+    section. Fitting is the caller's responsibility; this function
+    just consumes the trend as an array.
+
+    Parameters
+    ----------
+    sigma_v_pa : ndarray
+        Vertical (overburden) stress at each depth (Pa). Use
+        :func:`overburden_stress` to compute from a density log,
+        or pass an externally measured value.
+    slowness_observed : ndarray
+        Observed sonic slowness at each depth (s/m). Same shape
+        as ``sigma_v_pa``. Strictly positive.
+    slowness_normal : ndarray
+        Normal-compaction-trend sonic slowness at each depth (s/m).
+        Same shape and units as ``slowness_observed``.
+    hydrostatic_pressure_pa : ndarray, float, or None, optional
+        Hydrostatic pressure at each depth (Pa). If omitted,
+        ``depth`` must be supplied so the function can compute
+        ``P_hydro = fluid_density * g * depth``.
+    depth : ndarray, optional
+        Depth (m) for the hydrostatic-pressure computation. Only
+        used when ``hydrostatic_pressure_pa`` is None.
+    eaton_exponent : float, default 3.0
+        The Eaton exponent ``n``. Standard sonic value is 3.0
+        (Eaton 1975); resistivity-based variants use 1.2. Higher
+        ``n`` increases sensitivity of :math:`P_p` to the
+        slowness-ratio departure from 1.
+    fluid_density : float, default 1000.0
+        Connate-water density (kg/m^3) for the hydrostatic
+        computation. Only used when ``depth`` is supplied.
+    g : float, default 9.80665
+        Standard gravity (m/s^2). Only used when ``depth`` is
+        supplied.
+
+    Returns
+    -------
+    ndarray
+        Estimated pore pressure (Pa) at each depth, broadcast to
+        the input shape.
+
+    Raises
+    ------
+    ValueError
+        If neither ``hydrostatic_pressure_pa`` nor ``depth`` is
+        supplied; if any slowness is non-positive; if
+        ``eaton_exponent`` is non-positive; if ``sigma_v_pa`` is
+        negative anywhere; or if ``fluid_density`` is non-positive.
+
+    Notes
+    -----
+    Pore-pressure prediction has known limitations the Eaton
+    method does not address:
+
+    * **Sand vs shale**: the Eaton sonic method is calibrated for
+      shales (where undercompaction is the dominant overpressure
+      mechanism). For sands, a different exponent (or a different
+      method like Bowers) is appropriate.
+    * **Unloading mechanisms**: gas generation, aquathermal
+      pressurisation, and clay diagenesis cause "unloading"
+      overpressure that the Eaton equation underestimates;
+      Bowers' method is the standard alternative for those.
+    * **Tectonic overpressure**: the Eaton equation assumes the
+      vertical stress is the maximum principal stress and the
+      basin is tectonically relaxed. In active basins the result
+      is a starting estimate and should be refined with stress-
+      direction information.
+
+    The function deliberately does not clip negative results.
+    A negative :math:`P_p` typically indicates a misspecified
+    normal-trend ``slowness_normal``; surfacing the sign error
+    rather than silently clipping is more useful for diagnosis.
+
+    See Also
+    --------
+    hydrostatic_pressure : The :math:`P_\mathrm{hydro}` baseline
+        used inside the Eaton formula.
+    overburden_stress : The :math:`\sigma_v` input to this
+        function from a density log.
+    closure_stress : Once :math:`P_p` is known, feeds directly
+        into the closure-stress estimate.
+
+    References
+    ----------
+    * Eaton, B. A. (1975). The equation for geopressure prediction
+      from well logs. *SPE Annual Fall Meeting*, paper SPE-5544.
+    * Mavko, G., Mukerji, T., & Dvorkin, J. (2009). *The Rock
+      Physics Handbook*, 2nd ed., Section 8.6 (effective-stress
+      pore-pressure prediction).
+    * Bowers, G. L. (1995). Pore pressure estimation from velocity
+      data: Accounting for overpressure mechanisms besides
+      undercompaction. *SPE Drilling & Completion* 10(2), 89-95
+      (the alternative method for unloading-driven overpressure;
+      not implemented here).
+    """
+    if eaton_exponent <= 0:
+        raise ValueError("eaton_exponent must be positive")
+
+    sigma_v = np.asarray(sigma_v_pa, dtype=float)
+    s_obs = np.asarray(slowness_observed, dtype=float)
+    s_normal = np.asarray(slowness_normal, dtype=float)
+
+    if np.any(s_obs <= 0) or np.any(s_normal <= 0):
+        raise ValueError(
+            "slowness_observed and slowness_normal must be strictly positive"
+        )
+    if np.any(sigma_v < 0):
+        raise ValueError("sigma_v_pa must be non-negative")
+
+    if hydrostatic_pressure_pa is None:
+        if depth is None:
+            raise ValueError(
+                "either hydrostatic_pressure_pa or depth must be supplied"
+            )
+        P_hydro = hydrostatic_pressure(
+            depth, fluid_density=fluid_density, g=g
+        )
+    else:
+        P_hydro = np.asarray(hydrostatic_pressure_pa, dtype=float)
+
+    ratio = s_normal / s_obs
+    return sigma_v - (sigma_v - P_hydro) * ratio**eaton_exponent
+
+
 @dataclass
 class GeomechanicsIndices:
     """

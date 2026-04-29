@@ -226,7 +226,9 @@ from fwap.geomechanics import (
     closure_stress,
     fracability_index,
     geomechanics_indices,
+    hydrostatic_pressure,
     overburden_stress,
+    pore_pressure_eaton,
     sand_stability_indicator,
     unconfined_compressive_strength,
 )
@@ -412,6 +414,8 @@ __all__ = [
     "unconfined_compressive_strength",
     "sand_stability_indicator",
     "overburden_stress",
+    "hydrostatic_pressure",
+    "pore_pressure_eaton",
     "geomechanics_indices",
     "RICKMAN_E_MIN_PA",
     "RICKMAN_E_MAX_PA",
