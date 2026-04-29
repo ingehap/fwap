@@ -1646,3 +1646,220 @@ def test_inclined_breakout_raises_on_undrillable_geometry():
             well_inclination_deg=0.0, well_azimuth_deg=0.0,
             friction_angle_deg=INCL_FRICTION,
         )
+
+
+# =====================================================================
+# inclined_breakdown_pressure + inclined_safe_mud_weight_window
+# =====================================================================
+
+
+def test_inclined_breakdown_at_iota_zero_matches_closed_form():
+    """At well_inclination_deg = 0 the inclined breakdown pressure
+    must match the vertical closed form
+    ``tensile_breakdown_pressure``."""
+    from fwap.geomechanics import (
+        inclined_breakdown_pressure,
+        tensile_breakdown_pressure,
+    )
+
+    P_v = float(tensile_breakdown_pressure(
+        INCL_SIGMA_H, INCL_SIGMA_H_MIN, INCL_PORE_PRESSURE,
+    ))
+    P_i = inclined_breakdown_pressure(
+        INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+        INCL_PORE_PRESSURE,
+        well_inclination_deg=0.0, well_azimuth_deg=0.0,
+        n_azimuth=360,
+    )
+    assert abs(P_i - P_v) / max(abs(P_v), 1.0) < 1.0e-3
+
+
+def test_inclined_breakdown_decreases_with_inclination():
+    """Inclined wells in normal-fault stress regimes have
+    narrower safe windows -- the breakdown bound moves DOWN as
+    inclination increases (the wall reaches tension at lower mud
+    pressure when it sees more of the vertical stress)."""
+    from fwap.geomechanics import inclined_breakdown_pressure
+
+    P_break = []
+    for iota in [0.0, 30.0, 60.0, 90.0]:
+        P = inclined_breakdown_pressure(
+            INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+            INCL_PORE_PRESSURE,
+            well_inclination_deg=iota, well_azimuth_deg=0.0,
+            n_azimuth=360,
+        )
+        P_break.append(P)
+    # Monotonically non-increasing with inclination (within numerical
+    # tolerance of the bisection).
+    assert all(P_break[i] >= P_break[i + 1] - 1.0e3
+               for i in range(len(P_break) - 1))
+
+
+def test_inclined_breakdown_increases_with_tensile_strength():
+    """Higher tensile strength T raises the breakdown pressure --
+    the rock can carry more tension before failing."""
+    from fwap.geomechanics import inclined_breakdown_pressure
+
+    P_T0 = inclined_breakdown_pressure(
+        INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+        INCL_PORE_PRESSURE,
+        well_inclination_deg=30.0, well_azimuth_deg=0.0,
+        tensile_strength=0.0, n_azimuth=180,
+    )
+    P_T5 = inclined_breakdown_pressure(
+        INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+        INCL_PORE_PRESSURE,
+        well_inclination_deg=30.0, well_azimuth_deg=0.0,
+        tensile_strength=5.0e6, n_azimuth=180,
+    )
+    assert P_T5 > P_T0
+    # The shift is approximately T (the formula is linear in T at
+    # the worst azimuth).
+    assert abs((P_T5 - P_T0) - 5.0e6) < 1.0e6
+
+
+def test_inclined_breakdown_decreases_with_pore_pressure():
+    """Higher pore pressure reduces effective stress, so the
+    breakdown pressure DECREASES (less mud weight is enough to
+    push the wall into tension)."""
+    from fwap.geomechanics import inclined_breakdown_pressure
+
+    P_low_pp = inclined_breakdown_pressure(
+        INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+        pore_pressure=10.0e6,
+        well_inclination_deg=30.0, well_azimuth_deg=0.0,
+        n_azimuth=180,
+    )
+    P_high_pp = inclined_breakdown_pressure(
+        INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+        pore_pressure=30.0e6,
+        well_inclination_deg=30.0, well_azimuth_deg=0.0,
+        n_azimuth=180,
+    )
+    assert P_high_pp < P_low_pp
+
+
+def test_inclined_breakdown_returns_zero_when_wall_in_tension_at_zero_mud():
+    """If alpha P_p exceeds the smallest principal stress at zero
+    mud pressure (after subtracting T), the wall is already in
+    tension and there is no positive mud-weight upper bound. The
+    function returns 0.0 by convention -- callers detect the
+    not-drillable case via ``MudWeightWindow.is_drillable``."""
+    from fwap.geomechanics import inclined_breakdown_pressure
+
+    # Very high pore pressure relative to horizontal stresses.
+    P = inclined_breakdown_pressure(
+        sigma_v=20.0e6, sigma_H=20.0e6, sigma_h=20.0e6,
+        pore_pressure=80.0e6,
+        well_inclination_deg=30.0, well_azimuth_deg=0.0,
+        n_azimuth=180,
+    )
+    assert P == 0.0
+
+
+# Inclined safe mud weight window
+# ---------------------------------------------------------------------
+
+
+def test_inclined_window_returns_MudWeightWindow_dataclass():
+    """Result is the same dataclass as the vertical
+    ``safe_mud_weight_window`` -- field types, properties."""
+    from fwap.geomechanics import (
+        MudWeightWindow,
+        inclined_safe_mud_weight_window,
+    )
+
+    w = inclined_safe_mud_weight_window(
+        INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+        INCL_PORE_PRESSURE, INCL_UCS,
+        well_inclination_deg=30.0, well_azimuth_deg=45.0,
+        friction_angle_deg=INCL_FRICTION, n_azimuth=180,
+    )
+    assert isinstance(w, MudWeightWindow)
+    # Inclined results are 0-d arrays (scalar inputs).
+    assert w.breakout_pressure.ndim == 0
+    assert w.breakdown_pressure.ndim == 0
+
+
+def test_inclined_window_at_iota_zero_matches_vertical_safe_window():
+    """At iota=0 the inclined window must reduce to the vertical
+    closed-form safe window to within the bisection tolerance."""
+    from fwap.geomechanics import (
+        inclined_safe_mud_weight_window,
+        safe_mud_weight_window,
+    )
+
+    w_vert = safe_mud_weight_window(
+        INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+        INCL_PORE_PRESSURE, INCL_UCS,
+        friction_angle_deg=INCL_FRICTION,
+    )
+    w_inc = inclined_safe_mud_weight_window(
+        INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+        INCL_PORE_PRESSURE, INCL_UCS,
+        well_inclination_deg=0.0, well_azimuth_deg=0.0,
+        friction_angle_deg=INCL_FRICTION, n_azimuth=360,
+    )
+    P_b_vert = float(w_vert.breakout_pressure)
+    P_d_vert = float(w_vert.breakdown_pressure)
+    P_b_inc = float(w_inc.breakout_pressure)
+    P_d_inc = float(w_inc.breakdown_pressure)
+    assert abs(P_b_inc - P_b_vert) / P_b_vert < 1.0e-3
+    assert abs(P_d_inc - P_d_vert) / P_d_vert < 1.0e-3
+    assert bool(w_vert.is_drillable) == bool(w_inc.is_drillable)
+
+
+def test_inclined_window_narrows_with_inclination():
+    """For a normal-fault stress regime, inclination tightens the
+    safe window from both ends: breakout (lower bound) rises, and
+    breakdown (upper bound) falls. Net width decreases."""
+    from fwap.geomechanics import inclined_safe_mud_weight_window
+
+    widths = []
+    for iota in [0.0, 30.0, 60.0, 90.0]:
+        w = inclined_safe_mud_weight_window(
+            INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+            INCL_PORE_PRESSURE, INCL_UCS,
+            well_inclination_deg=iota, well_azimuth_deg=0.0,
+            friction_angle_deg=INCL_FRICTION, n_azimuth=360,
+        )
+        widths.append(float(w.width))
+    # Strictly decreasing within bisection tolerance.
+    assert all(widths[i] >= widths[i + 1] - 1.0e3
+               for i in range(len(widths) - 1))
+    assert widths[0] > widths[-1] + 1.0e6  # width drops by > 1 MPa
+
+
+def test_inclined_window_horizontal_well_drillable_in_drillable_scenario():
+    """A drillable scenario for the vertical case stays drillable
+    for a horizontal well in the same stress field, just with a
+    narrower window."""
+    from fwap.geomechanics import inclined_safe_mud_weight_window
+
+    w = inclined_safe_mud_weight_window(
+        INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+        INCL_PORE_PRESSURE, INCL_UCS,
+        well_inclination_deg=90.0, well_azimuth_deg=0.0,
+        friction_angle_deg=INCL_FRICTION, n_azimuth=360,
+    )
+    assert bool(w.is_drillable)
+
+
+# Input validation
+# ---------------------------------------------------------------------
+
+
+def test_inclined_breakdown_rejects_too_few_azimuth_points():
+    """n_azimuth < 8 raises."""
+    import pytest
+
+    from fwap.geomechanics import inclined_breakdown_pressure
+
+    with pytest.raises(ValueError, match="n_azimuth"):
+        inclined_breakdown_pressure(
+            INCL_SIGMA_V, INCL_SIGMA_H, INCL_SIGMA_H_MIN,
+            INCL_PORE_PRESSURE,
+            well_inclination_deg=0.0, well_azimuth_deg=0.0,
+            n_azimuth=4,
+        )

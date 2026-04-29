@@ -1856,3 +1856,249 @@ def inclined_breakout_pressure(
     i = int(sign_changes[0])
     return float(brentq(phi_max, P_grid[i], P_grid[i + 1], xtol=1.0e-3))
 
+
+def inclined_breakdown_pressure(
+    sigma_v: float,
+    sigma_H: float,
+    sigma_h: float,
+    pore_pressure: float,
+    *,
+    well_inclination_deg: float,
+    well_azimuth_deg: float,
+    tensile_strength: float = 0.0,
+    biot_alpha: float = 1.0,
+    poisson: float = 0.25,
+    n_azimuth: int = 180,
+) -> float:
+    r"""
+    Tensile-breakdown mud pressure for an arbitrarily inclined well.
+
+    Generalises :func:`tensile_breakdown_pressure` (closed form at
+    the vertical-well breakdown azimuth) to inclined wells where
+    the failure azimuth must be searched numerically. Returns the
+    maximum mud pressure :math:`P_w^\mathrm{break}` such that the
+    minimum effective principal stress at every azimuth around the
+    wall stays above :math:`-T` (no tensile failure).
+
+    Algorithm:
+
+    1. For a candidate :math:`P_w`, compute the four wall stresses
+       (:func:`inclined_wellbore_wall_stresses`) at ``n_azimuth``
+       points around the borehole.
+    2. Diagonalise the 2x2 :math:`(\theta, z)` sub-block to get
+       the two non-radial principal stresses (the smaller is
+       :math:`\lambda_-`); the radial principal stress is
+       :math:`\sigma_{rr} = P_w` itself.
+    3. Subtract :math:`\alpha P_p` for effective stresses and take
+       the minimum over all azimuths and over the three
+       principal-stress candidates -- this is the worst-azimuth
+       most-tensile effective stress.
+    4. Tensile failure occurs when this minimum is below
+       :math:`-T`. The breakdown pressure is the smallest
+       :math:`P_w` at which that condition is just satisfied.
+
+    Increasing :math:`P_w` always decreases :math:`\sigma_{\theta
+    \theta}`, which can only decrease :math:`\lambda_-` (the
+    smaller eigenvalue), so the worst-azimuth minimum eigenvalue
+    is monotonically non-increasing in :math:`P_w`. This makes the
+    breakdown bisection well-conditioned.
+
+    For a vertical well (``well_inclination_deg = 0``), the
+    result must agree with :func:`tensile_breakdown_pressure` to
+    within the azimuth-grid resolution.
+
+    Parameters
+    ----------
+    sigma_v, sigma_H, sigma_h : float
+        Principal stresses (Pa).
+    pore_pressure : float
+        Pore pressure (Pa).
+    well_inclination_deg : float
+        Well inclination from vertical (deg).
+    well_azimuth_deg : float
+        Well azimuth from sigma_H direction (deg).
+    tensile_strength : float, default 0.0
+        Tensile strength :math:`T` (Pa). Default 0 is the
+        conservative (no tensile strength) case.
+    biot_alpha : float, default 1.0
+        Biot poro-elastic coefficient.
+    poisson : float, default 0.25
+        Poisson's ratio.
+    n_azimuth : int, default 180
+        Number of azimuth-around-wall sample points.
+
+    Returns
+    -------
+    float
+        Tensile-breakdown mud pressure (Pa). Mud pressures above
+        this value trigger tensile failure / fracture initiation
+        somewhere on the wall. May be negative if the wall is in
+        tension at zero mud pressure -- in which case no positive
+        mud pressure is "safe" and the well is undrillable in the
+        chosen geometry without intervention.
+
+    See Also
+    --------
+    inclined_wellbore_wall_stresses : The wall-stress primitive.
+    inclined_breakout_pressure : The shear-failure lower bound.
+    tensile_breakdown_pressure : The vertical-well closed-form
+        special case.
+    """
+    if n_azimuth < 8:
+        raise ValueError("n_azimuth must be at least 8")
+
+    alpha_Pp = biot_alpha * pore_pressure
+    azimuths = np.linspace(0.0, 360.0, n_azimuth, endpoint=False)
+
+    def margin(P_w: float) -> float:
+        """Margin against tensile failure: positive = stable.
+
+        Convention follows the vertical-well
+        :func:`tensile_breakdown_pressure`: tensile failure
+        criterion applies to the smallest eigenvalue of the
+        :math:`(\\theta, z)` 2x2 sub-block at the wall, NOT to
+        the radial principal stress :math:`\\sigma_{rr} = P_w`.
+        Including :math:`\\sigma_{rr}` would always trigger
+        failure under positive pore pressure (since
+        :math:`\\sigma_{rr,\\mathrm{eff}} = P_w - \\alpha P_p` is
+        easily negative) and would not match the standard
+        Hubbert-Willis fracture-initiation interpretation.
+        """
+        s_t, s_z, s_tz, s_r = inclined_wellbore_wall_stresses(
+            sigma_v, sigma_H, sigma_h,
+            well_inclination_deg=well_inclination_deg,
+            well_azimuth_deg=well_azimuth_deg,
+            azimuth_around_wall_deg=azimuths,
+            mud_pressure=P_w,
+            poisson=poisson,
+        )
+        _, _, l_m = _wall_principal_stresses(s_t, s_z, s_tz, s_r)
+        # Worst-azimuth most-tensile eigenvalue of the (theta, z)
+        # sub-block, after effective-stress correction.
+        sigma_3 = float(np.min(l_m)) - alpha_Pp
+        return sigma_3 + tensile_strength
+
+    # margin(0) is typically positive (no tension at zero mud);
+    # margin(very_high) is negative (tensile failure dominates).
+    P_low = 0.0
+    P_high = 2.0 * max(sigma_v, sigma_H, sigma_h, abs(pore_pressure))
+    f_low = margin(P_low)
+    f_high = margin(P_high)
+    n_expand = 0
+    while f_low * f_high > 0.0 and n_expand < 8:
+        P_high *= 1.5
+        f_high = margin(P_high)
+        n_expand += 1
+    if f_low <= 0.0:
+        # Wall is in tension at zero mud pressure; no positive
+        # mud weight prevents tensile failure. Return P_low (= 0)
+        # as the boundary; callers should detect this via
+        # MudWeightWindow.is_drillable when paired with a breakout
+        # pressure.
+        return 0.0
+    if f_low * f_high > 0.0:
+        raise ValueError(
+            "Could not bracket a sign change of the tensile-failure "
+            f"margin between P_w={P_low} and P_w={P_high}. The wall is "
+            "either unconditionally stable in tension (no tensile "
+            "breakdown possible) or there is a numerical issue."
+        )
+    return float(brentq(margin, P_low, P_high, xtol=1.0e-3))
+
+
+def inclined_safe_mud_weight_window(
+    sigma_v: float,
+    sigma_H: float,
+    sigma_h: float,
+    pore_pressure: float,
+    ucs: float,
+    *,
+    well_inclination_deg: float,
+    well_azimuth_deg: float,
+    tensile_strength: float = 0.0,
+    friction_angle_deg: float = 30.0,
+    biot_alpha: float = 1.0,
+    poisson: float = 0.25,
+    n_azimuth: int = 180,
+) -> MudWeightWindow:
+    r"""
+    Both mud-weight bounds for an arbitrarily inclined well.
+
+    Convenience wrapper that calls
+    :func:`inclined_breakout_pressure` and
+    :func:`inclined_breakdown_pressure` with consistent inputs and
+    returns the two pressures bundled in a :class:`MudWeightWindow`
+    (the same dataclass used by the vertical-well counterpart
+    :func:`safe_mud_weight_window`).
+
+    The "safe" mud-weight window is the closed interval
+    ``[breakout_pressure, breakdown_pressure]``: pressures in this
+    range avoid both shear failure (collapse) and tensile failure
+    (lost circulation) at every azimuth around the inclined
+    borehole. ``MudWeightWindow.is_drillable`` flags whether such
+    a window exists.
+
+    Parameters
+    ----------
+    sigma_v, sigma_H, sigma_h : float
+        Principal stresses (Pa).
+    pore_pressure : float
+        Pore pressure (Pa).
+    ucs : float
+        Unconfined compressive strength (Pa). Drives the breakout
+        bound.
+    well_inclination_deg, well_azimuth_deg : float
+        Well orientation.
+    tensile_strength : float, default 0.0
+        Tensile strength (Pa). Drives the breakdown bound.
+    friction_angle_deg : float, default 30.0
+        Internal friction angle (deg).
+    biot_alpha : float, default 1.0
+        Biot coefficient.
+    poisson : float, default 0.25
+        Poisson's ratio.
+    n_azimuth : int, default 180
+        Azimuth-around-wall scan resolution.
+
+    Returns
+    -------
+    MudWeightWindow
+        Dataclass with ``breakout_pressure`` and
+        ``breakdown_pressure`` (both 0-D arrays of float for
+        scalar inputs) plus ``width`` and ``is_drillable``
+        properties. Note that for inclined wells the bounds are
+        always scalar; vector inputs are not supported here
+        because the per-orientation worst-azimuth scan does not
+        vectorise across depths cleanly. Loop in the caller for
+        per-depth inclined-well analysis.
+
+    See Also
+    --------
+    safe_mud_weight_window : The vertical-well counterpart, which
+        does vectorise across depth arrays.
+    inclined_breakout_pressure : The lower-bound primitive.
+    inclined_breakdown_pressure : The upper-bound primitive.
+    """
+    P_breakout = inclined_breakout_pressure(
+        sigma_v, sigma_H, sigma_h, pore_pressure, ucs,
+        well_inclination_deg=well_inclination_deg,
+        well_azimuth_deg=well_azimuth_deg,
+        friction_angle_deg=friction_angle_deg,
+        biot_alpha=biot_alpha,
+        poisson=poisson,
+        n_azimuth=n_azimuth,
+    )
+    P_breakdown = inclined_breakdown_pressure(
+        sigma_v, sigma_H, sigma_h, pore_pressure,
+        well_inclination_deg=well_inclination_deg,
+        well_azimuth_deg=well_azimuth_deg,
+        tensile_strength=tensile_strength,
+        biot_alpha=biot_alpha,
+        poisson=poisson,
+        n_azimuth=n_azimuth,
+    )
+    return MudWeightWindow(
+        breakout_pressure=np.asarray(P_breakout, dtype=float),
+        breakdown_pressure=np.asarray(P_breakdown, dtype=float),
+    )
+
