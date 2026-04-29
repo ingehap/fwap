@@ -6,11 +6,11 @@ import numpy as np
 import pytest
 
 from fwap.geomechanics import (
-    GeomechanicsIndices,
     RICKMAN_E_MAX_PA,
     RICKMAN_E_MIN_PA,
     RICKMAN_NU_MAX,
     RICKMAN_NU_MIN,
+    GeomechanicsIndices,
     brittleness_index_rickman,
     closure_stress,
     fracability_index,
@@ -20,7 +20,6 @@ from fwap.geomechanics import (
     unconfined_compressive_strength,
 )
 from fwap.rockphysics import elastic_moduli
-
 
 # ---------------------------------------------------------------------
 # brittleness_index_rickman

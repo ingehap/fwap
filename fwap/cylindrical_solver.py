@@ -347,7 +347,7 @@ def stoneley_dispersion(
     for i, f in enumerate(f_arr):
         omega = 2.0 * np.pi * float(f)
 
-        def _det(kz):
+        def _det(kz, omega=omega):
             return _modal_determinant_n0(kz, omega, vp, vs, rho, vf, rho_f, a)
 
         kz_lo, kz_hi = _stoneley_kz_bracket(omega, vp, vs, rho, vf, rho_f, a)
@@ -2656,7 +2656,7 @@ def flexural_dispersion(
     for i, f in enumerate(f_arr):
         omega = 2.0 * np.pi * float(f)
 
-        def _det(kz):
+        def _det(kz, omega=omega):
             return _modal_determinant_n1(kz, omega, vp, vs, rho, vf, rho_f, a)
 
         kz_lo, kz_hi = _flexural_kz_bracket(omega, vp, vs, rho, vf, rho_f, a)

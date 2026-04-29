@@ -621,6 +621,7 @@ def test_stoneley_amplitude_indicator_handles_zero_observed():
 def test_stoneley_amplitude_indicator_vector_input():
     """Vectorised: same shape, element-wise formula."""
     import numpy as np
+
     from fwap.rockphysics import stoneley_amplitude_fracture_indicator
 
     observed = np.array([1.0, 0.8, 0.5, 0.2])
@@ -632,6 +633,7 @@ def test_stoneley_amplitude_indicator_vector_input():
 def test_stoneley_amplitude_indicator_per_depth_reference():
     """A per-depth reference baseline gives an element-wise fractional deficit."""
     import numpy as np
+
     from fwap.rockphysics import stoneley_amplitude_fracture_indicator
 
     observed = np.array([1.0, 0.7, 0.4])
@@ -682,6 +684,7 @@ def test_stoneley_reflection_coefficient_clips_to_unit_interval():
 def test_stoneley_reflection_coefficient_takes_absolute_value():
     """Sign of incident / reflected is irrelevant."""
     import numpy as np
+
     from fwap.rockphysics import stoneley_reflection_coefficient
 
     R = stoneley_reflection_coefficient(np.array([-1.0, 1.0]), np.array([0.4, -0.4]))
@@ -709,6 +712,7 @@ def test_hornby_aperture_zero_R_gives_zero_aperture():
 def test_hornby_aperture_round_trips_through_forward_model():
     """Plant L0, build |R|, recover L0 to floating-point precision."""
     import numpy as np
+
     from fwap.rockphysics import hornby_fracture_aperture
 
     f = 2000.0
@@ -724,6 +728,7 @@ def test_hornby_aperture_round_trips_through_forward_model():
 def test_hornby_aperture_small_amplitude_matches_full_for_small_R():
     """Small-amplitude approximation < 5% off the full form for |R| <= 0.3."""
     import numpy as np
+
     from fwap.rockphysics import hornby_fracture_aperture
 
     R = np.linspace(0.01, 0.30, 10)
@@ -739,6 +744,7 @@ def test_hornby_aperture_small_amplitude_matches_full_for_small_R():
 def test_hornby_aperture_diverges_at_unit_reflection():
     """|R| -> 1 saturates the inversion at +inf."""
     import numpy as np
+
     from fwap.rockphysics import hornby_fracture_aperture
 
     L = hornby_fracture_aperture(1.0, 2000.0, 1400.0)
@@ -748,6 +754,7 @@ def test_hornby_aperture_diverges_at_unit_reflection():
 def test_hornby_aperture_vector_inputs_broadcast():
     """Per-fracture |R| array gives a per-fracture aperture array."""
     import numpy as np
+
     from fwap.rockphysics import hornby_fracture_aperture
 
     R = np.array([0.0, 0.1, 0.2, 0.3])
@@ -781,6 +788,7 @@ def test_hornby_aperture_rejects_non_positive_frequency_or_velocity():
 def test_hornby_aperture_round_trips_through_write_las(tmp_path):
     """RFRAC and FAPER mnemonics carry correct units in LAS round-trip."""
     import numpy as np
+
     from fwap.io import read_las, write_las
     from fwap.rockphysics import hornby_fracture_aperture
 
@@ -799,6 +807,7 @@ def test_hornby_aperture_round_trips_through_write_las(tmp_path):
 def test_stoneley_amplitude_indicator_complements_slowness_indicator():
     """Both indicators agree on which depths are fractured / permeable."""
     import numpy as np
+
     from fwap.rockphysics import (
         stoneley_amplitude_fracture_indicator,
         stoneley_permeability_indicator,

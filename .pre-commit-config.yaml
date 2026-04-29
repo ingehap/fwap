@@ -1,12 +1,14 @@
 # Pre-commit hooks. Install via ``pip install pre-commit`` and
 # enable for the repo with ``pre-commit install`` (see CONTRIBUTING.md).
 #
-# Currently hooks: ruff-format only. ``ruff check`` is not yet
-# enabled because the tree carries pre-existing lint-debt that
-# would block all commits until cleaned up; that cleanup is tracked
-# as a follow-up after the format sweep that established this file.
+# Hooks:
+#   * ruff-check : pyflakes + pycodestyle + isort + flake8-bugbear + pyupgrade
+#                  per the ``[tool.ruff.lint]`` config in pyproject.toml.
+#   * ruff-format: ruff-format defaults with double-quote style.
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.6.9
     hooks:
+      - id: ruff-check
+        args: [--fix]
       - id: ruff-format

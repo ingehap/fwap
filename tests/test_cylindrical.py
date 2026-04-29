@@ -162,6 +162,7 @@ def test_flexural_dispersion_vti_reduces_to_isotropic_when_vsh_eq_vsv():
 def test_flexural_dispersion_vti_low_freq_limit_is_inverse_vsv():
     """f -> 0: phase slowness approaches 1/Vsv."""
     import pytest
+
     from fwap.cylindrical import flexural_dispersion_vti_physical
 
     vp, vsv, vsh = 4500.0, 2500.0, 2700.0  # gamma > 0 typical shale
@@ -173,6 +174,7 @@ def test_flexural_dispersion_vti_low_freq_limit_is_inverse_vsv():
 def test_flexural_dispersion_vti_high_freq_limit_is_inverse_rayleigh_vsh():
     """f -> infinity: phase slowness approaches 1/V_R(vp, vsh)."""
     import pytest
+
     from fwap.cylindrical import (
         flexural_dispersion_vti_physical,
         rayleigh_speed,
@@ -201,6 +203,7 @@ def test_flexural_dispersion_vti_low_freq_uses_vertical_shear():
     """At low frequency, the dispersion still anchors to 1/Vsv even
     when Vsh changes."""
     import pytest
+
     from fwap.cylindrical import flexural_dispersion_vti_physical
 
     vp, vsv = 4500.0, 2500.0
@@ -235,6 +238,7 @@ def test_flexural_dispersion_vti_monotonic_dispersion_curve():
 def test_flexural_dispersion_vti_rejects_unphysical_velocities():
     """vp <= vsv or vp <= vsh, or non-positive shear -> ValueError."""
     import pytest
+
     from fwap.cylindrical import flexural_dispersion_vti_physical
 
     with pytest.raises(ValueError, match="vsv"):

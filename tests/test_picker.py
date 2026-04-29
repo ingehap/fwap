@@ -952,6 +952,7 @@ def test_quality_control_picks_skips_gamma_when_not_supplied():
     """Default (gamma=None) skips the gate; gamma_in_band stays True
     and no gamma reason is appended."""
     import pytest
+
     from fwap.picker import quality_control_picks
 
     geom, data, *_ = _gather()
@@ -1058,6 +1059,7 @@ def test_quality_control_track_per_depth_gammas():
 def test_quality_control_track_rejects_gammas_length_mismatch():
     """Length mismatch is a caller error."""
     import pytest
+
     from fwap.picker import DepthPicks, ModePick, quality_control_track
 
     geom, data, *_ = _gather()
@@ -1270,6 +1272,7 @@ def test_track_to_log_curves_rejects_non_float_null_value():
     """Passing ``None`` (or any non-float) for null_value raises
     cleanly instead of silently producing object-dtype columns."""
     import pytest
+
     from fwap.picker import track_to_log_curves
 
     track = _three_depth_track()
@@ -1383,6 +1386,7 @@ def test_track_to_log_curves_include_vti_planted_values():
     """Plant a uniform formation; recovered VTI columns match the
     closed-form analytical values cell by cell."""
     import pytest
+
     from fwap.picker import DepthPicks, ModePick, track_to_log_curves
 
     rho_f, v_f = 1000.0, 1500.0
@@ -1507,6 +1511,7 @@ def test_track_to_log_curves_include_vti_white_fallback_on_missing_p():
     transparently -- the operational benefit of the per-depth
     fall-back."""
     import pytest
+
     from fwap.picker import DepthPicks, ModePick, track_to_log_curves
 
     rho_f, v_f = 1000.0, 1500.0
@@ -1538,6 +1543,7 @@ def test_track_to_log_curves_include_vti_correct_for_p_modulus_false():
     """correct_for_p_modulus=False forces White everywhere even when
     P is picked."""
     import pytest
+
     from fwap.picker import track_to_log_curves
 
     track = _three_depth_track()
@@ -1559,6 +1565,7 @@ def test_track_to_log_curves_include_vti_correct_for_p_modulus_false():
 def test_track_to_log_curves_include_vti_per_depth_density():
     """rho can be a length-n_depth ndarray; each cell uses its own."""
     import pytest
+
     from fwap.picker import track_to_log_curves
 
     track = _three_depth_track()
@@ -1577,6 +1584,7 @@ def test_track_to_log_curves_include_vti_per_depth_density():
 def test_track_to_log_curves_include_vti_requires_rho_and_fluid():
     """include_vti=True without rho/rho_fluid/v_fluid raises."""
     import pytest
+
     from fwap.picker import track_to_log_curves
 
     track = _three_depth_track()
@@ -1591,6 +1599,7 @@ def test_track_to_log_curves_include_vti_requires_rho_and_fluid():
 def test_track_to_log_curves_include_vti_rejects_bad_rho_shape():
     """rho must be a scalar or length-n_depth array."""
     import pytest
+
     from fwap.picker import track_to_log_curves
 
     track = _three_depth_track()
@@ -1638,7 +1647,7 @@ def test_track_to_log_curves_include_vti_with_numeric_null_value():
     """null_value sentinel applies to VTI columns too."""
     from fwap.picker import DepthPicks, ModePick, track_to_log_curves
 
-    Vs, Vst = 2500.0, 1400.0
+    Vs = 2500.0  # Stoneley deliberately omitted to test null_value path
     track = [
         # Stoneley missing -> C66/VSH/GAMMA should land on -999.25.
         DepthPicks(
