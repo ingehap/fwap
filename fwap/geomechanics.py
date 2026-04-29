@@ -2102,3 +2102,88 @@ def inclined_safe_mud_weight_window(
         breakdown_pressure=np.asarray(P_breakdown, dtype=float),
     )
 
+
+# ---------------------------------------------------------------------
+# Tensile strength from UCS (rule-of-thumb correlation)
+# ---------------------------------------------------------------------
+
+
+def tensile_strength_from_ucs(
+    ucs: np.ndarray,
+    *,
+    ratio: float = 0.10,
+) -> np.ndarray:
+    r"""
+    Tensile strength :math:`T` as a fixed fraction of UCS.
+
+    Standard petroleum-engineering rule-of-thumb correlation
+    :math:`T = \mathrm{ratio} \cdot \mathrm{UCS}`. The default
+    ratio of 0.10 is appropriate for typical sandstones; published
+    ranges are roughly:
+
+    * Sandstones / siltstones: ratio :math:`\sim` 0.07 - 0.12
+    * Shales: ratio :math:`\sim` 0.04 - 0.08 (rocks with bedding-
+      plane weaknesses fail in tension at smaller stresses than
+      the MC linear extrapolation predicts)
+    * Clean limestones / dolomites: ratio :math:`\sim` 0.08 - 0.15
+    * Crystalline / massive rocks: ratio :math:`\sim` 0.10 - 0.20
+
+    Why a fixed ratio rather than the Mohr-Coulomb extrapolation
+    :math:`T_\mathrm{MC} = \mathrm{UCS} / q` (where
+    :math:`q = (1+\sin\phi)/(1-\sin\phi)`)? The MC envelope, when
+    extended into the tensile regime, gives :math:`T \sim
+    \mathrm{UCS}/3` for :math:`\phi = 30^\circ` -- substantially
+    higher than what laboratory direct-tension or Brazilian-disc
+    tests measure on real rocks. The rule-of-thumb ratio (Hoek-
+    Brown style "tension cutoff") matches the empirical
+    measurements; the MC linear extrapolation is a commonly-
+    flagged geomechanical pitfall to avoid in production work.
+
+    Parameters
+    ----------
+    ucs : scalar or ndarray
+        Unconfined compressive strength (Pa). Must be non-negative;
+        zero UCS is allowed and gives T = 0.
+    ratio : float, default 0.10
+        Tensile-to-UCS ratio. Must be in :math:`(0, 1)`.
+
+    Returns
+    -------
+    ndarray
+        Estimated tensile strength (Pa), same shape as ``ucs``.
+
+    Raises
+    ------
+    ValueError
+        If ``ratio`` is outside ``(0, 1)`` or any ``ucs`` is
+        negative.
+
+    See Also
+    --------
+    unconfined_compressive_strength : Sonic-derived UCS estimate
+        suitable as the input to this function.
+    tensile_breakdown_pressure : The downstream consumer; uses
+        the tensile strength as its ``tensile_strength`` argument.
+
+    References
+    ----------
+    * Hoek, E., & Brown, E. T. (1980). *Underground Excavations
+      in Rock.* Institution of Mining and Metallurgy, Section 6
+      (the Hoek-Brown empirical failure criterion with a tension
+      cutoff at :math:`T \approx \mathrm{UCS} / m_i` where
+      :math:`m_i \sim 8-25` for typical lithologies, supporting
+      the 0.04-0.13 ratio range).
+    * Sheorey, P. R. (1997). *Empirical Rock Failure Criteria.*
+      Balkema, Chapter 4 (literature review of T/UCS ratios from
+      laboratory tests on a range of lithologies).
+    * Zoback, M. D. (2007). *Reservoir Geomechanics.* Cambridge
+      University Press, Section 5.3 (the rule-of-thumb 0.10
+      default for petroleum-engineering work).
+    """
+    if not (0.0 < ratio < 1.0):
+        raise ValueError("ratio must be in (0, 1)")
+    UCS = np.asarray(ucs, dtype=float)
+    if np.any(UCS < 0):
+        raise ValueError("ucs must be non-negative")
+    return ratio * UCS
+

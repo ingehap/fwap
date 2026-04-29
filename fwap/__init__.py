@@ -243,6 +243,7 @@ from fwap.geomechanics import (
     safe_mud_weight_window,
     tensile_breakdown_pressure,
     sand_stability_indicator,
+    tensile_strength_from_ucs,
     unconfined_compressive_strength,
 )
 
@@ -428,6 +429,7 @@ __all__ = [
     "fracability_index",
     "closure_stress",
     "unconfined_compressive_strength",
+    "tensile_strength_from_ucs",
     "sand_stability_indicator",
     "overburden_stress",
     "hydrostatic_pressure",

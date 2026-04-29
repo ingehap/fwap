@@ -1863,3 +1863,86 @@ def test_inclined_breakdown_rejects_too_few_azimuth_points():
             well_inclination_deg=0.0, well_azimuth_deg=0.0,
             n_azimuth=4,
         )
+
+
+# =====================================================================
+# tensile_strength_from_ucs (rule-of-thumb correlation)
+# =====================================================================
+
+
+def test_tensile_strength_default_ratio_is_ten_percent():
+    """Default ratio is 0.10 -> T = UCS / 10."""
+    from fwap.geomechanics import tensile_strength_from_ucs
+
+    T = tensile_strength_from_ucs(np.array([50.0e6]))
+    assert abs(float(T[0]) - 5.0e6) < 1.0e-9
+
+
+def test_tensile_strength_custom_ratio():
+    """Custom ratio gives T = ratio * UCS."""
+    from fwap.geomechanics import tensile_strength_from_ucs
+
+    T = tensile_strength_from_ucs(np.array([50.0e6]), ratio=0.06)
+    assert abs(float(T[0]) - 3.0e6) < 1.0e-9
+
+
+def test_tensile_strength_vector_input_broadcasts():
+    """Array input gives same-shape array output."""
+    from fwap.geomechanics import tensile_strength_from_ucs
+
+    UCS = np.array([10.0e6, 50.0e6, 100.0e6])
+    T = tensile_strength_from_ucs(UCS, ratio=0.10)
+    np.testing.assert_allclose(T, np.array([1.0e6, 5.0e6, 10.0e6]))
+
+
+def test_tensile_strength_at_zero_ucs():
+    """Zero UCS gives zero T (allowed; rocks with no compressive
+    strength have no tensile strength either)."""
+    from fwap.geomechanics import tensile_strength_from_ucs
+
+    T = tensile_strength_from_ucs(np.array([0.0]))
+    assert float(T[0]) == 0.0
+
+
+def test_tensile_strength_feeds_breakdown_pressure():
+    """Round-trip use: estimate T from UCS, feed into
+    ``tensile_breakdown_pressure``, verify the breakdown pressure
+    rises by exactly ``ratio * UCS`` vs the T=0 default (the
+    formula is linear in T)."""
+    from fwap.geomechanics import (
+        tensile_breakdown_pressure,
+        tensile_strength_from_ucs,
+    )
+
+    sigma_H, sigma_h, P_p, UCS = 60.0e6, 40.0e6, 30.0e6, 50.0e6
+    T = float(tensile_strength_from_ucs(np.array([UCS]))[0])
+    P_T0 = float(tensile_breakdown_pressure(sigma_H, sigma_h, P_p))
+    P_T = float(tensile_breakdown_pressure(
+        sigma_H, sigma_h, P_p, tensile_strength=T,
+    ))
+    assert abs((P_T - P_T0) - T) < 1.0e-6
+
+
+def test_tensile_strength_rejects_ratio_outside_unit_interval():
+    """ratio must be strictly in (0, 1)."""
+    import pytest
+
+    from fwap.geomechanics import tensile_strength_from_ucs
+
+    UCS = np.array([50.0e6])
+    with pytest.raises(ValueError, match="ratio"):
+        tensile_strength_from_ucs(UCS, ratio=0.0)
+    with pytest.raises(ValueError, match="ratio"):
+        tensile_strength_from_ucs(UCS, ratio=1.0)
+    with pytest.raises(ValueError, match="ratio"):
+        tensile_strength_from_ucs(UCS, ratio=-0.1)
+
+
+def test_tensile_strength_rejects_negative_ucs():
+    """Negative UCS is unphysical and raises."""
+    import pytest
+
+    from fwap.geomechanics import tensile_strength_from_ucs
+
+    with pytest.raises(ValueError, match="ucs"):
+        tensile_strength_from_ucs(np.array([-1.0e6]))
