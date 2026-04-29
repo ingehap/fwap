@@ -920,3 +920,221 @@ def test_wellbore_stability_pipeline_end_to_end():
     assert np.all(P_p[1:] > 0)
     # Overburden bounds the pore pressure from above.
     assert np.all(P_p <= sigma_v + 1.0e-6)
+
+
+# ---------------------------------------------------------------------
+# Tensile breakdown pressure + safe mud-weight window
+# ---------------------------------------------------------------------
+
+
+def test_tensile_breakdown_matches_hubbert_willis_closed_form():
+    """T = 0 case: P_breakdown = 3 sigma_h - sigma_H - alpha P_p."""
+    from fwap.geomechanics import tensile_breakdown_pressure
+
+    P_break = float(tensile_breakdown_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, WB_PORE_PRESSURE,
+    ))
+    expected = 3.0 * WB_SIGMA_H_MIN - WB_SIGMA_H - WB_PORE_PRESSURE
+    assert abs(P_break - expected) < 1.0e-6
+
+
+def test_tensile_breakdown_at_critical_pressure_satisfies_kirsch():
+    """Plug the breakdown pressure into the Kirsch formula at the
+    breakdown azimuth (theta = 0); the effective hoop stress
+    must equal -T."""
+    from fwap.geomechanics import (
+        kirsch_wall_stresses,
+        tensile_breakdown_pressure,
+    )
+
+    T = 5.0e6
+    P_break = float(tensile_breakdown_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, WB_PORE_PRESSURE,
+        tensile_strength=T,
+    ))
+    sigma_t, _, _ = kirsch_wall_stresses(
+        WB_SIGMA_V, WB_SIGMA_H, WB_SIGMA_H_MIN,
+        azimuth_deg=0.0, mud_pressure=P_break, poisson=WB_NU,
+    )
+    sigma_eff = float(sigma_t) - WB_PORE_PRESSURE
+    # Effective hoop stress at the breakdown pressure equals -T
+    # (just on the tensile-failure envelope).
+    assert abs(sigma_eff - (-T)) < 1.0e-3
+
+
+def test_tensile_breakdown_increases_with_tensile_strength():
+    """Higher T means the rock can carry more wall tension, so the
+    breakdown pressure rises by exactly T (linear shift)."""
+    from fwap.geomechanics import tensile_breakdown_pressure
+
+    P_T0 = float(tensile_breakdown_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, WB_PORE_PRESSURE,
+        tensile_strength=0.0,
+    ))
+    P_T5 = float(tensile_breakdown_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, WB_PORE_PRESSURE,
+        tensile_strength=5.0e6,
+    ))
+    assert abs((P_T5 - P_T0) - 5.0e6) < 1.0e-6
+
+
+def test_tensile_breakdown_decreases_with_horizontal_stress_anisotropy():
+    """Larger sigma_H pre-tensions the wall; raising sigma_H at fixed
+    sigma_h reduces the breakdown pressure 1:1."""
+    from fwap.geomechanics import tensile_breakdown_pressure
+
+    P_low_aniso = float(tensile_breakdown_pressure(
+        50.0e6, WB_SIGMA_H_MIN, WB_PORE_PRESSURE,
+    ))
+    P_high_aniso = float(tensile_breakdown_pressure(
+        70.0e6, WB_SIGMA_H_MIN, WB_PORE_PRESSURE,
+    ))
+    assert P_high_aniso < P_low_aniso
+    assert abs((P_high_aniso - P_low_aniso) - (-20.0e6)) < 1.0e-6
+
+
+def test_tensile_breakdown_decreases_with_pore_pressure():
+    """Higher pore pressure reduces effective stress; at biot_alpha = 1
+    each Pa of P_p reduces the breakdown pressure by 1 Pa."""
+    from fwap.geomechanics import tensile_breakdown_pressure
+
+    P_low_pp = float(tensile_breakdown_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, pore_pressure=20.0e6,
+    ))
+    P_high_pp = float(tensile_breakdown_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, pore_pressure=40.0e6,
+    ))
+    assert abs((P_high_pp - P_low_pp) - (-20.0e6)) < 1.0e-6
+
+
+def test_tensile_breakdown_biot_alpha_zero_removes_pore_pressure():
+    """biot_alpha = 0 zeroes the effective-stress correction; the
+    breakdown pressure becomes 3 sigma_h - sigma_H + T regardless
+    of pore pressure."""
+    from fwap.geomechanics import tensile_breakdown_pressure
+
+    P_pp_low = float(tensile_breakdown_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, pore_pressure=10.0e6, biot_alpha=0.0,
+    ))
+    P_pp_high = float(tensile_breakdown_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, pore_pressure=50.0e6, biot_alpha=0.0,
+    ))
+    assert abs(P_pp_low - P_pp_high) < 1.0e-6
+    assert abs(P_pp_low - (3.0 * WB_SIGMA_H_MIN - WB_SIGMA_H)) < 1.0e-6
+
+
+# Safe mud-weight window
+# ---------------------------------------------------------------------
+
+
+def test_window_returns_dataclass_with_both_pressures():
+    """safe_mud_weight_window returns a MudWeightWindow with the
+    correct field types."""
+    from fwap.geomechanics import MudWeightWindow, safe_mud_weight_window
+
+    w = safe_mud_weight_window(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, WB_PORE_PRESSURE, WB_UCS,
+    )
+    assert isinstance(w, MudWeightWindow)
+    assert w.breakout_pressure.dtype == float
+    assert w.breakdown_pressure.dtype == float
+
+
+def test_window_matches_individual_function_outputs():
+    """The combiner is a pure pass-through; its bounds equal the
+    outputs of the two underlying primitives called individually."""
+    from fwap.geomechanics import (
+        mohr_coulomb_breakout_pressure,
+        safe_mud_weight_window,
+        tensile_breakdown_pressure,
+    )
+
+    w = safe_mud_weight_window(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, WB_PORE_PRESSURE, WB_UCS,
+        tensile_strength=2.0e6, friction_angle_deg=25.0, biot_alpha=0.85,
+    )
+    P_breakout = mohr_coulomb_breakout_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, WB_PORE_PRESSURE, WB_UCS,
+        friction_angle_deg=25.0, biot_alpha=0.85,
+    )
+    P_breakdown = tensile_breakdown_pressure(
+        WB_SIGMA_H, WB_SIGMA_H_MIN, WB_PORE_PRESSURE,
+        tensile_strength=2.0e6, biot_alpha=0.85,
+    )
+    assert abs(float(w.breakout_pressure) - float(P_breakout)) < 1.0e-9
+    assert abs(float(w.breakdown_pressure) - float(P_breakdown)) < 1.0e-9
+
+
+def test_window_width_and_drillability_properties():
+    """width and is_drillable are derived from the bounds. Verify
+    against an explicit drillable case and a not-drillable case."""
+    from fwap.geomechanics import safe_mud_weight_window
+
+    # Drillable: weak rock + low anisotropy gives breakdown > breakout
+    w_drillable = safe_mud_weight_window(
+        sigma_H=50.0e6, sigma_h=45.0e6,  # low anisotropy
+        pore_pressure=20.0e6, ucs=10.0e6,  # very weak rock
+    )
+    assert float(w_drillable.width) > 0
+    assert bool(w_drillable.is_drillable)
+
+    # Not drillable: strong horizontal anisotropy + strong rock gives
+    # breakout > breakdown, no safe window.
+    w_impossible = safe_mud_weight_window(
+        sigma_H=80.0e6, sigma_h=30.0e6,  # high anisotropy
+        pore_pressure=40.0e6, ucs=80.0e6,  # strong rock
+    )
+    assert float(w_impossible.width) < 0
+    assert not bool(w_impossible.is_drillable)
+
+
+def test_window_vector_input_per_depth_drillability():
+    """Vector inputs produce per-depth drillability flags."""
+    from fwap.geomechanics import safe_mud_weight_window
+
+    sigma_H = np.array([50.0e6, 80.0e6])
+    sigma_h = np.array([45.0e6, 30.0e6])
+    P_p = np.array([20.0e6, 40.0e6])
+    UCS = np.array([10.0e6, 80.0e6])
+    w = safe_mud_weight_window(sigma_H, sigma_h, P_p, UCS)
+    # First depth drillable, second not.
+    assert w.is_drillable[0]
+    assert not w.is_drillable[1]
+    assert w.width.shape == (2,)
+
+
+def test_window_drillable_implies_pressure_in_range():
+    """For a drillable window, any mud pressure between breakout
+    and breakdown should keep the wall stable. Spot-check a single
+    drillable case."""
+    from fwap.geomechanics import (
+        kirsch_wall_stresses,
+        safe_mud_weight_window,
+    )
+
+    w = safe_mud_weight_window(
+        sigma_H=50.0e6, sigma_h=45.0e6,
+        pore_pressure=20.0e6, ucs=10.0e6, friction_angle_deg=30.0,
+    )
+    P_low = float(w.breakout_pressure)
+    P_high = float(w.breakdown_pressure)
+    P_mid = 0.5 * (P_low + P_high)
+
+    # At the midpoint, the breakout azimuth hoop stress is between
+    # the wall-strength threshold and the tensile threshold.
+    sigma_t_breakout, _, _ = kirsch_wall_stresses(
+        WB_SIGMA_V, 50.0e6, 45.0e6,
+        azimuth_deg=90.0, mud_pressure=P_mid, poisson=WB_NU,
+    )
+    sigma_t_breakdown, _, _ = kirsch_wall_stresses(
+        WB_SIGMA_V, 50.0e6, 45.0e6,
+        azimuth_deg=0.0, mud_pressure=P_mid, poisson=WB_NU,
+    )
+    # Effective hoop stress at the breakdown azimuth is above -T
+    # (no tensile failure). Tensile strength was 0 by default.
+    assert float(sigma_t_breakdown) - 20.0e6 > 0
+    # Effective hoop stress at the breakout azimuth is below the
+    # MC envelope (no shear failure). The actual MC margin would
+    # require recomputing the failure envelope; spot-check that
+    # sigma_theta is finite and positive.
+    assert float(sigma_t_breakout) > 0

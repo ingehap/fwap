@@ -1049,3 +1049,230 @@ def mohr_coulomb_breakout_pressure(
 
     return (3.0 * sH - sh + (q - 1.0) * biot_alpha * Pp - UCS) / (1.0 + q)
 
+
+def tensile_breakdown_pressure(
+    sigma_H: np.ndarray,
+    sigma_h: np.ndarray,
+    pore_pressure: np.ndarray,
+    *,
+    tensile_strength: np.ndarray = 0.0,
+    biot_alpha: float = 1.0,
+) -> np.ndarray:
+    r"""
+    Tensile-failure mud pressure (fracture initiation) for a vertical well.
+
+    Returns the maximum mud pressure :math:`P_w^{\,\mathrm{break}}`
+    above which tensile failure (fracture initiation) starts at the
+    breakdown azimuth (in the :math:`\sigma_H` direction). Mud
+    pressures above this limit open hydraulic fractures at the wall
+    -- the standard "lost circulation" / "leak-off" scenario.
+
+    Derivation
+    ----------
+    At the breakdown azimuth (:math:`\theta = 0` from
+    :math:`\sigma_H`), the Kirsch hoop stress is
+    :math:`\sigma_{\theta\theta} = 3\sigma_h - \sigma_H - P_w`
+    (the LEAST compressive of the three wall stresses). Tensile
+    failure occurs when the effective hoop stress drops below
+    :math:`-T` (negative = tension; :math:`T` = tensile strength):
+
+    .. math::
+
+        \sigma_{\theta\theta} - \alpha P_p \;\le\; -T,
+
+    so the maximum mud pressure that keeps the wall in compression is
+
+    .. math::
+
+        P_w^{\,\mathrm{break}} \;=\;
+            3\sigma_h - \sigma_H + T - \alpha P_p.
+
+    This is the Hubbert-Willis (1957) fracture-initiation pressure
+    for a vertical well aligned with the principal stress axes.
+
+    Sensitivity:
+
+    * Higher :math:`\sigma_h` (stronger wall confinement): higher
+      :math:`P_w^{\,\mathrm{break}}` (more pressure needed before
+      tension overcomes compression).
+    * Higher :math:`\sigma_H`: lower
+      :math:`P_w^{\,\mathrm{break}}` (the wall is already pre-
+      tensioned by horizontal stress anisotropy).
+    * Higher :math:`P_p`: lower
+      :math:`P_w^{\,\mathrm{break}}` (effective stress is reduced).
+    * Higher tensile strength :math:`T`: higher
+      :math:`P_w^{\,\mathrm{break}}` (the rock can carry some
+      tension before failing).
+
+    Parameters
+    ----------
+    sigma_H, sigma_h : scalar or ndarray
+        Maximum and minimum horizontal stresses (Pa).
+    pore_pressure : scalar or ndarray
+        Pore pressure :math:`P_p` (Pa).
+    tensile_strength : scalar or ndarray, default 0.0
+        Tensile strength :math:`T` (Pa). Default 0.0 is the
+        conservative case (no tensile strength); typical sandstones
+        carry 1-5% of UCS in tension. Many petroleum-engineering
+        treatments stick with the default zero because a single
+        crack can dominate even when the bulk rock has tensile
+        strength.
+    biot_alpha : float, default 1.0
+        Biot poro-elastic coefficient.
+
+    Returns
+    -------
+    ndarray
+        Tensile-breakdown mud pressure :math:`P_w^{\,\mathrm{break}}`
+        (Pa). Mud pressures above this limit open fractures at the
+        wall.
+
+    See Also
+    --------
+    mohr_coulomb_breakout_pressure : The lower bound of the safe
+        mud-weight window (shear-failure threshold).
+    safe_mud_weight_window : Convenience wrapper returning both
+        bounds plus a drillability flag.
+
+    Notes
+    -----
+    Same vertical-well, principal-stress-aligned, drained-elastic
+    assumptions as :func:`kirsch_wall_stresses` and
+    :func:`mohr_coulomb_breakout_pressure`. In strike-slip and
+    reverse-fault stress regimes the breakdown azimuth and formula
+    change; this function does not handle those cases.
+
+    References
+    ----------
+    * Hubbert, M. K., & Willis, D. G. (1957). Mechanics of
+      hydraulic fracturing. *Trans. AIME* 210, 153-168.
+    * Zoback, M. D. (2007). *Reservoir Geomechanics.* Cambridge
+      University Press, Section 6.6.
+    """
+    sH = np.asarray(sigma_H, dtype=float)
+    sh = np.asarray(sigma_h, dtype=float)
+    Pp = np.asarray(pore_pressure, dtype=float)
+    T = np.asarray(tensile_strength, dtype=float)
+    return 3.0 * sh - sH + T - biot_alpha * Pp
+
+
+@dataclass
+class MudWeightWindow:
+    r"""
+    Output of :func:`safe_mud_weight_window`.
+
+    The two pressure bounds that frame the safe mud-weight window
+    for a vertical well, plus convenience properties for the
+    window width and a per-depth drillability flag.
+
+    Attributes
+    ----------
+    breakout_pressure : ndarray
+        Lower bound (Pa); mud pressures below this trigger
+        Mohr-Coulomb shear breakout at the borehole wall. Output
+        of :func:`mohr_coulomb_breakout_pressure`.
+    breakdown_pressure : ndarray
+        Upper bound (Pa); mud pressures above this trigger tensile
+        failure / fracture initiation. Output of
+        :func:`tensile_breakdown_pressure`.
+
+    Properties
+    ----------
+    width : ndarray
+        ``breakdown_pressure - breakout_pressure`` (Pa). The mud-
+        weight margin available for drilling.
+    is_drillable : ndarray of bool
+        ``True`` where ``width > 0`` (a non-empty safe window
+        exists). ``False`` where the breakout limit exceeds the
+        breakdown limit -- the well cannot be drilled in the
+        chosen geometry without casing or stress-state
+        intervention.
+    """
+
+    breakout_pressure: np.ndarray
+    breakdown_pressure: np.ndarray
+
+    @property
+    def width(self) -> np.ndarray:
+        return self.breakdown_pressure - self.breakout_pressure
+
+    @property
+    def is_drillable(self) -> np.ndarray:
+        return self.width > 0
+
+
+def safe_mud_weight_window(
+    sigma_H: np.ndarray,
+    sigma_h: np.ndarray,
+    pore_pressure: np.ndarray,
+    ucs: np.ndarray,
+    *,
+    tensile_strength: np.ndarray = 0.0,
+    friction_angle_deg: float = 30.0,
+    biot_alpha: float = 1.0,
+) -> MudWeightWindow:
+    r"""
+    Both mud-weight bounds (shear breakout + tensile breakdown).
+
+    Convenience wrapper that calls
+    :func:`mohr_coulomb_breakout_pressure` and
+    :func:`tensile_breakdown_pressure` with consistent inputs and
+    returns the two pressures bundled in a :class:`MudWeightWindow`
+    dataclass.
+
+    The "safe" mud-weight window is the closed interval
+    ``[breakout_pressure, breakdown_pressure]``: mud pressures in
+    this range avoid both shear failure (collapse) at the borehole
+    wall and tensile failure (lost circulation). Pressures outside
+    either bound trigger the corresponding failure mode.
+
+    Per-depth diagnostic: if the window has zero or negative width
+    at a particular depth (``breakout > breakdown``), the well
+    cannot be drilled in the supplied geometry without casing,
+    drilling-fluid-additive intervention, or a different well
+    trajectory.
+
+    Parameters
+    ----------
+    sigma_H, sigma_h : scalar or ndarray
+        Maximum and minimum horizontal stresses (Pa).
+    pore_pressure : scalar or ndarray
+        Pore pressure (Pa).
+    ucs : scalar or ndarray
+        Unconfined compressive strength (Pa). Drives the breakout
+        bound.
+    tensile_strength : scalar or ndarray, default 0.0
+        Tensile strength (Pa). Drives the breakdown bound.
+    friction_angle_deg : float, default 30.0
+        Internal friction angle (degrees) for the Mohr-Coulomb
+        breakout calculation.
+    biot_alpha : float, default 1.0
+        Biot poro-elastic coefficient.
+
+    Returns
+    -------
+    MudWeightWindow
+        Dataclass with ``breakout_pressure`` and
+        ``breakdown_pressure`` arrays plus ``width`` and
+        ``is_drillable`` properties.
+
+    See Also
+    --------
+    mohr_coulomb_breakout_pressure : The lower-bound primitive.
+    tensile_breakdown_pressure : The upper-bound primitive.
+    """
+    P_breakout = mohr_coulomb_breakout_pressure(
+        sigma_H, sigma_h, pore_pressure, ucs,
+        friction_angle_deg=friction_angle_deg,
+        biot_alpha=biot_alpha,
+    )
+    P_breakdown = tensile_breakdown_pressure(
+        sigma_H, sigma_h, pore_pressure,
+        tensile_strength=tensile_strength,
+        biot_alpha=biot_alpha,
+    )
+    return MudWeightWindow(
+        breakout_pressure=np.asarray(P_breakout, dtype=float),
+        breakdown_pressure=np.asarray(P_breakdown, dtype=float),
+    )
+

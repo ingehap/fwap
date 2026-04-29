@@ -7,6 +7,30 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Tensile-breakdown pressure + safe mud-weight window**
+  (``fwap.geomechanics.tensile_breakdown_pressure``,
+  ``MudWeightWindow``, ``safe_mud_weight_window``). Closes the
+  drilling-decision pipeline by adding the upper bound of the
+  safe mud-weight range -- the Hubbert-Willis (1957) fracture-
+  initiation pressure
+  ``P_w_break = 3 sigma_h - sigma_H + T - alpha P_p`` -- to
+  complement the Mohr-Coulomb breakout (lower bound) shipped in
+  the same release. The ``MudWeightWindow`` dataclass packages
+  both bounds plus convenience properties ``width``
+  (= breakdown - breakout) and ``is_drillable`` (= width > 0)
+  for diagnostic output. Strong negative-width result on the
+  PR #28 smoke-test scenario flagged it as "not drillable in
+  this geometry without intervention" -- exactly the kind of
+  immediate diagnostic this combiner is meant to produce. 11
+  new tests cover: Hubbert-Willis closed-form match;
+  at-critical-pressure inverse check (Kirsch hoop stress at
+  theta=0 equals -T after effective-stress correction);
+  monotonicity in tensile strength, horizontal-stress
+  anisotropy, pore pressure; biot_alpha=0 limit; window
+  dataclass contract; pure-pass-through equivalence with the
+  individual primitives; per-depth drillability flag on vector
+  input.
+
 - **Wellbore-stability analysis** — Kirsch (1898) wall-stress
   primitive plus Mohr-Coulomb shear-breakout pressure
   (``fwap.geomechanics.kirsch_wall_stresses`` and
