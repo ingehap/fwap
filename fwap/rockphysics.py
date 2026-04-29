@@ -46,6 +46,7 @@ class ElasticModuli:
     lambda_ : ndarray or float
         First Lame parameter (Pa).
     """
+
     k: np.ndarray
     mu: np.ndarray
     young: np.ndarray
@@ -53,9 +54,7 @@ class ElasticModuli:
     lambda_: np.ndarray
 
 
-def elastic_moduli(vp: np.ndarray,
-                   vs: np.ndarray,
-                   rho: np.ndarray) -> ElasticModuli:
+def elastic_moduli(vp: np.ndarray, vs: np.ndarray, rho: np.ndarray) -> ElasticModuli:
     """
     Isotropic elastic moduli from compressional and shear velocity.
 
@@ -105,16 +104,15 @@ def elastic_moduli(vp: np.ndarray,
     if np.any(vs >= vp):
         raise ValueError("require vs < vp everywhere")
 
-    mu = rho * vs ** 2
-    lam = rho * vp ** 2 - 2.0 * mu
+    mu = rho * vs**2
+    lam = rho * vp**2 - 2.0 * mu
     k = lam + (2.0 / 3.0) * mu
     # Young's modulus: E = mu (3 lam + 2 mu) / (lam + mu). Denominator
     # is positive whenever the inputs are physically valid (vp > vs).
     young = mu * (3.0 * lam + 2.0 * mu) / (lam + mu)
     # Poisson's ratio: nu = lam / (2 (lam + mu)). Range is (-1, 0.5].
     poisson = lam / (2.0 * (lam + mu))
-    return ElasticModuli(k=k, mu=mu, young=young,
-                         poisson=poisson, lambda_=lam)
+    return ElasticModuli(k=k, mu=mu, young=young, poisson=poisson, lambda_=lam)
 
 
 def vp_vs_ratio(vp: np.ndarray, vs: np.ndarray) -> np.ndarray:
@@ -148,6 +146,7 @@ class GassmannResult:
         the Gassmann framework assumes the pore fluid carries no shear
         stress, so the shear modulus is fluid-insensitive.
     """
+
     k_sat: np.ndarray
     mu_sat: np.ndarray
 
@@ -271,9 +270,7 @@ def gassmann_fluid_substitution(
 
     numerator = (1.0 - k_dry / k_mineral) ** 2
     denominator = (
-        porosity / k_fluid
-        + (1.0 - porosity) / k_mineral
-        - k_dry / k_mineral ** 2
+        porosity / k_fluid + (1.0 - porosity) / k_mineral - k_dry / k_mineral**2
     )
     k_sat = k_dry + numerator / denominator
     # Align mu_sat with the broadcast shape of k_sat so downstream code
@@ -299,13 +296,10 @@ def _validate_mixture(moduli: np.ndarray, fractions: np.ndarray) -> None:
         raise ValueError("every volume fraction must be non-negative")
     total = float(np.sum(fractions))
     if not (0.999 <= total <= 1.001):
-        raise ValueError(
-            f"fractions must sum to 1.0 (got {total:.4f})"
-        )
+        raise ValueError(f"fractions must sum to 1.0 (got {total:.4f})")
 
 
-def reuss_average(moduli: np.ndarray,
-                  fractions: np.ndarray) -> float:
+def reuss_average(moduli: np.ndarray, fractions: np.ndarray) -> float:
     r"""
     Reuss (harmonic, isostress) average of a composite modulus.
 
@@ -349,8 +343,7 @@ def reuss_average(moduli: np.ndarray,
     return float(1.0 / np.sum(fractions / moduli))
 
 
-def voigt_average(moduli: np.ndarray,
-                  fractions: np.ndarray) -> float:
+def voigt_average(moduli: np.ndarray, fractions: np.ndarray) -> float:
     r"""
     Voigt (arithmetic, isostrain) average of a composite modulus.
 
@@ -689,8 +682,7 @@ def stoneley_permeability_tang_cheng(
     valid = (alpha_b > 0) & (alpha_b < A_b)
     if np.any(valid):
         ratio = alpha_b[valid] / (A_b[valid] - alpha_b[valid])
-        kappa[valid] = (eta * phi_b[valid] * np.sqrt(ratio)
-                        / (omega * rho_f))
+        kappa[valid] = eta * phi_b[valid] * np.sqrt(ratio) / (omega * rho_f)
 
     # alpha_ST <= 0 (tight or noise-driven negative): kappa stays 0.
 
@@ -992,9 +984,7 @@ def hornby_fracture_aperture(
 
     with np.errstate(divide="ignore", invalid="ignore"):
         denom = omega * np.sqrt(np.clip(1.0 - R * R, 0.0, None))
-        aperture = np.where(denom > 0.0,
-                            vt * R / denom,
-                            np.inf)
+        aperture = np.where(denom > 0.0, vt * R / denom, np.inf)
     return aperture
 
 
@@ -1135,8 +1125,7 @@ def vs_from_stoneley_slow_formation(
     return np.sqrt(rho_fluid / (rho_arr * diff))
 
 
-def hill_average(moduli: np.ndarray,
-                 fractions: np.ndarray) -> float:
+def hill_average(moduli: np.ndarray, fractions: np.ndarray) -> float:
     r"""
     Voigt-Reuss-Hill average: arithmetic mean of the Voigt and Reuss
     bounds.

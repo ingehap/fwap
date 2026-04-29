@@ -22,8 +22,8 @@ from fwap.cylindrical_solver import (
 
 def _stoneley_lf_truth(vs, rho, vf, rho_f):
     """White (1983) eq. 5.42 closed form: S_ST^2 = 1/V_f^2 + rho_f/mu."""
-    mu = rho * vs ** 2
-    return float(np.sqrt(1.0 / vf ** 2 + rho_f / mu))
+    mu = rho * vs**2
+    return float(np.sqrt(1.0 / vf**2 + rho_f / mu))
 
 
 # ---------------------------------------------------------------------
@@ -37,9 +37,9 @@ def test_stoneley_low_f_matches_white_closed_form():
     `S_ST^2 = 1/V_f^2 + rho_f / mu` to better than 0.01 %."""
     vp, vs, rho = 4500.0, 2500.0, 2400.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
-    res = stoneley_dispersion(np.array([10.0]),
-                              vp=vp, vs=vs, rho=rho,
-                              vf=vf, rho_f=rho_f, a=a)
+    res = stoneley_dispersion(
+        np.array([10.0]), vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a
+    )
     s_truth = _stoneley_lf_truth(vs, rho, vf, rho_f)
     assert res.slowness[0] == pytest.approx(s_truth, rel=1.0e-4)
 
@@ -50,21 +50,21 @@ def test_stoneley_solver_returns_nan_in_slow_formation_regime():
     -- the Stoneley wave radiates into the formation as a leaky S
     arrival. The Phase-1 bound-mode solver cannot handle that
     regime; it should return ``NaN`` rather than wrong numbers."""
-    vp, vs, rho = 2200.0, 800.0, 2200.0    # slow shale: V_S < V_f
+    vp, vs, rho = 2200.0, 800.0, 2200.0  # slow shale: V_S < V_f
     vf, rho_f, a = 1500.0, 1000.0, 0.1
-    res = stoneley_dispersion(np.array([10.0]),
-                              vp=vp, vs=vs, rho=rho,
-                              vf=vf, rho_f=rho_f, a=a)
+    res = stoneley_dispersion(
+        np.array([10.0]), vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a
+    )
     assert np.isnan(res.slowness[0])
 
 
 def test_stoneley_low_f_matches_white_closed_form_fast_formation():
     """Fast-formation low-f match (V_S much larger than V_f)."""
-    vp, vs, rho = 6000.0, 3500.0, 2700.0   # fast carbonate
+    vp, vs, rho = 6000.0, 3500.0, 2700.0  # fast carbonate
     vf, rho_f, a = 1500.0, 1000.0, 0.1
-    res = stoneley_dispersion(np.array([10.0]),
-                              vp=vp, vs=vs, rho=rho,
-                              vf=vf, rho_f=rho_f, a=a)
+    res = stoneley_dispersion(
+        np.array([10.0]), vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a
+    )
     s_truth = _stoneley_lf_truth(vs, rho, vf, rho_f)
     assert res.slowness[0] == pytest.approx(s_truth, rel=1.0e-4)
 
@@ -79,8 +79,7 @@ def test_stoneley_dispersion_is_finite_across_typical_band():
     vp, vs, rho = 4500.0, 2500.0, 2400.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
     f = np.linspace(100.0, 15000.0, 60)
-    res = stoneley_dispersion(f, vp=vp, vs=vs, rho=rho,
-                              vf=vf, rho_f=rho_f, a=a)
+    res = stoneley_dispersion(f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a)
     assert np.all(np.isfinite(res.slowness))
 
 
@@ -91,8 +90,7 @@ def test_stoneley_dispersion_speeds_up_with_frequency():
     vp, vs, rho = 4500.0, 2500.0, 2400.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
     f = np.linspace(100.0, 10_000.0, 40)
-    s = stoneley_dispersion(f, vp=vp, vs=vs, rho=rho,
-                            vf=vf, rho_f=rho_f, a=a).slowness
+    s = stoneley_dispersion(f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a).slowness
     # Slowness is monotonically decreasing across the test band.
     assert np.all(np.diff(s) < 0.0)
 
@@ -103,8 +101,7 @@ def test_stoneley_slowness_always_above_fluid_slowness():
     vp, vs, rho = 4500.0, 2500.0, 2400.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
     f = np.linspace(100.0, 12_000.0, 30)
-    s = stoneley_dispersion(f, vp=vp, vs=vs, rho=rho,
-                            vf=vf, rho_f=rho_f, a=a).slowness
+    s = stoneley_dispersion(f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a).slowness
     assert np.all(s > 1.0 / vf)
 
 
@@ -116,8 +113,7 @@ def test_stoneley_slowness_above_formation_shear_slowness():
     vp, vs, rho = 4500.0, 2500.0, 2400.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
     f = np.linspace(100.0, 12_000.0, 30)
-    s = stoneley_dispersion(f, vp=vp, vs=vs, rho=rho,
-                            vf=vf, rho_f=rho_f, a=a).slowness
+    s = stoneley_dispersion(f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a).slowness
     assert np.all(s > 1.0 / vs)
 
 
@@ -134,10 +130,22 @@ def test_stoneley_slowness_increases_with_lower_shear_modulus():
     rho = 2400.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
     s_stiff = stoneley_dispersion(
-        f, vp=5000.0, vs=3000.0, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        f,
+        vp=5000.0,
+        vs=3000.0,
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
     ).slowness[0]
     s_soft = stoneley_dispersion(
-        f, vp=4000.0, vs=2000.0, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        f,
+        vp=4000.0,
+        vs=2000.0,
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
     ).slowness[0]
     assert s_soft > s_stiff
 
@@ -149,10 +157,22 @@ def test_stoneley_slowness_increases_with_heavier_fluid():
     vp, vs, rho = 4500.0, 2500.0, 2400.0
     vf, a = 1500.0, 0.1
     s_light = stoneley_dispersion(
-        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=900.0, a=a,
+        f,
+        vp=vp,
+        vs=vs,
+        rho=rho,
+        vf=vf,
+        rho_f=900.0,
+        a=a,
     ).slowness[0]
     s_heavy = stoneley_dispersion(
-        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=1100.0, a=a,
+        f,
+        vp=vp,
+        vs=vs,
+        rho=rho,
+        vf=vf,
+        rho_f=1100.0,
+        a=a,
     ).slowness[0]
     assert s_heavy > s_light
 
@@ -168,15 +188,13 @@ def test_modal_determinant_changes_sign_across_stoneley_root():
     omega = 2.0 * np.pi * 1000.0
     vp, vs, rho = 4500.0, 2500.0, 2400.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
-    res = stoneley_dispersion(np.array([1000.0]),
-                              vp=vp, vs=vs, rho=rho,
-                              vf=vf, rho_f=rho_f, a=a)
+    res = stoneley_dispersion(
+        np.array([1000.0]), vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a
+    )
     s_root = res.slowness[0]
     kz_root = s_root * omega
-    d_lo = _modal_determinant_n0(
-        kz_root * 0.999, omega, vp, vs, rho, vf, rho_f, a)
-    d_hi = _modal_determinant_n0(
-        kz_root * 1.001, omega, vp, vs, rho, vf, rho_f, a)
+    d_lo = _modal_determinant_n0(kz_root * 0.999, omega, vp, vs, rho, vf, rho_f, a)
+    d_hi = _modal_determinant_n0(kz_root * 1.001, omega, vp, vs, rho, vf, rho_f, a)
     assert np.sign(d_lo) != np.sign(d_hi)
 
 
@@ -186,15 +204,14 @@ def test_modal_determinant_at_root_is_near_zero():
     omega = 2.0 * np.pi * 1000.0
     vp, vs, rho = 4500.0, 2500.0, 2400.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
-    s_root = stoneley_dispersion(np.array([1000.0]),
-                                 vp=vp, vs=vs, rho=rho,
-                                 vf=vf, rho_f=rho_f,
-                                 a=a).slowness[0]
+    s_root = stoneley_dispersion(
+        np.array([1000.0]), vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a
+    ).slowness[0]
     kz_root = s_root * omega
-    d_at = abs(_modal_determinant_n0(
-        kz_root, omega, vp, vs, rho, vf, rho_f, a))
-    d_near = abs(_modal_determinant_n0(
-        kz_root * 1.05, omega, vp, vs, rho, vf, rho_f, a))
+    d_at = abs(_modal_determinant_n0(kz_root, omega, vp, vs, rho, vf, rho_f, a))
+    d_near = abs(
+        _modal_determinant_n0(kz_root * 1.05, omega, vp, vs, rho, vf, rho_f, a)
+    )
     assert d_at < d_near * 1.0e-6
 
 
@@ -212,8 +229,9 @@ def test_stoneley_low_f_independent_of_borehole_radius():
     vf, rho_f = 1500.0, 1000.0
     s_truth = _stoneley_lf_truth(vs, rho, vf, rho_f)
     for a in (0.05, 0.10, 0.15, 0.20):
-        s = stoneley_dispersion(f, vp=vp, vs=vs, rho=rho,
-                                vf=vf, rho_f=rho_f, a=a).slowness[0]
+        s = stoneley_dispersion(
+            f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a
+        ).slowness[0]
         assert s == pytest.approx(s_truth, rel=1.0e-3)
 
 
@@ -224,8 +242,7 @@ def test_stoneley_low_f_independent_of_borehole_radius():
 
 def test_stoneley_dispersion_rejects_non_positive_inputs():
     f = np.array([1000.0])
-    base = dict(vp=4500.0, vs=2500.0, rho=2400.0,
-                vf=1500.0, rho_f=1000.0, a=0.1)
+    base = dict(vp=4500.0, vs=2500.0, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1)
     with pytest.raises(ValueError, match="vp, vs, rho"):
         stoneley_dispersion(f, **{**base, "rho": 0.0})
     with pytest.raises(ValueError, match="vp, vs, rho"):
@@ -241,15 +258,17 @@ def test_stoneley_dispersion_rejects_non_positive_inputs():
 def test_stoneley_dispersion_rejects_vp_le_vs():
     f = np.array([1000.0])
     with pytest.raises(ValueError, match="vp > vs"):
-        stoneley_dispersion(f, vp=2500.0, vs=2500.0, rho=2400.0,
-                            vf=1500.0, rho_f=1000.0, a=0.1)
+        stoneley_dispersion(
+            f, vp=2500.0, vs=2500.0, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1
+        )
 
 
 def test_stoneley_dispersion_rejects_non_positive_freq():
     f = np.array([10.0, 0.0, 100.0])
     with pytest.raises(ValueError, match="freq"):
-        stoneley_dispersion(f, vp=4500.0, vs=2500.0, rho=2400.0,
-                            vf=1500.0, rho_f=1000.0, a=0.1)
+        stoneley_dispersion(
+            f, vp=4500.0, vs=2500.0, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1
+        )
 
 
 # ---------------------------------------------------------------------
@@ -259,8 +278,9 @@ def test_stoneley_dispersion_rejects_non_positive_freq():
 
 def test_stoneley_dispersion_returns_borehole_mode_dataclass():
     f = np.linspace(500.0, 5000.0, 5)
-    res = stoneley_dispersion(f, vp=4500.0, vs=2500.0, rho=2400.0,
-                              vf=1500.0, rho_f=1000.0, a=0.1)
+    res = stoneley_dispersion(
+        f, vp=4500.0, vs=2500.0, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1
+    )
     assert isinstance(res, BoreholeMode)
     assert res.name == "Stoneley"
     assert res.azimuthal_order == 0
@@ -295,9 +315,15 @@ def test_flexural_low_f_slowness_approaches_inverse_vs():
     must approach 1 / V_S (Ellefsen-Cheng-Toksoz 1991 sect. III.B
     long-wavelength asymptote). Tests f = 2 kHz where the slowness
     should be within 2% of 1/V_S."""
-    res = flexural_dispersion(np.array([2000.0]),
-                              vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
-                              vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A)
+    res = flexural_dispersion(
+        np.array([2000.0]),
+        vp=SLOW_VP,
+        vs=SLOW_VS,
+        rho=SLOW_RHO,
+        vf=SLOW_VF,
+        rho_f=SLOW_RHO_F,
+        a=SLOW_A,
+    )
     assert np.isfinite(res.slowness[0])
     assert res.slowness[0] == pytest.approx(1.0 / SLOW_VS, rel=2.0e-2)
 
@@ -307,9 +333,15 @@ def test_flexural_high_f_slowness_above_inverse_rayleigh():
     1 / V_R (Rayleigh-asymptote with positive Scholte / fluid-
     loading offset; substep 1.6.c-d). Tests f = 10 kHz where the
     slowness should be above 1/V_R but within 10% of it."""
-    res = flexural_dispersion(np.array([10000.0]),
-                              vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
-                              vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A)
+    res = flexural_dispersion(
+        np.array([10000.0]),
+        vp=SLOW_VP,
+        vs=SLOW_VS,
+        rho=SLOW_RHO,
+        vf=SLOW_VF,
+        rho_f=SLOW_RHO_F,
+        a=SLOW_A,
+    )
     assert np.isfinite(res.slowness[0])
     vR = rayleigh_speed(SLOW_VP, SLOW_VS)
     s_R = 1.0 / vR
@@ -324,8 +356,9 @@ def test_flexural_dispersion_is_monotonic_above_cutoff():
     """Slowness increases monotonically from ~1/V_S to ~1/V_R as
     f rises (substep 1.6.e cross-check 2). Tests f = 2-15 kHz."""
     f = np.linspace(2000.0, 15000.0, 14)
-    res = flexural_dispersion(f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
-                              vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A)
+    res = flexural_dispersion(
+        f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO, vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A
+    )
     s = res.slowness
     assert np.all(np.isfinite(s))
     # Monotonically non-decreasing in slowness (= phase velocity
@@ -340,10 +373,9 @@ def test_flexural_dispersion_qualitative_match_with_phenomenological():
     loading correction the modal solver captures and the
     phenomenological one does not."""
     f = np.array([2000.0, 5000.0, 10000.0])
-    s_modal = flexural_dispersion(f, vp=SLOW_VP, vs=SLOW_VS,
-                                  rho=SLOW_RHO, vf=SLOW_VF,
-                                  rho_f=SLOW_RHO_F,
-                                  a=SLOW_A).slowness
+    s_modal = flexural_dispersion(
+        f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO, vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A
+    ).slowness
     phen = flexural_dispersion_physical(SLOW_VP, SLOW_VS, SLOW_A)
     s_phen = phen(f)
     # Both are within 10% of each other across the band
@@ -363,8 +395,9 @@ def test_flexural_returns_nan_in_fast_formation():
     rather than raising; the leaky-flexural regime is a roadmap
     follow-up."""
     f = np.array([2000.0, 5000.0, 10000.0])
-    res = flexural_dispersion(f, vp=4500.0, vs=2500.0, rho=2400.0,
-                              vf=1500.0, rho_f=1000.0, a=0.1)
+    res = flexural_dispersion(
+        f, vp=4500.0, vs=2500.0, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1
+    )
     assert np.all(np.isnan(res.slowness))
 
 
@@ -374,9 +407,9 @@ def test_flexural_returns_nan_below_geometric_cutoff():
     parameters. Below that, no bound flexural root exists and
     NaN is returned."""
     f = np.array([500.0, 800.0, 1100.0])  # all below cutoff
-    res = flexural_dispersion(f, vp=SLOW_VP, vs=SLOW_VS,
-                              rho=SLOW_RHO, vf=SLOW_VF,
-                              rho_f=SLOW_RHO_F, a=SLOW_A)
+    res = flexural_dispersion(
+        f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO, vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A
+    )
     assert np.all(np.isnan(res.slowness))
 
 
@@ -389,17 +422,23 @@ def test_modal_determinant_n1_changes_sign_across_root():
     """Direct check: det(M) at k_z slightly below the recovered
     flexural root has opposite sign to det(M) slightly above it."""
     omega = 2.0 * np.pi * 5000.0
-    res = flexural_dispersion(np.array([5000.0]),
-                              vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
-                              vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A)
+    res = flexural_dispersion(
+        np.array([5000.0]),
+        vp=SLOW_VP,
+        vs=SLOW_VS,
+        rho=SLOW_RHO,
+        vf=SLOW_VF,
+        rho_f=SLOW_RHO_F,
+        a=SLOW_A,
+    )
     s_root = res.slowness[0]
     kz_root = s_root * omega
     d_lo = _modal_determinant_n1(
-        kz_root * 0.999, omega, SLOW_VP, SLOW_VS, SLOW_RHO,
-        SLOW_VF, SLOW_RHO_F, SLOW_A)
+        kz_root * 0.999, omega, SLOW_VP, SLOW_VS, SLOW_RHO, SLOW_VF, SLOW_RHO_F, SLOW_A
+    )
     d_hi = _modal_determinant_n1(
-        kz_root * 1.001, omega, SLOW_VP, SLOW_VS, SLOW_RHO,
-        SLOW_VF, SLOW_RHO_F, SLOW_A)
+        kz_root * 1.001, omega, SLOW_VP, SLOW_VS, SLOW_RHO, SLOW_VF, SLOW_RHO_F, SLOW_A
+    )
     assert np.sign(d_lo) != np.sign(d_hi)
 
 
@@ -407,17 +446,33 @@ def test_modal_determinant_n1_at_root_is_near_zero():
     """det(M) at the recovered k_z is many orders of magnitude
     smaller than at a nearby k_z."""
     omega = 2.0 * np.pi * 5000.0
-    s_root = flexural_dispersion(np.array([5000.0]),
-                                 vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
-                                 vf=SLOW_VF, rho_f=SLOW_RHO_F,
-                                 a=SLOW_A).slowness[0]
+    s_root = flexural_dispersion(
+        np.array([5000.0]),
+        vp=SLOW_VP,
+        vs=SLOW_VS,
+        rho=SLOW_RHO,
+        vf=SLOW_VF,
+        rho_f=SLOW_RHO_F,
+        a=SLOW_A,
+    ).slowness[0]
     kz_root = s_root * omega
-    d_at = abs(_modal_determinant_n1(
-        kz_root, omega, SLOW_VP, SLOW_VS, SLOW_RHO,
-        SLOW_VF, SLOW_RHO_F, SLOW_A))
-    d_near = abs(_modal_determinant_n1(
-        kz_root * 1.05, omega, SLOW_VP, SLOW_VS, SLOW_RHO,
-        SLOW_VF, SLOW_RHO_F, SLOW_A))
+    d_at = abs(
+        _modal_determinant_n1(
+            kz_root, omega, SLOW_VP, SLOW_VS, SLOW_RHO, SLOW_VF, SLOW_RHO_F, SLOW_A
+        )
+    )
+    d_near = abs(
+        _modal_determinant_n1(
+            kz_root * 1.05,
+            omega,
+            SLOW_VP,
+            SLOW_VS,
+            SLOW_RHO,
+            SLOW_VF,
+            SLOW_RHO_F,
+            SLOW_A,
+        )
+    )
     assert d_at < d_near * 1.0e-6
 
 
@@ -428,8 +483,9 @@ def test_modal_determinant_n1_at_root_is_near_zero():
 
 def test_flexural_dispersion_rejects_non_positive_inputs():
     f = np.array([5000.0])
-    base = dict(vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
-                vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A)
+    base = dict(
+        vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO, vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A
+    )
     with pytest.raises(ValueError, match="vp, vs, rho"):
         flexural_dispersion(f, **{**base, "rho": 0.0})
     with pytest.raises(ValueError, match="vp, vs, rho"):
@@ -445,15 +501,23 @@ def test_flexural_dispersion_rejects_non_positive_inputs():
 def test_flexural_dispersion_rejects_vp_le_vs():
     f = np.array([5000.0])
     with pytest.raises(ValueError, match="vp > vs"):
-        flexural_dispersion(f, vp=800.0, vs=800.0, rho=SLOW_RHO,
-                            vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A)
+        flexural_dispersion(
+            f, vp=800.0, vs=800.0, rho=SLOW_RHO, vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A
+        )
 
 
 def test_flexural_dispersion_rejects_non_positive_freq():
     f = np.array([2000.0, 0.0, 5000.0])
     with pytest.raises(ValueError, match="freq"):
-        flexural_dispersion(f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
-                            vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A)
+        flexural_dispersion(
+            f,
+            vp=SLOW_VP,
+            vs=SLOW_VS,
+            rho=SLOW_RHO,
+            vf=SLOW_VF,
+            rho_f=SLOW_RHO_F,
+            a=SLOW_A,
+        )
 
 
 # ---------------------------------------------------------------------
@@ -463,8 +527,9 @@ def test_flexural_dispersion_rejects_non_positive_freq():
 
 def test_flexural_dispersion_returns_borehole_mode_dataclass():
     f = np.linspace(2000.0, 10000.0, 5)
-    res = flexural_dispersion(f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
-                              vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A)
+    res = flexural_dispersion(
+        f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO, vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A
+    )
     assert isinstance(res, BoreholeMode)
     assert res.name == "flexural"
     assert res.azimuthal_order == 1

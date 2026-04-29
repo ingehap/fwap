@@ -15,8 +15,7 @@ US_PER_FT: float = 1.0e-6 / 0.3048
 logger: logging.Logger = logging.getLogger("fwap")
 
 
-def _phase_shift(spec: np.ndarray, f: np.ndarray,
-                 tau: np.ndarray) -> np.ndarray:
+def _phase_shift(spec: np.ndarray, f: np.ndarray, tau: np.ndarray) -> np.ndarray:
     r"""
     Frequency-domain fractional time shift.
 

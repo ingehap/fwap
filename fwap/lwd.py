@@ -67,9 +67,9 @@ from fwap.wavesep import tau_p_adjoint, tau_p_forward
 # 8-15 kHz band for current-generation tools (Aron et al. 1994;
 # Kinoshita et al. 2008). The defaults below land in the middle of
 # both ranges.
-DEFAULT_COLLAR_SLOWNESS_S_PER_M: float = 1.0 / 3300.0   # ~92 us/ft
+DEFAULT_COLLAR_SLOWNESS_S_PER_M: float = 1.0 / 3300.0  # ~92 us/ft
 DEFAULT_COLLAR_FREQUENCY_HZ: float = 12_000.0
-DEFAULT_COLLAR_GABOR_SIGMA_S: float = 1.5e-4   # narrow-band envelope
+DEFAULT_COLLAR_GABOR_SIGMA_S: float = 1.5e-4  # narrow-band envelope
 
 
 def lwd_collar_mode(
@@ -196,8 +196,10 @@ def synthesize_lwd_gather(
         intercept=collar_intercept,
     )
     return synthesize_gather(
-        geom, list(formation_modes) + [collar],
-        noise=noise, seed=seed,
+        geom,
+        list(formation_modes) + [collar],
+        noise=noise,
+        seed=seed,
     )
 
 
@@ -311,15 +313,14 @@ def notch_slowness_band(
         # (slow_max, slow_max + w).
         lo = (slownesses >= slow_min - w) & (slownesses < slow_min)
         hi = (slownesses > slow_max) & (slownesses <= slow_max + w)
-        mask[lo] = 0.5 * (
-            1.0 - np.cos(np.pi * (slownesses[lo] - (slow_min - w)) / w)
-        )
-        mask[hi] = 0.5 * (
-            1.0 + np.cos(np.pi * (slownesses[hi] - slow_max) / w)
-        )
+        mask[lo] = 0.5 * (1.0 - np.cos(np.pi * (slownesses[lo] - (slow_min - w)) / w))
+        mask[hi] = 0.5 * (1.0 + np.cos(np.pi * (slownesses[hi] - slow_max) / w))
 
     in_band_signal = tau_p_adjoint(
-        panel * mask[:, None], dt, offsets, slownesses,
+        panel * mask[:, None],
+        dt,
+        offsets,
+        slownesses,
     )
     return data - in_band_signal
 
@@ -358,6 +359,7 @@ class QuadrupoleRingGather:
     source_azimuth : float
         Quadrupole-source orientation (rad). The cos-pattern axis.
     """
+
     data: np.ndarray
     dt: float
     axial_offsets: np.ndarray
@@ -471,20 +473,18 @@ def synthesize_quadrupole_lwd_gather(
     # phenomenological wavelet at formation_slowness.
     t_arr_form = formation_intercept + tool_offset * formation_slowness
     form_wavelet = ricker(t, formation_f0, t0=t_arr_form)
-    data = (formation_amplitude * quadrupole_pattern[:, None]
-            * form_wavelet[None, :])
+    data = formation_amplitude * quadrupole_pattern[:, None] * form_wavelet[None, :]
 
     # Steel-collar quadrupole mode -- narrow-band Gabor at the higher
     # collar slowness, also m=2 modulated.
     if include_collar:
         t_arr_col = tool_offset * collar_slowness
         col_wavelet = gabor(t, collar_f0, t_arr_col, sigma=collar_sigma)
-        data += (collar_amplitude * quadrupole_pattern[:, None]
-                 * col_wavelet[None, :])
+        data += collar_amplitude * quadrupole_pattern[:, None] * col_wavelet[None, :]
 
     # Per-trace Gaussian noise as a fraction of the noise-free RMS.
     if noise > 0:
-        rms = np.sqrt(np.mean(data ** 2)) + 1.0e-12
+        rms = np.sqrt(np.mean(data**2)) + 1.0e-12
         data = data + rng.normal(scale=noise * rms, size=data.shape)
 
     return QuadrupoleRingGather(
@@ -552,9 +552,7 @@ def quadrupole_stack(
     data = np.asarray(data, dtype=float)
     azimuths = np.asarray(azimuths, dtype=float)
     if data.ndim != 2:
-        raise ValueError(
-            f"data must be 2-D (n_rec, n_samples); got shape {data.shape}"
-        )
+        raise ValueError(f"data must be 2-D (n_rec, n_samples); got shape {data.shape}")
     if azimuths.shape[0] != data.shape[0]:
         raise ValueError(
             "azimuths must have the same length as data.shape[0]; got "

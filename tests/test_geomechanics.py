@@ -30,9 +30,9 @@ from fwap.rockphysics import elastic_moduli
 def test_brittleness_endpoints_clip_to_unit_interval():
     """Stiff & low-Poisson saturates to 1; soft & high-Poisson to 0."""
     bi_high = brittleness_index_rickman(young_pa=1.0e12, poisson=0.05)
-    bi_low  = brittleness_index_rickman(young_pa=1.0e8,  poisson=0.45)
+    bi_low = brittleness_index_rickman(young_pa=1.0e8, poisson=0.45)
     assert bi_high == pytest.approx(1.0)
-    assert bi_low  == pytest.approx(0.0)
+    assert bi_low == pytest.approx(0.0)
 
 
 def test_brittleness_midpoint_is_half():
@@ -52,7 +52,7 @@ def test_brittleness_high_e_is_more_brittle_than_low_e():
 
 def test_brittleness_low_poisson_is_more_brittle_than_high_poisson():
     """At fixed E, lower Poisson is more brittle."""
-    bi_low_nu  = brittleness_index_rickman(4.0e10, 0.18)
+    bi_low_nu = brittleness_index_rickman(4.0e10, 0.18)
     bi_high_nu = brittleness_index_rickman(4.0e10, 0.38)
     assert bi_low_nu > bi_high_nu
 
@@ -118,7 +118,7 @@ def test_closure_stress_with_pore_pressure_uses_effective_stress():
 def test_closure_stress_increases_with_poisson():
     """At fixed sigma_v, higher Poisson => higher closure stress."""
     sigma_v = 50.0e6
-    sh_low_nu  = closure_stress(0.18, sigma_v)
+    sh_low_nu = closure_stress(0.18, sigma_v)
     sh_high_nu = closure_stress(0.35, sigma_v)
     assert sh_high_nu > sh_low_nu
 
@@ -145,9 +145,7 @@ def test_closure_stress_array_inputs_broadcast():
     sigma_v = np.array([40.0e6, 50.0e6, 60.0e6])
     sh = closure_stress(nu, sigma_v)
     assert sh.shape == (3,)
-    np.testing.assert_allclose(
-        sh, (nu / (1.0 - nu)) * sigma_v
-    )
+    np.testing.assert_allclose(sh, (nu / (1.0 - nu)) * sigma_v)
 
 
 # ---------------------------------------------------------------------
@@ -196,8 +194,7 @@ def test_sand_stability_threshold_default_is_5_gpa():
 
 
 def test_sand_stability_custom_threshold():
-    flag = sand_stability_indicator(np.array([2.0e9, 4.0e9]),
-                                    threshold_pa=3.0e9)
+    flag = sand_stability_indicator(np.array([2.0e9, 4.0e9]), threshold_pa=3.0e9)
     np.testing.assert_array_equal(flag, [False, True])
 
 
@@ -228,11 +225,9 @@ def test_overburden_seeded_with_surface_value():
 
 def test_overburden_rejects_non_increasing_depth():
     with pytest.raises(ValueError):
-        overburden_stress(np.array([0.0, 0.0, 1.0]),
-                          np.array([2400.0, 2400.0, 2400.0]))
+        overburden_stress(np.array([0.0, 0.0, 1.0]), np.array([2400.0, 2400.0, 2400.0]))
     with pytest.raises(ValueError):
-        overburden_stress(np.array([1.0, 0.0]),
-                          np.array([2400.0, 2400.0]))
+        overburden_stress(np.array([1.0, 0.0]), np.array([2400.0, 2400.0]))
 
 
 def test_overburden_rejects_negative_density():
@@ -242,8 +237,7 @@ def test_overburden_rejects_negative_density():
 
 def test_overburden_rejects_shape_mismatch():
     with pytest.raises(ValueError):
-        overburden_stress(np.array([0.0, 1.0, 2.0]),
-                          np.array([2400.0, 2400.0]))
+        overburden_stress(np.array([0.0, 1.0, 2.0]), np.array([2400.0, 2400.0]))
 
 
 def test_overburden_empty_input_returns_empty():
@@ -265,7 +259,7 @@ def test_geomechanics_indices_no_overburden_omits_closure_stress():
     # Shape consistency for the always-emitted fields.
     assert np.shape(out.brittleness) == np.shape(moduli.young)
     assert np.shape(out.fracability) == np.shape(moduli.young)
-    assert np.shape(out.ucs)         == np.shape(moduli.young)
+    assert np.shape(out.ucs) == np.shape(moduli.young)
     assert np.shape(out.sand_stability) == np.shape(moduli.young)
 
 
@@ -326,21 +320,21 @@ def test_geomechanics_indices_pipes_into_track_to_log_curves_path(tmp_path):
         rho=np.full(n, 2400.0),
     )
     sigma_v = np.linspace(20.0e6, 23.0e6, n)
-    out = geomechanics_indices(moduli, sigma_v_pa=sigma_v,
-                               pore_pressure_pa=10.0e6)
+    out = geomechanics_indices(moduli, sigma_v_pa=sigma_v, pore_pressure_pa=10.0e6)
     curves = {
         "BRIT": out.brittleness,
         "FRAC": out.fracability,
-        "UCS":  out.ucs,
-        "SH":   out.closure_stress,
-        "SV":   sigma_v,
+        "UCS": out.ucs,
+        "SH": out.closure_stress,
+        "SV": sigma_v,
         "SAND": out.sand_stability.astype(float),
     }
     path = str(tmp_path / "geomech.las")
     write_las(path, depth, curves, well_name="GEO")
     loaded = read_las(path)
     assert loaded.units["UCS"] == "Pa"
-    assert loaded.units["SH"]  == "Pa"
+    assert loaded.units["SH"] == "Pa"
     assert loaded.units["BRIT"] == ""
-    np.testing.assert_allclose(loaded.curves["BRIT"], out.brittleness,
-                               rtol=0, atol=1e-3)
+    np.testing.assert_allclose(
+        loaded.curves["BRIT"], out.brittleness, rtol=0, atol=1e-3
+    )

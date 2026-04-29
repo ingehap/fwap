@@ -29,8 +29,10 @@ _FAST = settings(max_examples=30, deadline=1000)
 # ------------------------------------------------------------------
 
 _finite_floats = st.floats(
-    min_value=-1.0e6, max_value=1.0e6,
-    allow_nan=False, allow_infinity=False,
+    min_value=-1.0e6,
+    max_value=1.0e6,
+    allow_nan=False,
+    allow_infinity=False,
 )
 
 
@@ -49,7 +51,7 @@ def test_semblance_in_unit_interval(window):
     """semblance(w) is always in [0, 1] for any finite real input."""
     rho = semblance(window)
     if np.isnan(rho):
-        return   # all-zero window; NaN is documented behaviour
+        return  # all-zero window; NaN is documented behaviour
     assert -1.0e-9 <= rho <= 1.0 + 1.0e-9
 
 
@@ -62,13 +64,17 @@ def test_semblance_in_unit_interval(window):
             st.integers(min_value=4, max_value=32),
         ),
         elements=st.floats(
-            min_value=-100.0, max_value=100.0,
-            allow_nan=False, allow_infinity=False,
+            min_value=-100.0,
+            max_value=100.0,
+            allow_nan=False,
+            allow_infinity=False,
         ),
     ),
     alpha=st.floats(
-        min_value=1.0e-3, max_value=1.0e3,
-        allow_nan=False, allow_infinity=False,
+        min_value=1.0e-3,
+        max_value=1.0e3,
+        allow_nan=False,
+        allow_infinity=False,
     ),
 )
 def test_semblance_scale_invariant(window, alpha):
@@ -90,8 +96,10 @@ def test_semblance_scale_invariant(window, alpha):
         dtype=np.float64,
         shape=st.integers(min_value=4, max_value=128),
         elements=st.floats(
-            min_value=-100.0, max_value=100.0,
-            allow_nan=False, allow_infinity=False,
+            min_value=-100.0,
+            max_value=100.0,
+            allow_nan=False,
+            allow_infinity=False,
         ),
     ),
     n_rec=st.integers(min_value=2, max_value=8),
@@ -120,8 +128,10 @@ def test_semblance_of_identical_traces_is_one(trace, n_rec):
             st.integers(min_value=8, max_value=256),
         ),
         elements=st.floats(
-            min_value=-100.0, max_value=100.0,
-            allow_nan=False, allow_infinity=False,
+            min_value=-100.0,
+            max_value=100.0,
+            allow_nan=False,
+            allow_infinity=False,
         ),
     ),
 )
@@ -145,7 +155,7 @@ def test_fk_round_trip_is_identity(data):
 @_FAST
 @given(
     vs=st.floats(min_value=500.0, max_value=5000.0),
-    vp_ratio=st.floats(min_value=1.5, max_value=3.0),   # Vp/Vs
+    vp_ratio=st.floats(min_value=1.5, max_value=3.0),  # Vp/Vs
     rho=st.floats(min_value=1000.0, max_value=3500.0),
 )
 def test_elastic_moduli_poisson_in_physical_range(vs, vp_ratio, rho):
@@ -201,11 +211,14 @@ def test_elastic_moduli_young_from_bulk_shear(vs, vp_ratio, rho):
 def test_stc_returns_expected_shape(n_rec, n_samples, n_slowness):
     """stc output slowness / time / coherence arrays have the advertised shapes."""
     from fwap.coherence import stc
+
     rng = np.random.default_rng(0)
     data = rng.standard_normal((n_rec, n_samples))
     offsets = np.arange(n_rec) * 0.1524
     result = stc(
-        data, dt=1.0e-5, offsets=offsets,
+        data,
+        dt=1.0e-5,
+        offsets=offsets,
         slowness_range=(50e-6, 400e-6),
         n_slowness=n_slowness,
         window_length=max(1e-5, n_samples * 0.05 * 1e-5),
@@ -220,8 +233,7 @@ def test_stc_returns_expected_shape(n_rec, n_samples, n_slowness):
 @given(
     n_rec=st.integers(min_value=2, max_value=8),
     n_samples=st.integers(min_value=64, max_value=512),
-    slowness=st.floats(min_value=50.0e-6, max_value=300.0e-6,
-                       allow_nan=False),
+    slowness=st.floats(min_value=50.0e-6, max_value=300.0e-6, allow_nan=False),
 )
 def test_apply_moveout_preserves_energy(n_rec, n_samples, slowness):
     """``apply_moveout`` is an approximate isometry in the rFFT sense.
@@ -234,13 +246,13 @@ def test_apply_moveout_preserves_energy(n_rec, n_samples, slowness):
     ``tests/test_wavesep.py``.
     """
     from fwap.wavesep import apply_moveout
+
     rng = np.random.default_rng(0)
     data = rng.standard_normal((n_rec, n_samples))
     offsets = np.arange(n_rec) * 0.1524
-    shifted = apply_moveout(
-        data, dt=1.0e-5, offsets=offsets, slowness=slowness)
-    rms_in = np.sqrt(np.mean(data ** 2))
-    rms_out = np.sqrt(np.mean(shifted ** 2))
+    shifted = apply_moveout(data, dt=1.0e-5, offsets=offsets, slowness=slowness)
+    rms_in = np.sqrt(np.mean(data**2))
+    rms_out = np.sqrt(np.mean(shifted**2))
     if rms_in < 1.0e-12:
         return
     assert abs(rms_out - rms_in) / rms_in < 1.0e-2
@@ -274,13 +286,15 @@ def test_elastic_moduli_array_broadcasts(n, vs_seed):
     raw=arrays(
         dtype=np.float64,
         shape=st.integers(min_value=2, max_value=8),
-        elements=st.floats(min_value=1.0, max_value=100.0,
-                           allow_nan=False, allow_infinity=False),
+        elements=st.floats(
+            min_value=1.0, max_value=100.0, allow_nan=False, allow_infinity=False
+        ),
     ),
 )
 def test_voigt_always_above_or_equal_reuss(n, raw):
     """For any non-degenerate mixture, Voigt >= Reuss."""
     from fwap.rockphysics import reuss_average, voigt_average
+
     moduli = raw.astype(float)
     # Build non-negative fractions summing to 1.
     fractions = np.full_like(moduli, 1.0 / moduli.size)
@@ -316,15 +330,22 @@ def test_pick_modes_recovers_planted_p_slowness(vp, vs_ratio, seed):
     )
 
     vs = vp / vs_ratio
-    geom = ArrayGeometry(n_rec=8, tr_offset=3.0, dr=0.1524,
-                         dt=1.0e-5, n_samples=2048)
+    geom = ArrayGeometry(n_rec=8, tr_offset=3.0, dr=0.1524, dt=1.0e-5, n_samples=2048)
     data = synthesize_gather(
-        geom, monopole_formation_modes(vp=vp, vs=vs, v_stoneley=1400.0),
-        noise=0.05, seed=seed,
+        geom,
+        monopole_formation_modes(vp=vp, vs=vs, v_stoneley=1400.0),
+        noise=0.05,
+        seed=seed,
     )
-    surface = stc(data, dt=geom.dt, offsets=geom.offsets,
-                  slowness_range=(50e-6, 800e-6),
-                  n_slowness=121, window_length=4.0e-4, time_step=2)
+    surface = stc(
+        data,
+        dt=geom.dt,
+        offsets=geom.offsets,
+        slowness_range=(50e-6, 800e-6),
+        n_slowness=121,
+        window_length=4.0e-4,
+        time_step=2,
+    )
     picks = pick_modes(surface, threshold=0.4)
     # P should always be picked on a clean synthetic.
     assert "P" in picks, f"P missing from picks {list(picks)}"

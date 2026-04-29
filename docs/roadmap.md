@@ -408,12 +408,14 @@ release is live. Reversible, low-risk; one afternoon's work.
 
 ### E. `ruff format` sweep
 
-Run `ruff format .` once across the tree as a standalone formatting
-commit. Reformats ~34 files. Not enabled in pre-commit today because
-the existing hand-formatted style is consistent but differs from
-ruff-format's defaults (trailing semicolons, specific indent
-conventions). After the sweep, add `ruff-format` to the pre-commit
-hook list so drift is prevented automatically.
+**Status**: closed in the [Unreleased] cycle. Tree-wide ``ruff format``
+sweep applied (42 files reformatted, behaviour-preserving). New
+``.pre-commit-config.yaml`` registers the ``ruff-format`` hook so
+drift is prevented automatically once contributors run
+``pre-commit install``. ``ruff check`` is not yet hooked because the
+tree carries pre-existing lint debt (B023, B007, I001 across various
+modules and tests); a follow-up cleanup PR will clear that debt and
+add ``ruff-check`` to the pre-commit list.
 
 ### F. Real-data test fixtures
 

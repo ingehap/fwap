@@ -6,7 +6,20 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Repository-wide ``ruff format`` sweep**: 42 files reformatted to
+  ruff-format defaults. Behaviour-preserving (full test suite still
+  passes; same 433 / 1 skipped count as before the sweep). Closes
+  Open Item E on the roadmap.
+
 ### Added
+- **Pre-commit config** (``.pre-commit-config.yaml``) with the
+  ``ruff-format`` hook. Run ``pre-commit install`` after cloning
+  to prevent format drift on future commits. ``ruff check`` is not
+  yet hooked because the tree carries pre-existing lint debt
+  (B023, B007, I001 across various modules and tests) that would
+  block all commits until cleaned up; that cleanup is a follow-up
+  to this PR.
 - **Variable candidate budget for joint Viterbi picker**: when the
   raw per-depth tuple count ``prod(n_i + 1)`` would exceed
   ``max_triples_per_depth``, the trellis builder now automatically

@@ -89,6 +89,7 @@ class LasCurves:
         Constant sampling step from the LAS header (``STEP``). May be
         ``NaN`` when the file does not use a uniform step.
     """
+
     depth: np.ndarray
     curves: dict[str, np.ndarray]
     units: dict[str, str]
@@ -134,76 +135,76 @@ def read_las(path: str) -> LasCurves:
     except (AttributeError, TypeError, ValueError):
         step = float("nan")
 
-    return LasCurves(depth=depth, curves=curves, units=units,
-                     well=well, step=step)
+    return LasCurves(depth=depth, curves=curves, units=units, well=well, step=step)
 
 
 _FWAP_UNITS: Mapping[str, str] = {
     # Compressional / shear / Stoneley / pseudo-Rayleigh slowness
     # (us/ft is the borehole-acoustic convention; consumers can
     # convert on read).
-    "DTP":   "us/ft",
-    "DTS":   "us/ft",
-    "DTST":  "us/ft",
-    "DTPR":  "us/ft",
+    "DTP": "us/ft",
+    "DTS": "us/ft",
+    "DTST": "us/ft",
+    "DTPR": "us/ft",
     # Per-mode coherence (unitless).
-    "COHP":  "",
-    "COHS":  "",
+    "COHP": "",
+    "COHS": "",
     "COHST": "",
     "COHPR": "",
     # Per-mode stack amplitude (input units; dimensionless when the
     # source gather was unit-amplitude).
-    "AMPP":  "",
-    "AMPS":  "",
+    "AMPP": "",
+    "AMPS": "",
     "AMPST": "",
     "AMPPR": "",
     # Per-mode pick time (window-start time, seconds).
-    "TIMP":  "s",
-    "TIMS":  "s",
+    "TIMP": "s",
+    "TIMS": "s",
     "TIMST": "s",
     "TIMPR": "s",
     # Vp / Vs ratio.
-    "VPVS":  "",
+    "VPVS": "",
     # Q (dimensionless).
-    "QP":    "",
-    "QS":    "",
+    "QP": "",
+    "QS": "",
     # Elastic moduli.
-    "K":     "Pa",
-    "MU":    "Pa",
-    "E":     "Pa",
-    "NU":    "",
+    "K": "Pa",
+    "MU": "Pa",
+    "E": "Pa",
+    "NU": "",
     # Geomechanics indices (fwap.geomechanics).
-    "BRIT":  "",     # Rickman brittleness index, [0, 1]
-    "FRAC":  "",     # Fracability index, [0, 1]
-    "UCS":   "Pa",   # Unconfined compressive strength
-    "SH":    "Pa",   # Minimum horizontal (closure) stress
-    "SV":    "Pa",   # Vertical (overburden) stress
-    "SAND":  "",     # Sand-stability flag (0 = sand-prone, 1 = stable)
+    "BRIT": "",  # Rickman brittleness index, [0, 1]
+    "FRAC": "",  # Fracability index, [0, 1]
+    "UCS": "Pa",  # Unconfined compressive strength
+    "SH": "Pa",  # Minimum horizontal (closure) stress
+    "SV": "Pa",  # Vertical (overburden) stress
+    "SAND": "",  # Sand-stability flag (0 = sand-prone, 1 = stable)
     # VTI elastic moduli (fwap.anisotropy.vti_moduli_from_logs /
     # thomsen_gamma_from_logs).
-    "C33":   "Pa",   # Vertical P-wave modulus (rho * Vp^2)
-    "C44":   "Pa",   # Vertical shear modulus (rho * Vsv^2)
-    "C66":   "Pa",   # Horizontal shear modulus (Stoneley inversion)
-    "GAMMA": "",     # Thomsen shear-anisotropy parameter
-    "VP":    "m/s",  # Vertical P-wave velocity
-    "VSV":   "m/s",  # Vertical shear velocity
-    "VSH":   "m/s",  # Horizontal shear velocity (Stoneley-derived)
+    "C33": "Pa",  # Vertical P-wave modulus (rho * Vp^2)
+    "C44": "Pa",  # Vertical shear modulus (rho * Vsv^2)
+    "C66": "Pa",  # Horizontal shear modulus (Stoneley inversion)
+    "GAMMA": "",  # Thomsen shear-anisotropy parameter
+    "VP": "m/s",  # Vertical P-wave velocity
+    "VSV": "m/s",  # Vertical shear velocity
+    "VSH": "m/s",  # Horizontal shear velocity (Stoneley-derived)
     # Stoneley reflection / fracture-aperture inversion
     # (fwap.rockphysics.hornby_fracture_aperture).
-    "RFRAC": "",     # Stoneley reflection coefficient |R|
-    "FAPER": "m",    # Hornby et al. 1989 fracture aperture
+    "RFRAC": "",  # Stoneley reflection coefficient |R|
+    "FAPER": "m",  # Hornby et al. 1989 fracture aperture
 }
 
 
-def write_las(path: str,
-              depth: np.ndarray,
-              curves: Mapping[str, np.ndarray],
-              *,
-              depth_unit: str = "M",
-              well_name: str = "",
-              well: Mapping[str, str] | None = None,
-              units: Mapping[str, str] | None = None,
-              ) -> None:
+def write_las(
+    path: str,
+    depth: np.ndarray,
+    curves: Mapping[str, np.ndarray],
+    *,
+    depth_unit: str = "M",
+    well_name: str = "",
+    well: Mapping[str, str] | None = None,
+    units: Mapping[str, str] | None = None,
+) -> None:
     """
     Write an fwap-derived log set out as a LAS file.
 
@@ -244,8 +245,7 @@ def write_las(path: str,
     for mnemonic, arr in curves.items():
         if np.asarray(arr).shape != (n,):
             raise ValueError(
-                f"curve {mnemonic!r} has shape {np.asarray(arr).shape}, "
-                f"expected ({n},)"
+                f"curve {mnemonic!r} has shape {np.asarray(arr).shape}, expected ({n},)"
             )
 
     las = lasio.LASFile()
@@ -278,11 +278,11 @@ def write_las(path: str,
 # both sides means a curve set can move between the two formats
 # without the caller having to re-key the well dict.
 _DLIS_TO_LAS_WELL: Mapping[str, str] = {
-    "well_name":     "WELL",
-    "company":       "COMP",
-    "field_name":    "FLD",
+    "well_name": "WELL",
+    "company": "COMP",
+    "field_name": "FLD",
     "producer_name": "PROD",
-    "well_id":       "UWI",
+    "well_id": "UWI",
 }
 _LAS_TO_DLIS_WELL: Mapping[str, str] = {v: k for k, v in _DLIS_TO_LAS_WELL.items()}
 
@@ -322,6 +322,7 @@ class DlisCurves:
         ``"VERTICAL-DEPTH"``, ``"TIME"``). Empty string when the frame
         has no declared index type.
     """
+
     depth: np.ndarray
     curves: dict[str, np.ndarray]
     units: dict[str, str]
@@ -331,11 +332,12 @@ class DlisCurves:
     index_type: str
 
 
-def read_dlis(path: str,
-              *,
-              logical_file_index: int = 0,
-              frame_index: int = 0,
-              ) -> DlisCurves:
+def read_dlis(
+    path: str,
+    *,
+    logical_file_index: int = 0,
+    frame_index: int = 0,
+) -> DlisCurves:
     """
     Read one frame of a DLIS (RP66 v1) file into a :class:`DlisCurves`.
 
@@ -430,18 +432,19 @@ def read_dlis(path: str,
     )
 
 
-def write_dlis(path: str,
-               depth: np.ndarray,
-               curves: Mapping[str, np.ndarray],
-               *,
-               depth_unit: str = "m",
-               well_name: str = "",
-               well: Mapping[str, str] | None = None,
-               units: Mapping[str, str] | None = None,
-               frame_name: str = "MAIN",
-               index_type: str = "BOREHOLE-DEPTH",
-               origin_name: str = "FWAP",
-               ) -> None:
+def write_dlis(
+    path: str,
+    depth: np.ndarray,
+    curves: Mapping[str, np.ndarray],
+    *,
+    depth_unit: str = "m",
+    well_name: str = "",
+    well: Mapping[str, str] | None = None,
+    units: Mapping[str, str] | None = None,
+    frame_name: str = "MAIN",
+    index_type: str = "BOREHOLE-DEPTH",
+    origin_name: str = "FWAP",
+) -> None:
     """
     Write an fwap-derived log set out as a DLIS (RP66 v1) file.
 
@@ -502,8 +505,7 @@ def write_dlis(path: str,
     for name, arr in curves.items():
         if np.asarray(arr).shape != (n,):
             raise ValueError(
-                f"curve {name!r} has shape {np.asarray(arr).shape}, "
-                f"expected ({n},)"
+                f"curve {name!r} has shape {np.asarray(arr).shape}, expected ({n},)"
             )
 
     # Resolve well metadata: well_name kwarg, then well mapping,
@@ -528,9 +530,8 @@ def write_dlis(path: str,
     # file is still produced correctly; silence both for the duration
     # of the build + write so callers get a clean stream.
     import logging
-    validator_logger = logging.getLogger(
-        "dliswriter.utils.internal.validator_enum"
-    )
+
+    validator_logger = logging.getLogger("dliswriter.utils.internal.validator_enum")
     prev_level = validator_logger.level
     validator_logger.setLevel(logging.ERROR)
     try:
@@ -543,9 +544,7 @@ def write_dlis(path: str,
             # parameters. Cast the unpacked mapping to silence that.
             lf.add_origin(origin_name, **cast(Any, origin_kwargs))
 
-            depth_channel = lf.add_channel(
-                name="DEPT", data=depth, units=depth_unit
-            )
+            depth_channel = lf.add_channel(name="DEPT", data=depth, units=depth_unit)
             channel_objs = [depth_channel]
             for name, arr in curves.items():
                 channel_objs.append(
@@ -594,6 +593,7 @@ class SegyGather:
     textual_header : str
         The 3200-byte EBCDIC textual file header, decoded to ASCII.
     """
+
     data: np.ndarray
     dt: float
     offsets: np.ndarray | None
@@ -602,10 +602,11 @@ class SegyGather:
     textual_header: str
 
 
-def read_segy(path: str,
-              *,
-              offset_header: str = "offset",
-              ) -> SegyGather:
+def read_segy(
+    path: str,
+    *,
+    offset_header: str = "offset",
+) -> SegyGather:
     """
     Read a SEG-Y file into a :class:`SegyGather`.
 
@@ -661,9 +662,8 @@ def read_segy(path: str,
         # The 3200-byte EBCDIC header as ASCII. segyio exposes it on
         # the context-manager object.
         try:
-            textual = segyio.tools.wrap(f.text[0].decode("ascii",
-                                                         errors="replace"))
-        except Exception:   # pragma: no cover - guard against oddly-encoded files
+            textual = segyio.tools.wrap(f.text[0].decode("ascii", errors="replace"))
+        except Exception:  # pragma: no cover - guard against oddly-encoded files
             textual = ""
 
     return SegyGather(
@@ -676,13 +676,14 @@ def read_segy(path: str,
     )
 
 
-def write_segy(path: str,
-               data: np.ndarray,
-               dt: float,
-               offsets: np.ndarray | None = None,
-               *,
-               textual_header: str | None = None,
-               ) -> None:
+def write_segy(
+    path: str,
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray | None = None,
+    *,
+    textual_header: str | None = None,
+) -> None:
     """
     Write a multichannel gather to a SEG-Y rev 1 file (IEEE float).
 
@@ -727,13 +728,12 @@ def write_segy(path: str,
         offsets_arr = np.asarray(offsets)
         if offsets_arr.shape != (n_traces,):
             raise ValueError(
-                f"offsets must have shape ({n_traces},); got "
-                f"{offsets_arr.shape}"
+                f"offsets must have shape ({n_traces},); got {offsets_arr.shape}"
             )
         offsets_arr = np.round(offsets_arr).astype(int)
 
     spec = segyio.spec()
-    spec.format = 5                            # IEEE float
+    spec.format = 5  # IEEE float
     spec.samples = np.arange(n_samples)
     spec.tracecount = n_traces
     spec.sorting = segyio.TraceSortingFormat.INLINE_SORTING
@@ -744,18 +744,19 @@ def write_segy(path: str,
             # segyio.tools.create_text_header pads/truncates to the
             # required 40-line x 80-char layout.
             f.text[0] = segyio.tools.create_text_header(
-                {i + 1: ""
-                 for i in range(40)}   # placeholder: fill with blanks
+                {i + 1: "" for i in range(40)}  # placeholder: fill with blanks
             )
             # Overwrite with the caller's content, clipped to 3200 bytes.
             encoded = textual_header.encode("ascii", errors="replace")
             encoded = encoded[:3200].ljust(3200, b" ")
             f.text[0] = encoded
         for i in range(n_traces):
-            f.header[i].update({
-                segyio.TraceField.TRACE_SEQUENCE_LINE: i + 1,
-                segyio.TraceField.offset: int(offsets_arr[i]),
-                segyio.TraceField.TRACE_SAMPLE_COUNT: n_samples,
-                segyio.TraceField.TRACE_SAMPLE_INTERVAL: dt_us,
-            })
+            f.header[i].update(
+                {
+                    segyio.TraceField.TRACE_SEQUENCE_LINE: i + 1,
+                    segyio.TraceField.offset: int(offsets_arr[i]),
+                    segyio.TraceField.TRACE_SAMPLE_COUNT: n_samples,
+                    segyio.TraceField.TRACE_SAMPLE_INTERVAL: dt_us,
+                }
+            )
             f.trace[i] = data[i]

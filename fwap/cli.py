@@ -35,26 +35,25 @@ from fwap import demos as _demos
 from fwap._common import US_PER_FT, logger
 
 _DEMOS: dict[str, Callable[..., None]] = {
-    "stc":         _demos.demo_stc_picker,
+    "stc": _demos.demo_stc_picker,
     "pseudorayleigh": _demos.demo_pseudo_rayleigh,
-    "wavesep":     _demos.demo_wave_separation,
-    "taup":        _demos.demo_tau_p_separation,
-    "intercept":   _demos.demo_intercept_time,
-    "dipole":      _demos.demo_dipole,
-    "dip":         _demos.demo_dip,
+    "wavesep": _demos.demo_wave_separation,
+    "taup": _demos.demo_tau_p_separation,
+    "intercept": _demos.demo_intercept_time,
+    "dipole": _demos.demo_dipole,
+    "dip": _demos.demo_dip,
     "attenuation": _demos.demo_attenuation,
-    "alford":      _demos.demo_alford,
-    "lwd":         _demos.demo_lwd,
-    "las":         _demos.demo_las_roundtrip,
-    "dlis":        _demos.demo_dlis_roundtrip,
-    "segy":        _demos.demo_segy_roundtrip,
+    "alford": _demos.demo_alford,
+    "lwd": _demos.demo_lwd,
+    "las": _demos.demo_las_roundtrip,
+    "dlis": _demos.demo_dlis_roundtrip,
+    "segy": _demos.demo_segy_roundtrip,
 }
 
 
-def _pick_one_gather(path: str,
-                     offset_header: str,
-                     offset_scale: float,
-                     threshold: float):
+def _pick_one_gather(
+    path: str, offset_header: str, offset_scale: float, threshold: float
+):
     """Read a single SEG-Y file and run STC + pick_modes.
 
     Returns ``(picks, gather)`` where ``picks`` is the
@@ -74,9 +73,15 @@ def _pick_one_gather(path: str,
             f"--offset-header (e.g. SourceX)."
         )
     offsets_m = g.offsets / offset_scale
-    surface = stc(g.data, dt=g.dt, offsets=offsets_m,
-                  slowness_range=(30.0 * US_PER_FT, 360.0 * US_PER_FT),
-                  n_slowness=121, window_length=4.0e-4, time_step=2)
+    surface = stc(
+        g.data,
+        dt=g.dt,
+        offsets=offsets_m,
+        slowness_range=(30.0 * US_PER_FT, 360.0 * US_PER_FT),
+        n_slowness=121,
+        window_length=4.0e-4,
+        time_step=2,
+    )
     picks = pick_modes(surface, threshold=threshold)
     return picks, g
 
@@ -87,8 +92,10 @@ def _print_picks_row(name: str, picks: dict) -> None:
         p = picks.get(mode)
         if p is None:
             continue
-        print(f"{mode:9s}  {p.slowness / US_PER_FT:18.2f}"
-              f"  {1.0 / p.slowness:9.0f}  {p.coherence:9.3f}")
+        print(
+            f"{mode:9s}  {p.slowness / US_PER_FT:18.2f}"
+            f"  {1.0 / p.slowness:9.0f}  {p.coherence:9.3f}"
+        )
 
 
 def _cmd_process(argv: list[str]) -> int:
@@ -125,42 +132,72 @@ def _cmd_process(argv: list[str]) -> int:
     """
     ap = argparse.ArgumentParser(
         prog="fwap process",
-        description=("Pick P / S / Stoneley slownesses on one or more "
-                     "SEG-Y gathers. Multi-file inputs are taken as "
-                     "one gather per depth; the depth axis is "
-                     "constructed from --depth-start and --depth-step."),
+        description=(
+            "Pick P / S / Stoneley slownesses on one or more "
+            "SEG-Y gathers. Multi-file inputs are taken as "
+            "one gather per depth; the depth axis is "
+            "constructed from --depth-start and --depth-step."
+        ),
     )
-    ap.add_argument("inputs", nargs="+",
-                    help="One or more SEG-Y files. Multi-file mode "
-                         "treats each file as a separate depth.")
-    ap.add_argument("--offset-header", default="offset",
-                    help="TraceField to read offsets from "
-                         "(default: 'offset').")
-    ap.add_argument("--offset-scale", type=float, default=1.0,
-                    help=("Divide the raw offset-header value by this "
-                          "factor to get metres (default: 1.0). "
-                          "Set to 1000 when offsets are stored in "
-                          "millimetres."))
-    ap.add_argument("--threshold", type=float, default=0.4,
-                    help="Coherence threshold for peak picking "
-                         "(default: 0.4).")
-    ap.add_argument("--depth-start", type=float, default=0.0,
-                    help="Depth (m) of the first gather in multi-file "
-                         "mode (default: 0.0).")
-    ap.add_argument("--depth-step", type=float, default=0.1524,
-                    help="Depth step (m) between successive gathers "
-                         "(default: 0.1524, i.e. 6 inches).")
-    ap.add_argument("--rho", type=float, default=2400.0,
-                    help="Formation density (kg/m^3) used to derive "
-                         "elastic moduli in the LAS output (default: "
-                         "2400).")
-    ap.add_argument("--output",
-                    help="Path to a LAS output file. When given, "
-                         "writes DTP / DTS / DTST / VPVS / K / MU / E "
-                         "/ NU curves over the gather-derived depth "
-                         "axis.")
-    ap.add_argument("--quiet", action="store_true",
-                    help="Log only warnings and errors.")
+    ap.add_argument(
+        "inputs",
+        nargs="+",
+        help="One or more SEG-Y files. Multi-file mode "
+        "treats each file as a separate depth.",
+    )
+    ap.add_argument(
+        "--offset-header",
+        default="offset",
+        help="TraceField to read offsets from (default: 'offset').",
+    )
+    ap.add_argument(
+        "--offset-scale",
+        type=float,
+        default=1.0,
+        help=(
+            "Divide the raw offset-header value by this "
+            "factor to get metres (default: 1.0). "
+            "Set to 1000 when offsets are stored in "
+            "millimetres."
+        ),
+    )
+    ap.add_argument(
+        "--threshold",
+        type=float,
+        default=0.4,
+        help="Coherence threshold for peak picking (default: 0.4).",
+    )
+    ap.add_argument(
+        "--depth-start",
+        type=float,
+        default=0.0,
+        help="Depth (m) of the first gather in multi-file mode (default: 0.0).",
+    )
+    ap.add_argument(
+        "--depth-step",
+        type=float,
+        default=0.1524,
+        help="Depth step (m) between successive gathers "
+        "(default: 0.1524, i.e. 6 inches).",
+    )
+    ap.add_argument(
+        "--rho",
+        type=float,
+        default=2400.0,
+        help="Formation density (kg/m^3) used to derive "
+        "elastic moduli in the LAS output (default: "
+        "2400).",
+    )
+    ap.add_argument(
+        "--output",
+        help="Path to a LAS output file. When given, "
+        "writes DTP / DTS / DTST / VPVS / K / MU / E "
+        "/ NU curves over the gather-derived depth "
+        "axis.",
+    )
+    ap.add_argument(
+        "--quiet", action="store_true", help="Log only warnings and errors."
+    )
     args = ap.parse_args(argv)
 
     # Physical-bounds validation. Argparse already coerces to float;
@@ -168,17 +205,13 @@ def _cmd_process(argv: list[str]) -> int:
     # the user concretely which flag they need to fix.
     errors: list[str] = []
     if args.offset_scale <= 0.0:
-        errors.append(
-            f"--offset-scale must be > 0 (got {args.offset_scale})")
+        errors.append(f"--offset-scale must be > 0 (got {args.offset_scale})")
     if not 0.0 <= args.threshold <= 1.0:
-        errors.append(
-            f"--threshold must be in [0, 1] (got {args.threshold})")
+        errors.append(f"--threshold must be in [0, 1] (got {args.threshold})")
     if args.depth_step <= 0.0:
-        errors.append(
-            f"--depth-step must be > 0 (got {args.depth_step})")
+        errors.append(f"--depth-step must be > 0 (got {args.depth_step})")
     if args.rho <= 0.0:
-        errors.append(
-            f"--rho must be > 0 (got {args.rho})")
+        errors.append(f"--rho must be > 0 (got {args.rho})")
     if errors:
         for msg in errors:
             print(msg, file=sys.stderr)
@@ -194,18 +227,21 @@ def _cmd_process(argv: list[str]) -> int:
         path = args.inputs[0]
         try:
             picks, g = _pick_one_gather(
-                path, args.offset_header, args.offset_scale,
-                args.threshold)
+                path, args.offset_header, args.offset_scale, args.threshold
+            )
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 2
 
-        logger.info("%s: %d traces, %d samples, dt=%.2e s",
-                    path, g.n_traces, g.n_samples, g.dt)
+        logger.info(
+            "%s: %d traces, %d samples, dt=%.2e s", path, g.n_traces, g.n_samples, g.dt
+        )
 
         if not picks:
-            print(f"{path}: no P / S / Stoneley picks above threshold "
-                  f"{args.threshold}", file=sys.stderr)
+            print(
+                f"{path}: no P / S / Stoneley picks above threshold {args.threshold}",
+                file=sys.stderr,
+            )
             return 1
 
         print("mode       slowness_us_per_ft  V_m_per_s  coherence")
@@ -228,8 +264,8 @@ def _cmd_process(argv: list[str]) -> int:
     for i, path in enumerate(inputs):
         try:
             picks, _ = _pick_one_gather(
-                path, args.offset_header, args.offset_scale,
-                args.threshold)
+                path, args.offset_header, args.offset_scale, args.threshold
+            )
         except ValueError as exc:
             logger.warning("%s: %s", path, exc)
             continue
@@ -244,52 +280,61 @@ def _cmd_process(argv: list[str]) -> int:
             cohst[i] = picks["Stoneley"].coherence
         if picks:
             picks_any = True
-        logger.info("  depth %7.2f m: %s", float(depths[i]),
-                    ", ".join(f"{n}={1.0/picks[n].slowness:.0f} m/s"
-                              for n in ("P", "S", "Stoneley")
-                              if n in picks) or "-- no picks --")
+        logger.info(
+            "  depth %7.2f m: %s",
+            float(depths[i]),
+            ", ".join(
+                f"{n}={1.0 / picks[n].slowness:.0f} m/s"
+                for n in ("P", "S", "Stoneley")
+                if n in picks
+            )
+            or "-- no picks --",
+        )
 
     if not picks_any:
-        print("No picks above threshold on any input; nothing to write.",
-              file=sys.stderr)
+        print(
+            "No picks above threshold on any input; nothing to write.", file=sys.stderr
+        )
         return 1
 
     if args.output is None:
         # Multi-file mode without --output prints a summary table.
         print("depth_m  Vp_m_per_s  Vs_m_per_s  Vst_m_per_s")
         for i in range(n):
-            print(f"{depths[i]:7.2f}  {vp[i]:10.0f}  {vs[i]:10.0f}"
-                  f"  {vst[i]:11.0f}")
+            print(f"{depths[i]:7.2f}  {vp[i]:10.0f}  {vs[i]:10.0f}  {vst[i]:11.0f}")
         return 0
 
     # LAS output: include rock-physics curves for the non-NaN rows.
     from fwap.io import write_las
     from fwap.rockphysics import elastic_moduli
+
     curves = {
-        "DTP":   1.0e6 / vp  * 0.3048,
-        "DTS":   1.0e6 / vs  * 0.3048,
-        "DTST":  1.0e6 / vst * 0.3048,
-        "VPVS":  vp / vs,
-        "COHP":  cohp,
-        "COHS":  cohs,
+        "DTP": 1.0e6 / vp * 0.3048,
+        "DTS": 1.0e6 / vs * 0.3048,
+        "DTST": 1.0e6 / vst * 0.3048,
+        "VPVS": vp / vs,
+        "COHP": cohp,
+        "COHS": cohs,
         "COHST": cohst,
     }
     for name in ("K", "MU", "E", "NU"):
         curves[name] = np.full(n, np.nan)
     mask = np.isfinite(vp) & np.isfinite(vs)
     if mask.any():
-        m = elastic_moduli(vp=vp[mask], vs=vs[mask],
-                           rho=np.full(mask.sum(), args.rho))
+        m = elastic_moduli(vp=vp[mask], vs=vs[mask], rho=np.full(mask.sum(), args.rho))
         curves["K"][mask] = m.k
         curves["MU"][mask] = m.mu
         curves["E"][mask] = m.young
         curves["NU"][mask] = m.poisson
 
-    write_las(args.output, depths, curves,
-              well_name="FWAP_PROCESS",
-              well={"SRVC": "fwap.cli process"})
-    logger.info("Wrote %s (%d depths, %d curves)",
-                args.output, n, len(curves))
+    write_las(
+        args.output,
+        depths,
+        curves,
+        well_name="FWAP_PROCESS",
+        well={"SRVC": "fwap.cli process"},
+    )
+    logger.info("Wrote %s (%d depths, %d curves)", args.output, n, len(curves))
     return 0
 
 
@@ -307,26 +352,41 @@ def main(argv: list[str] | None = None) -> int:
 
     ap = argparse.ArgumentParser(
         prog="fwap",
-        description=("Full-Waveform Acoustic Processing. "
-                     "Runs synthetic demonstrations of each algorithm "
-                     "and writes diagnostic figures, or (with "
-                     "``fwap process FILE``) picks modes on a real "
-                     "SEG-Y gather."),
+        description=(
+            "Full-Waveform Acoustic Processing. "
+            "Runs synthetic demonstrations of each algorithm "
+            "and writes diagnostic figures, or (with "
+            "``fwap process FILE``) picks modes on a real "
+            "SEG-Y gather."
+        ),
     )
-    ap.add_argument("demo", nargs="?", default="all",
-                    choices=["all", "process"] + list(_DEMOS.keys()),
-                    help="Which demo to run (default: all). Use "
-                         "``process`` followed by a SEG-Y path for "
-                         "real-data picking; see ``fwap process --help``.")
-    ap.add_argument("--list-demos", action="store_true",
-                    help="Print the available demo names (one per line) "
-                         "and exit.")
-    ap.add_argument("--figdir", default="figures",
-                    help="Output directory for figures (default: figures/).")
-    ap.add_argument("--show", action="store_true",
-                    help="Open each figure in a window as well as saving.")
-    ap.add_argument("--quiet", action="store_true",
-                    help="Log only warnings and errors.")
+    ap.add_argument(
+        "demo",
+        nargs="?",
+        default="all",
+        choices=["all", "process"] + list(_DEMOS.keys()),
+        help="Which demo to run (default: all). Use "
+        "``process`` followed by a SEG-Y path for "
+        "real-data picking; see ``fwap process --help``.",
+    )
+    ap.add_argument(
+        "--list-demos",
+        action="store_true",
+        help="Print the available demo names (one per line) and exit.",
+    )
+    ap.add_argument(
+        "--figdir",
+        default="figures",
+        help="Output directory for figures (default: figures/).",
+    )
+    ap.add_argument(
+        "--show",
+        action="store_true",
+        help="Open each figure in a window as well as saving.",
+    )
+    ap.add_argument(
+        "--quiet", action="store_true", help="Log only warnings and errors."
+    )
     args = ap.parse_args(argv)
 
     if args.list_demos:

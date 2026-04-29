@@ -78,20 +78,35 @@ from fwap.coherence import STCResult, find_peaks
 # separates the four modes; on a 3-mode-only gather no peak falls
 # inside this window and PseudoRayleigh is reported absent.
 DEFAULT_PRIORS: dict[str, dict[str, float]] = {
-    "P": dict(slow_min=40.0 * US_PER_FT, slow_max=140.0 * US_PER_FT,
-              coherence_min=0.5, order=0),
-    "S": dict(slow_min=80.0 * US_PER_FT, slow_max=260.0 * US_PER_FT,
-              coherence_min=0.4, order=1),
-    "PseudoRayleigh": dict(slow_min=130.0 * US_PER_FT,
-                           slow_max=200.0 * US_PER_FT,
-                           coherence_min=0.4, order=2),
+    "P": dict(
+        slow_min=40.0 * US_PER_FT,
+        slow_max=140.0 * US_PER_FT,
+        coherence_min=0.5,
+        order=0,
+    ),
+    "S": dict(
+        slow_min=80.0 * US_PER_FT,
+        slow_max=260.0 * US_PER_FT,
+        coherence_min=0.4,
+        order=1,
+    ),
+    "PseudoRayleigh": dict(
+        slow_min=130.0 * US_PER_FT,
+        slow_max=200.0 * US_PER_FT,
+        coherence_min=0.4,
+        order=2,
+    ),
     # Stoneley starts at the borehole-fluid slowness floor (~200 us/ft
     # for a typical mud); below that you are in the pseudo-Rayleigh /
     # guided regime, not Stoneley. Keeping the windows non-overlapping
     # is what allows the four-mode picker to pick Stoneley correctly
     # in a gather that also carries a pseudo-Rayleigh peak.
-    "Stoneley": dict(slow_min=200.0 * US_PER_FT, slow_max=360.0 * US_PER_FT,
-                     coherence_min=0.4, order=3),
+    "Stoneley": dict(
+        slow_min=200.0 * US_PER_FT,
+        slow_max=360.0 * US_PER_FT,
+        coherence_min=0.4,
+        order=3,
+    ),
 }
 
 # Both :func:`viterbi_pick_joint` and :func:`viterbi_posterior_marginals`
@@ -106,9 +121,9 @@ DEFAULT_PRIORS: dict[str, dict[str, float]] = {
 # (DTP / DTS / DTST / DTPR, COHP / COHS / COHST / COHPR, etc.). Modes
 # outside this map fall through to ``mode_name.upper()``.
 _MODE_MNEMONIC_SUFFIX: dict[str, str] = {
-    "P":              "P",
-    "S":              "S",
-    "Stoneley":       "ST",
+    "P": "P",
+    "S": "S",
+    "Stoneley": "ST",
     "PseudoRayleigh": "PR",
 }
 
@@ -134,12 +149,13 @@ class ModePick:
     amplitude: float | None = None
 
     def __repr__(self) -> str:
-        amp = (f", amp={self.amplitude:.3g}"
-               if self.amplitude is not None else "")
-        return (f"ModePick({self.name!r}, "
-                f"slowness={self.slowness / US_PER_FT:.2f} us/ft, "
-                f"t={self.time * 1e3:.2f} ms, "
-                f"coh={self.coherence:.3f}{amp})")
+        amp = f", amp={self.amplitude:.3g}" if self.amplitude is not None else ""
+        return (
+            f"ModePick({self.name!r}, "
+            f"slowness={self.slowness / US_PER_FT:.2f} us/ft, "
+            f"t={self.time * 1e3:.2f} ms, "
+            f"coh={self.coherence:.3f}{amp})"
+        )
 
 
 @dataclass
@@ -160,14 +176,15 @@ class DepthPicks:
 _VALID_SELECTION_RULES = frozenset({"max_coherence", "scored"})
 
 
-def _best_candidate(candidates: PeakArray,
-                    prior: dict[str, float],
-                    *,
-                    t_earliest: float = 0.0,
-                    selection_rule: SelectionRule = "scored",
-                    time_penalty: float = 0.1,
-                    time_scale: float = 1.0e-3,
-                    ) -> PeakRow | None:
+def _best_candidate(
+    candidates: PeakArray,
+    prior: dict[str, float],
+    *,
+    t_earliest: float = 0.0,
+    selection_rule: SelectionRule = "scored",
+    time_penalty: float = 0.1,
+    time_scale: float = 1.0e-3,
+) -> PeakRow | None:
     """
     Select the best candidate inside a prior window.
 
@@ -210,9 +227,11 @@ def _best_candidate(candidates: PeakArray,
         )
     if candidates.size == 0:
         return None
-    mask = ((candidates[:, 0] >= prior["slow_min"]) &
-            (candidates[:, 0] <= prior["slow_max"]) &
-            (candidates[:, 2] >= prior["coherence_min"]))
+    mask = (
+        (candidates[:, 0] >= prior["slow_min"])
+        & (candidates[:, 0] <= prior["slow_max"])
+        & (candidates[:, 2] >= prior["coherence_min"])
+    )
     c = candidates[mask]
     if c.size == 0:
         return None
@@ -226,14 +245,15 @@ def _best_candidate(candidates: PeakArray,
     return c[idx]
 
 
-def pick_modes(stc_result: STCResult,
-               priors: dict[str, dict[str, float]] | None = None,
-               threshold: float = 0.4,
-               *,
-               selection_rule: SelectionRule = "scored",
-               time_penalty: float = 0.1,
-               time_scale: float | None = None,
-               ) -> dict[str, ModePick]:
+def pick_modes(
+    stc_result: STCResult,
+    priors: dict[str, dict[str, float]] | None = None,
+    threshold: float = 0.4,
+    *,
+    selection_rule: SelectionRule = "scored",
+    time_penalty: float = 0.1,
+    time_scale: float | None = None,
+) -> dict[str, ModePick]:
     """
     Label P / S / PseudoRayleigh / Stoneley modes on an STC surface
     via physical rules.
@@ -281,7 +301,8 @@ def pick_modes(stc_result: STCResult,
         prior = priors[name]
         valid = peaks[peaks[:, 1] >= t_earliest] if peaks.size else peaks
         winner = _best_candidate(
-            valid, prior,
+            valid,
+            prior,
             t_earliest=t_earliest,
             selection_rule=selection_rule,
             time_penalty=time_penalty,
@@ -290,27 +311,30 @@ def pick_modes(stc_result: STCResult,
         if winner is None:
             continue
         out[name] = ModePick(
-            name=name, slowness=float(winner[0]),
-            time=float(winner[1]), coherence=float(winner[2]),
+            name=name,
+            slowness=float(winner[0]),
+            time=float(winner[1]),
+            coherence=float(winner[2]),
             amplitude=float(winner[3]) if winner.size >= 4 else None,
         )
         t_earliest = max(t_earliest, float(winner[1]))
     return out
 
 
-def track_modes(stc_results: Sequence[STCResult],
-                depths: np.ndarray,
-                priors: dict[str, dict[str, float]] | None = None,
-                threshold: float = 0.4,
-                max_slow_jump: float = 50.0 * US_PER_FT,
-                continuity_max_gap: float | None = None,
-                continuity_tol_growth: float = 0.5,
-                continuity_tol_cap_factor: float = 3.0,
-                *,
-                selection_rule: SelectionRule = "scored",
-                time_penalty: float = 0.1,
-                time_scale: float | None = None,
-                ) -> list[DepthPicks]:
+def track_modes(
+    stc_results: Sequence[STCResult],
+    depths: np.ndarray,
+    priors: dict[str, dict[str, float]] | None = None,
+    threshold: float = 0.4,
+    max_slow_jump: float = 50.0 * US_PER_FT,
+    continuity_max_gap: float | None = None,
+    continuity_tol_growth: float = 0.5,
+    continuity_tol_cap_factor: float = 3.0,
+    *,
+    selection_rule: SelectionRule = "scored",
+    time_penalty: float = 0.1,
+    time_scale: float | None = None,
+) -> list[DepthPicks]:
     """
     Per-depth picking with a depth-aware continuity regulariser.
 
@@ -366,9 +390,7 @@ def track_modes(stc_results: Sequence[STCResult],
     depths = np.asarray(depths, dtype=float)
     if continuity_max_gap is None:
         if depths.size >= 2:
-            continuity_max_gap = 5.0 * float(
-                np.median(np.abs(np.diff(depths)))
-            )
+            continuity_max_gap = 5.0 * float(np.median(np.abs(np.diff(depths))))
         else:
             continuity_max_gap = float("inf")
 
@@ -395,9 +417,7 @@ def track_modes(stc_results: Sequence[STCResult],
                 last_s, last_d = last[name]
                 gap = float(abs(depth - last_d))
                 if gap <= continuity_max_gap:
-                    effective_tol = max_slow_jump * (
-                        1.0 + continuity_tol_growth * gap
-                    )
+                    effective_tol = max_slow_jump * (1.0 + continuity_tol_growth * gap)
                     # Cap runaway widening after many consecutive
                     # missed picks (gap keeps growing until a success
                     # resets last_d). Without this, a noise peak far
@@ -418,7 +438,8 @@ def track_modes(stc_results: Sequence[STCResult],
                 # gap > continuity_max_gap: drop constraint entirely.
 
             winner = _best_candidate(
-                valid, prior,
+                valid,
+                prior,
                 t_earliest=t_earliest,
                 selection_rule=selection_rule,
                 time_penalty=time_penalty,
@@ -429,11 +450,11 @@ def track_modes(stc_results: Sequence[STCResult],
                 # still honouring t_earliest. Dropping t_earliest
                 # here would admit a pick earlier than a previously-
                 # picked mode, which violates mode ordering.
-                valid_fb = (peaks[peaks[:, 1] >= t_earliest]
-                            if peaks.size else peaks)
+                valid_fb = peaks[peaks[:, 1] >= t_earliest] if peaks.size else peaks
                 if valid_fb.size:
                     winner = _best_candidate(
-                        valid_fb, prior,
+                        valid_fb,
+                        prior,
                         t_earliest=t_earliest,
                         selection_rule=selection_rule,
                         time_penalty=time_penalty,
@@ -443,8 +464,10 @@ def track_modes(stc_results: Sequence[STCResult],
                     continue
 
             pick = ModePick(
-                name=name, slowness=float(winner[0]),
-                time=float(winner[1]), coherence=float(winner[2]),
+                name=name,
+                slowness=float(winner[0]),
+                time=float(winner[1]),
+                coherence=float(winner[2]),
                 amplitude=float(winner[3]) if winner.size >= 4 else None,
             )
             dp.picks[name] = pick
@@ -461,15 +484,16 @@ def track_modes(stc_results: Sequence[STCResult],
 _NEG_INF = float("-inf")
 
 
-def viterbi_pick(stc_results: Sequence[STCResult],
-                 depths: np.ndarray,
-                 priors: dict[str, dict[str, float]] | None = None,
-                 threshold: float = 0.4,
-                 slow_jump_sigma: float = 20.0 * US_PER_FT,
-                 time_order_slack: float = 0.0,
-                 time_prior_weight: float = 500.0,
-                 absence_cost: float = 3.0,
-                 ) -> list[DepthPicks]:
+def viterbi_pick(
+    stc_results: Sequence[STCResult],
+    depths: np.ndarray,
+    priors: dict[str, dict[str, float]] | None = None,
+    threshold: float = 0.4,
+    slow_jump_sigma: float = 20.0 * US_PER_FT,
+    time_order_slack: float = 0.0,
+    time_prior_weight: float = 500.0,
+    absence_cost: float = 3.0,
+) -> list[DepthPicks]:
     r"""
     Joint-log-likelihood (Viterbi) mode picker across a depth sweep.
 
@@ -591,18 +615,20 @@ def viterbi_pick(stc_results: Sequence[STCResult],
                 per_depth.append(peaks)
                 continue
             t_floor = previous_time[d] - time_order_slack
-            mask = ((peaks[:, 0] >= prior["slow_min"]) &
-                    (peaks[:, 0] <= prior["slow_max"]) &
-                    (peaks[:, 2] >= prior["coherence_min"]) &
-                    (peaks[:, 1] >= t_floor))
+            mask = (
+                (peaks[:, 0] >= prior["slow_min"])
+                & (peaks[:, 0] <= prior["slow_max"])
+                & (peaks[:, 2] >= prior["coherence_min"])
+                & (peaks[:, 1] >= t_floor)
+            )
             per_depth.append(peaks[mask])
 
         # Viterbi forward pass. State at each depth = index into that
         # depth's per_depth[d] array, with an extra "absent" state
         # represented by -1. We store trellis arrays as lists because
         # candidate counts vary per depth.
-        scores: list[np.ndarray] = []            # (n_candidates + 1,) per depth
-        back_ptrs: list[np.ndarray] = []         # int: index into prev depth
+        scores: list[np.ndarray] = []  # (n_candidates + 1,) per depth
+        back_ptrs: list[np.ndarray] = []  # int: index into prev depth
 
         for d in range(n_depth):
             cands = per_depth[d]
@@ -618,10 +644,9 @@ def viterbi_pick(stc_results: Sequence[STCResult],
                 # prior windows (notably the common case where the S
                 # arrival falls inside P's [40, 140] us/ft window).
                 t_ref = float(cands[:, 1].min())
-                emission[:n_cand] = (
-                    np.log(np.clip(cands[:, 2], 1.0e-12, None))
-                    - time_prior_weight * (cands[:, 1] - t_ref)
-                )
+                emission[:n_cand] = np.log(
+                    np.clip(cands[:, 2], 1.0e-12, None)
+                ) - time_prior_weight * (cands[:, 1] - t_ref)
             emission[n_cand] = -absence_cost
 
             if d == 0:
@@ -668,7 +693,7 @@ def viterbi_pick(stc_results: Sequence[STCResult],
             n_cand = cands.shape[0]
             state = int(path[d])
             if state == n_cand:
-                continue   # mode absent at this depth
+                continue  # mode absent at this depth
             row = cands[state]
             pick = ModePick(
                 name=name,
@@ -707,6 +732,7 @@ class _TripleTrellis:
     slows : list[ndarray (n_triples_d, n_modes) float]
         Slowness of each mode in each triple; NaN for absent modes.
     """
+
     mode_names: list[str]
     per_mode_per_depth: dict[str, list[np.ndarray]]
     triples: list[np.ndarray]
@@ -730,7 +756,7 @@ def _auto_fallback_k(n_per_mode: list[int], budget: int) -> int:
     for K in range(max_n, -1, -1):
         prod = 1
         for n in n_per_mode:
-            prod *= (min(n, K) + 1)
+            prod *= min(n, K) + 1
             if prod > budget:
                 break
         if prod <= budget:
@@ -756,9 +782,7 @@ def _build_triple_trellis(
 
     # Step 1: per-mode, per-depth candidate arrays (prior-window +
     # coherence filter, then optional top-K per mode).
-    per_mode_per_depth: dict[str, list[np.ndarray]] = {
-        name: [] for name in mode_names
-    }
+    per_mode_per_depth: dict[str, list[np.ndarray]] = {name: [] for name in mode_names}
     for d in range(n_depth):
         peaks = find_peaks(stc_results[d], threshold=threshold)
         for name in mode_names:
@@ -784,8 +808,7 @@ def _build_triple_trellis(
     slows: list[np.ndarray] = []
 
     for d in range(n_depth):
-        per_mode_cands = [per_mode_per_depth[name][d]
-                          for name in mode_names]
+        per_mode_cands = [per_mode_per_depth[name][d] for name in mode_names]
         n_per_mode = [c.shape[0] for c in per_mode_cands]
 
         # Variable candidate budget: if the raw triple count
@@ -797,7 +820,7 @@ def _build_triple_trellis(
         # longer kill the whole sweep.
         raw_count = 1
         for n in n_per_mode:
-            raw_count *= (n + 1)
+            raw_count *= n + 1
         if raw_count > max_triples_per_depth:
             auto_K = _auto_fallback_k(n_per_mode, max_triples_per_depth)
             for i, name in enumerate(mode_names):
@@ -809,9 +832,12 @@ def _build_triple_trellis(
                     per_mode_per_depth[name][d] = cands
             new_n_per_mode = [c.shape[0] for c in per_mode_cands]
             logger.debug(
-                "trellis: depth %d auto-fallback K=%d "
-                "(raw=%d, n_per_mode %s -> %s)",
-                d, auto_K, raw_count, n_per_mode, new_n_per_mode,
+                "trellis: depth %d auto-fallback K=%d (raw=%d, n_per_mode %s -> %s)",
+                d,
+                auto_K,
+                raw_count,
+                n_per_mode,
+                new_n_per_mode,
             )
             n_per_mode = new_n_per_mode
 
@@ -878,11 +904,9 @@ def _build_triple_trellis(
                 f"please report it."
             )
 
-        triples.append(np.asarray(rows_triples, dtype=np.intp).reshape(
-            -1, n_modes))
+        triples.append(np.asarray(rows_triples, dtype=np.intp).reshape(-1, n_modes))
         emissions.append(np.asarray(rows_emission, dtype=float))
-        slows.append(np.asarray(rows_slow, dtype=float).reshape(
-            -1, n_modes))
+        slows.append(np.asarray(rows_slow, dtype=float).reshape(-1, n_modes))
 
     return _TripleTrellis(
         mode_names=mode_names,
@@ -893,9 +917,9 @@ def _build_triple_trellis(
     )
 
 
-def _joint_transition_matrix(prev_slow: np.ndarray,
-                             curr_slow: np.ndarray,
-                             slow_jump_sigma: float) -> np.ndarray:
+def _joint_transition_matrix(
+    prev_slow: np.ndarray, curr_slow: np.ndarray, slow_jump_sigma: float
+) -> np.ndarray:
     """Per-mode Gaussian slowness-jump penalty summed across modes.
 
     Returns a ``(n_prev, n_curr)`` matrix of the total transition
@@ -1034,9 +1058,7 @@ def viterbi_pick_joint(
         # per-mode independence is preferable to joint optimisation.
         priors = dict(DEFAULT_PRIORS)
     if not priors:
-        raise ValueError(
-            "priors must contain at least one mode; got an empty dict."
-        )
+        raise ValueError("priors must contain at least one mode; got an empty dict.")
     depths = np.asarray(depths, dtype=float)
     n_depth = depths.size
     if n_depth == 0:
@@ -1064,16 +1086,11 @@ def viterbi_pick_joint(
 
     # Viterbi forward pass (max-sum).
     scores: list[np.ndarray] = [emissions[0].copy()]
-    back_ptrs: list[np.ndarray] = [
-        np.full(scores[0].size, -1, dtype=np.intp)
-    ]
+    back_ptrs: list[np.ndarray] = [np.full(scores[0].size, -1, dtype=np.intp)]
 
     for d in range(1, n_depth):
-        total_trans = _joint_transition_matrix(
-            slows[d - 1], slows[d], slow_jump_sigma)
-        step = (scores[d - 1][:, None]
-                - total_trans
-                + emissions[d][None, :])
+        total_trans = _joint_transition_matrix(slows[d - 1], slows[d], slow_jump_sigma)
+        step = scores[d - 1][:, None] - total_trans + emissions[d][None, :]
         best_prev = np.argmax(step, axis=0)
         best_score = step[best_prev, np.arange(step.shape[1])]
         scores.append(best_score)
@@ -1090,8 +1107,7 @@ def viterbi_pick_joint(
     for d in range(n_depth):
         dp = DepthPicks(depth=float(depths[d]))
         triple = triples[d][path[d]]
-        per_mode_cands = [per_mode_per_depth[name][d]
-                          for name in mode_names]
+        per_mode_cands = [per_mode_per_depth[name][d] for name in mode_names]
         for i, name in enumerate(mode_names):
             ci = int(triple[i])
             if ci < 0:
@@ -1142,6 +1158,7 @@ class PosteriorPick:
     p_absent : float
         Posterior probability that the mode is absent at this depth.
     """
+
     slownesses: np.ndarray
     times: np.ndarray
     coherences: np.ndarray
@@ -1233,9 +1250,7 @@ def viterbi_posterior_marginals(
         # the wider trellis tractable.
         priors = dict(DEFAULT_PRIORS)
     if not priors:
-        raise ValueError(
-            "priors must contain at least one mode; got an empty dict."
-        )
+        raise ValueError("priors must contain at least one mode; got an empty dict.")
     depths = np.asarray(depths, dtype=float)
     n_depth = depths.size
     if n_depth == 0:
@@ -1264,15 +1279,10 @@ def viterbi_posterior_marginals(
     # MAP (max-sum) forward pass + backtrack, identical to
     # ``viterbi_pick_joint``.
     scores: list[np.ndarray] = [emissions[0].copy()]
-    back_ptrs: list[np.ndarray] = [
-        np.full(scores[0].size, -1, dtype=np.intp)
-    ]
+    back_ptrs: list[np.ndarray] = [np.full(scores[0].size, -1, dtype=np.intp)]
     for d in range(1, n_depth):
-        total_trans = _joint_transition_matrix(
-            slows[d - 1], slows[d], slow_jump_sigma)
-        step = (scores[d - 1][:, None]
-                - total_trans
-                + emissions[d][None, :])
+        total_trans = _joint_transition_matrix(slows[d - 1], slows[d], slow_jump_sigma)
+        step = scores[d - 1][:, None] - total_trans + emissions[d][None, :]
         best_prev = np.argmax(step, axis=0)
         best_score = step[best_prev, np.arange(step.shape[1])]
         scores.append(best_score)
@@ -1287,8 +1297,7 @@ def viterbi_posterior_marginals(
     for d in range(n_depth):
         dp = DepthPicks(depth=float(depths[d]))
         triple = triples[d][path[d]]
-        per_mode_cands = [per_mode_per_depth[name][d]
-                          for name in mode_names]
+        per_mode_cands = [per_mode_per_depth[name][d] for name in mode_names]
         for i, name in enumerate(mode_names):
             ci = int(triple[i])
             if ci < 0:
@@ -1306,19 +1315,15 @@ def viterbi_posterior_marginals(
     # Log-sum-exp forward pass (alpha).
     alpha: list[np.ndarray] = [emissions[0].copy()]
     for d in range(1, n_depth):
-        total_trans = _joint_transition_matrix(
-            slows[d - 1], slows[d], slow_jump_sigma)
+        total_trans = _joint_transition_matrix(slows[d - 1], slows[d], slow_jump_sigma)
         combined = alpha[d - 1][:, None] - total_trans
         alpha.append(emissions[d] + _logsumexp(combined, axis=0))
 
     # Log-sum-exp backward pass (beta).
     beta: list[np.ndarray] = [np.zeros(triples[-1].shape[0], dtype=float)]
     for d in range(n_depth - 2, -1, -1):
-        total_trans = _joint_transition_matrix(
-            slows[d], slows[d + 1], slow_jump_sigma)
-        combined = (emissions[d + 1][None, :]
-                    + beta[0][None, :]
-                    - total_trans)
+        total_trans = _joint_transition_matrix(slows[d], slows[d + 1], slow_jump_sigma)
+        combined = emissions[d + 1][None, :] + beta[0][None, :] - total_trans
         beta.insert(0, _logsumexp(combined, axis=1))
 
     # Posterior marginals over triples: gamma[d][j] normalised.
@@ -1329,7 +1334,7 @@ def viterbi_posterior_marginals(
         probs_triple = np.exp(log_gamma - log_norm)
 
         mode_post: dict[str, PosteriorPick] = {}
-        tri_matrix = triples[d]             # (n_triples, n_modes)
+        tri_matrix = triples[d]  # (n_triples, n_modes)
         for i, name in enumerate(mode_names):
             cands = per_mode_per_depth[name][d]
             n_cand = cands.shape[0]
@@ -1347,9 +1352,7 @@ def viterbi_posterior_marginals(
             p_absent = float(probs_triple[absent_mask].sum())
             probs_cand = np.zeros(n_cand, dtype=float)
             for c in range(n_cand):
-                probs_cand[c] = float(
-                    probs_triple[mode_col == c].sum()
-                )
+                probs_cand[c] = float(probs_triple[mode_col == c].sum())
             mode_post[name] = PosteriorPick(
                 slownesses=cands[:, 0].copy(),
                 times=cands[:, 1].copy(),
@@ -1367,14 +1370,15 @@ def viterbi_posterior_marginals(
 # ---------------------------------------------------------------------
 
 
-def _align_and_stack(data: np.ndarray,
-                     dt: float,
-                     offsets: np.ndarray,
-                     slowness: float,
-                     stc_window_start: float,
-                     stc_window_length: float,
-                     analysis_factor: float = 2.0,
-                     ) -> np.ndarray:
+def _align_and_stack(
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    slowness: float,
+    stc_window_start: float,
+    stc_window_length: float,
+    analysis_factor: float = 2.0,
+) -> np.ndarray:
     """Frequency-domain align + per-trace average over an analysis window.
 
     Returns the per-trace mean of the moveout-aligned waveforms over
@@ -1398,7 +1402,7 @@ def _align_and_stack(data: np.ndarray,
     L_analysis = max(2, int(round(analysis_factor * stc_window_length / dt)))
     centre_sample = int(round((stc_window_start + stc_window_length / 2.0) / dt))
     j0 = max(0, min(n_samp - L_analysis, centre_sample - L_analysis // 2))
-    window = shifted[:, j0:j0 + L_analysis]
+    window = shifted[:, j0 : j0 + L_analysis]
     return window.mean(axis=0)
 
 
@@ -1437,10 +1441,11 @@ def onset_polarity(stack: np.ndarray) -> int:
     return 0
 
 
-def wavelet_shape_score(stack: np.ndarray,
-                        dt: float,
-                        f0: float,
-                        ) -> float:
+def wavelet_shape_score(
+    stack: np.ndarray,
+    dt: float,
+    f0: float,
+) -> float:
     """Absolute Pearson correlation of a stacked window vs a Ricker(f0).
 
     Returns a score in ``[0, 1]``: ``1.0`` for a stacked window
@@ -1472,14 +1477,15 @@ def wavelet_shape_score(stack: np.ndarray,
     return float(abs(np.sum(s * tmpl)) / (s_norm * t_norm))
 
 
-def _filter_one_depth(picks: dict[str, ModePick],
-                      data: np.ndarray,
-                      dt: float,
-                      offsets: np.ndarray,
-                      priors: dict[str, dict[str, float]],
-                      window_length: float,
-                      analysis_factor: float,
-                      ) -> dict[str, ModePick]:
+def _filter_one_depth(
+    picks: dict[str, ModePick],
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    priors: dict[str, dict[str, float]],
+    window_length: float,
+    analysis_factor: float,
+) -> dict[str, ModePick]:
     """Apply per-mode polarity / shape gates to one depth's picks."""
     out: dict[str, ModePick] = {}
     for name, pick in picks.items():
@@ -1492,13 +1498,19 @@ def _filter_one_depth(picks: dict[str, ModePick],
             continue
 
         stack = _align_and_stack(
-            data, dt, offsets, pick.slowness, pick.time, window_length,
-            analysis_factor=analysis_factor)
+            data,
+            dt,
+            offsets,
+            pick.slowness,
+            pick.time,
+            window_length,
+            analysis_factor=analysis_factor,
+        )
 
         if polarity_expected != 0:
             actual = onset_polarity(stack)
             if actual != polarity_expected:
-                continue   # polarity mismatch -- drop pick
+                continue  # polarity mismatch -- drop pick
 
         if shape_min > 0.0:
             f0 = prior.get("f0")
@@ -1510,21 +1522,22 @@ def _filter_one_depth(picks: dict[str, ModePick],
                 )
             score = wavelet_shape_score(stack, dt, float(f0))
             if score < shape_min:
-                continue   # shape mismatch -- drop pick
+                continue  # shape mismatch -- drop pick
 
         out[name] = pick
     return out
 
 
-def filter_picks_by_shape(picks: dict[str, ModePick],
-                          data: np.ndarray,
-                          dt: float,
-                          offsets: np.ndarray,
-                          *,
-                          priors: dict[str, dict[str, float]] | None = None,
-                          window_length: float = 4.0e-4,
-                          analysis_factor: float = 2.0,
-                          ) -> dict[str, ModePick]:
+def filter_picks_by_shape(
+    picks: dict[str, ModePick],
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    *,
+    priors: dict[str, dict[str, float]] | None = None,
+    window_length: float = 4.0e-4,
+    analysis_factor: float = 2.0,
+) -> dict[str, ModePick]:
     """
     Drop picks whose stacked waveform fails the polarity / shape rules.
 
@@ -1585,19 +1598,21 @@ def filter_picks_by_shape(picks: dict[str, ModePick],
     """
     if priors is None:
         priors = DEFAULT_PRIORS
-    return _filter_one_depth(picks, data, dt, offsets, priors,
-                             window_length, analysis_factor)
+    return _filter_one_depth(
+        picks, data, dt, offsets, priors, window_length, analysis_factor
+    )
 
 
-def filter_track_by_shape(track_picks: Sequence[DepthPicks],
-                          datas: Sequence[np.ndarray],
-                          dt: float,
-                          offsets: np.ndarray,
-                          *,
-                          priors: dict[str, dict[str, float]] | None = None,
-                          window_length: float = 4.0e-4,
-                          analysis_factor: float = 2.0,
-                          ) -> list[DepthPicks]:
+def filter_track_by_shape(
+    track_picks: Sequence[DepthPicks],
+    datas: Sequence[np.ndarray],
+    dt: float,
+    offsets: np.ndarray,
+    *,
+    priors: dict[str, dict[str, float]] | None = None,
+    window_length: float = 4.0e-4,
+    analysis_factor: float = 2.0,
+) -> list[DepthPicks]:
     """Apply :func:`filter_picks_by_shape` per-depth across a track.
 
     The multi-depth analogue of :func:`filter_picks_by_shape`: the
@@ -1631,8 +1646,8 @@ def filter_track_by_shape(track_picks: Sequence[DepthPicks],
     out: list[DepthPicks] = []
     for dp, data in zip(track_picks, datas):
         filt = _filter_one_depth(
-            dp.picks, data, dt, offsets, priors, window_length,
-            analysis_factor)
+            dp.picks, data, dt, offsets, priors, window_length, analysis_factor
+        )
         out.append(DepthPicks(depth=dp.depth, picks=filt))
     return out
 
@@ -1714,6 +1729,7 @@ class PickQualityFlags:
         Human-readable per-check failure descriptions; empty when
         ``flagged`` is False.
     """
+
     depth: float
     vp_vs: float | None
     vp_vs_in_band: bool
@@ -1724,16 +1740,17 @@ class PickQualityFlags:
     gamma_in_band: bool = True
 
 
-def quality_control_picks(picks: dict[str, ModePick] | DepthPicks,
-                          *,
-                          depth: float | None = None,
-                          vp_vs_min: float = _DEFAULT_VP_VS_MIN,
-                          vp_vs_max: float = _DEFAULT_VP_VS_MAX,
-                          require_time_order: bool = True,
-                          gamma: float | None = None,
-                          gamma_min: float = _DEFAULT_GAMMA_MIN,
-                          gamma_max: float = _DEFAULT_GAMMA_MAX,
-                          ) -> PickQualityFlags:
+def quality_control_picks(
+    picks: dict[str, ModePick] | DepthPicks,
+    *,
+    depth: float | None = None,
+    vp_vs_min: float = _DEFAULT_VP_VS_MIN,
+    vp_vs_max: float = _DEFAULT_VP_VS_MAX,
+    require_time_order: bool = True,
+    gamma: float | None = None,
+    gamma_min: float = _DEFAULT_GAMMA_MIN,
+    gamma_max: float = _DEFAULT_GAMMA_MAX,
+) -> PickQualityFlags:
     """
     Cross-mode consistency QC at one depth.
 
@@ -1819,8 +1836,7 @@ def quality_control_picks(picks: dict[str, ModePick] | DepthPicks,
             if not (vp_vs_min <= vp_vs <= vp_vs_max):
                 vp_vs_in_band = False
                 reasons.append(
-                    f"Vp/Vs={vp_vs:.2f} outside band "
-                    f"[{vp_vs_min:.2f}, {vp_vs_max:.2f}]"
+                    f"Vp/Vs={vp_vs:.2f} outside band [{vp_vs_min:.2f}, {vp_vs_max:.2f}]"
                 )
 
     # Canonical time-ordering gate
@@ -1831,12 +1847,9 @@ def quality_control_picks(picks: dict[str, ModePick] | DepthPicks,
         if times != sorted(times):
             time_order_ok = False
             order_str = ", ".join(
-                f"t_{m}={picks_dict[m].time * 1.0e3:.2f}ms"
-                for m in present
+                f"t_{m}={picks_dict[m].time * 1.0e3:.2f}ms" for m in present
             )
-            reasons.append(
-                f"canonical time order violated: {order_str}"
-            )
+            reasons.append(f"canonical time order violated: {order_str}")
 
     # Thomsen-gamma gate (opt-in)
     gamma_value: float | None = None
@@ -1863,15 +1876,16 @@ def quality_control_picks(picks: dict[str, ModePick] | DepthPicks,
     )
 
 
-def quality_control_track(track: Sequence[DepthPicks],
-                          *,
-                          vp_vs_min: float = _DEFAULT_VP_VS_MIN,
-                          vp_vs_max: float = _DEFAULT_VP_VS_MAX,
-                          require_time_order: bool = True,
-                          gammas: Sequence[float] | np.ndarray | None = None,
-                          gamma_min: float = _DEFAULT_GAMMA_MIN,
-                          gamma_max: float = _DEFAULT_GAMMA_MAX,
-                          ) -> list[PickQualityFlags]:
+def quality_control_track(
+    track: Sequence[DepthPicks],
+    *,
+    vp_vs_min: float = _DEFAULT_VP_VS_MIN,
+    vp_vs_max: float = _DEFAULT_VP_VS_MAX,
+    require_time_order: bool = True,
+    gammas: Sequence[float] | np.ndarray | None = None,
+    gamma_min: float = _DEFAULT_GAMMA_MIN,
+    gamma_max: float = _DEFAULT_GAMMA_MAX,
+) -> list[PickQualityFlags]:
     """
     Apply :func:`quality_control_picks` per-depth across a track.
 
@@ -1916,16 +1930,17 @@ def quality_control_track(track: Sequence[DepthPicks],
             )
         # Treat NaN as "skip the gamma gate at this depth".
         per_depth_gammas = [
-            None if not np.isfinite(g) else float(g)
-            for g in gammas_arr
+            None if not np.isfinite(g) else float(g) for g in gammas_arr
         ]
     return [
         quality_control_picks(
             dp,
-            vp_vs_min=vp_vs_min, vp_vs_max=vp_vs_max,
+            vp_vs_min=vp_vs_min,
+            vp_vs_max=vp_vs_max,
             require_time_order=require_time_order,
             gamma=per_depth_gammas[i],
-            gamma_min=gamma_min, gamma_max=gamma_max,
+            gamma_min=gamma_min,
+            gamma_max=gamma_max,
         )
         for i, dp in enumerate(track)
     ]
@@ -2123,8 +2138,8 @@ def track_to_log_curves(
     for mode in modes:
         suffix = _MODE_MNEMONIC_SUFFIX.get(mode, mode.upper())
         slow_arr = np.full(n_depth, nan, dtype=float)
-        coh_arr  = np.full(n_depth, nan, dtype=float)
-        amp_arr  = np.full(n_depth, nan, dtype=float)
+        coh_arr = np.full(n_depth, nan, dtype=float)
+        amp_arr = np.full(n_depth, nan, dtype=float)
         time_arr = np.full(n_depth, nan, dtype=float)
         any_amp = False
         any_pick = False
@@ -2134,7 +2149,7 @@ def track_to_log_curves(
                 continue
             any_pick = True
             slow_arr[d] = float(pick.slowness) / US_PER_FT
-            coh_arr[d]  = float(pick.coherence)
+            coh_arr[d] = float(pick.coherence)
             time_arr[d] = float(pick.time)
             if pick.amplitude is not None:
                 amp_arr[d] = float(pick.amplitude)
@@ -2174,9 +2189,7 @@ def track_to_log_curves(
                 "velocity in m/s)"
             )
         if rho_fluid <= 0.0 or v_fluid <= 0.0:
-            raise ValueError(
-                "rho_fluid and v_fluid must be strictly positive"
-            )
+            raise ValueError("rho_fluid and v_fluid must be strictly positive")
         rho_arr = np.asarray(rho, dtype=float)
         if rho_arr.ndim == 0:
             rho_arr = np.full(n_depth, float(rho_arr), dtype=float)
@@ -2189,8 +2202,8 @@ def track_to_log_curves(
             raise ValueError("rho must be strictly positive everywhere")
 
         # Per-depth slownesses in s/m (NaN where the pick is missing).
-        s_p_arr  = np.full(n_depth, nan, dtype=float)
-        s_s_arr  = np.full(n_depth, nan, dtype=float)
+        s_p_arr = np.full(n_depth, nan, dtype=float)
+        s_s_arr = np.full(n_depth, nan, dtype=float)
         s_st_arr = np.full(n_depth, nan, dtype=float)
         for d, dp in enumerate(track):
             p = dp.picks.get("P")
@@ -2210,8 +2223,7 @@ def track_to_log_curves(
             # picked depth.
             s_f2 = 1.0 / (v_fluid * v_fluid)
             diff = s_st_arr * s_st_arr - s_f2
-            c66_white = np.where(diff > 0.0,
-                                 rho_fluid / diff, np.nan)
+            c66_white = np.where(diff > 0.0, rho_fluid / diff, np.nan)
             if correct_for_p_modulus:
                 # Tang & Cheng (2004) §5.4 correction at depths where
                 # the P pick is *also* present (and the resulting
@@ -2221,17 +2233,15 @@ def track_to_log_curves(
                 rho_vp2 = rho_arr / (s_p_arr * s_p_arr)
                 rho_f_vf2 = rho_fluid * v_fluid * v_fluid
                 factor = 1.0 - rho_f_vf2 / rho_vp2
-                use_corrected = (np.isfinite(factor)
-                                 & (factor > 0.0)
-                                 & np.isfinite(c66_white))
-                c66 = np.where(use_corrected,
-                               c66_white / factor,
-                               c66_white)
+                use_corrected = (
+                    np.isfinite(factor) & (factor > 0.0) & np.isfinite(c66_white)
+                )
+                c66 = np.where(use_corrected, c66_white / factor, c66_white)
             else:
                 c66 = c66_white
 
             gamma = (c66 - c44) / (2.0 * c44)
-            vp  = np.sqrt(c33 / rho_arr)
+            vp = np.sqrt(c33 / rho_arr)
             vsv = np.sqrt(c44 / rho_arr)
             vsh = np.sqrt(c66 / rho_arr)
 
@@ -2244,7 +2254,7 @@ def track_to_log_curves(
         curves["C44"] = c44
         curves["C66"] = c66
         curves["GAMMA"] = gamma
-        curves["VP"]  = vp
+        curves["VP"] = vp
         curves["VSV"] = vsv
         curves["VSH"] = vsh
 

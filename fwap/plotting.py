@@ -23,9 +23,14 @@ import numpy as np
 from fwap._common import logger
 
 
-def wiggle_plot(ax, data: np.ndarray, t: np.ndarray,
-                scale: float = 1.5, xmax: float | None = None,
-                title: str = "") -> None:
+def wiggle_plot(
+    ax,
+    data: np.ndarray,
+    t: np.ndarray,
+    scale: float = 1.5,
+    xmax: float | None = None,
+    title: str = "",
+) -> None:
     """
     Draw a wiggle plot of a multichannel gather.
 
@@ -78,6 +83,7 @@ def save_figure(fig, figdir: str, name: str, show: bool = False) -> None:
     fig.savefig(out, dpi=140)
     logger.info("  saved %s", out)
     import matplotlib.pyplot as plt
+
     if show:
         plt.show()
     else:

@@ -95,8 +95,7 @@ def rayleigh_speed(vp: float, vs: float) -> float:
     a2 = (vs / vp) ** 2
 
     def F(xi: float) -> float:
-        return ((2.0 - xi) ** 2
-                - 4.0 * np.sqrt((1.0 - xi * a2) * (1.0 - xi)))
+        return (2.0 - xi) ** 2 - 4.0 * np.sqrt((1.0 - xi * a2) * (1.0 - xi))
 
     # F(0) = 0 (trivial root at zero speed). F dips negative and
     # crosses zero at the Rayleigh root somewhere in (~0.75, ~0.98)
@@ -106,10 +105,11 @@ def rayleigh_speed(vp: float, vs: float) -> float:
     return float(vs * np.sqrt(xi))
 
 
-def flexural_dispersion_physical(vp: float,
-                                 vs: float,
-                                 a_borehole: float = 0.1,
-                                 ) -> Callable[[np.ndarray], np.ndarray]:
+def flexural_dispersion_physical(
+    vp: float,
+    vs: float,
+    a_borehole: float = 0.1,
+) -> Callable[[np.ndarray], np.ndarray]:
     r"""
     Dipole flexural dispersion with a Rayleigh-speed high-frequency
     asymptote.
@@ -180,16 +180,17 @@ def flexural_dispersion_physical(vp: float,
 
     def s_of_f(f: np.ndarray) -> np.ndarray:
         x = np.asarray(f) / fc
-        return s_low + (s_high - s_low) * (x ** 2) / (1.0 + x ** 2)
+        return s_low + (s_high - s_low) * (x**2) / (1.0 + x**2)
 
     return s_of_f
 
 
-def flexural_dispersion_vti_physical(vp: float,
-                                     vsv: float,
-                                     vsh: float,
-                                     a_borehole: float = 0.1,
-                                     ) -> Callable[[np.ndarray], np.ndarray]:
+def flexural_dispersion_vti_physical(
+    vp: float,
+    vsv: float,
+    vsh: float,
+    a_borehole: float = 0.1,
+) -> Callable[[np.ndarray], np.ndarray]:
     r"""
     Phenomenological VTI dipole-flexural dispersion law.
 
@@ -326,6 +327,6 @@ def flexural_dispersion_vti_physical(vp: float,
 
     def s_of_f(f: np.ndarray) -> np.ndarray:
         x = np.asarray(f) / fc
-        return s_low + (s_high - s_low) * (x ** 2) / (1.0 + x ** 2)
+        return s_low + (s_high - s_low) * (x**2) / (1.0 + x**2)
 
     return s_of_f
