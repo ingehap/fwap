@@ -1505,3 +1505,181 @@ def backus_average(
         c66=c66,
         rho=avg_rho,
     )
+
+
+# ---------------------------------------------------------------------
+# VTI phase velocities (Tsvankin 2001 / Christoffel)
+# ---------------------------------------------------------------------
+
+
+def vti_phase_velocities(
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    *,
+    phase_angle_rad: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    r"""
+    Phase velocities of the three modes in a VTI medium.
+
+    Christoffel-determinant solution for the phase velocities of
+    the three plane-wave modes (quasi-P, quasi-SV, SH) in a
+    transversely-isotropic medium with vertical symmetry axis,
+    propagating at phase angle :math:`\theta` from the symmetry
+    axis (so :math:`\theta = 0` is vertical propagation,
+    :math:`\theta = \pi/2` is horizontal). For the standard VTI
+    plane (:math:`x_1`-:math:`x_3`) the in-plane qP and qSV modes
+    decouple from the out-of-plane SH mode; the qP and qSV
+    velocities are the two roots of the quadratic Christoffel
+    determinant in :math:`v^2`.
+
+    Tsvankin (2001) eq. 1.41:
+
+    .. math::
+
+        v_{qP}^{\,2}(\theta), v_{qSV}^{\,2}(\theta) \;=\;
+            \frac{1}{2\rho}\bigg[
+                (C_{11} + C_{44})\sin^2\theta
+                + (C_{33} + C_{44})\cos^2\theta
+                \pm \sqrt{D(\theta)}
+            \bigg],
+
+    where the discriminant is
+
+    .. math::
+
+        D(\theta) \;=\;
+            \big[(C_{11} - C_{44})\sin^2\theta
+                 - (C_{33} - C_{44})\cos^2\theta\big]^2
+            \;+\; 4\,(C_{13} + C_{44})^2\,\sin^2\theta\,\cos^2\theta.
+
+    The plus sign gives qP; the minus sign gives qSV. The SH mode
+    is decoupled and has the simpler form
+
+    .. math::
+
+        v_{SH}^{\,2}(\theta) \;=\;
+            \frac{C_{44}\cos^2\theta + C_{66}\sin^2\theta}{\rho}.
+
+    Limit checks (verified by the test suite):
+
+    * Vertical propagation :math:`(\theta = 0)`:
+      :math:`v_{qP} = \sqrt{C_{33}/\rho}`,
+      :math:`v_{qSV} = v_{SH} = \sqrt{C_{44}/\rho}` (vertical
+      shear velocities degenerate).
+    * Horizontal propagation :math:`(\theta = \pi/2)`:
+      :math:`v_{qP} = \sqrt{C_{11}/\rho}`,
+      :math:`v_{qSV} = \sqrt{C_{44}/\rho}`,
+      :math:`v_{SH} = \sqrt{C_{66}/\rho}`.
+    * Isotropic limit (:math:`C_{11} = C_{33}`, :math:`C_{44} =
+      C_{66}`, :math:`C_{13} = C_{11} - 2C_{44}`):
+      :math:`v_{qP} = \sqrt{(C_{33})/\rho}` for all
+      :math:`\theta`, and :math:`v_{qSV} = v_{SH}` for all
+      :math:`\theta`.
+
+    Parameters
+    ----------
+    c11, c13, c33, c44, c66 : float
+        The five independent VTI elastic constants (Pa). The
+        natural source is :func:`backus_average` for layered
+        media, or :func:`vti_moduli_from_logs` for sonic-derived
+        per-depth values.
+    rho : float
+        Mass density (kg/m^3).
+    phase_angle_rad : scalar or ndarray
+        Phase angle :math:`\theta` (radians) measured from the
+        symmetry axis (vertical). Use ``np.linspace(0, np.pi/2,
+        91)`` for a 1-degree grid over a quadrant.
+
+    Returns
+    -------
+    (v_qP, v_qSV, v_SH) : tuple of ndarrays
+        Phase velocities (m/s) of the three modes at each input
+        angle, broadcast to the shape of ``phase_angle_rad``.
+
+    Raises
+    ------
+    ValueError
+        If ``rho`` is non-positive; if any elastic constant is
+        non-positive; or if the qSV discriminant goes negative
+        (would indicate non-physical input violating the strong-
+        ellipticity constraint of the VTI tensor).
+
+    See Also
+    --------
+    backus_average : Computes the five VTI elastic constants from
+        a layered isotropic stack -- the natural input for this
+        function.
+    vti_moduli_from_logs : Sonic-derived per-depth VTI moduli.
+    flexural_dispersion_vti_physical : Borehole-flexural-mode
+        dispersion in a VTI formation. Uses a different
+        velocity-based parameterisation (``vsv, vsh``).
+
+    Notes
+    -----
+    The function returns *phase* velocities (the speed of a
+    constant-phase plane). Group velocities (the speed of energy
+    propagation, which is what determines wavefront shapes) follow
+    from the phase velocities by
+
+    .. math::
+
+        v_g(\theta) = \sqrt{v_p^{\,2}(\theta)
+                            + (\partial v_p/\partial\theta)^2},
+
+    with the group angle :math:`\psi` given by
+    :math:`\tan\psi = \tan\theta + (1/v_p)\,(\partial v_p
+    /\partial\theta)\,/\,(1 - \tan\theta\,(1/v_p)\,
+    (\partial v_p/\partial\theta))`. Group-velocity calculation
+    is a planned follow-up.
+
+    The decoupling of SH from qP/qSV is specific to propagation
+    in the symmetry plane (:math:`x_1`-:math:`x_3`); for off-plane
+    propagation the SH mode mixes with qSV. This function assumes
+    :math:`\phi = 0` (in-plane propagation), which is the
+    convention used throughout :mod:`fwap.anisotropy`.
+
+    References
+    ----------
+    * Tsvankin, I. (2001). *Seismic Signatures and Analysis of
+      Reflection Data in Anisotropic Media.* Pergamon, eq. 1.41.
+    * Thomsen, L. (1986). Weak elastic anisotropy. *Geophysics*
+      51(10), 1954-1966.
+    * Carcione, J. M. (2014). *Wave Fields in Real Media*, 3rd
+      ed., Section 1.4. Elsevier (Christoffel-determinant
+      derivation in standard form).
+    """
+    if rho <= 0:
+        raise ValueError("rho must be positive")
+    for name, val in [
+        ("c11", c11), ("c33", c33), ("c44", c44), ("c66", c66),
+    ]:
+        if val <= 0:
+            raise ValueError(f"{name} must be positive")
+
+    theta = np.asarray(phase_angle_rad, dtype=float)
+    sin2 = np.sin(theta) ** 2
+    cos2 = np.cos(theta) ** 2
+
+    # Tsvankin 2001 eq. 1.41
+    inner = (
+        ((c11 - c44) * sin2 - (c33 - c44) * cos2) ** 2
+        + 4.0 * (c13 + c44) ** 2 * sin2 * cos2
+    )
+    if np.any(inner < 0.0):
+        raise ValueError(
+            "Christoffel discriminant went negative; check that "
+            "the VTI elastic constants satisfy strong ellipticity "
+            "(C33 * C11 - C13^2 > 0, etc.)."
+        )
+    disc = np.sqrt(inner)
+
+    sum_term = (c11 + c44) * sin2 + (c33 + c44) * cos2
+    v_qP = np.sqrt((sum_term + disc) / (2.0 * rho))
+    v_qSV = np.sqrt((sum_term - disc) / (2.0 * rho))
+    v_SH = np.sqrt((c44 * cos2 + c66 * sin2) / rho)
+
+    return v_qP, v_qSV, v_SH

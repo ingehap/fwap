@@ -1392,3 +1392,234 @@ def test_backus_rejects_vs_ge_vp():
             vs=np.array([2500.0]),  # vs > vp
             rho=np.array([2200.0]),
         )
+
+
+# =====================================================================
+# vti_phase_velocities (Tsvankin 2001 eq. 1.41)
+# =====================================================================
+
+
+def _berea_vti():
+    """Backus-derived VTI elastic constants (Pa) from a synthetic
+    shale/sand alternation. The qP/qSV/SH velocities computed from
+    these constants exhibit the standard VTI features (qP epsilon
+    > 0, qSV bulge near 45 deg, SH gamma > 0)."""
+    return dict(
+        c11=2.063e10, c13=8.307e9, c33=1.875e10,
+        c44=4.813e9, c66=6.056e9, rho=2250.0,
+    )
+
+
+# ---------------------------------------------------------------------
+# Vertical and horizontal limits
+# ---------------------------------------------------------------------
+
+
+def test_vti_phase_at_vertical_recovers_axial_moduli():
+    """At theta = 0, v_qP = sqrt(C33/rho), and v_qSV = v_SH =
+    sqrt(C44/rho) (the vertical-shear degeneracy)."""
+    from fwap.anisotropy import vti_phase_velocities
+
+    p = _berea_vti()
+    vP, vSV, vSH = vti_phase_velocities(
+        **p, phase_angle_rad=np.array([0.0])
+    )
+    assert abs(float(vP[0]) - np.sqrt(p["c33"] / p["rho"])) < 1.0e-6
+    assert abs(float(vSV[0]) - np.sqrt(p["c44"] / p["rho"])) < 1.0e-6
+    assert abs(float(vSH[0]) - np.sqrt(p["c44"] / p["rho"])) < 1.0e-6
+
+
+def test_vti_phase_at_horizontal_recovers_in_plane_moduli():
+    """At theta = pi/2, v_qP = sqrt(C11/rho), v_qSV = sqrt(C44/rho),
+    v_SH = sqrt(C66/rho)."""
+    from fwap.anisotropy import vti_phase_velocities
+
+    p = _berea_vti()
+    vP, vSV, vSH = vti_phase_velocities(
+        **p, phase_angle_rad=np.array([np.pi / 2]),
+    )
+    assert abs(float(vP[0]) - np.sqrt(p["c11"] / p["rho"])) < 1.0e-6
+    assert abs(float(vSV[0]) - np.sqrt(p["c44"] / p["rho"])) < 1.0e-6
+    assert abs(float(vSH[0]) - np.sqrt(p["c66"] / p["rho"])) < 1.0e-6
+
+
+# ---------------------------------------------------------------------
+# Isotropic limit: all three velocities are constant in theta
+# ---------------------------------------------------------------------
+
+
+def test_vti_phase_isotropic_limit_constant_in_angle():
+    """An isotropic medium has C11 = C33, C44 = C66, C13 = C11 -
+    2*C44. All three phase velocities then become constant in theta;
+    qSV and SH are equal (S-wave isotropy)."""
+    from fwap.anisotropy import vti_phase_velocities
+
+    mu = 8.0e9
+    M = 27.0e9
+    lam = M - 2.0 * mu
+    rho = 2200.0
+    theta = np.linspace(0.0, np.pi / 2, 13)
+    vP, vSV, vSH = vti_phase_velocities(
+        c11=M, c13=lam, c33=M, c44=mu, c66=mu, rho=rho,
+        phase_angle_rad=theta,
+    )
+    np.testing.assert_allclose(vP, np.sqrt(M / rho), rtol=1.0e-12)
+    np.testing.assert_allclose(vSV, np.sqrt(mu / rho), rtol=1.0e-12)
+    np.testing.assert_allclose(vSH, np.sqrt(mu / rho), rtol=1.0e-12)
+
+
+# ---------------------------------------------------------------------
+# Anisotropy signatures
+# ---------------------------------------------------------------------
+
+
+def test_vti_phase_v_qSV_equals_v_SH_at_vertical():
+    """The vertical S-wave is degenerate (qSV polarisation is in
+    the propagation plane, SH polarisation is perpendicular but
+    both see the same C44 stiffness for vertical propagation)."""
+    from fwap.anisotropy import vti_phase_velocities
+
+    p = _berea_vti()
+    _, vSV, vSH = vti_phase_velocities(
+        **p, phase_angle_rad=np.array([0.0])
+    )
+    assert abs(float(vSV[0]) - float(vSH[0])) < 1.0e-6
+
+
+def test_vti_phase_v_qSV_equals_v_qSV_at_horizontal_for_C44():
+    """At pi/2, qSV propagates with vertical-shear stiffness C44
+    (its polarisation direction at horizontal propagation is the
+    vertical x_3 axis), independent of C66."""
+    from fwap.anisotropy import vti_phase_velocities
+
+    p = _berea_vti()
+    _, vSV, _ = vti_phase_velocities(
+        **p, phase_angle_rad=np.array([np.pi / 2]),
+    )
+    assert abs(float(vSV[0]) - np.sqrt(p["c44"] / p["rho"])) < 1.0e-6
+
+
+def test_vti_phase_v_SH_increases_when_C66_larger_than_C44():
+    """Positive Thomsen gamma (C66 > C44) means v_SH(pi/2) >
+    v_SH(0). The Berea-VTI test fixture has gamma > 0."""
+    from fwap.anisotropy import vti_phase_velocities
+
+    p = _berea_vti()
+    _, _, vSH = vti_phase_velocities(
+        **p, phase_angle_rad=np.array([0.0, np.pi / 2]),
+    )
+    # gamma > 0 means the horizontal SH is faster than the vertical.
+    assert float(vSH[1]) > float(vSH[0])
+
+
+def test_vti_phase_v_qP_at_horizontal_above_vertical_for_positive_epsilon():
+    """C11 > C33 (positive Thomsen epsilon) means horizontal qP is
+    faster than vertical qP. The Berea-VTI fixture has epsilon > 0."""
+    from fwap.anisotropy import vti_phase_velocities
+
+    p = _berea_vti()
+    vP, _, _ = vti_phase_velocities(
+        **p, phase_angle_rad=np.array([0.0, np.pi / 2]),
+    )
+    assert float(vP[1]) > float(vP[0])
+
+
+# ---------------------------------------------------------------------
+# Output shape and broadcasting
+# ---------------------------------------------------------------------
+
+
+def test_vti_phase_output_shapes_match_input_angle_grid():
+    """Each of the three velocity arrays has the same shape as the
+    input phase_angle_rad grid."""
+    from fwap.anisotropy import vti_phase_velocities
+
+    p = _berea_vti()
+    theta = np.linspace(0.0, np.pi / 2, 91)
+    vP, vSV, vSH = vti_phase_velocities(**p, phase_angle_rad=theta)
+    assert vP.shape == theta.shape
+    assert vSV.shape == theta.shape
+    assert vSH.shape == theta.shape
+
+
+def test_vti_phase_scalar_input_returns_scalar_output():
+    """Scalar input produces scalar output (numpy 0-d arrays)."""
+    from fwap.anisotropy import vti_phase_velocities
+
+    p = _berea_vti()
+    vP, vSV, vSH = vti_phase_velocities(**p, phase_angle_rad=0.5)
+    # Result of np.sqrt on a 0-d array is a 0-d array.
+    assert vP.ndim == 0
+    assert vSV.ndim == 0
+    assert vSH.ndim == 0
+
+
+# ---------------------------------------------------------------------
+# Round-trip with Backus
+# ---------------------------------------------------------------------
+
+
+def test_vti_phase_consumes_backus_output_directly():
+    """Run Backus on a layered stack, feed the result into
+    vti_phase_velocities, confirm the velocity surfaces are
+    well-defined and have the expected anisotropy signatures."""
+    from fwap.anisotropy import backus_average, vti_phase_velocities
+
+    out = backus_average(
+        thickness=np.array([1.0, 1.0]),
+        vp=np.array([3500.0, 2500.0]),
+        vs=np.array([2000.0, 1200.0]),
+        rho=np.array([2200.0, 2300.0]),
+    )
+    theta = np.linspace(0.0, np.pi / 2, 19)
+    vP, vSV, vSH = vti_phase_velocities(
+        c11=out.c11, c13=out.c13, c33=out.c33,
+        c44=out.c44, c66=out.c66, rho=out.rho,
+        phase_angle_rad=theta,
+    )
+    # All velocities are real and positive.
+    assert np.all(np.isfinite(vP))
+    assert np.all(np.isfinite(vSV))
+    assert np.all(np.isfinite(vSH))
+    assert np.all(vP > vSV)  # qP always faster than qSV in stable VTI
+    # Expected ordering: SH and qSV degenerate at vertical, separate
+    # for theta > 0 with v_SH > v_qSV (positive Thomsen gamma).
+    assert vSH[-1] > vSV[-1]
+
+
+# ---------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------
+
+
+def test_vti_phase_rejects_non_positive_density():
+    """Zero or negative density raises."""
+    import pytest
+
+    from fwap.anisotropy import vti_phase_velocities
+
+    with pytest.raises(ValueError, match="rho"):
+        vti_phase_velocities(
+            c11=2e10, c13=8e9, c33=2e10, c44=5e9, c66=6e9, rho=0.0,
+            phase_angle_rad=np.array([0.0]),
+        )
+
+
+def test_vti_phase_rejects_non_positive_elastic_constants():
+    """Zero or negative c11/c33/c44/c66 raise (c13 is allowed
+    negative in degenerate cases, but negative diagonal moduli
+    violate physical-positivity constraints)."""
+    import pytest
+
+    from fwap.anisotropy import vti_phase_velocities
+
+    base = dict(c11=2e10, c13=8e9, c33=2e10, c44=5e9, c66=6e9, rho=2400.0,
+                phase_angle_rad=np.array([0.0]))
+    with pytest.raises(ValueError, match="c11"):
+        vti_phase_velocities(**{**base, "c11": 0.0})
+    with pytest.raises(ValueError, match="c33"):
+        vti_phase_velocities(**{**base, "c33": -1.0})
+    with pytest.raises(ValueError, match="c44"):
+        vti_phase_velocities(**{**base, "c44": 0.0})
+    with pytest.raises(ValueError, match="c66"):
+        vti_phase_velocities(**{**base, "c66": -1.0})

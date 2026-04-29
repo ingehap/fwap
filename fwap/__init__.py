@@ -192,6 +192,7 @@ from fwap.anisotropy import (
     thomsen_gamma,
     thomsen_gamma_from_logs,
     vti_moduli_from_logs,
+    vti_phase_velocities,
 )
 
 # Rock physics
@@ -376,6 +377,7 @@ __all__ = [
     "thomsen_epsilon_delta_from_walkaway_vsp",
     "BackusResult",
     "backus_average",
+    "vti_phase_velocities",
     # Rock physics
     "ElasticModuli",
     "elastic_moduli",
