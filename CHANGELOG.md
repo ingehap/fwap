@@ -7,6 +7,23 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Tensile-strength rock-physics correlation**
+  (``fwap.geomechanics.tensile_strength_from_ucs``). One-line
+  convenience function returning ``T = ratio * UCS`` with default
+  ``ratio = 0.10`` (typical sandstones). Documented as a Hoek-Brown-
+  style "tension cutoff" rather than the Mohr-Coulomb linear
+  extrapolation -- the latter overestimates real-rock tensile
+  strength by ~3x and is a commonly-flagged geomechanical pitfall.
+  Provides published lithology-specific ratio ranges (sandstones
+  0.07-0.12, shales 0.04-0.08, limestones 0.08-0.15, crystalline
+  rocks 0.10-0.20) so users can re-tune. Closes the last item on
+  the original session-1 list of possible extensions; round-trip
+  use is documented (compute UCS via
+  ``unconfined_compressive_strength``, T via this function, feed
+  T into ``tensile_breakdown_pressure``). 7 new tests cover the
+  closed-form linearity, broadcasting, zero-UCS edge case,
+  round-trip into the breakdown pressure, and input validation.
+
 - **Inclined tensile-breakdown pressure + inclined safe mud-weight
   window** -- completes the wellbore-stability symmetry between
   vertical and inclined wells. Two new public functions in
