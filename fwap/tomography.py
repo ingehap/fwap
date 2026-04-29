@@ -55,6 +55,7 @@ class InterceptTimeResult:
     method
         Design matrix style used (``"midpoint"`` or ``"segmented"``).
     """
+
     depths: np.ndarray
     slowness: np.ndarray
     delay_src: np.ndarray
@@ -72,16 +73,20 @@ class InterceptTimeResult:
         else:
             mean_slow = float(np.nanmean(self.slowness)) * 1.0e6 * 0.3048
             slow_summary = f"<s>={mean_slow:.1f} us/ft"
-        return (f"InterceptTimeResult(method={self.method!r}, "
-                f"n_depths={n}, {slow_summary}, "
-                f"rms={self.rms_residual * 1e6:.2f} us)")
+        return (
+            f"InterceptTimeResult(method={self.method!r}, "
+            f"n_depths={n}, {slow_summary}, "
+            f"rms={self.rms_residual * 1e6:.2f} us)"
+        )
 
 
-def build_design_matrix(travel_times: np.ndarray,
-                        offsets: np.ndarray,
-                        src_depth_idx: np.ndarray,
-                        rec_depth_idx: np.ndarray,
-                        n_depth: int) -> tuple[np.ndarray, np.ndarray]:
+def build_design_matrix(
+    travel_times: np.ndarray,
+    offsets: np.ndarray,
+    src_depth_idx: np.ndarray,
+    rec_depth_idx: np.ndarray,
+    n_depth: int,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Midpoint design matrix.
 
@@ -116,8 +121,7 @@ def build_design_matrix(travel_times: np.ndarray,
     """
     n_obs = travel_times.size
     G: np.ndarray = np.zeros((n_obs, 3 * n_depth), dtype=float)
-    mid = np.clip(((src_depth_idx + rec_depth_idx) // 2).astype(int),
-                  0, n_depth - 1)
+    mid = np.clip(((src_depth_idx + rec_depth_idx) // 2).astype(int), 0, n_depth - 1)
     r = np.arange(n_obs)
     G[r, mid] = offsets
     G[r, n_depth + src_depth_idx.astype(int)] = 1.0
@@ -125,26 +129,26 @@ def build_design_matrix(travel_times: np.ndarray,
     return G, travel_times.copy()
 
 
-
 # Target roughly 1 MB (~L2 cache) per broadcast chunk at float64 in
 # ``build_design_matrix_segmented``. Keeps the hot temporary in cache
 # and minimises memory-bandwidth stalls on large problems.
-_CHUNK_TARGET_BYTES: int = 1 << 20   # 1 MiB
+_CHUNK_TARGET_BYTES: int = 1 << 20  # 1 MiB
 
 
 def _default_chunk_size(n_cells: int) -> int:
     """Pick a chunk size that keeps the (chunk, n_cells) temp near L2."""
-    elems = max(1, _CHUNK_TARGET_BYTES // 8)   # float64
+    elems = max(1, _CHUNK_TARGET_BYTES // 8)  # float64
     return max(1, elems // max(1, n_cells))
 
 
-def build_design_matrix_segmented(travel_times: np.ndarray,
-                                  src_depths: np.ndarray,
-                                  rec_depths: np.ndarray,
-                                  cell_depths: np.ndarray,
-                                  *,
-                                  chunk_size: int | None = None,
-                                  ) -> tuple[np.ndarray, np.ndarray]:
+def build_design_matrix_segmented(
+    travel_times: np.ndarray,
+    src_depths: np.ndarray,
+    rec_depths: np.ndarray,
+    cell_depths: np.ndarray,
+    *,
+    chunk_size: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Segmented (1-D tomography) design matrix.
 
@@ -221,9 +225,9 @@ def build_design_matrix_segmented(travel_times: np.ndarray,
     if not np.allclose(diffs, dz, rtol=1e-6, atol=0.0):
         raise ValueError("cell_depths must be uniformly spaced")
 
-    z_lo = cell_depths - 0.5 * dz                 # (n_cells,)
-    z_hi = cell_depths + 0.5 * dz                 # (n_cells,)
-    edges = np.concatenate([z_lo, z_hi[-1:]])     # (n_cells + 1,)
+    z_lo = cell_depths - 0.5 * dz  # (n_cells,)
+    z_hi = cell_depths + 0.5 * dz  # (n_cells,)
+    edges = np.concatenate([z_lo, z_hi[-1:]])  # (n_cells + 1,)
 
     G: np.ndarray = np.zeros((n_obs, 3 * n_cells), dtype=float)
 
@@ -236,14 +240,14 @@ def build_design_matrix_segmented(travel_times: np.ndarray,
 
     # Scratch buffer reused across chunks; holds max(z1, z_lo).
     scratch: np.ndarray = np.empty((min(chunk_size, n_obs), n_cells), dtype=float)
-    z_lo_row = z_lo[None, :]                      # (1, n_cells)
-    z_hi_row = z_hi[None, :]                      # (1, n_cells)
+    z_lo_row = z_lo[None, :]  # (1, n_cells)
+    z_hi_row = z_hi[None, :]  # (1, n_cells)
     for start in range(0, n_obs, chunk_size):
         stop = min(n_obs, start + chunk_size)
         k = stop - start
-        z1_col = z1[start:stop, None]             # (k, 1)
-        z2_col = z2[start:stop, None]             # (k, 1)
-        out_view = G[start:stop, :n_cells]        # (k, n_cells)
+        z1_col = z1[start:stop, None]  # (k, 1)
+        z2_col = z2[start:stop, None]  # (k, 1)
+        out_view = G[start:stop, :n_cells]  # (k, n_cells)
         np.minimum(z2_col, z_hi_row, out=out_view)
         np.maximum(z1_col, z_lo_row, out=scratch[:k])
         np.subtract(out_view, scratch[:k], out=out_view)
@@ -256,11 +260,13 @@ def build_design_matrix_segmented(travel_times: np.ndarray,
     # ((x - z0)/dz + 0.5).astype(int) rounding.
     src_idx = np.clip(
         np.searchsorted(edges, src_depths, side="right") - 1,
-        0, n_cells - 1,
+        0,
+        n_cells - 1,
     )
     rec_idx = np.clip(
         np.searchsorted(edges, rec_depths, side="right") - 1,
-        0, n_cells - 1,
+        0,
+        n_cells - 1,
     )
     r = np.arange(n_obs)
     G[r, n_cells + src_idx] = 1.0
@@ -268,19 +274,20 @@ def build_design_matrix_segmented(travel_times: np.ndarray,
     return G, travel_times.copy()
 
 
-def solve_intercept_time(travel_times: np.ndarray,
-                         offsets: np.ndarray,
-                         src_depth_idx: np.ndarray,
-                         rec_depth_idx: np.ndarray,
-                         n_depth: int,
-                         depth_axis: np.ndarray | None = None,
-                         mean_delay_zero: bool = True,
-                         smooth_s: float = 0.0,
-                         smooth_src: float = 0.0,
-                         smooth_rec: float = 0.0,
-                         delay_l2: float = 0.0,
-                         method: InterceptTimeMethod = "midpoint",
-                         ) -> InterceptTimeResult:
+def solve_intercept_time(
+    travel_times: np.ndarray,
+    offsets: np.ndarray,
+    src_depth_idx: np.ndarray,
+    rec_depth_idx: np.ndarray,
+    n_depth: int,
+    depth_axis: np.ndarray | None = None,
+    mean_delay_zero: bool = True,
+    smooth_s: float = 0.0,
+    smooth_src: float = 0.0,
+    smooth_rec: float = 0.0,
+    delay_l2: float = 0.0,
+    method: InterceptTimeMethod = "midpoint",
+) -> InterceptTimeResult:
     """
     Least-squares intercept-time inversion with regularisation and
     posterior standard errors.
@@ -325,16 +332,20 @@ def solve_intercept_time(travel_times: np.ndarray,
         depth_axis = np.arange(n_depth, dtype=float)
 
     if method == "midpoint":
-        G, d = build_design_matrix(travel_times, offsets,
-                                   np.asarray(src_depth_idx, dtype=int),
-                                   np.asarray(rec_depth_idx, dtype=int),
-                                   n_depth)
+        G, d = build_design_matrix(
+            travel_times,
+            offsets,
+            np.asarray(src_depth_idx, dtype=int),
+            np.asarray(rec_depth_idx, dtype=int),
+            n_depth,
+        )
     elif method == "segmented":
         G, d = build_design_matrix_segmented(
             travel_times,
             np.asarray(src_depth_idx, dtype=float),
             np.asarray(rec_depth_idx, dtype=float),
-            np.asarray(depth_axis, dtype=float))
+            np.asarray(depth_axis, dtype=float),
+        )
     else:
         raise ValueError("method must be 'midpoint' or 'segmented'")
 
@@ -343,7 +354,7 @@ def solve_intercept_time(travel_times: np.ndarray,
     wc = smooth_rec
 
     extra_rows: list[np.ndarray] = []
-    extra_d:    list[float]      = []
+    extra_d: list[float] = []
     if mean_delay_zero:
         # Zero the mean of the source-delay and receiver-delay blocks
         # *separately*. A single joint row (as in fwap <= 0.4.0) only
@@ -352,21 +363,24 @@ def solve_intercept_time(travel_times: np.ndarray,
         # the constraint matches Coppens & Mari (1995), First Break
         # 13(1), section 2.
         row_src = np.zeros(3 * n_depth)
-        row_src[n_depth:2 * n_depth] = 1.0
-        extra_rows.append(row_src); extra_d.append(0.0)
+        row_src[n_depth : 2 * n_depth] = 1.0
+        extra_rows.append(row_src)
+        extra_d.append(0.0)
 
         row_rec = np.zeros(3 * n_depth)
-        row_rec[2 * n_depth:3 * n_depth] = 1.0
-        extra_rows.append(row_rec); extra_d.append(0.0)
+        row_rec[2 * n_depth : 3 * n_depth] = 1.0
+        extra_rows.append(row_rec)
+        extra_d.append(0.0)
 
     for block, w in enumerate([ws, wr, wc]):
         if w <= 0:
             continue
         for i in range(n_depth - 1):
             row = np.zeros(3 * n_depth)
-            row[block * n_depth + i]     = +w
+            row[block * n_depth + i] = +w
             row[block * n_depth + i + 1] = -w
-            extra_rows.append(row); extra_d.append(0.0)
+            extra_rows.append(row)
+            extra_d.append(0.0)
 
     # Optional weak L2 prior on delays: helps break the (s, delay)
     # null space when the true delays are small. See Tarantola (2005),
@@ -376,7 +390,8 @@ def solve_intercept_time(travel_times: np.ndarray,
             for i in range(n_depth):
                 row = np.zeros(3 * n_depth)
                 row[block * n_depth + i] = delay_l2
-                extra_rows.append(row); extra_d.append(0.0)
+                extra_rows.append(row)
+                extra_d.append(0.0)
 
     if extra_rows:
         G_aug = np.vstack([G, np.array(extra_rows)])
@@ -385,12 +400,12 @@ def solve_intercept_time(travel_times: np.ndarray,
         G_aug, d_aug = G, d
 
     m, *_ = np.linalg.lstsq(G_aug, d_aug, rcond=None)
-    slowness  = m[:n_depth]
-    delay_src = m[n_depth:2 * n_depth]
-    delay_rec = m[2 * n_depth:3 * n_depth]
+    slowness = m[:n_depth]
+    delay_src = m[n_depth : 2 * n_depth]
+    delay_rec = m[2 * n_depth : 3 * n_depth]
 
     residual = G @ m - d
-    rms = float(np.sqrt(np.mean(residual ** 2))) if residual.size else 0.0
+    rms = float(np.sqrt(np.mean(residual**2))) if residual.size else 0.0
 
     # Marginal posterior standard errors.
     # cov = sigma_d**2 * (G_aug^T G_aug)^(-1), clipped for conditioning.
@@ -408,18 +423,15 @@ def solve_intercept_time(travel_times: np.ndarray,
         delay_rec=delay_rec,
         rms_residual=rms,
         sigma_slowness=sigma[:n_depth],
-        sigma_delay_src=sigma[n_depth:2 * n_depth],
-        sigma_delay_rec=sigma[2 * n_depth:3 * n_depth],
+        sigma_delay_src=sigma[n_depth : 2 * n_depth],
+        sigma_delay_rec=sigma[2 * n_depth : 3 * n_depth],
         method=method,
     )
 
 
-def assemble_observations_from_picks(tool_depths: np.ndarray,
-                                     offsets: np.ndarray,
-                                     first_arrivals: np.ndarray
-                                     ) -> tuple[np.ndarray, np.ndarray,
-                                                np.ndarray, np.ndarray,
-                                                int, np.ndarray]:
+def assemble_observations_from_picks(
+    tool_depths: np.ndarray, offsets: np.ndarray, first_arrivals: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int, np.ndarray]:
     """
     Convert an ``(n_depth, n_rec)`` first-arrival pick matrix into the
     ragged observation form consumed by :func:`solve_intercept_time`
@@ -473,16 +485,24 @@ def assemble_observations_from_picks(tool_depths: np.ndarray,
             idx = int(round((z_rec - z0) / dz))
             if 0 <= idx < n_depth:
                 tt.append(float(first_arrivals[j, k]))
-                xs.append(x); src.append(j); rec.append(idx)
-    return (np.asarray(tt), np.asarray(xs),
-            np.asarray(src, dtype=int), np.asarray(rec, dtype=int),
-            n_depth, depth_axis)
+                xs.append(x)
+                src.append(j)
+                rec.append(idx)
+    return (
+        np.asarray(tt),
+        np.asarray(xs),
+        np.asarray(src, dtype=int),
+        np.asarray(rec, dtype=int),
+        n_depth,
+        depth_axis,
+    )
 
 
-def delay_to_altered_zone_thickness(delay: np.ndarray,
-                                    slowness_virgin: float,
-                                    slowness_altered: float,
-                                    ) -> np.ndarray:
+def delay_to_altered_zone_thickness(
+    delay: np.ndarray,
+    slowness_virgin: float,
+    slowness_altered: float,
+) -> np.ndarray:
     r"""
     Convert an intercept-time delay to an altered-zone thickness.
 
@@ -565,9 +585,10 @@ def delay_to_altered_zone_thickness(delay: np.ndarray,
     return np.clip(thickness, 0.0, None)
 
 
-def delay_to_altered_zone_velocity_contrast(delay: np.ndarray,
-                                            thickness: float | np.ndarray,
-                                            ) -> np.ndarray:
+def delay_to_altered_zone_velocity_contrast(
+    delay: np.ndarray,
+    thickness: float | np.ndarray,
+) -> np.ndarray:
     r"""
     Convert an intercept-time delay to an altered-zone slowness
     contrast.
@@ -636,17 +657,19 @@ class AlteredZoneEstimate:
     slowness_contrast : ndarray
         Altered-zone minus virgin slowness (s/m).
     """
+
     thickness: np.ndarray
     slowness_altered: np.ndarray
     slowness_contrast: np.ndarray
 
 
-def altered_zone_estimate(delay: np.ndarray,
-                          slowness_virgin: float,
-                          *,
-                          thickness: float | np.ndarray | None = None,
-                          slowness_altered: float | None = None,
-                          ) -> AlteredZoneEstimate:
+def altered_zone_estimate(
+    delay: np.ndarray,
+    slowness_virgin: float,
+    *,
+    thickness: float | np.ndarray | None = None,
+    slowness_altered: float | None = None,
+) -> AlteredZoneEstimate:
     r"""
     Joint ``(thickness, velocity-contrast)`` altered-zone estimate.
 
@@ -697,16 +720,17 @@ def altered_zone_estimate(delay: np.ndarray,
         )
     delay_arr = np.asarray(delay, dtype=float)
     if thickness is not None:
-        contrast = delay_to_altered_zone_velocity_contrast(
-            delay_arr, thickness)
+        contrast = delay_to_altered_zone_velocity_contrast(delay_arr, thickness)
         thickness_arr = np.broadcast_to(
-            np.asarray(thickness, dtype=float), delay_arr.shape).copy()
+            np.asarray(thickness, dtype=float), delay_arr.shape
+        ).copy()
         s_altered_arr = slowness_virgin + contrast
     else:
         # slowness_altered is not None per the XOR check above.
         assert slowness_altered is not None
         thickness_arr = delay_to_altered_zone_thickness(
-            delay_arr, slowness_virgin, slowness_altered)
+            delay_arr, slowness_virgin, slowness_altered
+        )
         contrast = np.broadcast_to(
             np.asarray(slowness_altered - slowness_virgin, dtype=float),
             delay_arr.shape,
@@ -720,4 +744,3 @@ def altered_zone_estimate(delay: np.ndarray,
         slowness_altered=s_altered_arr,
         slowness_contrast=np.asarray(contrast, dtype=float),
     )
-

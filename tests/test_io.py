@@ -18,8 +18,8 @@ def _synthetic_curves(n=200):
     depth = np.linspace(1000.0, 1100.0, n)
     dtp = 70.0 + 5.0 * np.sin(depth / 10.0)
     dts = 140.0 + 10.0 * np.sin(depth / 10.0)
-    dts[0] = np.nan                             # null at the top
-    dts[-1] = np.nan                            # null at the bottom
+    dts[0] = np.nan  # null at the top
+    dts[-1] = np.nan  # null at the bottom
     cohp = 0.85 + 0.05 * np.cos(depth / 5.0)
     return depth, {"DTP": dtp, "DTS": dts, "COHP": cohp}
 
@@ -28,9 +28,9 @@ def test_read_write_round_trip(tmp_path):
     """Writing then reading a LAS file reproduces the curves."""
     depth, curves = _synthetic_curves()
     path = tmp_path / "out.las"
-    write_las(str(path), depth, curves,
-              well_name="FWAP_TEST",
-              well={"COMP": "fwap"})    # LAS uses COMP (not COMPANY)
+    write_las(
+        str(path), depth, curves, well_name="FWAP_TEST", well={"COMP": "fwap"}
+    )  # LAS uses COMP (not COMPANY)
     assert path.exists()
 
     loaded = read_las(str(path))
@@ -63,8 +63,8 @@ def test_write_fills_fwap_curve_units(tmp_path):
     """fwap's standard mnemonics get their canonical units applied."""
     depth = np.linspace(0.0, 10.0, 5)
     curves = {
-        "DTP":  np.full(5, 70.0),
-        "DTS":  np.full(5, 140.0),
+        "DTP": np.full(5, 70.0),
+        "DTS": np.full(5, 140.0),
         "COHP": np.full(5, 0.9),
         "VPVS": np.full(5, 1.7),
     }
@@ -84,8 +84,7 @@ def test_write_custom_units_override(tmp_path):
     depth = np.linspace(0.0, 10.0, 5)
     curves = {"CUSTOM": np.full(5, 1.5)}
     path = tmp_path / "custom.las"
-    write_las(str(path), depth, curves,
-              units={"CUSTOM": "m/s"})
+    write_las(str(path), depth, curves, units={"CUSTOM": "m/s"})
     las = lasio.read(str(path))
     unit = {c.mnemonic: c.unit for c in las.curves}["CUSTOM"]
     assert unit == "m/s"
@@ -125,9 +124,13 @@ def test_read_write_dlis_round_trip(tmp_path):
     """write_dlis + read_dlis reproduces the curves and well metadata."""
     depth, curves = _synthetic_curves()
     path = tmp_path / "out.dlis"
-    write_dlis(str(path), depth, curves,
-               well_name="FWAP_TEST",
-               well={"COMP": "fwap", "FLD": "TestField"})
+    write_dlis(
+        str(path),
+        depth,
+        curves,
+        well_name="FWAP_TEST",
+        well={"COMP": "fwap", "FLD": "TestField"},
+    )
     assert path.exists()
 
     loaded = read_dlis(str(path))
@@ -197,9 +200,14 @@ def test_write_dlis_custom_frame_and_index_type(tmp_path):
     """frame_name and index_type are preserved through the round-trip."""
     depth = np.linspace(0.0, 10.0, 5)
     path = tmp_path / "time.dlis"
-    write_dlis(str(path), depth, {"X": np.zeros(5)},
-               frame_name="WAVEFORM", index_type="TIME",
-               depth_unit="s")
+    write_dlis(
+        str(path),
+        depth,
+        {"X": np.zeros(5)},
+        frame_name="WAVEFORM",
+        index_type="TIME",
+        depth_unit="s",
+    )
     loaded = read_dlis(str(path))
     assert loaded.frame_name == "WAVEFORM"
     assert loaded.index_type == "TIME"
@@ -215,9 +223,9 @@ import segyio
 def _synth_segy(path, n_traces=8, n_samples=512, dt_us=100, offsets=None):
     """Create a small SEG-Y file with an ascending sinusoid per trace."""
     if offsets is None:
-        offsets = np.arange(n_traces) * 500   # segyio stores as int
+        offsets = np.arange(n_traces) * 500  # segyio stores as int
     spec = segyio.spec()
-    spec.format = 5                            # IEEE float
+    spec.format = 5  # IEEE float
     spec.samples = np.arange(n_samples)
     spec.tracecount = n_traces
     spec.sorting = segyio.TraceSortingFormat.INLINE_SORTING
@@ -225,12 +233,14 @@ def _synth_segy(path, n_traces=8, n_samples=512, dt_us=100, offsets=None):
     with segyio.create(str(path), spec) as f:
         f.bin[segyio.BinField.Interval] = int(dt_us)
         for i in range(n_traces):
-            f.header[i].update({
-                segyio.TraceField.TRACE_SEQUENCE_LINE: i + 1,
-                segyio.TraceField.offset:             int(offsets[i]),
-                segyio.TraceField.TRACE_SAMPLE_COUNT: n_samples,
-                segyio.TraceField.TRACE_SAMPLE_INTERVAL: int(dt_us),
-            })
+            f.header[i].update(
+                {
+                    segyio.TraceField.TRACE_SEQUENCE_LINE: i + 1,
+                    segyio.TraceField.offset: int(offsets[i]),
+                    segyio.TraceField.TRACE_SAMPLE_COUNT: n_samples,
+                    segyio.TraceField.TRACE_SAMPLE_INTERVAL: int(dt_us),
+                }
+            )
             t = np.arange(n_samples, dtype=np.float32)
             f.trace[i] = np.sin(2 * np.pi * 0.02 * (t - i * 5.0)).astype(np.float32)
 
@@ -238,6 +248,7 @@ def _synth_segy(path, n_traces=8, n_samples=512, dt_us=100, offsets=None):
 def test_read_segy_basic_round_trip(tmp_path):
     """read_segy returns the same shape and dt we wrote."""
     from fwap.io import SegyGather, read_segy
+
     path = tmp_path / "simple.sgy"
     _synth_segy(path, n_traces=8, n_samples=512, dt_us=100)
 
@@ -255,9 +266,11 @@ def test_read_segy_basic_round_trip(tmp_path):
 def test_read_segy_zero_offset_header_returns_none(tmp_path):
     """If the offset header is all zeros, offsets comes back as None."""
     from fwap.io import read_segy
+
     path = tmp_path / "no_offsets.sgy"
-    _synth_segy(path, n_traces=4, n_samples=128, dt_us=50,
-                offsets=np.zeros(4, dtype=int))
+    _synth_segy(
+        path, n_traces=4, n_samples=128, dt_us=50, offsets=np.zeros(4, dtype=int)
+    )
     g = read_segy(str(path))
     assert g.offsets is None
 
@@ -265,6 +278,7 @@ def test_read_segy_zero_offset_header_returns_none(tmp_path):
 def test_read_segy_alternate_offset_header(tmp_path):
     """offset_header= can point at a different TraceField."""
     from fwap.io import read_segy
+
     path = tmp_path / "srcx.sgy"
     # Write offsets into SourceX instead of offset.
     spec = segyio.spec()
@@ -275,12 +289,14 @@ def test_read_segy_alternate_offset_header(tmp_path):
     with segyio.create(str(path), spec) as f:
         f.bin[segyio.BinField.Interval] = 100
         for i in range(4):
-            f.header[i].update({
-                segyio.TraceField.TRACE_SEQUENCE_LINE: i + 1,
-                segyio.TraceField.SourceX:            1000 + i * 250,
-                segyio.TraceField.TRACE_SAMPLE_COUNT: 128,
-                segyio.TraceField.TRACE_SAMPLE_INTERVAL: 100,
-            })
+            f.header[i].update(
+                {
+                    segyio.TraceField.TRACE_SEQUENCE_LINE: i + 1,
+                    segyio.TraceField.SourceX: 1000 + i * 250,
+                    segyio.TraceField.TRACE_SAMPLE_COUNT: 128,
+                    segyio.TraceField.TRACE_SAMPLE_INTERVAL: 100,
+                }
+            )
             f.trace[i] = np.zeros(128, dtype=np.float32)
 
     g = read_segy(str(path), offset_header="SourceX")
@@ -291,6 +307,7 @@ def test_read_segy_alternate_offset_header(tmp_path):
 def test_read_segy_rejects_bad_offset_header(tmp_path):
     """An unknown offset_header raises AttributeError."""
     from fwap.io import read_segy
+
     path = tmp_path / "simple.sgy"
     _synth_segy(path, n_traces=4, n_samples=128, dt_us=100)
     with pytest.raises(AttributeError):
@@ -300,6 +317,7 @@ def test_read_segy_rejects_bad_offset_header(tmp_path):
 def test_segy_round_trip_via_fwap_write(tmp_path):
     """write_segy + read_segy reproduces the gather and dt."""
     from fwap.io import read_segy, write_segy
+
     rng = np.random.default_rng(0)
     data = rng.standard_normal((6, 128)).astype(np.float32)
     dt = 2.5e-4
@@ -319,23 +337,31 @@ def test_segy_round_trip_via_fwap_write(tmp_path):
 def test_write_segy_rejects_non_2d_data(tmp_path):
     """Data that is not 2-D raises ValueError."""
     from fwap.io import write_segy
+
     with pytest.raises(ValueError, match="2-D"):
-        write_segy(str(tmp_path / "bad.sgy"),
-                   np.zeros(100, dtype=np.float32), dt=1.0e-4)
+        write_segy(
+            str(tmp_path / "bad.sgy"), np.zeros(100, dtype=np.float32), dt=1.0e-4
+        )
 
 
 def test_write_segy_rejects_bad_offsets_length(tmp_path):
     """Offsets with the wrong length raise ValueError."""
     from fwap.io import write_segy
+
     with pytest.raises(ValueError, match="shape"):
-        write_segy(str(tmp_path / "bad.sgy"),
-                   np.zeros((4, 32), dtype=np.float32),
-                   dt=1.0e-4, offsets=np.array([1, 2, 3]))
+        write_segy(
+            str(tmp_path / "bad.sgy"),
+            np.zeros((4, 32), dtype=np.float32),
+            dt=1.0e-4,
+            offsets=np.array([1, 2, 3]),
+        )
 
 
 def test_write_segy_rejects_non_positive_dt(tmp_path):
     """dt <= 0 raises ValueError."""
     from fwap.io import write_segy
+
     with pytest.raises(ValueError, match="dt must be positive"):
-        write_segy(str(tmp_path / "bad.sgy"),
-                   np.zeros((2, 16), dtype=np.float32), dt=0.0)
+        write_segy(
+            str(tmp_path / "bad.sgy"), np.zeros((2, 16), dtype=np.float32), dt=0.0
+        )

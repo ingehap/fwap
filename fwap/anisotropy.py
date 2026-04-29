@@ -42,15 +42,16 @@ class AlfordResult:
         ``(xy' + yx') energy / total energy`` after rotation; zero
         means perfect diagonalisation.
     """
+
     angle: float
     fast: np.ndarray
     slow: np.ndarray
     cross_energy_ratio: float
 
 
-def alford_rotation(xx: np.ndarray, xy: np.ndarray,
-                    yx: np.ndarray, yy: np.ndarray
-                    ) -> AlfordResult:
+def alford_rotation(
+    xx: np.ndarray, xy: np.ndarray, yx: np.ndarray, yy: np.ndarray
+) -> AlfordResult:
     """
     Cross-dipole Alford rotation: find the rotation angle that
     minimises cross-component energy.
@@ -116,7 +117,7 @@ def alford_rotation(xx: np.ndarray, xy: np.ndarray,
 
     def rotate(th: float):
         c, s = np.cos(th), np.sin(th)
-        f  = c * c * xx + s * c * (xy + yx) + s * s * yy
+        f = c * c * xx + s * c * (xy + yx) + s * s * yy
         sl = s * s * xx - s * c * (xy + yx) + c * c * yy
         x_y = c * s * (yy - xx) + c * c * xy - s * s * yx
         y_x = c * s * (yy - xx) - s * s * xy + c * c * yx
@@ -128,13 +129,13 @@ def alford_rotation(xx: np.ndarray, xy: np.ndarray,
     # component on the fast axis. Use centre-of-energy time on the
     # fast trace as the proxy.
     t = np.arange(fast_a.size)
-    ea = float(np.sum(fast_a ** 2))
-    eb = float(np.sum(fast_b ** 2))
+    ea = float(np.sum(fast_a**2))
+    eb = float(np.sum(fast_b**2))
     if ea < 1e-30 and eb < 1e-30:
         chosen = (theta, fast_a, slow_a, xy_a, yx_a)
     else:
-        t_a = np.sum(t * fast_a ** 2) / (ea + 1e-30)
-        t_b = np.sum(t * fast_b ** 2) / (eb + 1e-30)
+        t_a = np.sum(t * fast_a**2) / (ea + 1e-30)
+        t_b = np.sum(t * fast_b**2) / (eb + 1e-30)
         if t_a <= t_b:
             chosen = (theta, fast_a, slow_a, xy_a, yx_a)
         else:
@@ -144,12 +145,11 @@ def alford_rotation(xx: np.ndarray, xy: np.ndarray,
     # Fold to (-pi/2, pi/2].
     th = (th + np.pi / 2) % np.pi - np.pi / 2
 
-    cross_en = float(np.sum(xy_r ** 2) + np.sum(yx_r ** 2))
-    total_en = (np.sum(fast ** 2) + np.sum(slow ** 2) + cross_en)
+    cross_en = float(np.sum(xy_r**2) + np.sum(yx_r**2))
+    total_en = np.sum(fast**2) + np.sum(slow**2) + cross_en
     ratio = float(cross_en / (total_en + 1e-30))
 
-    return AlfordResult(angle=float(th), fast=fast, slow=slow,
-                        cross_energy_ratio=ratio)
+    return AlfordResult(angle=float(th), fast=fast, slow=slow, cross_energy_ratio=ratio)
 
 
 @dataclass
@@ -219,6 +219,7 @@ class StressAnisotropyEstimate:
         The underlying Alford rotation, kept for callers that need
         the rotated waveforms (``fast`` / ``slow``) themselves.
     """
+
     max_horizontal_stress_azimuth: float
     min_horizontal_stress_azimuth: float
     splitting_time_delay: float
@@ -228,9 +229,7 @@ class StressAnisotropyEstimate:
     alford: AlfordResult
 
 
-def _splitting_time_delay(fast: np.ndarray,
-                          slow: np.ndarray,
-                          dt: float) -> float:
+def _splitting_time_delay(fast: np.ndarray, slow: np.ndarray, dt: float) -> float:
     """Cross-correlation lag (s) of slow vs fast.
 
     Positive return value means the slow trace trails the fast
@@ -265,9 +264,10 @@ def _anisotropy_strength(fast: np.ndarray, slow: np.ndarray) -> float:
     return float(np.sqrt(diff_norm2 / sum_norm2 / 2.0))
 
 
-def stress_anisotropy_from_alford(alford: AlfordResult,
-                                  dt: float,
-                                  ) -> StressAnisotropyEstimate:
+def stress_anisotropy_from_alford(
+    alford: AlfordResult,
+    dt: float,
+) -> StressAnisotropyEstimate:
     r"""
     Re-label an :class:`AlfordResult` in petrophysical terms.
 
@@ -296,9 +296,7 @@ def stress_anisotropy_from_alford(alford: AlfordResult,
     """
     sigma_max_az = float(alford.angle)
     # Orthogonal direction folded into (-pi/2, pi/2].
-    sigma_min_az = float(
-        ((sigma_max_az + np.pi / 2) + np.pi / 2) % np.pi - np.pi / 2
-    )
+    sigma_min_az = float(((sigma_max_az + np.pi / 2) + np.pi / 2) % np.pi - np.pi / 2)
     delay = _splitting_time_delay(alford.fast, alford.slow, dt)
     strength = _anisotropy_strength(alford.fast, alford.slow)
     rotation_quality = max(0.0, 1.0 - float(alford.cross_energy_ratio))
@@ -343,12 +341,8 @@ def alford_rotation_from_tensor(tensor: np.ndarray) -> AlfordResult:
     """
     tensor = np.asarray(tensor, dtype=float)
     if tensor.shape[:2] != (2, 2):
-        raise ValueError(
-            "tensor must have shape (2, 2, ...); got "
-            f"{tensor.shape}"
-        )
-    return alford_rotation(tensor[0, 0], tensor[0, 1],
-                           tensor[1, 0], tensor[1, 1])
+        raise ValueError(f"tensor must have shape (2, 2, ...); got {tensor.shape}")
+    return alford_rotation(tensor[0, 0], tensor[0, 1], tensor[1, 0], tensor[1, 1])
 
 
 # ---------------------------------------------------------------------
@@ -378,6 +372,7 @@ class ThomsenGammaResult:
         an isotropic formation; positive in typical VTI shales
         (horizontal shear stiffer than vertical shear).
     """
+
     c44: np.ndarray
     c66: np.ndarray
     gamma: np.ndarray
@@ -474,7 +469,7 @@ def stoneley_horizontal_shear_modulus(
             "slowness_stoneley must exceed 1 / v_fluid everywhere "
             "(Stoneley wave is slower than the unconfined fluid wave); "
             f"got min slowness {float(np.min(s_st)):.3e} s/m, fluid "
-            f"slowness {1.0/v_fluid:.3e} s/m."
+            f"slowness {1.0 / v_fluid:.3e} s/m."
         )
     return rho_fluid / diff
 
@@ -602,7 +597,7 @@ def stoneley_horizontal_shear_modulus_corrected(
             "slowness_stoneley must exceed 1 / v_fluid everywhere "
             "(Stoneley wave is slower than the unconfined fluid wave); "
             f"got min slowness {float(np.min(s_st)):.3e} s/m, fluid "
-            f"slowness {1.0/v_fluid:.3e} s/m."
+            f"slowness {1.0 / v_fluid:.3e} s/m."
         )
     # Formation P-wave modulus rho * V_P^2 = rho / s_p^2 must exceed
     # the fluid bulk modulus rho_f * V_f^2 so the correction factor
@@ -740,7 +735,7 @@ def thomsen_gamma_from_logs(
         and :func:`thomsen_gamma`, plus rejection of non-positive
         slownesses or densities.
     """
-    s_d  = np.asarray(slowness_dipole,   dtype=float)
+    s_d = np.asarray(slowness_dipole, dtype=float)
     s_st = np.asarray(slowness_stoneley, dtype=float)
     rho_arr = np.asarray(rho, dtype=float)
     if np.any(s_d <= 0):
@@ -751,7 +746,9 @@ def thomsen_gamma_from_logs(
         raise ValueError("rho must be strictly positive")
     c44 = rho_arr / (s_d * s_d)
     c66 = stoneley_horizontal_shear_modulus(
-        s_st, rho_fluid=rho_fluid, v_fluid=v_fluid,
+        s_st,
+        rho_fluid=rho_fluid,
+        v_fluid=v_fluid,
     )
     gamma = thomsen_gamma(c44, c66)
     return ThomsenGammaResult(c44=c44, c66=c66, gamma=gamma)
@@ -866,6 +863,7 @@ class VtiModuli:
         (m/s). Equal to :math:`V_{Sv}` for an isotropic formation;
         :math:`V_{Sh} > V_{Sv}` for typical VTI shales.
     """
+
     c33: np.ndarray
     c44: np.ndarray
     c66: np.ndarray
@@ -1002,8 +1000,13 @@ def vti_moduli_from_logs(
         vsv = np.sqrt(c44 / rho_arr)
         vsh = np.sqrt(c66 / rho_arr)
         return VtiModuli(
-            c33=c33, c44=c44, c66=c66, gamma=gamma,
-            vp=vp, vsv=vsv, vsh=vsh,
+            c33=c33,
+            c44=c44,
+            c66=c66,
+            gamma=gamma,
+            vp=vp,
+            vsv=vsv,
+            vsh=vsh,
         )
     gamma_res = thomsen_gamma_from_logs(
         slowness_dipole=s_d,
@@ -1062,6 +1065,7 @@ class ThomsenEpsilonDeltaResult:
     n_shots : int
         Number of walkaway-VSP shots used in the inversion.
     """
+
     epsilon: float
     delta: float
     vp0: float
@@ -1202,8 +1206,7 @@ def thomsen_epsilon_delta_from_walkaway_vsp(
     u = np.asarray(polarization_vectors, dtype=float)
     if p.ndim != 2 or p.shape[1] != 2:
         raise ValueError(
-            "slowness_vectors must have shape (n_shots, 2); got "
-            f"{p.shape}"
+            f"slowness_vectors must have shape (n_shots, 2); got {p.shape}"
         )
     if u.shape != p.shape:
         raise ValueError(
@@ -1220,8 +1223,8 @@ def thomsen_epsilon_delta_from_walkaway_vsp(
     if np.any(u_norm <= 0):
         raise ValueError("every polarization vector must be non-zero")
 
-    theta = np.arctan2(p[:, 0], p[:, 1])           # phase angle from z
-    psi_u = np.arctan2(u[:, 0], u[:, 1])           # polarization angle
+    theta = np.arctan2(p[:, 0], p[:, 1])  # phase angle from z
+    psi_u = np.arctan2(u[:, 0], u[:, 1])  # polarization angle
     v_phase = 1.0 / p_norm
 
     # Velocity equation: V_phase / V_P0 - 1 = epsilon sin^4 theta
@@ -1229,16 +1232,16 @@ def thomsen_epsilon_delta_from_walkaway_vsp(
     sin2_t = np.sin(theta) ** 2
     cos2_t = np.cos(theta) ** 2
     rhs_v = v_phase / vp0 - 1.0
-    coef_eps_v = sin2_t ** 2                         # sin^4 theta
-    coef_del_v = sin2_t * cos2_t                     # sin^2 theta cos^2 theta
+    coef_eps_v = sin2_t**2  # sin^4 theta
+    coef_del_v = sin2_t * cos2_t  # sin^2 theta cos^2 theta
 
     # Polarization equation: psi_u - theta = epsilon sin(2 theta)
     #                                       + (delta - epsilon)/2 sin(4 theta)
     sin_2t = np.sin(2.0 * theta)
     sin_4t = np.sin(4.0 * theta)
     rhs_p = psi_u - theta
-    coef_eps_p = sin_2t - 0.5 * sin_4t               # eps coefficient
-    coef_del_p = 0.5 * sin_4t                         # delta coefficient
+    coef_eps_p = sin_2t - 0.5 * sin_4t  # eps coefficient
+    coef_del_p = 0.5 * sin_4t  # delta coefficient
 
     A = np.empty((2 * n_shots, 2), dtype=float)
     A[:n_shots, 0] = coef_eps_v
@@ -1252,7 +1255,7 @@ def thomsen_epsilon_delta_from_walkaway_vsp(
     delta = float(m[1])
 
     residual = A @ m - y
-    residual_rms = float(np.sqrt(np.mean(residual ** 2)))
+    residual_rms = float(np.sqrt(np.mean(residual**2)))
 
     return ThomsenEpsilonDeltaResult(
         epsilon=epsilon,

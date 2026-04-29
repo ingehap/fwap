@@ -25,12 +25,11 @@ from fwap.wavesep import (
 
 
 def _monopole_gather(seed=42):
-    geom = ArrayGeometry(n_rec=8, tr_offset=3.0, dr=0.1524,
-                         dt=1.0e-5, n_samples=2048)
+    geom = ArrayGeometry(n_rec=8, tr_offset=3.0, dr=0.1524, dt=1.0e-5, n_samples=2048)
     Vp, Vs, Vst = 4500.0, 2500.0, 1400.0
     data = synthesize_gather(
-        geom, monopole_formation_modes(Vp, Vs, Vst),
-        noise=0.02, seed=seed)
+        geom, monopole_formation_modes(Vp, Vs, Vst), noise=0.02, seed=seed
+    )
     return geom, data, Vp, Vs, Vst
 
 
@@ -54,7 +53,7 @@ def test_apply_unapply_moveout_is_identity():
     geom, data, Vp, *_ = _monopole_gather()
     flat = apply_moveout(data, geom.dt, geom.offsets, 1.0 / Vp)
     back = unapply_moveout(flat, geom.dt, geom.offsets, 1.0 / Vp)
-    data_rms = np.sqrt(np.mean(data ** 2))
+    data_rms = np.sqrt(np.mean(data**2))
     err_rms = np.sqrt(np.mean((back - data) ** 2))
     assert err_rms / data_rms < 1.0e-3
 
@@ -62,9 +61,14 @@ def test_apply_unapply_moveout_is_identity():
 def test_fk_filter_attenuates_out_of_band_slowness():
     """f-k pass-band around 1/Vp keeps the P arrival, suppresses Stoneley."""
     geom, data, Vp, Vs, Vst = _monopole_gather()
-    p_only = fk_filter(data, geom.dt, geom.dr,
-                       slow_min=1.0 / 5500, slow_max=1.0 / 3600,
-                       taper_width=0.3)
+    p_only = fk_filter(
+        data,
+        geom.dt,
+        geom.dr,
+        slow_min=1.0 / 5500,
+        slow_max=1.0 / 3600,
+        taper_width=0.3,
+    )
     # Compare energy in the first quarter of the record (P zone) vs
     # last quarter (Stoneley zone).
     n = data.shape[1]
@@ -92,9 +96,9 @@ def test_svd_project_isolates_coherent_mode():
        interfering modes in the multi-mode case.
     """
     from fwap.synthetic import ArrayGeometry, Mode, synthesize_gather
+
     Vp = 4500.0
-    geom = ArrayGeometry(n_rec=8, tr_offset=3.0, dr=0.1524,
-                         dt=1.0e-5, n_samples=2048)
+    geom = ArrayGeometry(n_rec=8, tr_offset=3.0, dr=0.1524, dt=1.0e-5, n_samples=2048)
     p_mode = Mode("P", slowness=1.0 / Vp, f0=15000.0, amplitude=1.0)
     data = synthesize_gather(geom, [p_mode], noise=0.2, seed=0)
     p_only_truth = synthesize_gather(geom, [p_mode], noise=0.0, seed=0)
@@ -104,10 +108,9 @@ def test_svd_project_isolates_coherent_mode():
     assert np.allclose(coh + resid, data, atol=1.0e-10)
 
     # (2) coh correlates with the noise-free P synthetic.
-    correl = np.mean([
-        np.corrcoef(coh[i], p_only_truth[i])[0, 1]
-        for i in range(geom.n_rec)
-    ])
+    correl = np.mean(
+        [np.corrcoef(coh[i], p_only_truth[i])[0, 1] for i in range(geom.n_rec)]
+    )
     assert correl > 0.85, f"P correlation only {correl:.2f}"
 
 
@@ -115,8 +118,8 @@ def test_sequential_kl_separation_sum_equals_input():
     """Component sum + residual = input (exact decomposition)."""
     geom, data, Vp, Vs, Vst = _monopole_gather()
     comps, resid = sequential_kl_separation(
-        data, geom.dt, geom.offsets,
-        slownesses=[1.0 / Vp, 1.0 / Vs, 1.0 / Vst], rank=1)
+        data, geom.dt, geom.offsets, slownesses=[1.0 / Vp, 1.0 / Vs, 1.0 / Vst], rank=1
+    )
     reconstructed = sum(comps, np.zeros_like(data)) + resid
     assert np.allclose(reconstructed, data, atol=1.0e-10)
 
@@ -124,10 +127,8 @@ def test_sequential_kl_separation_sum_equals_input():
 def test_svd_project_n_keep_alias_matches_rank():
     """The deprecated ``n_keep`` keyword still produces the same output."""
     geom, data, Vp, _, _ = _monopole_gather()
-    coh_rank, _ = svd_project(data, geom.dt, geom.offsets, 1.0 / Vp,
-                              rank=2)
-    coh_alias, _ = svd_project(data, geom.dt, geom.offsets, 1.0 / Vp,
-                               n_keep=2)
+    coh_rank, _ = svd_project(data, geom.dt, geom.offsets, 1.0 / Vp, rank=2)
+    coh_alias, _ = svd_project(data, geom.dt, geom.offsets, 1.0 / Vp, n_keep=2)
     assert np.allclose(coh_rank, coh_alias, atol=1.0e-12)
 
 
@@ -142,16 +143,21 @@ def test_fk_filter_passband_orientation():
     almost everything.
     """
     from fwap.synthetic import ArrayGeometry, Mode
+
     s_true = 1.0 / 4000.0
-    geom = ArrayGeometry(n_rec=16, tr_offset=3.0, dr=0.1524,
-                         dt=1.0e-5, n_samples=2048)
+    geom = ArrayGeometry(n_rec=16, tr_offset=3.0, dr=0.1524, dt=1.0e-5, n_samples=2048)
     mode = Mode(name="P", slowness=s_true, f0=8000.0, amplitude=1.0)
     data = synthesize_gather(geom, [mode], noise=0.0, seed=0)
-    keep = fk_filter(data, geom.dt, geom.dr,
-                     slow_min=0.8 * s_true, slow_max=1.2 * s_true,
-                     taper_width=0.3)
-    e_keep = np.sum(keep ** 2)
-    e_in = np.sum(data ** 2)
+    keep = fk_filter(
+        data,
+        geom.dt,
+        geom.dr,
+        slow_min=0.8 * s_true,
+        slow_max=1.2 * s_true,
+        taper_width=0.3,
+    )
+    e_keep = np.sum(keep**2)
+    e_in = np.sum(data**2)
     assert e_keep / e_in > 0.4
 
 
@@ -159,24 +165,23 @@ def test_fk_filter_rejects_zero_slowness_band():
     """A narrow pass-band far from the true slowness rejects all energy."""
     geom, data, Vp, *_ = _monopole_gather()
     # Pass-band centered far below any physical sonic slowness.
-    filt = fk_filter(data, geom.dt, geom.dr,
-                     slow_min=1.0e-7, slow_max=3.0e-7,
-                     taper_width=0.3)
-    e_filt = np.sum(filt ** 2)
-    e_in = np.sum(data ** 2)
+    filt = fk_filter(
+        data, geom.dt, geom.dr, slow_min=1.0e-7, slow_max=3.0e-7, taper_width=0.3
+    )
+    e_filt = np.sum(filt**2)
+    e_in = np.sum(data**2)
     assert e_filt / e_in < 0.01
 
 
 def test_fk_filter_rejects_inverted_slowness_range():
     """fk_filter raises ValueError when slow_max <= slow_min."""
     import pytest
+
     geom, data, *_ = _monopole_gather()
     with pytest.raises(ValueError):
-        fk_filter(data, geom.dt, geom.dr,
-                  slow_min=3.0e-4, slow_max=2.0e-4)
+        fk_filter(data, geom.dt, geom.dr, slow_min=3.0e-4, slow_max=2.0e-4)
     with pytest.raises(ValueError):
-        fk_filter(data, geom.dt, geom.dr,
-                  slow_min=-1.0e-4, slow_max=2.0e-4)
+        fk_filter(data, geom.dt, geom.dr, slow_min=-1.0e-4, slow_max=2.0e-4)
 
 
 # ---------------------------------------------------------------------
@@ -189,7 +194,7 @@ def test_tau_p_forward_shape_and_peak_localisation():
     n_rec, n_samp, dt = 12, 1024, 1.0e-5
     dx = 0.1524
     offsets = np.arange(n_rec) * dx
-    p0 = 1.5e-4   # s/m
+    p0 = 1.5e-4  # s/m
     intercept = 0.005
 
     t = np.arange(n_samp) * dt
@@ -205,7 +210,7 @@ def test_tau_p_forward_shape_and_peak_localisation():
 
     # Peak in (slowness, tau).
     i_peak, j_peak = np.unravel_index(np.argmax(np.abs(panel)), panel.shape)
-    assert abs(slownesses[i_peak] - p0) < 5e-7   # < 0.1 us/ft
+    assert abs(slownesses[i_peak] - p0) < 5e-7  # < 0.1 us/ft
     assert abs(j_peak * dt - intercept) < 1.0e-4  # < 0.1 ms
 
 
@@ -214,10 +219,11 @@ def test_tau_p_inverse_round_trip_is_identity():
     monopole gather."""
     geom, data, *_ = _monopole_gather()
     from fwap._common import US_PER_FT
+
     slownesses = np.linspace(20.0 * US_PER_FT, 360.0 * US_PER_FT, 256)
     panel = tau_p_forward(data, geom.dt, geom.offsets, slownesses)
     recon = tau_p_inverse(panel, geom.dt, geom.offsets, slownesses)
-    err = np.sqrt(np.mean((recon - data) ** 2)) / np.sqrt(np.mean(data ** 2))
+    err = np.sqrt(np.mean((recon - data) ** 2)) / np.sqrt(np.mean(data**2))
     assert err < 5.0e-3, f"round-trip relative err {err:.3e} too large"
 
 
@@ -225,6 +231,7 @@ def test_tau_p_adjoint_shape():
     """tau_p_adjoint returns the same (n_rec, n_samples) shape as input."""
     geom, data, *_ = _monopole_gather()
     from fwap._common import US_PER_FT
+
     slownesses = np.linspace(20.0 * US_PER_FT, 360.0 * US_PER_FT, 128)
     panel = tau_p_forward(data, geom.dt, geom.offsets, slownesses)
     adj = tau_p_adjoint(panel, geom.dt, geom.offsets, slownesses)
@@ -236,11 +243,12 @@ def test_tau_p_filter_isolates_each_mode_by_slowness():
     matches the planted mode."""
     from fwap._common import US_PER_FT
     from fwap.coherence import stc
+
     geom, data, Vp, Vs, Vst = _monopole_gather()
 
     bands = {
-        "P":        (50.0 * US_PER_FT,  85.0 * US_PER_FT),
-        "S":        (100.0 * US_PER_FT, 150.0 * US_PER_FT),
+        "P": (50.0 * US_PER_FT, 85.0 * US_PER_FT),
+        "S": (100.0 * US_PER_FT, 150.0 * US_PER_FT),
         "Stoneley": (200.0 * US_PER_FT, 240.0 * US_PER_FT),
     }
     # Vp / Vs / Vst from the canonical gather aren't used past
@@ -248,11 +256,18 @@ def test_tau_p_filter_isolates_each_mode_by_slowness():
     # filtered slowness lands in-band, not on the truth.
     _ = (Vp, Vs, Vst)
     for name, (s_lo, s_hi) in bands.items():
-        filt = tau_p_filter(data, geom.dt, geom.offsets, s_lo, s_hi,
-                            n_slowness=181, taper_width=0.2)
-        res = stc(filt, dt=geom.dt, offsets=geom.offsets,
-                  slowness_range=(30.0 * US_PER_FT, 360.0 * US_PER_FT),
-                  n_slowness=121, window_length=4.0e-4, time_step=2)
+        filt = tau_p_filter(
+            data, geom.dt, geom.offsets, s_lo, s_hi, n_slowness=181, taper_width=0.2
+        )
+        res = stc(
+            filt,
+            dt=geom.dt,
+            offsets=geom.offsets,
+            slowness_range=(30.0 * US_PER_FT, 360.0 * US_PER_FT),
+            n_slowness=121,
+            window_length=4.0e-4,
+            time_step=2,
+        )
         rho = np.nan_to_num(res.coherence)
         i_max, _ = np.unravel_index(np.argmax(rho), rho.shape)
         s_recovered = res.slowness[i_max]
@@ -261,21 +276,20 @@ def test_tau_p_filter_isolates_each_mode_by_slowness():
         # stack point-spread function can shift the peak by a few
         # us/ft toward the band centre.
         assert s_lo - 5.0 * US_PER_FT <= s_recovered <= s_hi + 5.0 * US_PER_FT, (
-            f"{name}: filtered peak at {s_recovered/US_PER_FT:.1f} us/ft "
-            f"outside pass-band [{s_lo/US_PER_FT:.0f}, {s_hi/US_PER_FT:.0f}]"
+            f"{name}: filtered peak at {s_recovered / US_PER_FT:.1f} us/ft "
+            f"outside pass-band [{s_lo / US_PER_FT:.0f}, {s_hi / US_PER_FT:.0f}]"
         )
 
 
 def test_tau_p_filter_rejects_inverted_slowness_range():
     """tau_p_filter raises ValueError when slow_max <= slow_min."""
     import pytest
+
     geom, data, *_ = _monopole_gather()
     with pytest.raises(ValueError):
-        tau_p_filter(data, geom.dt, geom.offsets,
-                     slow_min=3.0e-4, slow_max=2.0e-4)
+        tau_p_filter(data, geom.dt, geom.offsets, slow_min=3.0e-4, slow_max=2.0e-4)
     with pytest.raises(ValueError):
-        tau_p_filter(data, geom.dt, geom.offsets,
-                     slow_min=-1.0e-4, slow_max=2.0e-4)
+        tau_p_filter(data, geom.dt, geom.offsets, slow_min=-1.0e-4, slow_max=2.0e-4)
 
 
 def test_tau_p_forward_supports_non_uniform_offsets():

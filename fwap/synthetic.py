@@ -36,7 +36,7 @@ def ricker(t: np.ndarray, f0: float, t0: float = 0.0) -> np.ndarray:
 
 def gabor(t: np.ndarray, f0: float, t0: float, sigma: float) -> np.ndarray:
     """Gabor (Morlet-like) wavelet useful for narrow-band modes."""
-    env = np.exp(-((t - t0) ** 2) / (2.0 * sigma ** 2))
+    env = np.exp(-((t - t0) ** 2) / (2.0 * sigma**2))
     return env * np.cos(2.0 * np.pi * f0 * (t - t0))
 
 
@@ -66,18 +66,21 @@ class ArrayGeometry:
     n_samples : int
         Samples per trace.
     """
+
     n_rec: int = 8
     tr_offset: float = 3.0
-    dr: float = 0.1524           # 6 inches
+    dr: float = 0.1524  # 6 inches
     dt: float = 1.0e-5
     n_samples: int = 2048
 
     def __repr__(self) -> str:
-        return (f"ArrayGeometry(n_rec={self.n_rec}, "
-                f"tr_offset={self.tr_offset:.3f} m, "
-                f"dr={self.dr:.4f} m, "
-                f"dt={self.dt:.2e} s, "
-                f"n_samples={self.n_samples})")
+        return (
+            f"ArrayGeometry(n_rec={self.n_rec}, "
+            f"tr_offset={self.tr_offset:.3f} m, "
+            f"dr={self.dr:.4f} m, "
+            f"dt={self.dt:.2e} s, "
+            f"n_samples={self.n_samples})"
+        )
 
     @cached_property
     def offsets(self) -> np.ndarray:
@@ -90,12 +93,14 @@ class ArrayGeometry:
         return np.arange(self.n_samples) * self.dt
 
     @classmethod
-    def from_imperial(cls,
-                      n_rec: int = 8,
-                      tr_offset_ft: float = 10.0,
-                      dr_in: float = 6.0,
-                      dt: float = 1.0e-5,
-                      n_samples: int = 2048) -> ArrayGeometry:
+    def from_imperial(
+        cls,
+        n_rec: int = 8,
+        tr_offset_ft: float = 10.0,
+        dr_in: float = 6.0,
+        dt: float = 1.0e-5,
+        n_samples: int = 2048,
+    ) -> ArrayGeometry:
         """
         Convenience constructor using imperial units (ft, in).
 
@@ -104,16 +109,18 @@ class ArrayGeometry:
         """
         FT = 0.3048
         IN = 0.0254
-        return cls(n_rec=n_rec,
-                   tr_offset=tr_offset_ft * FT,
-                   dr=dr_in * IN,
-                   dt=dt,
-                   n_samples=n_samples)
+        return cls(
+            n_rec=n_rec,
+            tr_offset=tr_offset_ft * FT,
+            dr=dr_in * IN,
+            dt=dt,
+            n_samples=n_samples,
+        )
 
     @classmethod
-    def schlumberger_array_sonic(cls,
-                                 dt: float = 1.0e-5,
-                                 n_samples: int = 2048) -> ArrayGeometry:
+    def schlumberger_array_sonic(
+        cls, dt: float = 1.0e-5, n_samples: int = 2048
+    ) -> ArrayGeometry:
         """
         Canonical Schlumberger Array Sonic geometry.
 
@@ -123,8 +130,9 @@ class ArrayGeometry:
         constructor already encodes these numbers in metric; this
         factory documents the intent at the call site.
         """
-        return cls.from_imperial(n_rec=8, tr_offset_ft=10.0, dr_in=6.0,
-                                 dt=dt, n_samples=n_samples)
+        return cls.from_imperial(
+            n_rec=8, tr_offset_ft=10.0, dr_in=6.0, dt=dt, n_samples=n_samples
+        )
 
 
 @dataclass
@@ -146,6 +154,7 @@ class Mode:
     built-in :func:`dipole_flexural_dispersion` already satisfies the
     array contract.
     """
+
     name: str
     slowness: float
     f0: float
@@ -158,10 +167,14 @@ class Mode:
     sigma: float = 2.0e-4
 
 
-def _dispersive_arrival(t: np.ndarray, offset: float, f0: float,
-                        slowness_of_f: Callable[[np.ndarray], np.ndarray],
-                        intercept: float = 0.0,
-                        bandwidth: float = 0.6) -> np.ndarray:
+def _dispersive_arrival(
+    t: np.ndarray,
+    offset: float,
+    f0: float,
+    slowness_of_f: Callable[[np.ndarray], np.ndarray],
+    intercept: float = 0.0,
+    bandwidth: float = 0.6,
+) -> np.ndarray:
     """
     Synthesize one dispersive arrival on a single trace.
 
@@ -184,7 +197,7 @@ def _dispersive_arrival(t: np.ndarray, offset: float, f0: float,
     n = t.size
     freqs = np.fft.rfftfreq(n, d=dt)
     sigma_f = bandwidth * f0
-    A = np.exp(-((freqs - f0) ** 2) / (2.0 * sigma_f ** 2))
+    A = np.exp(-((freqs - f0) ** 2) / (2.0 * sigma_f**2))
     A[freqs < 0.1 * f0] = 0.0
     # ``slowness_of_f`` is evaluated on the positive-frequency subset
     # only; the DC bin is pinned to 0 so a dispersion law that diverges
@@ -196,10 +209,12 @@ def _dispersive_arrival(t: np.ndarray, offset: float, f0: float,
     return np.fft.irfft(A * np.exp(1j * phase), n=n)
 
 
-def synthesize_gather(geom: ArrayGeometry,
-                      modes: Sequence[Mode],
-                      noise: float = 0.02,
-                      seed: int | None = None) -> np.ndarray:
+def synthesize_gather(
+    geom: ArrayGeometry,
+    modes: Sequence[Mode],
+    noise: float = 0.02,
+    seed: int | None = None,
+) -> np.ndarray:
     """Build a common-source multi-receiver gather ``(n_rec, n_samples)``.
 
     Parameters
@@ -243,31 +258,35 @@ def synthesize_gather(geom: ArrayGeometry,
                 data[i] += mode.amplitude * tr
             else:
                 tr = _dispersive_arrival(
-                    t, off, mode.f0, mode.dispersion,
+                    t,
+                    off,
+                    mode.f0,
+                    mode.dispersion,
                     intercept=mode.intercept + extra,
                 )
                 data[i] += mode.amplitude * tr
     if noise > 0:
-        rms = np.sqrt(np.mean(data ** 2)) + 1e-12
+        rms = np.sqrt(np.mean(data**2)) + 1e-12
         data += rng.normal(scale=noise * rms, size=data.shape)
     return data
 
 
-def monopole_formation_modes(vp: float = 4000.0,
-                             vs: float = 2300.0,
-                             v_stoneley: float = 1400.0,
-                             f_p: float = 15_000.0,
-                             f_s: float = 10_000.0,
-                             f_st: float = 3_000.0,
-                             p_amp: float = 1.0,
-                             s_amp: float = 1.5,
-                             st_amp: float = 2.0,
-                             *,
-                             v_fluid: float = 1500.0,
-                             a_borehole: float = 0.1,
-                             f_pr: float | None = None,
-                             pr_amp: float = 1.5,
-                             ) -> list[Mode]:
+def monopole_formation_modes(
+    vp: float = 4000.0,
+    vs: float = 2300.0,
+    v_stoneley: float = 1400.0,
+    f_p: float = 15_000.0,
+    f_s: float = 10_000.0,
+    f_st: float = 3_000.0,
+    p_amp: float = 1.0,
+    s_amp: float = 1.5,
+    st_amp: float = 2.0,
+    *,
+    v_fluid: float = 1500.0,
+    a_borehole: float = 0.1,
+    f_pr: float | None = None,
+    pr_amp: float = 1.5,
+) -> list[Mode]:
     """Canonical P / S / Stoneley mode list for a monopole sonic tool.
 
     When ``f_pr`` is given (any positive frequency, in Hz), a fourth
@@ -286,27 +305,36 @@ def monopole_formation_modes(vp: float = 4000.0,
     explicitly.
     """
     modes = [
-        Mode("P",        slowness=1.0 / vp,         f0=f_p,  amplitude=p_amp),
-        Mode("S",        slowness=1.0 / vs,         f0=f_s,  amplitude=s_amp),
-        Mode("Stoneley", slowness=1.0 / v_stoneley, f0=f_st, amplitude=st_amp,
-             wavelet="gabor", sigma=3.0e-4),
+        Mode("P", slowness=1.0 / vp, f0=f_p, amplitude=p_amp),
+        Mode("S", slowness=1.0 / vs, f0=f_s, amplitude=s_amp),
+        Mode(
+            "Stoneley",
+            slowness=1.0 / v_stoneley,
+            f0=f_st,
+            amplitude=st_amp,
+            wavelet="gabor",
+            sigma=3.0e-4,
+        ),
     ]
     if f_pr is not None:
         s_of_f = pseudo_rayleigh_dispersion(
-            vs=vs, v_fluid=v_fluid, a_borehole=a_borehole)
+            vs=vs, v_fluid=v_fluid, a_borehole=a_borehole
+        )
         s_at_f_pr = float(s_of_f(np.array([f_pr]))[0])
-        modes.append(Mode(
-            "PseudoRayleigh",
-            slowness=s_at_f_pr,
-            f0=f_pr,
-            amplitude=pr_amp,
-        ))
+        modes.append(
+            Mode(
+                "PseudoRayleigh",
+                slowness=s_at_f_pr,
+                f0=f_pr,
+                amplitude=pr_amp,
+            )
+        )
     return modes
 
 
-def dipole_flexural_dispersion(vs: float,
-                               a_borehole: float = 0.1
-                               ) -> Callable[[np.ndarray], np.ndarray]:
+def dipole_flexural_dispersion(
+    vs: float, a_borehole: float = 0.1
+) -> Callable[[np.ndarray], np.ndarray]:
     """
     Phenomenological flexural-mode dispersion ``s(f)``.
 
@@ -319,20 +347,22 @@ def dipole_flexural_dispersion(vs: float,
     The returned callable accepts a NumPy array of frequencies and
     returns a same-shape array of slownesses.
     """
-    s_low  = 1.0 / vs
+    s_low = 1.0 / vs
     s_high = 1.25 / vs
     fc = vs / (2.0 * np.pi * a_borehole)
 
     def s_of_f(f: np.ndarray) -> np.ndarray:
         x = np.asarray(f) / fc
-        return s_low + (s_high - s_low) * (x ** 2) / (1.0 + x ** 2)
+        return s_low + (s_high - s_low) * (x**2) / (1.0 + x**2)
+
     return s_of_f
 
 
-def pseudo_rayleigh_dispersion(vs: float,
-                               v_fluid: float = 1500.0,
-                               a_borehole: float = 0.1,
-                               ) -> Callable[[np.ndarray], np.ndarray]:
+def pseudo_rayleigh_dispersion(
+    vs: float,
+    v_fluid: float = 1500.0,
+    a_borehole: float = 0.1,
+) -> Callable[[np.ndarray], np.ndarray]:
     """
     Phenomenological pseudo-Rayleigh dispersion ``s(f)``.
 
@@ -378,13 +408,12 @@ def pseudo_rayleigh_dispersion(vs: float,
             f"pseudo-Rayleigh requires a fast formation (vs > v_fluid); "
             f"got vs={vs} m/s, v_fluid={v_fluid} m/s"
         )
-    s_low  = 1.0 / vs        # at cutoff
-    s_high = 1.0 / v_fluid   # high-f asymptote (toward fluid)
+    s_low = 1.0 / vs  # at cutoff
+    s_high = 1.0 / v_fluid  # high-f asymptote (toward fluid)
     fc = vs / (2.0 * np.pi * a_borehole)
 
     def s_of_f(f: np.ndarray) -> np.ndarray:
         x = np.asarray(f) / fc
-        return s_low + (s_high - s_low) * (x ** 2) / (1.0 + x ** 2)
+        return s_low + (s_high - s_low) * (x**2) / (1.0 + x**2)
+
     return s_of_f
-
-

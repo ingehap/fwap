@@ -51,6 +51,7 @@ class AzimuthalGather(NamedTuple):
     slowness : float
         Formation slowness of the arrival (s/m).
     """
+
     data: np.ndarray
     dt: float
     axial_offsets: np.ndarray
@@ -87,6 +88,7 @@ class DipResult:
         ``True`` if the returned ``(dip, azimuth)`` came from the
         Nelder-Mead polish; ``False`` if it is the raw grid maximum.
     """
+
     dip: float
     azimuth: float
     coherence: float
@@ -96,14 +98,17 @@ class DipResult:
     refined: bool = False
 
 
-def _make_detilt_evaluator(data: np.ndarray,
-                           dt: float,
-                           azimuths: np.ndarray,
-                           tool_radius: float,
-                           slowness: float,
-                           ) -> tuple[
-                               np.ndarray, np.ndarray, int,
-                           ]:
+def _make_detilt_evaluator(
+    data: np.ndarray,
+    dt: float,
+    azimuths: np.ndarray,
+    tool_radius: float,
+    slowness: float,
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    int,
+]:
     """
     Pre-compute the pieces of :func:`_coherence_after_detilt` that do
     not depend on ``(dip, az)``.
@@ -119,14 +124,16 @@ def _make_detilt_evaluator(data: np.ndarray,
     return spec, freqs, n_samp
 
 
-def _detilt_coherence_scalar(spec: np.ndarray,
-                             freqs: np.ndarray,
-                             n_samp: int,
-                             azimuths: np.ndarray,
-                             tool_radius: float,
-                             slowness: float,
-                             dip: float,
-                             az: float) -> float:
+def _detilt_coherence_scalar(
+    spec: np.ndarray,
+    freqs: np.ndarray,
+    n_samp: int,
+    azimuths: np.ndarray,
+    tool_radius: float,
+    slowness: float,
+    dip: float,
+    az: float,
+) -> float:
     """
     Stack coherence at a single ``(dip, az)`` using pre-computed
     ``spec`` / ``freqs`` (see :func:`_make_detilt_evaluator`).
@@ -143,15 +150,16 @@ def _detilt_coherence_scalar(spec: np.ndarray,
     return 0.0 if np.isnan(rho) else float(rho)
 
 
-def _detilt_coherence_az_row(spec: np.ndarray,
-                             freqs: np.ndarray,
-                             n_samp: int,
-                             azimuths: np.ndarray,
-                             tool_radius: float,
-                             slowness: float,
-                             dip: float,
-                             phis: np.ndarray,
-                             ) -> np.ndarray:
+def _detilt_coherence_az_row(
+    spec: np.ndarray,
+    freqs: np.ndarray,
+    n_samp: int,
+    azimuths: np.ndarray,
+    tool_radius: float,
+    slowness: float,
+    dip: float,
+    phis: np.ndarray,
+) -> np.ndarray:
     r"""
     Stack coherence at a single ``dip`` for every azimuth in ``phis``.
 
@@ -162,32 +170,32 @@ def _detilt_coherence_az_row(spec: np.ndarray,
     """
     n_rec = azimuths.size
     # delta_phi[j, i] = azimuths[i] - phis[j]
-    delta = azimuths[None, :] - phis[:, None]                       # (n_az, n_rec)
-    dts = (slowness * tool_radius * np.sin(dip)
-           * np.cos(delta))                                          # (n_az, n_rec)
+    delta = azimuths[None, :] - phis[:, None]  # (n_az, n_rec)
+    dts = slowness * tool_radius * np.sin(dip) * np.cos(delta)  # (n_az, n_rec)
     phase = np.exp(
-        1j * 2.0 * np.pi
-        * dts[:, :, None] * freqs[None, None, :]                    # (n_az, n_rec, n_f)
+        1j * 2.0 * np.pi * dts[:, :, None] * freqs[None, None, :]  # (n_az, n_rec, n_f)
     )
-    shifted_spec = phase * spec[None, :, :]                         # (n_az, n_rec, n_f)
-    shifted = np.fft.irfft(shifted_spec, n=n_samp, axis=-1)         # (n_az, n_rec, n_samp)
+    shifted_spec = phase * spec[None, :, :]  # (n_az, n_rec, n_f)
+    shifted = np.fft.irfft(shifted_spec, n=n_samp, axis=-1)  # (n_az, n_rec, n_samp)
 
-    stack = shifted.sum(axis=1)                                     # (n_az, n_samp)
-    num = (stack ** 2).sum(axis=-1)                                 # (n_az,)
-    den = n_rec * (shifted ** 2).sum(axis=(1, 2))                   # (n_az,)
+    stack = shifted.sum(axis=1)  # (n_az, n_samp)
+    num = (stack**2).sum(axis=-1)  # (n_az,)
+    den = n_rec * (shifted**2).sum(axis=(1, 2))  # (n_az,)
     with np.errstate(invalid="ignore", divide="ignore"):
         rho = np.where(den > 0, num / den, 0.0)
     rho = np.where(np.isnan(rho), 0.0, rho)
     return rho
 
 
-def _coherence_after_detilt(data: np.ndarray,
-                            dt: float,
-                            azimuths: np.ndarray,
-                            tool_radius: float,
-                            slowness: float,
-                            dip: float,
-                            az: float) -> float:
+def _coherence_after_detilt(
+    data: np.ndarray,
+    dt: float,
+    azimuths: np.ndarray,
+    tool_radius: float,
+    slowness: float,
+    dip: float,
+    az: float,
+) -> float:
     """
     Stack coherence of an azimuthal ring array after removing the
     cosine-of-azimuth time shift expected for a dipping bed.
@@ -203,21 +211,25 @@ def _coherence_after_detilt(data: np.ndarray,
     :func:`_detilt_coherence_az_row` directly.
     """
     spec, freqs, n_samp = _make_detilt_evaluator(
-        data, dt, azimuths, tool_radius, slowness)
+        data, dt, azimuths, tool_radius, slowness
+    )
     return _detilt_coherence_scalar(
-        spec, freqs, n_samp, azimuths, tool_radius, slowness, dip, az)
+        spec, freqs, n_samp, azimuths, tool_radius, slowness, dip, az
+    )
 
 
-def estimate_dip(data: np.ndarray,
-                 dt: float,
-                 axial_offsets: np.ndarray,
-                 azimuths: np.ndarray,
-                 tool_radius: float,
-                 slowness: float,
-                 dip_range: tuple[float, float] = (0.0, np.deg2rad(60.0)),
-                 n_dip: int = 31,
-                 n_az: int = 36,
-                 refine: bool = True) -> DipResult:
+def estimate_dip(
+    data: np.ndarray,
+    dt: float,
+    axial_offsets: np.ndarray,
+    azimuths: np.ndarray,
+    tool_radius: float,
+    slowness: float,
+    dip_range: tuple[float, float] = (0.0, np.deg2rad(60.0)),
+    n_dip: int = 31,
+    n_az: int = 36,
+    refine: bool = True,
+) -> DipResult:
     """
     Estimate (dip, azimuth) maximising de-tilted array coherence.
 
@@ -271,30 +283,36 @@ def estimate_dip(data: np.ndarray,
     # the cheap phase multiplication, and vectorise the inner loop
     # over azimuth at fixed dip.
     spec, freqs, n_samp = _make_detilt_evaluator(
-        data, dt, azimuths, tool_radius, slowness)
+        data, dt, azimuths, tool_radius, slowness
+    )
     surf = np.zeros((n_dip, n_az))
     for i, a in enumerate(alphas):
         surf[i, :] = _detilt_coherence_az_row(
-            spec, freqs, n_samp, azimuths, tool_radius, slowness,
-            a, phis)
+            spec, freqs, n_samp, azimuths, tool_radius, slowness, a, phis
+        )
 
     idx = np.unravel_index(np.argmax(surf), surf.shape)
     dip0 = float(alphas[idx[0]])
-    az0  = float(phis[idx[1]])
+    az0 = float(phis[idx[1]])
     coh0 = float(surf[idx])
     refined = False
 
     if refine:
+
         def neg_coh(x: np.ndarray) -> float:
             a, p = x
             if a < 0 or a > np.pi / 2:
                 return 1.0
             return -_detilt_coherence_scalar(
-                spec, freqs, n_samp, azimuths, tool_radius, slowness,
-                a, p)
-        res = minimize(neg_coh, x0=np.array([dip0, az0]),
-                       method="Nelder-Mead",
-                       options=dict(xatol=1.0e-4, fatol=1.0e-5))
+                spec, freqs, n_samp, azimuths, tool_radius, slowness, a, p
+            )
+
+        res = minimize(
+            neg_coh,
+            x0=np.array([dip0, az0]),
+            method="Nelder-Mead",
+            options=dict(xatol=1.0e-4, fatol=1.0e-5),
+        )
         if res.success and -res.fun >= coh0:
             dip0, az0 = float(res.x[0]), float(res.x[1])
             # Fold azimuth back to (-pi, pi].
@@ -302,21 +320,29 @@ def estimate_dip(data: np.ndarray,
             coh0 = float(-res.fun)
             refined = True
 
-    return DipResult(dip=dip0, azimuth=az0, coherence=coh0,
-                     surface=surf, dip_axis=alphas, azimuth_axis=phis,
-                     refined=refined)
+    return DipResult(
+        dip=dip0,
+        azimuth=az0,
+        coherence=coh0,
+        surface=surf,
+        dip_axis=alphas,
+        azimuth_axis=phis,
+        refined=refined,
+    )
 
 
-def synthesize_azimuthal_arrival(n_rec: int = 8,
-                                 n_samples: int = 1024,
-                                 dt: float = 2.0e-5,
-                                 tool_radius: float = 0.08,
-                                 slowness: float = 1.0 / 4000.0,
-                                 dip: float = np.deg2rad(30.0),
-                                 azimuth: float = np.deg2rad(45.0),
-                                 f0: float = 8000.0,
-                                 noise: float = 0.02,
-                                 seed: int = 0):
+def synthesize_azimuthal_arrival(
+    n_rec: int = 8,
+    n_samples: int = 1024,
+    dt: float = 2.0e-5,
+    tool_radius: float = 0.08,
+    slowness: float = 1.0 / 4000.0,
+    dip: float = np.deg2rad(30.0),
+    azimuth: float = np.deg2rad(45.0),
+    f0: float = 8000.0,
+    noise: float = 0.02,
+    seed: int = 0,
+):
     """
     Synthetic azimuthal ring-array arrival with a dipping-bed signature.
 
@@ -367,10 +393,13 @@ def synthesize_azimuthal_arrival(n_rec: int = 8,
         tc = t0 + dt_az
         a = (np.pi * f0 * (t - tc)) ** 2
         data[i] = (1.0 - 2.0 * a) * np.exp(-a)
-    rms = np.sqrt(np.mean(data ** 2)) + 1e-12
+    rms = np.sqrt(np.mean(data**2)) + 1e-12
     data += rng.normal(scale=noise * rms, size=data.shape)
-    return AzimuthalGather(data=data, dt=dt, axial_offsets=ax_off,
-                           azimuths=az, tool_radius=tool_radius,
-                           slowness=slowness)
-
-
+    return AzimuthalGather(
+        data=data,
+        dt=dt,
+        axial_offsets=ax_off,
+        azimuths=az,
+        tool_radius=tool_radius,
+        slowness=slowness,
+    )

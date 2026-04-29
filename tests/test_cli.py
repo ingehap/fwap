@@ -21,8 +21,7 @@ def _prepare_sgy(path, Vp=4500.0, Vs=2500.0, Vst=1400.0, seed=7):
     # Offsets written as integer millimetres so int round-trip through
     # the SEG-Y ``offset`` trace header is lossless.
     offsets_mm = np.round(geom.offsets * 1000.0).astype(int)
-    write_segy(str(path), data.astype(np.float32), dt=geom.dt,
-               offsets=offsets_mm)
+    write_segy(str(path), data.astype(np.float32), dt=geom.dt, offsets=offsets_mm)
 
 
 def test_fwap_process_prints_picks(tmp_path, capsys):
@@ -36,8 +35,7 @@ def test_fwap_process_prints_picks(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "mode" in out
     # Each mode row has the form ``<name>  <us/ft>  <m/s>  <coh>``.
-    for mode, _v_true in [("P", 4500.0), ("S", 2500.0),
-                         ("Stoneley", 1400.0)]:
+    for mode, _v_true in [("P", 4500.0), ("S", 2500.0), ("Stoneley", 1400.0)]:
         assert mode in out, f"missing {mode} row:\n{out}"
     # Parse the velocity column for P and check it's within 2% of truth.
     for line in out.splitlines():
@@ -54,8 +52,12 @@ def test_fwap_process_requires_offsets(tmp_path, capsys):
     geom = ArrayGeometry.schlumberger_array_sonic()
     modes = monopole_formation_modes()
     data = synthesize_gather(geom, modes, noise=0.05, seed=0)
-    write_segy(str(sgy), data.astype(np.float32), dt=geom.dt,
-               offsets=np.zeros(geom.n_rec, dtype=int))
+    write_segy(
+        str(sgy),
+        data.astype(np.float32),
+        dt=geom.dt,
+        offsets=np.zeros(geom.n_rec, dtype=int),
+    )
 
     rc = main(["process", str(sgy), "--quiet"])
     assert rc == 2
@@ -78,13 +80,19 @@ def test_fwap_process_multi_gather_table(tmp_path, capsys):
         p = tmp_path / f"{i:03d}.sgy"
         _prepare_sgy(p, Vs=vs)
         paths.append(str(p))
-    rc = main([
-        "process", *paths,
-        "--offset-scale", "1000",
-        "--depth-start", "1000.0",
-        "--depth-step", "0.1524",
-        "--quiet",
-    ])
+    rc = main(
+        [
+            "process",
+            *paths,
+            "--offset-scale",
+            "1000",
+            "--depth-start",
+            "1000.0",
+            "--depth-step",
+            "0.1524",
+            "--quiet",
+        ]
+    )
     assert rc == 0
     out = capsys.readouterr().out
     assert "depth_m" in out
@@ -100,22 +108,40 @@ def test_fwap_process_multi_gather_writes_las(tmp_path):
         _prepare_sgy(p, Vs=vs)
         paths.append(str(p))
     out = tmp_path / "logs.las"
-    rc = main([
-        "process", *paths,
-        "--offset-scale", "1000",
-        "--depth-start", "1000.0",
-        "--depth-step", "0.1524",
-        "--output", str(out),
-        "--quiet",
-    ])
+    rc = main(
+        [
+            "process",
+            *paths,
+            "--offset-scale",
+            "1000",
+            "--depth-start",
+            "1000.0",
+            "--depth-step",
+            "0.1524",
+            "--output",
+            str(out),
+            "--quiet",
+        ]
+    )
     assert rc == 0
     assert out.exists()
 
     from fwap.io import read_las
+
     loaded = read_las(str(out))
-    for mnemonic in ("DTP", "DTS", "DTST", "VPVS",
-                     "COHP", "COHS", "COHST",
-                     "K", "MU", "E", "NU"):
+    for mnemonic in (
+        "DTP",
+        "DTS",
+        "DTST",
+        "VPVS",
+        "COHP",
+        "COHS",
+        "COHST",
+        "K",
+        "MU",
+        "E",
+        "NU",
+    ):
         assert mnemonic in loaded.curves
     # DTS should decrease monotonically as Vs increases across depths.
     dts = loaded.curves["DTS"]

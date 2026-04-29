@@ -194,7 +194,7 @@ def test_demo_alford(tmp_path, caplog):
     assert m is not None, "alford axis missing"
     angle_deg = float(m.group(1))
     err = abs(angle_deg - 30.0)
-    err = min(err, 180.0 - err)   # fold +/-90 equivalence
+    err = min(err, 180.0 - err)  # fold +/-90 equivalence
     assert err < 2.0, f"alford angle {angle_deg:.2f} deg, expected 30 deg"
 
 
@@ -239,7 +239,8 @@ def test_demo_dlis_roundtrip(tmp_path, caplog):
     # DLIS stores raw IEEE float64, so every curve's drift should be
     # exactly zero (no fixed-decimal quantisation like LAS).
     drift_lines = [
-        line for line in lines
+        line
+        for line in lines
         if re.search(r"^\s+[A-Z]+\s+\d", line) and "round-trip" not in line
     ]
     assert drift_lines, "no per-curve drift lines logged"
@@ -251,8 +252,7 @@ def test_demo_dlis_roundtrip(tmp_path, caplog):
             except ValueError:
                 continue
             assert drift == 0.0, (
-                f"DLIS round-trip should be bit-exact; got {drift} on "
-                f"line: {line!r}"
+                f"DLIS round-trip should be bit-exact; got {drift} on line: {line!r}"
             )
 
 
@@ -269,7 +269,8 @@ def test_demo_las_roundtrip(tmp_path, caplog):
     # modulus values are ~1e10 Pa. An absolute 1e-3 cap is conservative
     # for the unit-bearing curves and strictly tiny for the moduli.
     drift_lines = [
-        line for line in lines
+        line
+        for line in lines
         if re.search(r"^\s+[A-Z]+\s+\d", line) and "round-trip" not in line
     ]
     for line in drift_lines:

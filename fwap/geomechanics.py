@@ -63,8 +63,8 @@ UCSModel = Literal["lacy_sandstone"]
 # Default Rickman normalisation bounds, in SI units. The original
 # paper uses 1-8 Mpsi for E and 0.15-0.40 for nu; converted at
 # 1 Mpsi = 6.8948 GPa.
-RICKMAN_E_MIN_PA: float = 1.0e10   # ~1.45 Mpsi
-RICKMAN_E_MAX_PA: float = 8.0e10   # ~11.6 Mpsi
+RICKMAN_E_MIN_PA: float = 1.0e10  # ~1.45 Mpsi
+RICKMAN_E_MAX_PA: float = 8.0e10  # ~11.6 Mpsi
 RICKMAN_NU_MIN: float = 0.15
 RICKMAN_NU_MAX: float = 0.40
 
@@ -174,9 +174,12 @@ def fracability_index(
     *fracability* (completion-design) measure.
     """
     return brittleness_index_rickman(
-        young_pa, poisson,
-        e_min_pa=e_min_pa, e_max_pa=e_max_pa,
-        nu_min=nu_min, nu_max=nu_max,
+        young_pa,
+        poisson,
+        e_min_pa=e_min_pa,
+        e_max_pa=e_max_pa,
+        nu_min=nu_min,
+        nu_max=nu_max,
     )
 
 
@@ -321,11 +324,9 @@ def unconfined_compressive_strength(
         # Lacy (1997) sandstone form (Chang et al. 2006, eq. 7):
         # UCS [MPa] = 0.278 E^2 + 2.458 E, with E in GPa.
         e_gpa = e / 1.0e9
-        ucs_mpa = 0.278 * e_gpa ** 2 + 2.458 * e_gpa
+        ucs_mpa = 0.278 * e_gpa**2 + 2.458 * e_gpa
         return ucs_mpa * 1.0e6
-    raise ValueError(
-        f"unknown UCS model {model!r}; supported: 'lacy_sandstone'"
-    )
+    raise ValueError(f"unknown UCS model {model!r}; supported: 'lacy_sandstone'")
 
 
 def sand_stability_indicator(
@@ -461,6 +462,7 @@ class GeomechanicsIndices:
         Minimum horizontal (closure) stress (Pa). ``None`` when
         ``sigma_v_pa`` was not passed to :func:`geomechanics_indices`.
     """
+
     brittleness: np.ndarray
     fracability: np.ndarray
     ucs: np.ndarray
@@ -517,9 +519,12 @@ def geomechanics_indices(
     GeomechanicsIndices
     """
     bi = brittleness_index_rickman(
-        moduli.young, moduli.poisson,
-        e_min_pa=e_min_pa, e_max_pa=e_max_pa,
-        nu_min=nu_min, nu_max=nu_max,
+        moduli.young,
+        moduli.poisson,
+        e_min_pa=e_min_pa,
+        e_max_pa=e_max_pa,
+        nu_min=nu_min,
+        nu_max=nu_max,
     )
     fi = bi.copy()  # alias today; decoupled in the API for future divergence
     ucs = unconfined_compressive_strength(moduli.young, model=ucs_model)

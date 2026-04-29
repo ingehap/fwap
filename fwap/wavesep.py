@@ -48,8 +48,9 @@ import numpy as np
 from fwap._common import _phase_shift
 
 
-def fk_forward(data: np.ndarray, dt: float, dx: float
-               ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def fk_forward(
+    data: np.ndarray, dt: float, dx: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Forward 2-D FFT of a regularly-sampled gather into the f-k domain.
 
@@ -107,13 +108,15 @@ def fk_inverse(spec: np.ndarray, n_samples: int) -> np.ndarray:
     return np.fft.irfft(spec_t, n=n_samples, axis=1)
 
 
-def fk_filter(data: np.ndarray,
-              dt: float,
-              dx: float,
-              slow_min: float,
-              slow_max: float,
-              positive_only: bool = True,
-              taper_width: float = 0.1) -> np.ndarray:
+def fk_filter(
+    data: np.ndarray,
+    dt: float,
+    dx: float,
+    slow_min: float,
+    slow_max: float,
+    positive_only: bool = True,
+    taper_width: float = 0.1,
+) -> np.ndarray:
     """
     f-k (apparent-slowness) bandpass filter.
 
@@ -153,8 +156,7 @@ def fk_filter(data: np.ndarray,
         lo = (ref_S >= slow_min - w) & (ref_S < slow_min)
         hi = (ref_S > slow_max) & (ref_S <= slow_max + w)
         # Half-cosine ramps in a single vectorised shot per side.
-        mask[lo] = 0.5 * (1.0 - np.cos(
-            np.pi * (ref_S[lo] - (slow_min - w)) / w))
+        mask[lo] = 0.5 * (1.0 - np.cos(np.pi * (ref_S[lo] - (slow_min - w)) / w))
         mask[hi] = 0.5 * (1.0 + np.cos(np.pi * (ref_S[hi] - slow_max) / w))
     mask[np.isnan(S)] = 0.0
     return fk_inverse(spec * mask, n_samples=data.shape[1])
@@ -165,11 +167,12 @@ def fk_filter(data: np.ndarray,
 # ---------------------------------------------------------------------
 
 
-def tau_p_forward(data: np.ndarray,
-                  dt: float,
-                  offsets: np.ndarray,
-                  slownesses: np.ndarray,
-                  ) -> np.ndarray:
+def tau_p_forward(
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    slownesses: np.ndarray,
+) -> np.ndarray:
     r"""
     Forward tau-p (slant-stack / linear Radon) transform.
 
@@ -213,28 +216,30 @@ def tau_p_forward(data: np.ndarray,
     slownesses = np.asarray(slownesses, dtype=float)
     if offsets.size != n_rec:
         raise ValueError("offsets must have length n_rec")
-    spec = np.fft.rfft(data, axis=1)               # (n_rec, n_f)
-    f = np.fft.rfftfreq(n_samp, d=dt)              # (n_f,)
-    rel_off = offsets - offsets[0]                 # (n_rec,)
+    spec = np.fft.rfft(data, axis=1)  # (n_rec, n_f)
+    f = np.fft.rfftfreq(n_samp, d=dt)  # (n_f,)
+    rel_off = offsets - offsets[0]  # (n_rec,)
     # phase[k, i, f] = exp(2 pi i f * slownesses[k] * rel_off[i]) is
     # the per-trace, per-slowness fractional time advance that flattens
     # an event at apparent slowness slownesses[k] before stacking.
     phase = np.exp(
-        2j * np.pi
+        2j
+        * np.pi
         * f[None, None, :]
         * slownesses[:, None, None]
         * rel_off[None, :, None]
-    )                                              # (n_p, n_rec, n_f)
+    )  # (n_p, n_rec, n_f)
     panel_spec = (spec[None, :, :] * phase).sum(axis=1)  # (n_p, n_f)
     panel = np.fft.irfft(panel_spec, n=n_samp, axis=1)
     return panel
 
 
-def tau_p_adjoint(panel: np.ndarray,
-                  dt: float,
-                  offsets: np.ndarray,
-                  slownesses: np.ndarray,
-                  ) -> np.ndarray:
+def tau_p_adjoint(
+    panel: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    slownesses: np.ndarray,
+) -> np.ndarray:
     r"""
     Adjoint of :func:`tau_p_forward` (smeared back-projection).
 
@@ -272,26 +277,28 @@ def tau_p_adjoint(panel: np.ndarray,
     slownesses = np.asarray(slownesses, dtype=float)
     if slownesses.size != n_p:
         raise ValueError("slownesses must have length n_slowness")
-    M = np.fft.rfft(panel, axis=1)                 # (n_p, n_f)
-    f = np.fft.rfftfreq(n_samp, d=dt)              # (n_f,)
-    rel_off = offsets - offsets[0]                 # (n_rec,)
+    M = np.fft.rfft(panel, axis=1)  # (n_p, n_f)
+    f = np.fft.rfftfreq(n_samp, d=dt)  # (n_f,)
+    rel_off = offsets - offsets[0]  # (n_rec,)
     phase = np.exp(
-        -2j * np.pi
+        -2j
+        * np.pi
         * f[None, None, :]
         * slownesses[:, None, None]
         * rel_off[None, :, None]
-    )                                              # (n_p, n_rec, n_f)
-    rec_spec = (M[:, None, :] * phase).sum(axis=0) / n_p   # (n_rec, n_f)
+    )  # (n_p, n_rec, n_f)
+    rec_spec = (M[:, None, :] * phase).sum(axis=0) / n_p  # (n_rec, n_f)
     return np.fft.irfft(rec_spec, n=n_samp, axis=1)
 
 
-def tau_p_inverse(panel: np.ndarray,
-                  dt: float,
-                  offsets: np.ndarray,
-                  slownesses: np.ndarray,
-                  *,
-                  ridge: float = 1.0e-10,
-                  ) -> np.ndarray:
+def tau_p_inverse(
+    panel: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    slownesses: np.ndarray,
+    *,
+    ridge: float = 1.0e-10,
+) -> np.ndarray:
     r"""
     Inverse tau-p (slant-stack / linear Radon) transform.
 
@@ -345,24 +352,25 @@ def tau_p_inverse(panel: np.ndarray,
     if slownesses.size != n_p:
         raise ValueError("slownesses must have length n_slowness")
     n_rec = offsets.size
-    M = np.fft.rfft(panel, axis=1)                 # (n_p, n_f)
-    f = np.fft.rfftfreq(n_samp, d=dt)              # (n_f,)
-    rel_off = offsets - offsets[0]                 # (n_rec,)
+    M = np.fft.rfft(panel, axis=1)  # (n_p, n_f)
+    f = np.fft.rfftfreq(n_samp, d=dt)  # (n_f,)
+    rel_off = offsets - offsets[0]  # (n_rec,)
 
     # A[p, i, f] = exp(2 pi i f s_p x_i). Per-frequency this is the
     # forward stacking matrix; we batch the per-frequency systems and
     # solve them via the regularised normal equations.
     A = np.exp(
-        2j * np.pi
+        2j
+        * np.pi
         * f[None, None, :]
         * slownesses[:, None, None]
         * rel_off[None, :, None]
-    )                                              # (n_p, n_rec, n_f)
-    A_h = np.conj(A)                                # (n_p, n_rec, n_f)
+    )  # (n_p, n_rec, n_f)
+    A_h = np.conj(A)  # (n_p, n_rec, n_f)
     # AhA[i, j, f] = sum_p A_h[p, i, f] * A[p, j, f]
-    AhA = np.einsum("pif,pjf->fij", A_h, A)         # (n_f, n_rec, n_rec)
+    AhA = np.einsum("pif,pjf->fij", A_h, A)  # (n_f, n_rec, n_rec)
     # AhM[f, i] = sum_p A_h[p, i, f] * M[p, f]
-    AhM = np.einsum("pif,pf->fi", A_h, M)           # (n_f, n_rec)
+    AhM = np.einsum("pif,pf->fi", A_h, M)  # (n_f, n_rec)
 
     # Tikhonov-regularised batch solve: x = (A^H A + eps I)^{-1} A^H M.
     # ``np.linalg.solve`` wants the rhs as an (..., n_rec, k) column-
@@ -371,22 +379,23 @@ def tau_p_inverse(panel: np.ndarray,
     rec_spec_t = np.linalg.solve(
         AhA + eye[None, :, :],
         AhM[..., None],
-    ).squeeze(-1)                                             # (n_f, n_rec)
-    rec_spec = rec_spec_t.T                                   # (n_rec, n_f)
+    ).squeeze(-1)  # (n_f, n_rec)
+    rec_spec = rec_spec_t.T  # (n_rec, n_f)
 
     return np.fft.irfft(rec_spec, n=n_samp, axis=1)
 
 
-def tau_p_filter(data: np.ndarray,
-                 dt: float,
-                 offsets: np.ndarray,
-                 slow_min: float,
-                 slow_max: float,
-                 *,
-                 n_slowness: int = 181,
-                 slowness_pad_factor: float = 1.5,
-                 taper_width: float = 0.1,
-                 ) -> np.ndarray:
+def tau_p_filter(
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    slow_min: float,
+    slow_max: float,
+    *,
+    n_slowness: int = 181,
+    slowness_pad_factor: float = 1.5,
+    taper_width: float = 0.1,
+) -> np.ndarray:
     """
     Apparent-slowness band-pass filter via tau-p forward / mask /
     inverse.
@@ -456,21 +465,19 @@ def tau_p_filter(data: np.ndarray,
         w = taper_width * (slow_max - slow_min)
         lo = (slownesses >= slow_min - w) & (slownesses < slow_min)
         hi = (slownesses > slow_max) & (slownesses <= slow_max + w)
-        mask[lo] = 0.5 * (
-            1.0 - np.cos(np.pi * (slownesses[lo] - (slow_min - w)) / w)
-        )
-        mask[hi] = 0.5 * (
-            1.0 + np.cos(np.pi * (slownesses[hi] - slow_max) / w)
-        )
+        mask[lo] = 0.5 * (1.0 - np.cos(np.pi * (slownesses[lo] - (slow_min - w)) / w))
+        mask[hi] = 0.5 * (1.0 + np.cos(np.pi * (slownesses[hi] - slow_max) / w))
 
     return tau_p_adjoint(panel * mask[:, None], dt, offsets, slownesses)
 
 
-def apply_moveout(data: np.ndarray,
-                  dt: float,
-                  offsets: np.ndarray,
-                  slowness: float,
-                  reference: int = 0) -> np.ndarray:
+def apply_moveout(
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    slowness: float,
+    reference: int = 0,
+) -> np.ndarray:
     r"""
     Flatten a gather on a trial slowness using frequency-domain
     fractional shifts.
@@ -492,29 +499,32 @@ def apply_moveout(data: np.ndarray,
     f = np.fft.rfftfreq(n_samp, d=dt)
     # tau[i] is the per-trace time advance (seconds) needed to flatten
     # an arrival of the given slowness onto the reference offset.
-    tau = (offsets - offsets[reference]) * slowness           # (n_rec,)
+    tau = (offsets - offsets[reference]) * slowness  # (n_rec,)
     shifted = _phase_shift(spec, f, tau)
     return np.fft.irfft(shifted, n=n_samp, axis=1)
 
 
-def unapply_moveout(data: np.ndarray,
-                    dt: float,
-                    offsets: np.ndarray,
-                    slowness: float,
-                    reference: int = 0) -> np.ndarray:
+def unapply_moveout(
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    slowness: float,
+    reference: int = 0,
+) -> np.ndarray:
     """Inverse of ``apply_moveout`` -- restore the original moveout."""
     return apply_moveout(data, dt, offsets, -slowness, reference=reference)
 
 
-def svd_project(data: np.ndarray,
-                dt: float,
-                offsets: np.ndarray,
-                slowness: float,
-                rank: int = 1,
-                reference: int = 0,
-                *,
-                n_keep: int | None = None,
-                ) -> tuple[np.ndarray, np.ndarray]:
+def svd_project(
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    slowness: float,
+    rank: int = 1,
+    reference: int = 0,
+    *,
+    n_keep: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     SVD / Karhunen-Loeve separation.
 
@@ -541,20 +551,20 @@ def svd_project(data: np.ndarray,
     S_k = np.zeros_like(S)
     S_k[:rank] = S[:rank]
     coh_flat = (U * S_k) @ Vt
-    coh = unapply_moveout(coh_flat, dt, offsets, slowness,
-                          reference=reference)
+    coh = unapply_moveout(coh_flat, dt, offsets, slowness, reference=reference)
     return coh, data - coh
 
 
-def sequential_kl_separation(data: np.ndarray,
-                             dt: float,
-                             offsets: np.ndarray,
-                             slownesses: Sequence[float],
-                             rank: int = 1,
-                             reference: int = 0,
-                             *,
-                             n_keep: int | None = None,
-                             ) -> tuple[list[np.ndarray], np.ndarray]:
+def sequential_kl_separation(
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    slownesses: Sequence[float],
+    rank: int = 1,
+    reference: int = 0,
+    *,
+    n_keep: int | None = None,
+) -> tuple[list[np.ndarray], np.ndarray]:
     """Peel off coherent modes one slowness at a time.
 
     ``rank`` is forwarded to :func:`svd_project`; ``n_keep`` is the
@@ -565,9 +575,6 @@ def sequential_kl_separation(data: np.ndarray,
     work = data.copy()
     comps: list[np.ndarray] = []
     for s in slownesses:
-        c, work = svd_project(work, dt, offsets, s,
-                              rank=rank, reference=reference)
+        c, work = svd_project(work, dt, offsets, s, rank=rank, reference=reference)
         comps.append(c)
     return comps, work
-
-

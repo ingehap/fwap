@@ -29,8 +29,7 @@ def test_phase_shift_advances_delta_arrival():
     data[:, int(round(t0 / dt))] = 1.0
     spec = np.fft.rfft(data, axis=1)
     f = np.fft.rfftfreq(n, d=dt)
-    shifted = np.fft.irfft(
-        _phase_shift(spec, f, np.array([tau, tau])), n=n, axis=1)
+    shifted = np.fft.irfft(_phase_shift(spec, f, np.array([tau, tau])), n=n, axis=1)
     peak = int(np.argmax(shifted[0]))
     expected = int(round((t0 - tau) / dt))
     assert peak == expected
@@ -49,7 +48,7 @@ def test_phase_shift_round_trip_is_identity():
     back = _phase_shift(fwd, f, -tau)
     x_round = np.fft.irfft(back, n=n, axis=1)
     # Nyquist-bin phase is forced real, so tolerate the usual floor.
-    data_rms = np.sqrt(np.mean(x ** 2))
+    data_rms = np.sqrt(np.mean(x**2))
     err_rms = np.sqrt(np.mean((x_round - x) ** 2))
     assert err_rms / data_rms < 1.0e-10
 
@@ -57,6 +56,7 @@ def test_phase_shift_round_trip_is_identity():
 def test_plotting_legacy_aliases_still_importable():
     """fwap._plotting._wiggle / _savefig keep working for backwards compat."""
     from fwap import _plotting, plotting
+
     assert _plotting._wiggle is plotting.wiggle_plot
     assert _plotting._savefig is plotting.save_figure
 
@@ -67,6 +67,7 @@ def test_shared_logger_is_single_instance():
 
     import fwap
     from fwap import _common, cli, demos, dispersion, plotting
+
     # All imports return the same logger object.
     shared = _common.logger
     assert fwap.logger is shared

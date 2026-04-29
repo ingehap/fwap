@@ -106,6 +106,7 @@ class BoreholeMode:
         bracketing failed (typically the leaky regime above the
         bound-mode band, which is out of scope here).
     """
+
     name: str
     azimuthal_order: int
     freq: np.ndarray
@@ -227,7 +228,7 @@ def _modal_determinant_n0(
     two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
 
     # Row 1: continuity of u_r at r = a.
-    M11 = F * I1Fa / (rho_f * omega ** 2)
+    M11 = F * I1Fa / (rho_f * omega**2)
     M12 = p * K1pa
     M13 = kz * K1sa
 
@@ -242,9 +243,7 @@ def _modal_determinant_n0(
     M32 = 2.0 * kz * p * mu * K1pa
     M33 = mu * two_kz2_minus_kS2 * K1sa
 
-    M = np.array([[M11, M12, M13],
-                  [M21, M22, M23],
-                  [M31, M32, M33]], dtype=float)
+    M = np.array([[M11, M12, M13], [M21, M22, M23], [M31, M32, M33]], dtype=float)
     return float(np.linalg.det(M))
 
 
@@ -254,8 +253,13 @@ def _modal_determinant_n0(
 
 
 def _stoneley_kz_bracket(
-    omega: float, vp: float, vs: float, rho: float,
-    vf: float, rho_f: float, a: float,
+    omega: float,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
 ) -> tuple[float, float]:
     """
     Bracket the n=0 Stoneley root in (k_z_lo, k_z_hi).
@@ -268,7 +272,7 @@ def _stoneley_kz_bracket(
     # Closed-form low-f estimate of k_z (White 1983):
     # S_ST^2 = 1/V_f^2 + rho_f / mu, k_z ~ omega * S_ST.
     mu = rho * vs * vs
-    s_st_lf = np.sqrt(1.0 / vf ** 2 + rho_f / mu)
+    s_st_lf = np.sqrt(1.0 / vf**2 + rho_f / mu)
     kz_lf_est = omega * s_st_lf
     # Lower bound: just above the slowest body-wave k_z so all radial
     # decay constants are real.
@@ -344,11 +348,9 @@ def stoneley_dispersion(
         omega = 2.0 * np.pi * float(f)
 
         def _det(kz):
-            return _modal_determinant_n0(
-                kz, omega, vp, vs, rho, vf, rho_f, a)
+            return _modal_determinant_n0(kz, omega, vp, vs, rho, vf, rho_f, a)
 
-        kz_lo, kz_hi = _stoneley_kz_bracket(
-            omega, vp, vs, rho, vf, rho_f, a)
+        kz_lo, kz_hi = _stoneley_kz_bracket(omega, vp, vs, rho, vf, rho_f, a)
         try:
             d_lo = _det(kz_lo)
             d_hi = _det(kz_hi)
@@ -372,7 +374,8 @@ def stoneley_dispersion(
         except (ValueError, RuntimeError) as exc:
             logger.debug(
                 "stoneley_dispersion: brentq failed at f=%.1f Hz: %s",
-                f, exc,
+                f,
+                exc,
             )
 
     return BoreholeMode(
@@ -2468,7 +2471,7 @@ def _modal_determinant_n1(
     two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
 
     # Row 1: u_r^{(f)} - u_r^{(s)} = 0 at r = a (cos sector).
-    M11 = (F * I0Fa - I1Fa / a) / (rho_f * omega ** 2)
+    M11 = (F * I0Fa - I1Fa / a) / (rho_f * omega**2)
     M12 = p * K0pa + K1pa / a
     M13 = kz * K1sa
     M14 = -K1sa / a
@@ -2476,9 +2479,7 @@ def _modal_determinant_n1(
     # Row 2: -(sigma_rr^{(s)} + P) = 0 at r = a (cos sector;
     # row negated for visual parallel with the n=0 form).
     M21 = -I1Fa
-    M22 = -mu * (two_kz2_minus_kS2 * K1pa
-                 + 2.0 * p * K0pa / a
-                 + 4.0 * K1pa / (a * a))
+    M22 = -mu * (two_kz2_minus_kS2 * K1pa + 2.0 * p * K0pa / a + 4.0 * K1pa / (a * a))
     M23 = -2.0 * kz * mu * (s * K0sa + K1sa / a)
     M24 = 2.0 * mu * (s * K0sa / a + 2.0 * K1sa / (a * a))
 
@@ -2487,9 +2488,7 @@ def _modal_determinant_n1(
     M31 = 0.0
     M32 = 2.0 * mu * (p * K0pa / a + 2.0 * K1pa / (a * a))
     M33 = kz * mu * K1sa / a
-    M34 = -mu * (s * s * K1sa
-                 + 2.0 * s * K0sa / a
-                 + 4.0 * K1sa / (a * a))
+    M34 = -mu * (s * s * K1sa + 2.0 * s * K0sa / a + 4.0 * K1sa / (a * a))
 
     # Row 4: sigma_rz^{(s)} = 0 at r = a (cos sector; M41 = 0
     # for the same fluid-no-shear reason). Entries below are the
@@ -2500,10 +2499,15 @@ def _modal_determinant_n1(
     M43 = mu * two_kz2_minus_kS2 * K1sa
     M44 = -kz * mu * K1sa / a
 
-    M = np.array([[M11, M12, M13, M14],
-                  [M21, M22, M23, M24],
-                  [M31, M32, M33, M34],
-                  [M41, M42, M43, M44]], dtype=float)
+    M = np.array(
+        [
+            [M11, M12, M13, M14],
+            [M21, M22, M23, M24],
+            [M31, M32, M33, M34],
+            [M41, M42, M43, M44],
+        ],
+        dtype=float,
+    )
     return float(np.linalg.det(M))
 
 
@@ -2513,8 +2517,13 @@ def _modal_determinant_n1(
 
 
 def _flexural_kz_bracket(
-    omega: float, vp: float, vs: float, rho: float,
-    vf: float, rho_f: float, a: float,
+    omega: float,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
 ) -> tuple[float, float]:
     """
     Bracket the n=1 dipole flexural root in (k_z_lo, k_z_hi).
@@ -2535,6 +2544,7 @@ def _flexural_kz_bracket(
     # Vacuum-loaded Rayleigh-speed proxy for the high-f asymptote.
     # ``rayleigh_speed`` validates vp > vs internally.
     from fwap.cylindrical import rayleigh_speed
+
     vR = rayleigh_speed(vp, vs)
     kz_lo = omega / vs * (1.0 + 1.0e-6)
     kz_hi = omega / vR * 1.10
@@ -2647,11 +2657,9 @@ def flexural_dispersion(
         omega = 2.0 * np.pi * float(f)
 
         def _det(kz):
-            return _modal_determinant_n1(
-                kz, omega, vp, vs, rho, vf, rho_f, a)
+            return _modal_determinant_n1(kz, omega, vp, vs, rho, vf, rho_f, a)
 
-        kz_lo, kz_hi = _flexural_kz_bracket(
-            omega, vp, vs, rho, vf, rho_f, a)
+        kz_lo, kz_hi = _flexural_kz_bracket(omega, vp, vs, rho, vf, rho_f, a)
         try:
             d_lo = _det(kz_lo)
             d_hi = _det(kz_hi)
@@ -2659,9 +2667,12 @@ def flexural_dispersion(
             # the upper bound outward in steps of 1.5x. Matches the
             # n=0 stoneley_dispersion expansion pattern.
             n_expand = 0
-            while (np.isfinite(d_lo) and np.isfinite(d_hi)
-                   and np.sign(d_lo) == np.sign(d_hi)
-                   and n_expand < 8):
+            while (
+                np.isfinite(d_lo)
+                and np.isfinite(d_hi)
+                and np.sign(d_lo) == np.sign(d_hi)
+                and n_expand < 8
+            ):
                 kz_hi *= 1.5
                 d_hi = _det(kz_hi)
                 n_expand += 1
@@ -2677,8 +2688,7 @@ def flexural_dispersion(
                 continue
             if np.sign(d_lo) == np.sign(d_hi):
                 logger.debug(
-                    "flexural_dispersion: failed to bracket at "
-                    "f=%.1f Hz",
+                    "flexural_dispersion: failed to bracket at f=%.1f Hz",
                     f,
                 )
                 continue
@@ -2687,7 +2697,8 @@ def flexural_dispersion(
         except (ValueError, RuntimeError) as exc:
             logger.debug(
                 "flexural_dispersion: brentq failed at f=%.1f Hz: %s",
-                f, exc,
+                f,
+                exc,
             )
 
     return BoreholeMode(

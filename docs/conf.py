@@ -25,11 +25,11 @@ version = release
 extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
-    "sphinx.ext.napoleon",          # NumPy-style docstrings
+    "sphinx.ext.napoleon",  # NumPy-style docstrings
     "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
     "sphinx.ext.mathjax",
-    "myst_nb",                       # Jupyter notebook rendering
+    "myst_nb",  # Jupyter notebook rendering
 ]
 
 # myst-nb: don't re-execute notebooks at build time (too expensive
@@ -49,8 +49,8 @@ napoleon_google_docstring = False
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
-    "numpy":  ("https://numpy.org/doc/stable", None),
-    "scipy":  ("https://docs.scipy.org/doc/scipy", None),
+    "numpy": ("https://numpy.org/doc/stable", None),
+    "scipy": ("https://docs.scipy.org/doc/scipy", None),
 }
 
 templates_path = ["_templates"]
@@ -72,17 +72,24 @@ latex_engine = "xelatex"
 # the web).
 latex_documents = [
     # All-in-one reference.
-    ("index",       "fwap.tex",
-     "fwap -- Full-Waveform Acoustic Processing",  author, "manual"),
+    (
+        "index",
+        "fwap.tex",
+        "fwap -- Full-Waveform Acoustic Processing",
+        author,
+        "manual",
+    ),
     # Per-top-level-section PDFs (~5-10 pages each).
-    ("quickstart",  "fwap-quickstart.tex",
-     "fwap -- Quick start",                        author, "howto"),
-    ("chapter_map", "fwap-chapter-map.tex",
-     "fwap -- Chapter-to-module map",              author, "howto"),
-    ("roadmap",     "fwap-roadmap.tex",
-     "fwap -- Roadmap",                            author, "howto"),
-    ("changelog",   "fwap-changelog.tex",
-     "fwap -- Changelog",                          author, "howto"),
+    ("quickstart", "fwap-quickstart.tex", "fwap -- Quick start", author, "howto"),
+    (
+        "chapter_map",
+        "fwap-chapter-map.tex",
+        "fwap -- Chapter-to-module map",
+        author,
+        "howto",
+    ),
+    ("roadmap", "fwap-roadmap.tex", "fwap -- Roadmap", author, "howto"),
+    ("changelog", "fwap-changelog.tex", "fwap -- Changelog", author, "howto"),
 ]
 
 html_theme = "sphinx_rtd_theme"
