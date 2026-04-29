@@ -1117,3 +1117,204 @@ def test_vs_from_stoneley_lower_when_formation_softer():
     )
     # Lower formation density and the same modulus gives higher Vs.
     assert Vs_low_rho > Vs_high_rho
+
+
+# ---------------------------------------------------------------------
+# stoneley_fracture_density (unified four-indicator combiner)
+# ---------------------------------------------------------------------
+
+
+def test_fd_zero_indicators_give_zero_score():
+    """Tight zone (all indicators at zero) gives score = 0."""
+    from fwap.rockphysics import stoneley_fracture_density
+
+    fi = stoneley_fracture_density(
+        slowness_indicator=np.zeros(5),
+        amplitude_indicator=np.zeros(5),
+    )
+    assert np.all(fi == 0.0)
+
+
+def test_fd_score_in_unit_interval():
+    """Score is always clipped to [0, 1]."""
+    from fwap.rockphysics import stoneley_fracture_density
+
+    rng = np.random.default_rng(0)
+    n = 30
+    alpha_s = rng.uniform(-0.05, 0.5, n)  # mix of negative and large positives
+    alpha_a = rng.uniform(-0.1, 1.2, n)
+    fi = stoneley_fracture_density(alpha_s, alpha_a)
+    assert np.all(fi >= 0.0)
+    assert np.all(fi <= 1.0)
+
+
+def test_fd_slowness_only_contributes_with_default_weights():
+    """With default weights and only slowness_indicator supplied,
+    the score reduces to ``clip(0.5 * alpha_s / 0.1, 0, 1)``."""
+    from fwap.rockphysics import stoneley_fracture_density
+
+    alpha_s = np.array([0.0, 0.05, 0.10, 0.20, 0.30])
+    fi = stoneley_fracture_density(alpha_s)
+    expected = np.clip(0.5 * alpha_s / 0.1, 0.0, 1.0)
+    assert np.allclose(fi, expected)
+
+
+def test_fd_amplitude_only_path():
+    """Score is ``0.5 * alpha_a`` clipped when only amplitude
+    indicator is supplied (slowness defaulted to zeros)."""
+    from fwap.rockphysics import stoneley_fracture_density
+
+    alpha_a = np.array([0.0, 0.2, 0.5, 0.8, 1.0])
+    fi = stoneley_fracture_density(
+        slowness_indicator=np.zeros_like(alpha_a),
+        amplitude_indicator=alpha_a,
+    )
+    expected = np.clip(0.5 * alpha_a, 0.0, 1.0)
+    assert np.allclose(fi, expected)
+
+
+def test_fd_matrix_partitioning_suppresses_matrix_only_zones():
+    """When matrix_permeability is supplied, depths with finite
+    kappa (matrix-explained) get the slowness contribution
+    suppressed; depths with NaN kappa (matrix model failed) keep
+    the full slowness contribution."""
+    from fwap.rockphysics import stoneley_fracture_density
+
+    alpha_s = np.array([0.05, 0.05, 0.05])
+    alpha_a = np.array([0.0, 0.0, 0.0])
+    # Three zones: matrix-explained (finite), out-of-model (NaN),
+    # matrix-explained (finite). Kappa values are arbitrary so long
+    # as their finite/NaN status is correct.
+    kappa = np.array([1.0e-13, np.nan, 1.0e-13])
+    fi = stoneley_fracture_density(alpha_s, alpha_a, matrix_permeability=kappa)
+    # Matrix-explained: slowness contribution suppressed -> 0.
+    assert fi[0] == 0.0
+    assert fi[2] == 0.0
+    # Fracture-suspected: full slowness contribution.
+    expected = 0.5 * 0.05 / 0.1
+    assert abs(fi[1] - expected) < 1.0e-12
+
+
+def test_fd_aperture_term_saturates_with_tanh():
+    """Aperture contribution saturates via tanh: a 1 mm aperture
+    contributes ~0.5*tanh(1) ~ 0.38 with default settings; 5 mm
+    saturates near 0.5*tanh(5) ~ 0.5."""
+    from fwap.rockphysics import stoneley_fracture_density
+
+    alpha_s = np.zeros(3)
+    alpha_a = np.zeros(3)
+    apertures = np.array([0.0, 1.0e-3, 5.0e-3])
+    fi = stoneley_fracture_density(
+        alpha_s,
+        alpha_a,
+        fracture_aperture=apertures,
+        aperture_weight=0.5,
+    )
+    expected = np.clip(0.5 * np.tanh(apertures / 1.0e-3), 0.0, 1.0)
+    assert np.allclose(fi, expected)
+
+
+def test_fd_aperture_default_weight_zero_means_no_contribution():
+    """Default ``aperture_weight=0.0`` means the aperture term
+    contributes zero, even when ``fracture_aperture`` is supplied."""
+    from fwap.rockphysics import stoneley_fracture_density
+
+    alpha_s = np.zeros(2)
+    alpha_a = np.zeros(2)
+    fi = stoneley_fracture_density(
+        alpha_s,
+        alpha_a,
+        fracture_aperture=np.array([1.0e-3, 5.0e-3]),
+    )
+    assert np.all(fi == 0.0)
+
+
+def test_fd_aperture_with_nan_treated_as_no_contribution():
+    """NaN apertures (no Hornby reflection coefficient available)
+    contribute zero; finite apertures contribute via tanh."""
+    from fwap.rockphysics import stoneley_fracture_density
+
+    fi = stoneley_fracture_density(
+        slowness_indicator=np.zeros(2),
+        amplitude_indicator=np.zeros(2),
+        fracture_aperture=np.array([np.nan, 2.0e-3]),
+        aperture_weight=0.5,
+    )
+    assert fi[0] == 0.0
+    expected_1 = 0.5 * np.tanh(2.0)
+    assert abs(fi[1] - expected_1) < 1.0e-12
+
+
+def test_fd_combined_score_increases_with_each_indicator():
+    """Increasing any one indicator (others held fixed) must not
+    decrease the score. Partial-monotonicity check."""
+    from fwap.rockphysics import stoneley_fracture_density
+
+    base = stoneley_fracture_density(
+        slowness_indicator=np.array([0.05]),
+        amplitude_indicator=np.array([0.20]),
+    )
+    higher_s = stoneley_fracture_density(
+        slowness_indicator=np.array([0.10]),
+        amplitude_indicator=np.array([0.20]),
+    )
+    higher_a = stoneley_fracture_density(
+        slowness_indicator=np.array([0.05]),
+        amplitude_indicator=np.array([0.40]),
+    )
+    assert higher_s[0] >= base[0]
+    assert higher_a[0] >= base[0]
+
+
+def test_fd_rejects_negative_weights():
+    """Negative weights raise ValueError."""
+    import pytest
+
+    from fwap.rockphysics import stoneley_fracture_density
+
+    alpha_s = np.array([0.05])
+    with pytest.raises(ValueError, match="slowness_weight"):
+        stoneley_fracture_density(alpha_s, slowness_weight=-0.1)
+    with pytest.raises(ValueError, match="amplitude_weight"):
+        stoneley_fracture_density(alpha_s, amplitude_weight=-0.1)
+    with pytest.raises(ValueError, match="aperture_weight"):
+        stoneley_fracture_density(alpha_s, aperture_weight=-0.1)
+
+
+def test_fd_rejects_non_positive_scales():
+    """Zero or negative scales raise ValueError."""
+    import pytest
+
+    from fwap.rockphysics import stoneley_fracture_density
+
+    alpha_s = np.array([0.05])
+    with pytest.raises(ValueError, match="slowness_scale"):
+        stoneley_fracture_density(alpha_s, slowness_scale=0.0)
+    with pytest.raises(ValueError, match="aperture_scale"):
+        stoneley_fracture_density(alpha_s, aperture_scale=0.0)
+
+
+def test_fd_rejects_shape_mismatch():
+    """Optional arrays with shape mismatching slowness_indicator
+    raise ValueError."""
+    import pytest
+
+    from fwap.rockphysics import stoneley_fracture_density
+
+    alpha_s = np.array([0.05, 0.10])
+    with pytest.raises(ValueError, match="amplitude_indicator"):
+        stoneley_fracture_density(
+            alpha_s,
+            amplitude_indicator=np.array([0.20]),  # wrong shape
+        )
+    with pytest.raises(ValueError, match="matrix_permeability"):
+        stoneley_fracture_density(
+            alpha_s,
+            matrix_permeability=np.array([1.0e-13]),  # wrong shape
+        )
+    with pytest.raises(ValueError, match="fracture_aperture"):
+        stoneley_fracture_density(
+            alpha_s,
+            aperture_weight=0.1,
+            fracture_aperture=np.array([1.0e-3]),  # wrong shape
+        )
