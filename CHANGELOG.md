@@ -7,6 +7,26 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **VTI phase velocities** (``fwap.anisotropy.vti_phase_velocities``).
+  Christoffel-determinant solution for the three plane-wave modes
+  (quasi-P, quasi-SV, SH) in a transversely-isotropic medium with
+  vertical symmetry axis, propagating at phase angle ``theta`` from
+  the symmetry axis. Tsvankin (2001) eq. 1.41 in standard form;
+  closed-form quadratic with the standard ``+/- sqrt(D)``
+  discriminant for qP/qSV plus the decoupled SH formula
+  ``v_SH^2 = (C44 cos^2 + C66 sin^2)/rho``. Natural consumer of
+  ``backus_average`` output (the new function takes the five VTI
+  elastic constants directly). Useful for forward-modelling
+  wavefronts, qP/qSV crossover analysis, and Thomsen-anisotropy
+  consistency checks. 12 new tests cover: vertical and horizontal
+  limits (each velocity recovers the corresponding C-modulus
+  square root); isotropic limit (constant in theta, qSV=SH);
+  qSV / SH degeneracy at vertical; Thomsen-anisotropy signatures
+  (epsilon > 0 -> v_qP at horizontal > vertical; gamma > 0 ->
+  v_SH at horizontal > vertical); shape and broadcasting; round-
+  trip with ``backus_average``; input validation. Pure phase
+  velocity; group velocity is a planned follow-up.
+
 - **Tensile-breakdown pressure + safe mud-weight window**
   (``fwap.geomechanics.tensile_breakdown_pressure``,
   ``MudWeightWindow``, ``safe_mud_weight_window``). Closes the
