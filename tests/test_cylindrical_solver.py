@@ -21,6 +21,7 @@ from fwap.cylindrical_solver import (
     _layered_n0_row3_at_a,
     _layered_n0_row4_at_b,
     _layered_n0_row5_at_b,
+    _layered_n0_row6_at_b,
     _modal_determinant_n0,
     _modal_determinant_n1,
     flexural_dispersion,
@@ -2835,4 +2836,151 @@ def test_layered_row5_at_b_uses_degree0_not_degree1_bessel():
     assert row4[2].real / row5[2].real == pytest.approx(
         (p_m * float(sp.kv(1, p_m * b))) / (kz * float(sp.kv(0, p_m * b)))
     )
+
+
+# =====================================================================
+# Plan item F.1.b.3.c -- row 6 of the n=0 layered determinant (r = b)
+# =====================================================================
+
+
+def test_layered_row6_at_b_layer_equals_formation_K_flavour_cancels():
+    """Substep F.1.a.6 self-check: at layer=formation the K-flavour
+    annulus and formation columns of row 6 cancel pair-wise.
+
+        row6[2] (B_K) + row6[5] (B) == 0
+        row6[4] (C_K) + row6[6] (C) == 0
+    """
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _layered_n0_row6_at_b(
+        kz, omega, vp=vp, vs=vs, rho=rho,
+        vf=vf, rho_f=rho_f, a=a, layer=layer,
+    )
+    assert row[2].real + row[5].real == pytest.approx(0.0, abs=1.0e-14)
+    assert row[4].real + row[6].real == pytest.approx(0.0, abs=1.0e-14)
+
+
+def test_layered_row6_at_b_fluid_column_is_zero():
+    """Fluid lives at ``r < a``; column 0 (A) is identically zero."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n0_row6_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    assert row[0] == 0.0
+
+
+def test_layered_row6_at_b_is_real_in_bound_regime():
+    """Substep F.1.a.5: post-rescale row 6 is real in the bound
+    regime. Same imaginary-power pattern as rows 1, 4 (B-real,
+    C-imag pre-rescale) so no row scaling needed; only the
+    column-by-(-i) on C_I, C_K, C is applied."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n0_row6_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e-14)
+
+
+def test_layered_row6_at_b_matches_closed_form_per_column():
+    """Per-column transcription check against substep F.1.a.3 at
+    r = b. Row 6 carries the Lame combination ``(2 k_z^2 - k_Sm^2)``
+    on each B / C column, identical in structure to the row-2 form
+    but evaluated at r = b with non-zero formation columns."""
+    p, omega, kz = _row1_test_setup()
+    F_f, p_m, s_m, p_form, s_form = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    a = p["a"]
+    b = a + p["layer"].thickness
+    from scipy import special as sp
+
+    row = _layered_n0_row6_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=a, layer=p["layer"],
+    )
+
+    mu_m = p["layer"].rho * p["layer"].vs ** 2
+    kSm2 = (omega / p["layer"].vs) ** 2
+    two_kz2_minus_kSm2 = 2.0 * kz * kz - kSm2
+    mu = p["rho"] * p["vs"] ** 2
+    kS2 = (omega / p["vs"]) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    expected_BI = mu_m * (
+        two_kz2_minus_kSm2 * float(sp.iv(0, p_m * b))
+        - 2.0 * p_m * float(sp.iv(1, p_m * b)) / b
+    )
+    expected_BK = mu_m * (
+        two_kz2_minus_kSm2 * float(sp.kv(0, p_m * b))
+        + 2.0 * p_m * float(sp.kv(1, p_m * b)) / b
+    )
+    expected_CI = -2.0 * kz * mu_m * (
+        s_m * float(sp.iv(0, s_m * b)) - float(sp.iv(1, s_m * b)) / b
+    )
+    expected_CK = +2.0 * kz * mu_m * (
+        s_m * float(sp.kv(0, s_m * b)) + float(sp.kv(1, s_m * b)) / b
+    )
+    expected_B = -mu * (
+        two_kz2_minus_kS2 * float(sp.kv(0, p_form * b))
+        + 2.0 * p_form * float(sp.kv(1, p_form * b)) / b
+    )
+    expected_C = -2.0 * kz * mu * (
+        s_form * float(sp.kv(0, s_form * b)) + float(sp.kv(1, s_form * b)) / b
+    )
+
+    assert row[1].real == pytest.approx(expected_BI)
+    assert row[2].real == pytest.approx(expected_BK)
+    assert row[3].real == pytest.approx(expected_CI)
+    assert row[4].real == pytest.approx(expected_CK)
+    assert row[5].real == pytest.approx(expected_B)
+    assert row[6].real == pytest.approx(expected_C)
+
+
+def test_layered_row6_at_b_layer_equals_formation_annulus_K_matches_negated_row2():
+    """At layer=formation, row 6's annulus K-flavour entries (B_K,
+    C_K) -- which carry the unnegated stress form -- equal the
+    *negation* of row 2's M22, M23-equivalents evaluated at r = b
+    (row 2 uses the negated ``-(sigma_rr + P)`` convention; row 6
+    uses unnegated continuity). This pins down the convention
+    choice and confirms the two row builders are using the same
+    underlying stress formula."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+    b = a + layer.thickness
+
+    row6 = _layered_n0_row6_at_b(
+        kz, omega, vp=vp, vs=vs, rho=rho,
+        vf=vf, rho_f=rho_f, a=a, layer=layer,
+    )
+
+    # Compute an "M22-like at r = b" entry using the row 2 formula.
+    p = float(np.sqrt(kz * kz - (omega / vp) ** 2))
+    s = float(np.sqrt(kz * kz - (omega / vs) ** 2))
+    from scipy import special as sp
+
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    M22_at_b = -mu * (
+        two_kz2_minus_kS2 * float(sp.kv(0, p * b))
+        + 2.0 * p * float(sp.kv(1, p * b)) / b
+    )
+    M23_at_b = -2.0 * kz * mu * (
+        s * float(sp.kv(0, s * b)) + float(sp.kv(1, s * b)) / b
+    )
+
+    # row6[2] is unnegated stress; M22_at_b is negated. They differ
+    # by sign, so row6[2] = -M22_at_b at layer=formation.
+    assert row6[2].real == pytest.approx(-M22_at_b)
+    assert row6[4].real == pytest.approx(-M23_at_b)
 

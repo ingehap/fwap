@@ -5971,6 +5971,154 @@ def _layered_n0_row5_at_b(
     return row
 
 
+# =====================================================================
+# Substep F.1.b.3.c -- row 6 of the n=0 layered determinant (r = b)
+# =====================================================================
+#
+# BC6: ``sigma_rr^{(m)}(b) - sigma_rr^{(s)}(b) = 0`` (cos-sector
+# normal-stress continuity at the annulus-formation interface).
+# Lame-reduction row at the second interface; structurally similar
+# to row 2 at r=a, but with non-zero formation columns. Convention
+# differs from row 2 in one nuance: row 2 used the negated form
+# ``-(sigma_rr^{(s)} + P^{(f)}) = 0`` for visual parallel with the
+# n=0 single-interface; row 6 uses the unnegated continuity form
+# directly. The choice is internal (it flips an overall sign on
+# the row, which preserves the determinant root).
+#
+# Coefficients via the F.1.a.3 derivation. The annulus side is
+# row-2-like with the same Lame reduction
+# ``-lambda_m k_Pm^2 + 2 mu_m p_m^2 = mu_m (2 k_z^2 - k_Sm^2)``
+# but evaluated at r = b. The formation side reuses the n=0
+# single-interface ``sigma_rr^{(s)}`` with the Lame reduction
+# carried over (formation params).
+#
+# Pre-rescale row:
+#
+#       Row 6 =
+#           [  0,                                  (A; fluid r<a)
+#             +mu_m (2 k_z^2 - k_Sm^2) I_0(p_m b)
+#                  - 2 mu_m p_m I_1(p_m b) / b,    (B_I)
+#             +mu_m (2 k_z^2 - k_Sm^2) K_0(p_m b)
+#                  + 2 mu_m p_m K_1(p_m b) / b,    (B_K)
+#             -2 i mu_m k_z [s_m I_0(s_m b)
+#                            - I_1(s_m b) / b],    (C_I)
+#             +2 i mu_m k_z [s_m K_0(s_m b)
+#                            + K_1(s_m b) / b],    (C_K)
+#             -mu (2 k_z^2 - k_S^2) K_0(p b)
+#                  - 2 mu p K_1(p b) / b,          (B; subtracted)
+#             -2 i mu k_z [s K_0(s b)
+#                          + K_1(s b) / b] ]       (C; subtracted)
+#
+# Imaginary-power pattern: B-real, C-imag pre-rescale (the same
+# substep-F.1.a.5 pattern as rows 1, 4 -- no row scaling). The
+# column-by-(-i) on C_I, C_K, C kills the explicit ``i`` factors.
+#
+# Substep-F.1.a.6 K-flavour cancellation at layer=formation:
+# ``mu_m -> mu``, ``p_m -> p``, ``s_m -> s``, ``k_Sm -> k_S``
+# makes the annulus B_K coefficient and the formation B
+# coefficient negatives of each other (B_K is +Lame-form, B is
+# -Lame-form), and similarly for C_K vs C. Both pairs cancel.
+
+
+def _layered_n0_row6_at_b(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+) -> np.ndarray:
+    r"""
+    Row 6 of the n=0 layered modal determinant evaluated at the
+    annulus-formation interface ``r = b = a + layer.thickness``.
+
+    Encodes the normal-stress continuity BC
+    ``sigma_rr^{(m)}(b) - sigma_rr^{(s)}(b) = 0`` in the cos
+    sector. Returns the seven post-rescale coefficients in the
+    column order pinned by substep F.1.a.4.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    vp, vs, rho : float
+        Formation half-space P / S velocities and density. All
+        used (mu = rho * vs^2; k_S = omega / vs; p, s set the
+        Bessel arguments on columns 5, 6).
+    vf, rho_f : float
+        Fluid velocity / density. Not used (fluid doesn't reach
+        r = b); carried for signature uniformity.
+    a : float
+        Fluid-annulus interface radius (m); ``b = a + layer.thickness``.
+    layer : BoreholeLayer
+        The annular layer; sets ``mu_m``, ``k_Sm``, ``p_m``, ``s_m``.
+
+    Returns
+    -------
+    ndarray, shape (7,) complex
+        Coefficients of (A, B_I, B_K, C_I, C_K, B, C) in row 6.
+        Real-valued in the bound regime.
+
+    See Also
+    --------
+    _layered_n0_row2_at_a : Row 2 (sigma_rr balance at r=a). Same
+        Lame-reduction structure; row 2 uses the ``-(sigma_rr + P)
+        = 0`` negated convention while row 6 uses the unnegated
+        continuity form directly.
+    """
+    del rho_f  # not used by row 6; kept for signature uniformity
+    F_f, p_m, s_m, p, s = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=vp, vs=vs, vf=vf, layer=layer,
+    )
+    del F_f  # row 6 doesn't touch the fluid column
+    b = a + layer.thickness
+    I0_pm_b = float(special.iv(0, p_m * b))
+    I1_pm_b = float(special.iv(1, p_m * b))
+    K0_pm_b = float(special.kv(0, p_m * b))
+    K1_pm_b = float(special.kv(1, p_m * b))
+    I0_sm_b = float(special.iv(0, s_m * b))
+    I1_sm_b = float(special.iv(1, s_m * b))
+    K0_sm_b = float(special.kv(0, s_m * b))
+    K1_sm_b = float(special.kv(1, s_m * b))
+    K0_p_b = float(special.kv(0, p * b))
+    K1_p_b = float(special.kv(1, p * b))
+    K0_s_b = float(special.kv(0, s * b))
+    K1_s_b = float(special.kv(1, s * b))
+
+    mu_m = layer.rho * layer.vs * layer.vs
+    kSm2 = (omega / layer.vs) ** 2
+    two_kz2_minus_kSm2 = 2.0 * kz * kz - kSm2
+
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    row = np.zeros(7, dtype=complex)
+    # A column: fluid is at r < a; doesn't reach r = b.
+    row[0] = 0.0
+    # B_I column (annulus P, regular branch).
+    row[1] = +mu_m * (two_kz2_minus_kSm2 * I0_pm_b - 2.0 * p_m * I1_pm_b / b)
+    # B_K column (annulus P, singular branch).
+    row[2] = +mu_m * (two_kz2_minus_kSm2 * K0_pm_b + 2.0 * p_m * K1_pm_b / b)
+    # C_I column (post-rescale; col-by-(-i) cancels the -i factor).
+    row[3] = -2.0 * kz * mu_m * (s_m * I0_sm_b - I1_sm_b / b)
+    # C_K column (post-rescale).
+    row[4] = +2.0 * kz * mu_m * (s_m * K0_sm_b + K1_sm_b / b)
+    # B column (formation; subtracted, hence opposite sign of B_K
+    # at layer=formation; the K-flavour cancellation works
+    # automatically).
+    row[5] = -mu * (two_kz2_minus_kS2 * K0_p_b + 2.0 * p * K1_p_b / b)
+    # C column (post-rescale; subtracted).
+    row[6] = -2.0 * kz * mu * (s * K0_s_b + K1_s_b / b)
+    return row
+
+
 def stoneley_dispersion_layered(
     freq: np.ndarray,
     *,
