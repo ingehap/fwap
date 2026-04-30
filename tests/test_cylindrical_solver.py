@@ -18,6 +18,7 @@ from fwap.cylindrical_solver import (
     _layered_n0_radial_wavenumbers,
     _layered_n0_row1_at_a,
     _layered_n0_row2_at_a,
+    _layered_n0_row3_at_a,
     _modal_determinant_n0,
     _modal_determinant_n1,
     flexural_dispersion,
@@ -2516,4 +2517,99 @@ def test_layered_row2_at_a_i_flavour_columns_match_derivation():
     )
     assert row[1].real == pytest.approx(expected_BI)
     assert row[3].real == pytest.approx(expected_CI)
+
+
+# =====================================================================
+# Plan item F.1.b.2.c -- row 3 of the n=0 layered determinant (r = a)
+# =====================================================================
+
+
+def test_layered_row3_at_a_layer_equals_formation_per_element():
+    """At layer=formation, row 3's (A, B_K, C_K) entries match
+    M31 (= 0), M32, M33 of :func:`_modal_determinant_n0` to
+    floating-point precision."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _layered_n0_row3_at_a(
+        kz, omega, vp=vp, vs=vs, rho=rho,
+        vf=vf, rho_f=rho_f, a=a, layer=layer,
+    )
+
+    p = float(np.sqrt(kz * kz - (omega / vp) ** 2))
+    s = float(np.sqrt(kz * kz - (omega / vs) ** 2))
+    from scipy import special as sp
+
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    M32 = 2.0 * kz * p * mu * float(sp.kv(1, p * a))
+    M33 = mu * two_kz2_minus_kS2 * float(sp.kv(1, s * a))
+
+    assert row[0] == 0.0  # M31 = 0 (fluid no shear)
+    assert row[2].real == pytest.approx(M32)
+    assert row[4].real == pytest.approx(M33)
+
+
+def test_layered_row3_at_a_fluid_column_is_zero():
+    """Row 3 column 0 (the A / fluid-pressure amplitude) is
+    identically zero -- the fluid carries no shear stress so it
+    contributes nothing to the ``sigma_rz = 0`` BC."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n0_row3_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    assert row[0] == 0.0
+
+
+def test_layered_row3_at_a_formation_columns_are_zero():
+    """Sparsity: at ``r = a`` the formation columns (5, 6) are
+    zero."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n0_row3_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    assert row[5] == 0.0
+    assert row[6] == 0.0
+
+
+def test_layered_row3_at_a_is_real_in_bound_regime():
+    """Substep F.1.a.5: the full ``row * i`` plus column-by-(-i)
+    rescale lands row 3 in real form."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n0_row3_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e-14)
+
+
+def test_layered_row3_at_a_i_k_sign_flip():
+    """Same I-K sign structure as row 1 (different physics, same
+    pattern):
+
+        row[1] / row[2] == -I_1(p_m a) / K_1(p_m a)    (B_I vs B_K)
+        row[3] / row[4] == +I_1(s_m a) / K_1(s_m a)    (C_I vs C_K)
+    """
+    p, omega, kz = _row1_test_setup()
+    F_f, p_m, s_m, _, _ = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    from scipy import special as sp
+
+    row = _layered_n0_row3_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+
+    expected_ratio_B = -float(sp.iv(1, p_m * p["a"])) / float(sp.kv(1, p_m * p["a"]))
+    expected_ratio_C = +float(sp.iv(1, s_m * p["a"])) / float(sp.kv(1, s_m * p["a"]))
+    assert row[1].real / row[2].real == pytest.approx(expected_ratio_B)
+    assert row[3].real / row[4].real == pytest.approx(expected_ratio_C)
 
