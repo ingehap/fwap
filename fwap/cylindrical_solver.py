@@ -88,6 +88,67 @@ from scipy import optimize, special
 from fwap._common import logger
 
 
+@dataclass(frozen=True)
+class BoreholeLayer:
+    """
+    One annular elastic layer between the borehole fluid and the
+    formation half-space.
+
+    Used by :func:`stoneley_dispersion_layered` (and the n=1
+    counterpart, scheduled in plan item F of
+    ``docs/plans/cylindrical_biot.md``) to describe a mudcake or
+    altered zone wrapping the borehole. The layer is bounded
+    radially by the borehole wall on the inside and by the
+    formation half-space (or the next layer, in the multi-layer
+    extension scheduled in plan item G) on the outside.
+
+    Attributes
+    ----------
+    vp : float
+        Compressional-wave velocity of the layer (m/s).
+    vs : float
+        Shear-wave velocity of the layer (m/s). Must satisfy
+        ``0 < vs < vp``.
+    rho : float
+        Bulk density of the layer (kg/m^3). Must be positive.
+    thickness : float
+        Radial thickness of the layer (m). Must be positive.
+    """
+
+    vp: float
+    vs: float
+    rho: float
+    thickness: float
+
+
+def _validate_borehole_layers(layers: tuple[BoreholeLayer, ...]) -> None:
+    """
+    Validate a layer stack used by the layered dispersion APIs.
+
+    Raises ``ValueError`` if any layer has a non-positive parameter
+    or violates ``vp > vs``. The empty stack ``()`` is the
+    degenerate "no extra layers" case and validates trivially.
+    """
+    for i, layer in enumerate(layers):
+        if not isinstance(layer, BoreholeLayer):
+            raise ValueError(
+                f"layers[{i}] must be a BoreholeLayer instance, "
+                f"got {type(layer).__name__}"
+            )
+        if layer.vp <= 0 or layer.vs <= 0 or layer.rho <= 0:
+            raise ValueError(
+                f"layers[{i}]: vp, vs, rho must all be positive"
+            )
+        if layer.vp <= layer.vs:
+            raise ValueError(
+                f"layers[{i}]: require vp > vs"
+            )
+        if layer.thickness <= 0:
+            raise ValueError(
+                f"layers[{i}]: thickness must be positive"
+            )
+
+
 @dataclass
 class BoreholeMode:
     """
@@ -4689,5 +4750,106 @@ def quadrupole_dispersion(
     return BoreholeMode(
         name="quadrupole", azimuthal_order=2,
         freq=f_arr, slowness=slowness,
+    )
+
+
+# ---------------------------------------------------------------------
+# Plan item F -- single-extra-layer (mudcake / altered zone) extension
+# ---------------------------------------------------------------------
+#
+# Scope of the foundation landed here:
+#
+#   * :class:`BoreholeLayer` dataclass + :func:`_validate_borehole_layers`
+#     pin the parameter shape used by the layered dispersion APIs.
+#   * :func:`stoneley_dispersion_layered` is the public n=0 entry
+#     point. With ``layers=()`` it is bit-equivalent to
+#     :func:`stoneley_dispersion` (degenerate single-interface
+#     case); with non-empty layers it raises ``NotImplementedError``
+#     to flag that the 7x7 layered modal determinant is the next
+#     step of plan item F.
+#
+# What this lets downstream work assume:
+#
+#   * The public-API surface (parameter names, validation rules,
+#     return type) is fixed. The follow-up implementing
+#     ``_modal_determinant_n0_layered`` only needs to change the
+#     dispatch branch below.
+#   * The layer=formation regression test in
+#     ``tests/test_cylindrical_solver.py`` is already passing with
+#     ``layers=()`` and stays as the floating-point oracle for the
+#     non-trivial case.
+
+
+def stoneley_dispersion_layered(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...] = (),
+) -> BoreholeMode:
+    r"""
+    Stoneley-wave phase slowness vs frequency for a borehole with
+    optional mudcake / altered-zone annular layers between the
+    fluid and the formation half-space.
+
+    With ``layers=()`` (no extra layers) this is bit-equivalent to
+    :func:`stoneley_dispersion`. With one or more
+    :class:`BoreholeLayer` entries this is the public entry point
+    for plan item F in ``docs/plans/cylindrical_biot.md``; the
+    underlying 7x7 layered modal determinant is scheduled as the
+    next step of that plan and currently raises
+    ``NotImplementedError``.
+
+    Parameters
+    ----------
+    freq : ndarray
+        Frequency grid (Hz). Must be strictly positive.
+    vp, vs, rho : float
+        Formation half-space P-wave velocity (m/s), S-wave
+        velocity (m/s), and bulk density (kg/m^3). Must satisfy
+        ``vp > vs > 0`` and ``rho > 0``.
+    vf, rho_f : float
+        Borehole-fluid velocity (m/s) and density (kg/m^3).
+    a : float
+        Borehole (fluid-side) radius (m).
+    layers : tuple of BoreholeLayer, default ()
+        Annular elastic layers between the fluid (``r < a``) and
+        the formation half-space, ordered radially outward. The
+        empty tuple is the degenerate single-interface case and
+        dispatches to :func:`stoneley_dispersion`.
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "Stoneley"``, ``azimuthal_order = 0``, with
+        ``freq`` echoed and ``slowness[i]`` the phase slowness at
+        each frequency. ``NaN`` at any frequency where the bracket
+        failed.
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive, ``vp <= vs``, ``freq``
+        contains a non-positive entry, or any layer in ``layers``
+        is malformed.
+    NotImplementedError
+        If ``layers`` is non-empty. The non-degenerate path is
+        blocked on the layered modal-determinant implementation
+        (plan item F.1).
+    """
+    layers_tuple = tuple(layers)
+    _validate_borehole_layers(layers_tuple)
+    if not layers_tuple:
+        return stoneley_dispersion(
+            freq, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        )
+    raise NotImplementedError(
+        "stoneley_dispersion_layered with non-empty layers is not "
+        "implemented yet; the 7x7 layered modal determinant is the "
+        "next step of plan item F in docs/plans/cylindrical_biot.md."
     )
 

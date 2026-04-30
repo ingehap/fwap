@@ -12,11 +12,13 @@ import pytest
 
 from fwap.cylindrical import flexural_dispersion_physical, rayleigh_speed
 from fwap.cylindrical_solver import (
+    BoreholeLayer,
     BoreholeMode,
     _modal_determinant_n0,
     _modal_determinant_n1,
     flexural_dispersion,
     stoneley_dispersion,
+    stoneley_dispersion_layered,
 )
 
 
@@ -1996,4 +1998,121 @@ def test_quadrupole_fast_formation_frequency_order_invariant():
         res_asc.slowness, res_desc.slowness[::-1],
         rtol=1.0e-9, equal_nan=True,
     )
+
+
+# =====================================================================
+# Plan item F (foundation): layered Stoneley dispersion API
+# =====================================================================
+#
+# Foundation tests for the layered n=0 public API. The 7x7 layered
+# modal determinant itself is the next step of plan item F; here we
+# only exercise:
+#
+#   * the ``BoreholeLayer`` dataclass + validator,
+#   * the empty-layers degenerate dispatch (must be bit-equivalent
+#     to ``stoneley_dispersion``), and
+#   * the ``NotImplementedError`` sentinel for non-empty layers.
+
+
+def test_borehole_layer_dataclass_construction():
+    layer = BoreholeLayer(vp=4000.0, vs=2200.0, rho=2300.0, thickness=0.005)
+    assert layer.vp == 4000.0
+    assert layer.vs == 2200.0
+    assert layer.rho == 2300.0
+    assert layer.thickness == 0.005
+
+
+def test_stoneley_dispersion_layered_empty_layers_bit_matches_unlayered():
+    """Degenerate single-interface case: ``layers=()`` must produce a
+    slowness curve bit-identical to :func:`stoneley_dispersion`. This
+    is the floating-point oracle that will continue to anchor the
+    layered solver once the 7x7 modal determinant lands."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f = np.linspace(500.0, 8000.0, 16)
+    res_unlayered = stoneley_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    res_layered = stoneley_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a, layers=(),
+    )
+    np.testing.assert_array_equal(res_layered.slowness, res_unlayered.slowness)
+    np.testing.assert_array_equal(res_layered.freq, res_unlayered.freq)
+    assert res_layered.name == res_unlayered.name == "Stoneley"
+    assert res_layered.azimuthal_order == 0
+
+
+def test_stoneley_dispersion_layered_empty_layers_returns_borehole_mode():
+    f = np.linspace(500.0, 5000.0, 5)
+    res = stoneley_dispersion_layered(
+        f, vp=4500.0, vs=2500.0, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert isinstance(res, BoreholeMode)
+    assert res.name == "Stoneley"
+    assert res.azimuthal_order == 0
+
+
+def test_stoneley_dispersion_layered_non_empty_layers_raises_not_implemented():
+    """Non-empty layers are blocked on plan item F.1 (the 7x7 layered
+    modal determinant); the public API raises NotImplementedError so
+    callers don't silently get the unlayered answer."""
+    f = np.array([1000.0, 2000.0])
+    layer = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.01)
+    with pytest.raises(NotImplementedError, match="plan item F"):
+        stoneley_dispersion_layered(
+            f,
+            vp=4500.0, vs=2500.0, rho=2400.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+            layers=(layer,),
+        )
+
+
+def test_stoneley_dispersion_layered_rejects_bad_layer_object():
+    f = np.array([1000.0])
+    with pytest.raises(ValueError, match="BoreholeLayer"):
+        stoneley_dispersion_layered(
+            f,
+            vp=4500.0, vs=2500.0, rho=2400.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+            layers=("not a layer",),
+        )
+
+
+@pytest.mark.parametrize(
+    "kwargs, msg",
+    [
+        ({"vp": 0.0, "vs": 1.0, "rho": 1.0, "thickness": 1.0}, "positive"),
+        ({"vp": 1.0, "vs": -1.0, "rho": 1.0, "thickness": 1.0}, "positive"),
+        ({"vp": 1.0, "vs": 1.0, "rho": 0.0, "thickness": 1.0}, "positive"),
+        ({"vp": 1.0, "vs": 2.0, "rho": 1.0, "thickness": 1.0}, "vp > vs"),
+        ({"vp": 4.0, "vs": 2.0, "rho": 1.0, "thickness": 0.0}, "thickness"),
+        ({"vp": 4.0, "vs": 2.0, "rho": 1.0, "thickness": -0.1}, "thickness"),
+    ],
+)
+def test_stoneley_dispersion_layered_rejects_malformed_layer_params(kwargs, msg):
+    f = np.array([1000.0])
+    layer = BoreholeLayer(**kwargs)
+    with pytest.raises(ValueError, match=msg):
+        stoneley_dispersion_layered(
+            f,
+            vp=4500.0, vs=2500.0, rho=2400.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+            layers=(layer,),
+        )
+
+
+def test_stoneley_dispersion_layered_accepts_list_for_layers():
+    """``layers`` should accept any iterable that ``tuple(...)``
+    consumes; the empty list must dispatch to the unlayered solver
+    just like ``()``."""
+    f = np.linspace(500.0, 5000.0, 4)
+    res_tuple = stoneley_dispersion_layered(
+        f, vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=0.1, layers=(),
+    )
+    res_list = stoneley_dispersion_layered(
+        f, vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=0.1, layers=[],
+    )
+    np.testing.assert_array_equal(res_tuple.slowness, res_list.slowness)
 

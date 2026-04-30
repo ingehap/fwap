@@ -254,12 +254,14 @@ from fwap.cylindrical import (
     rayleigh_speed,
 )
 from fwap.cylindrical_solver import (
+    BoreholeLayer,
     BoreholeMode,
     BranchSegment,
     flexural_dispersion,
     quadrupole_dispersion,
     segments_from_kz_curve,
     stoneley_dispersion,
+    stoneley_dispersion_layered,
 )
 from fwap.cylindrical_solver import (
     pseudo_rayleigh_dispersion as pseudo_rayleigh_modal_dispersion,
@@ -415,9 +417,11 @@ __all__ = [
     "flexural_dispersion_physical",
     "flexural_dispersion_vti_physical",
     # Cylindrical-borehole modal-determinant solver (Schmitt 1988)
+    "BoreholeLayer",
     "BoreholeMode",
     "BranchSegment",
     "stoneley_dispersion",
+    "stoneley_dispersion_layered",
     "flexural_dispersion",
     "pseudo_rayleigh_modal_dispersion",
     "quadrupole_dispersion",
