@@ -3272,6 +3272,283 @@ def _march_complex_dispersion(
 
 
 # ---------------------------------------------------------------------
+# Cutoff handling + branch tracker (plan item C in
+# docs/plans/cylindrical_biot.md). The naive marcher above stops at
+# the first convergence failure; the validated marcher below
+# distinguishes "the converged root is in a different physical
+# regime" (regime exit) from "the root finder failed altogether"
+# (convergence failure), and tolerates a small budget of consecutive
+# bad steps before giving up. Together with :class:`BranchSegment`
+# and :func:`segments_from_kz_curve` this lets a public dispersion
+# API recover from one-off branch hops and report the contiguous
+# stretches where the mode was physically present.
+# ---------------------------------------------------------------------
+
+
+def _classify_marcher_step(
+    kz_root: complex | None,
+    omega: float,
+    validator,
+) -> str:
+    """
+    Classify a single marcher step as ``"ok"``, ``"regime_exit"``,
+    or ``"convergence_failure"``.
+
+    Parameters
+    ----------
+    kz_root : complex or None
+        Output of :func:`_track_complex_root`; ``None`` means
+        the underlying root finder did not converge.
+    omega : float
+        Angular frequency of the step (passed through to
+        ``validator``).
+    validator : callable or None
+        ``(kz: complex, omega: float) -> bool``. ``True`` means the
+        converged ``kz`` lies in the regime the caller wants to
+        track. ``None`` disables regime checking (every converged
+        root is accepted).
+
+    Returns
+    -------
+    str
+        One of:
+
+        * ``"ok"`` -- ``kz_root`` is a converged complex value and
+          (if a validator was given) it accepted the root.
+        * ``"regime_exit"`` -- ``kz_root`` converged but the
+          validator rejected it. Typical causes are crossing a
+          cutoff into a regime that needs different leaky flags,
+          or the root finder hopping to a neighbouring mode.
+        * ``"convergence_failure"`` -- ``kz_root`` is ``None``.
+
+    Notes
+    -----
+    The classifier is intentionally narrower than what the original
+    plan called out: a "branch flipped" verdict (re-detect leaky
+    flags via :func:`_detect_leaky_branches` and retry) would
+    require the marcher to rebuild ``det_fn`` mid-march, which is
+    structurally heavier than the validator-callback design here.
+    For modes whose flag pattern is fixed across the whole band of
+    interest (Stoneley, pseudo-Rayleigh, slow-formation flexural)
+    the validator-callback version covers the same ground; for
+    modes that flip flags at a cutoff (fast-formation flexural,
+    plan item B) the marcher can be re-driven from the cutoff with
+    fresh flags and a fresh seed -- a public-API responsibility,
+    not a marcher one.
+    """
+    if kz_root is None:
+        return "convergence_failure"
+    if validator is None:
+        return "ok"
+    try:
+        ok = bool(validator(kz_root, omega))
+    except (ValueError, ArithmeticError):
+        return "regime_exit"
+    return "ok" if ok else "regime_exit"
+
+
+@dataclass
+class BranchSegment:
+    """
+    Contiguous stretch of finite samples in a dispersion curve.
+
+    A :class:`BoreholeMode` may contain multiple physical segments
+    separated by NaN gaps where the underlying mode does not exist
+    (e.g., below a geometric cutoff) or where the marcher rejected
+    a step. :class:`BranchSegment` represents one such contiguous
+    stretch.
+
+    Attributes
+    ----------
+    start_idx : int
+        Index of the first sample of the segment in the original
+        frequency grid (inclusive).
+    end_idx : int
+        Index of the last sample of the segment in the original
+        frequency grid (inclusive). For a single-sample segment,
+        ``end_idx == start_idx``.
+    freq : ndarray, shape (n,)
+        Frequencies in this segment, copied (or sliced) from the
+        original frequency grid in the same order.
+    kz : ndarray, shape (n,) complex
+        Complex axial wavenumbers at each frequency in the
+        segment.
+
+    See Also
+    --------
+    segments_from_kz_curve : Build a list of segments from a marcher
+        output.
+    """
+
+    start_idx: int
+    end_idx: int
+    freq: np.ndarray
+    kz: np.ndarray
+
+    def __len__(self) -> int:
+        return int(self.end_idx - self.start_idx + 1)
+
+
+def segments_from_kz_curve(
+    freq_grid: np.ndarray,
+    kz_curve: np.ndarray,
+) -> list[BranchSegment]:
+    """
+    Split a marcher output into contiguous :class:`BranchSegment`s.
+
+    A "segment" is a maximal run of samples for which both
+    ``Re(kz_curve[i])`` and ``Im(kz_curve[i])`` are finite. Pure-
+    NaN samples (the marcher's ``"this step was rejected"``
+    sentinel) split segments.
+
+    Parameters
+    ----------
+    freq_grid : ndarray, shape (n_f,)
+        Frequencies in the original input order.
+    kz_curve : ndarray, shape (n_f,) complex
+        Complex axial wavenumbers, one per frequency. NaN+NaNj at
+        rejected / failed steps.
+
+    Returns
+    -------
+    list of BranchSegment
+        Empty list if no finite samples exist. Otherwise one entry
+        per maximal run of finite samples, preserving input order.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> f = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    >>> nan = np.nan + 1j * np.nan
+    >>> kz = np.array([1.0+0j, 2.0+0j, nan, 4.0+0j, 5.0+0j])
+    >>> segs = segments_from_kz_curve(f, kz)
+    >>> len(segs)
+    2
+    >>> segs[0].start_idx, segs[0].end_idx
+    (0, 1)
+    >>> segs[1].start_idx, segs[1].end_idx
+    (3, 4)
+    """
+    f_arr = np.asarray(freq_grid)
+    kz_arr = np.asarray(kz_curve, dtype=complex)
+    if f_arr.size != kz_arr.size:
+        raise ValueError(
+            f"freq_grid and kz_curve must have the same length; "
+            f"got {f_arr.size} and {kz_arr.size}"
+        )
+    finite = np.isfinite(kz_arr.real) & np.isfinite(kz_arr.imag)
+    segments: list[BranchSegment] = []
+    n = f_arr.size
+    i = 0
+    while i < n:
+        if not finite[i]:
+            i += 1
+            continue
+        j = i
+        while j + 1 < n and finite[j + 1]:
+            j += 1
+        segments.append(
+            BranchSegment(
+                start_idx=int(i),
+                end_idx=int(j),
+                freq=f_arr[i:j + 1].copy(),
+                kz=kz_arr[i:j + 1].copy(),
+            )
+        )
+        i = j + 1
+    return segments
+
+
+def _march_complex_dispersion_validated(
+    det_fn,
+    freq_grid: np.ndarray,
+    kz_start: complex,
+    *,
+    validator=None,
+    max_consecutive_invalid: int = 3,
+    xtol: float = 1.0e-12,
+) -> np.ndarray:
+    r"""
+    :func:`_march_complex_dispersion` plus a per-step validator and a
+    consecutive-invalid budget for tolerating one-off bad steps.
+
+    Each step's converged ``kz`` is classified by
+    :func:`_classify_marcher_step`. ``"ok"`` steps are recorded and
+    used as the seed for the next step's continuation; ``"regime_exit"``
+    and ``"convergence_failure"`` steps are recorded as NaN+NaNj
+    and counted against ``max_consecutive_invalid``. As long as the
+    invalid count stays below the budget, marching continues with
+    the seed pinned to the last good step. Once the budget is
+    exhausted, the marcher stops and the rest of the curve stays
+    NaN.
+
+    Parameters
+    ----------
+    det_fn : callable
+        ``det_fn(kz: complex, omega: float) -> complex``.
+    freq_grid : ndarray, shape (n_f,)
+        Frequency grid (Hz) walked in the order given.
+    kz_start : complex
+        Initial seed for the first frequency.
+    validator : callable or None, optional
+        ``(kz: complex, omega: float) -> bool``. Returns ``True``
+        when the converged root sits in the regime the caller
+        wants to track. ``None`` (default) accepts every converged
+        root.
+    max_consecutive_invalid : int, default 3
+        Number of consecutive non-``"ok"`` steps the marcher will
+        skip past before stopping. Setting this to ``0`` recovers
+        the strict-stop semantics of
+        :func:`_march_complex_dispersion`.
+    xtol : float, default 1e-12
+        Per-step ``scipy.optimize.root`` parameter-space tolerance.
+
+    Returns
+    -------
+    ndarray, shape (n_f,) complex
+        Complex ``k_z`` at each frequency, NaN+NaNj at every
+        rejected step (validator failure, root-finder failure, or
+        post-budget tail).
+    """
+    f_arr = np.asarray(freq_grid, dtype=float)
+    n = f_arr.size
+    kz_curve = np.full(n, np.nan + 1j * np.nan, dtype=complex)
+    if n == 0:
+        return kz_curve
+    kz_prev = complex(kz_start)
+    omega_prev: float | None = None
+    consecutive_invalid = 0
+    for i in range(n):
+        omega = 2.0 * np.pi * float(f_arr[i])
+        if omega_prev is None:
+            kz_seed = kz_prev
+        else:
+            kz_seed = kz_prev * (omega / omega_prev)
+        det_at_omega = (lambda kz, _omega=omega:  # noqa: E731
+                        det_fn(kz, _omega))
+        kz_root = _track_complex_root(det_at_omega, kz_seed, xtol=xtol)
+        verdict = _classify_marcher_step(kz_root, omega, validator)
+        if verdict == "ok":
+            kz_curve[i] = kz_root
+            kz_prev = kz_root  # type: ignore[assignment]
+            omega_prev = omega
+            consecutive_invalid = 0
+            continue
+        # Rejected step: leave NaN, do not update kz_prev / omega_prev
+        # so the next step still extrapolates from the last good one.
+        consecutive_invalid += 1
+        logger.debug(
+            "_march_complex_dispersion_validated: step %d/%d at f=%.1f "
+            "Hz rejected (%s, consecutive=%d/%d)",
+            i, n, omega / (2.0 * np.pi), verdict,
+            consecutive_invalid, max_consecutive_invalid,
+        )
+        if consecutive_invalid > max_consecutive_invalid:
+            break
+    return kz_curve
+
+
+# ---------------------------------------------------------------------
 # L4 -- Public n=0 leaky API: pseudo-Rayleigh dispersion.
 # ---------------------------------------------------------------------
 #
@@ -3441,8 +3718,7 @@ def pseudo_rayleigh_dispersion(
         )
 
     # Sort frequencies descending. The marcher seeds from the
-    # analytic high-f asymptote (slowness -> 1/V_S from below) and
-    # walks toward the cutoff.
+    # high-f asymptote and walks toward the cutoff.
     order_desc = np.argsort(-f_arr)
     f_desc = f_arr[order_desc]
 
@@ -3457,59 +3733,52 @@ def pseudo_rayleigh_dispersion(
     # regime. The 5% offset is well-tested empirically against
     # standard fast-formation parameters (V_S/V_f ~ 2).
     omega_max = 2.0 * np.pi * float(f_desc[0])
-    kz_prev = complex(
+    kz_seed = complex(
         omega_max / vs * 0.95,
         omega_max / vs * 5.0e-3,
     )
-    omega_prev: float | None = None
 
     # Valid leaky-S regime in slowness terms: open interval
-    # (1/V_P, 1/V_S). Allow a small numerical slack on the upper
-    # boundary so a converged k_z exactly at omega/V_S (numerical
-    # boundary case) is still accepted.
+    # (1/V_P, 1/V_S), with a small upper-side numerical slack so
+    # a converged kz exactly at omega/V_S (boundary case) is still
+    # accepted. The validated marcher (plan item C) uses this
+    # callable per step; a step whose converged root falls outside
+    # the regime is rejected as "regime_exit", left as NaN, and
+    # the marcher continues from the last good step within the
+    # consecutive-invalid budget.
     slowness_lo = 1.0 / vp
     slowness_hi = 1.0 / vs
     slowness_slack = 1.0e-6 * slowness_hi
 
-    slowness_desc = np.full(f_desc.size, np.nan, dtype=float)
-    attenuation_desc = np.full(f_desc.size, np.nan, dtype=float)
+    def _validator(kz: complex, omega_step: float) -> bool:
+        if kz.imag <= 0.0:
+            return False
+        s = kz.real / omega_step
+        return slowness_lo < s < slowness_hi + slowness_slack
 
-    for i, f in enumerate(f_desc):
-        omega = 2.0 * np.pi * float(f)
-        if omega_prev is None:
-            kz_seed = kz_prev
-        else:
-            # Constant-slowness extrapolation: kz scales linearly
-            # with omega for any smooth dispersion law.
-            kz_seed = kz_prev * (omega / omega_prev)
+    def _det(kz: complex, omega_step: float) -> complex:
+        return _modal_determinant_n0_complex(
+            kz, omega_step, vp, vs, rho, vf, rho_f, a,
+            leaky_p=False, leaky_s=True,
+        )
 
-        def _det(kz: complex, _omega: float = omega) -> complex:
-            return _modal_determinant_n0_complex(
-                kz, _omega, vp, vs, rho, vf, rho_f, a,
-                leaky_p=False, leaky_s=True,
-            )
+    kz_curve_desc = _march_complex_dispersion_validated(
+        _det,
+        f_desc,
+        kz_seed,
+        validator=_validator,
+        max_consecutive_invalid=3,
+    )
 
-        kz_root = _track_complex_root(_det, kz_seed)
-        if kz_root is None:
-            # Convergence failure: typically the geometric cutoff.
-            # Stop walking; remaining low-f samples stay NaN.
-            break
-        if kz_root.imag <= 0.0:
-            # Mode merged with the bound regime, or the marcher
-            # drifted to an unphysical (growing) root. Either way
-            # the leaky branch ends here.
-            break
-        s_re = kz_root.real / omega
-        if not (slowness_lo < s_re < slowness_hi + slowness_slack):
-            # Marcher hopped to a different physical regime
-            # (slowness above 1/V_S = bound; below 1/V_P = both
-            # branches leaky). Treat as end-of-mode.
-            break
-
-        slowness_desc[i] = s_re
-        attenuation_desc[i] = kz_root.imag
-        kz_prev = kz_root
-        omega_prev = omega
+    omega_desc = 2.0 * np.pi * f_desc
+    with np.errstate(invalid='ignore'):
+        slowness_desc = kz_curve_desc.real / omega_desc
+    attenuation_desc = kz_curve_desc.imag
+    finite_desc = np.isfinite(kz_curve_desc.real) & np.isfinite(
+        kz_curve_desc.imag
+    )
+    slowness_desc = np.where(finite_desc, slowness_desc, np.nan)
+    attenuation_desc = np.where(finite_desc, attenuation_desc, np.nan)
 
     slowness[order_desc] = slowness_desc
     attenuation[order_desc] = attenuation_desc

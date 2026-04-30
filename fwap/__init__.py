@@ -255,7 +255,9 @@ from fwap.cylindrical import (
 )
 from fwap.cylindrical_solver import (
     BoreholeMode,
+    BranchSegment,
     flexural_dispersion,
+    segments_from_kz_curve,
     stoneley_dispersion,
 )
 from fwap.cylindrical_solver import (
@@ -413,9 +415,11 @@ __all__ = [
     "flexural_dispersion_vti_physical",
     # Cylindrical-borehole modal-determinant solver (Schmitt 1988)
     "BoreholeMode",
+    "BranchSegment",
     "stoneley_dispersion",
     "flexural_dispersion",
     "pseudo_rayleigh_modal_dispersion",
+    "segments_from_kz_curve",
     # LWD phenomenological layer
     "lwd_collar_mode",
     "synthesize_lwd_gather",

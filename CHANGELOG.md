@@ -7,6 +7,55 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Cutoff handling + branch tracker** (Roadmap A, plan item C
+  in ``docs/plans/cylindrical_biot.md``). Adds a validator-aware
+  marcher that distinguishes a converged-but-out-of-regime root
+  from a root-finder failure, tolerates a small budget of
+  consecutive bad steps before giving up, and recovers from
+  one-off branch hops by resuming the march from the last good
+  step. Three new symbols in ``fwap.cylindrical_solver``:
+
+  * ``_classify_marcher_step(kz_root, omega, validator) -> str`` --
+    private classifier returning ``"ok"``, ``"regime_exit"``, or
+    ``"convergence_failure"``. Validator exceptions
+    (``ValueError`` / ``ArithmeticError``) collapse to
+    ``"regime_exit"`` so a numerically ill-conditioned step does
+    not abort the march.
+
+  * ``BranchSegment`` -- public dataclass representing a
+    contiguous stretch of finite samples in a dispersion curve
+    (``start_idx``, ``end_idx``, ``freq``, ``kz``). Re-exported
+    at top level. ``len(segment)`` returns the inclusive sample
+    count.
+
+  * ``segments_from_kz_curve(freq_grid, kz_curve)
+    -> list[BranchSegment]`` -- public splitter that walks a
+    marcher output and emits one ``BranchSegment`` per maximal
+    run of finite ``kz``. Re-exported at top level.
+
+  * ``_march_complex_dispersion_validated(det_fn, freq_grid,
+    kz_start, *, validator, max_consecutive_invalid, xtol)`` --
+    private validator-aware marcher. ``validator(kz, omega) ->
+    bool`` says whether a converged step belongs to the regime
+    the caller wants to track; failed steps stay NaN, do not
+    update the continuation seed, and count against
+    ``max_consecutive_invalid``. Setting that to ``0`` recovers
+    the strict-stop semantics of the original
+    ``_march_complex_dispersion``.
+
+  ``pseudo_rayleigh_dispersion`` is refactored to drive the new
+  marcher with a leaky-S-regime validator (``Im(k_z) > 0`` and
+  ``1/V_P < slowness < 1/V_S``). On the standard fast-formation
+  parameter set the refactor recovers steps that the previous
+  step-by-step loop dropped to single-step root hops, returning
+  one contiguous segment over the supported band. 12 new tests
+  cover the classifier verdicts (each return value, plus
+  exception-as-regime-exit), the dataclass contract,
+  ``segments_from_kz_curve`` (NaN-gap split, all-NaN, mismatched
+  inputs), the validated marcher (skip-and-continue, budget
+  exhaustion, empty grid, zero-budget = strict semantics), and
+  the pseudo-Rayleigh single-segment regression.
+
 - **``pseudo_rayleigh_dispersion`` public API** (Roadmap A,
   plan item A in ``docs/plans/cylindrical_biot.md``). First
   leaky-mode product on top of the L1-L3 scaffolding. Tracks the

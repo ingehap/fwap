@@ -1234,3 +1234,239 @@ def test_pseudo_rayleigh_high_velocity_below_vp():
     # And strictly above V_S (matches slowness < 1/V_S).
     assert (velocity > PR_VS).all()
 
+
+# =====================================================================
+# Plan item C: cutoff handling + branch tracker (validated marcher,
+# BranchSegment dataclass, and segments-from-kz-curve splitter).
+# =====================================================================
+
+
+def test_classify_marcher_step_returns_ok_when_no_validator():
+    """A converged complex root with no validator passes through
+    as ``"ok"`` (the strict-marcher semantics)."""
+    from fwap.cylindrical_solver import _classify_marcher_step
+
+    assert _classify_marcher_step(complex(1.0, 0.5), 1000.0, None) == "ok"
+
+
+def test_classify_marcher_step_recognises_convergence_failure():
+    """A ``None`` ``kz_root`` is reported as
+    ``"convergence_failure"`` regardless of validator state."""
+    from fwap.cylindrical_solver import _classify_marcher_step
+
+    assert _classify_marcher_step(None, 1000.0, None) == "convergence_failure"
+    assert _classify_marcher_step(None, 1000.0, lambda kz, w: True) \
+        == "convergence_failure"
+
+
+def test_classify_marcher_step_recognises_regime_exit():
+    """A converged root rejected by the validator is reported as
+    ``"regime_exit"``, and a validator exception (``ValueError`` /
+    ``ArithmeticError``) is treated as the same."""
+    from fwap.cylindrical_solver import _classify_marcher_step
+
+    rejector = lambda kz, w: False  # noqa: E731
+    raiser = lambda kz, w: (_ for _ in ()).throw(ValueError("bad"))  # noqa: E731
+
+    assert _classify_marcher_step(complex(1.0, 0.0), 1.0, rejector) \
+        == "regime_exit"
+    assert _classify_marcher_step(complex(1.0, 0.0), 1.0, raiser) \
+        == "regime_exit"
+
+
+def test_branch_segment_dataclass_contract():
+    """BranchSegment exposes start_idx, end_idx, freq, kz, and a
+    Python ``len`` matching the inclusive index range."""
+    from fwap.cylindrical_solver import BranchSegment
+
+    f = np.array([1.0, 2.0, 3.0])
+    kz = np.array([1.0 + 0j, 2.0 + 0j, 3.0 + 0j])
+    seg = BranchSegment(start_idx=0, end_idx=2, freq=f, kz=kz)
+    assert seg.start_idx == 0
+    assert seg.end_idx == 2
+    assert len(seg) == 3
+    np.testing.assert_array_equal(seg.freq, f)
+    np.testing.assert_array_equal(seg.kz, kz)
+    # Single-sample segment.
+    one = BranchSegment(start_idx=5, end_idx=5,
+                        freq=np.array([4.0]), kz=np.array([4.0 + 0j]))
+    assert len(one) == 1
+
+
+def test_segments_from_kz_curve_handles_nan_gap():
+    """Two-segment input with one NaN gap returns exactly two
+    BranchSegments with the right index ranges and freq/kz
+    slices."""
+    from fwap.cylindrical_solver import segments_from_kz_curve
+
+    f = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    nan = np.nan + 1j * np.nan
+    kz = np.array([1.0 + 0.1j, 2.0 + 0.2j, nan, 4.0 + 0.4j, 5.0 + 0.5j])
+    segs = segments_from_kz_curve(f, kz)
+
+    assert len(segs) == 2
+    assert segs[0].start_idx == 0
+    assert segs[0].end_idx == 1
+    np.testing.assert_array_equal(segs[0].freq, f[:2])
+    np.testing.assert_array_equal(segs[0].kz, kz[:2])
+    assert segs[1].start_idx == 3
+    assert segs[1].end_idx == 4
+    np.testing.assert_array_equal(segs[1].freq, f[3:])
+    np.testing.assert_array_equal(segs[1].kz, kz[3:])
+
+
+def test_segments_from_kz_curve_no_finite_returns_empty():
+    """An all-NaN curve produces an empty segment list."""
+    from fwap.cylindrical_solver import segments_from_kz_curve
+
+    nan = np.nan + 1j * np.nan
+    f = np.array([1.0, 2.0, 3.0])
+    kz = np.array([nan, nan, nan])
+    assert segments_from_kz_curve(f, kz) == []
+
+
+def test_segments_from_kz_curve_rejects_mismatched_lengths():
+    """Length mismatch between freq and kz must raise."""
+    from fwap.cylindrical_solver import segments_from_kz_curve
+
+    with pytest.raises(ValueError, match="same length"):
+        segments_from_kz_curve(np.array([1.0, 2.0]), np.array([1.0 + 0j]))
+
+
+def test_validated_marcher_skips_invalid_step_and_continues():
+    """One bad step in the middle of the curve gets NaN'd out, and
+    marching continues from the previous good step. Use a det
+    function with a known root at every frequency, plus a
+    validator that fakes a single-step regime exit."""
+    from fwap.cylindrical_solver import _march_complex_dispersion_validated
+
+    # Synthetic "dispersion": kz(omega) = omega / V with V=1500 m/s.
+    # Det vanishes at kz = omega/V; nearby seeds converge there.
+    V = 1500.0
+
+    def det(kz, omega):
+        target = omega / V
+        return complex(kz - target)  # zero at kz = omega/V
+
+    freq = np.linspace(1000.0, 5000.0, 5)
+    seed = complex(2.0 * np.pi * freq[0] / V, 0.0)
+
+    skipped_idx = 2
+
+    def validator(kz, omega):
+        # Reject only the converged root at the third frequency,
+        # to simulate a one-off regime-exit step.
+        target = omega / V
+        if abs(omega - 2.0 * np.pi * freq[skipped_idx]) < 1.0:
+            return False
+        return abs(kz - target) < 1.0e-3
+
+    kz_curve = _march_complex_dispersion_validated(
+        det, freq, seed, validator=validator,
+        max_consecutive_invalid=2,
+    )
+
+    # Step 2 must be NaN; all others must be finite and on the
+    # analytic kz=omega/V trajectory.
+    assert np.isnan(kz_curve[skipped_idx].real)
+    assert np.isnan(kz_curve[skipped_idx].imag)
+    omega_arr = 2.0 * np.pi * freq
+    expected_re = omega_arr / V
+    for i, e in enumerate(expected_re):
+        if i == skipped_idx:
+            continue
+        np.testing.assert_allclose(kz_curve[i].real, e, rtol=1.0e-9)
+
+
+def test_validated_marcher_stops_after_budget_exhausted():
+    """Once the consecutive-invalid budget is exceeded, the
+    marcher stops and the rest of the curve stays NaN."""
+    from fwap.cylindrical_solver import _march_complex_dispersion_validated
+
+    V = 1500.0
+
+    def det(kz, omega):
+        return complex(kz - omega / V)
+
+    freq = np.linspace(1000.0, 10000.0, 10)
+    seed = complex(2.0 * np.pi * freq[0] / V, 0.0)
+
+    # Reject everything from the third step onward.
+    def validator(kz, omega):
+        target = omega / V
+        return omega / (2.0 * np.pi) <= 3000.0 and abs(kz - target) < 1.0e-3
+
+    kz_curve = _march_complex_dispersion_validated(
+        det, freq, seed, validator=validator,
+        max_consecutive_invalid=1,
+    )
+
+    # Steps at f = 1000, 2000, 3000 pass the validator; step at
+    # 4000 is strike 1 (within budget, NaN'd but march continues);
+    # step at 5000 is strike 2 (exceeds budget=1, march stops).
+    for i in range(3):
+        assert np.isfinite(kz_curve[i].real)
+    for i in range(3, 10):
+        assert not np.isfinite(kz_curve[i].real)
+
+
+def test_validated_marcher_handles_empty_grid():
+    """An empty frequency grid returns an empty kz_curve with no
+    crash, mirroring the strict marcher's behaviour."""
+    from fwap.cylindrical_solver import _march_complex_dispersion_validated
+
+    out = _march_complex_dispersion_validated(
+        lambda kz, w: complex(kz),
+        np.array([], dtype=float),
+        complex(1.0, 0.0),
+    )
+    assert out.shape == (0,)
+
+
+def test_validated_marcher_zero_budget_matches_strict_marcher_semantics():
+    """``max_consecutive_invalid=0`` reproduces the strict-stop
+    behaviour: the very first invalid step ends the march."""
+    from fwap.cylindrical_solver import _march_complex_dispersion_validated
+
+    V = 1500.0
+
+    def det(kz, omega):
+        return complex(kz - omega / V)
+
+    freq = np.linspace(1000.0, 5000.0, 5)
+    seed = complex(2.0 * np.pi * freq[0] / V, 0.0)
+
+    # Reject step index 1 onward.
+    def validator(kz, omega):
+        target = omega / V
+        return omega / (2.0 * np.pi) <= 1000.0 and abs(kz - target) < 1.0e-3
+
+    out = _march_complex_dispersion_validated(
+        det, freq, seed, validator=validator,
+        max_consecutive_invalid=0,
+    )
+    assert np.isfinite(out[0].real)
+    for i in range(1, 5):
+        assert not np.isfinite(out[i].real)
+
+
+def test_pseudo_rayleigh_segmenter_returns_single_continuous_segment():
+    """For the standard fast-formation parameter set, the validated
+    marcher recovers one contiguous segment over the supported
+    band -- no NaN gaps in the middle even where the strict
+    marcher used to drop steps to single-step root hops."""
+    from fwap.cylindrical_solver import (
+        pseudo_rayleigh_dispersion, segments_from_kz_curve,
+    )
+
+    freq = np.linspace(30000.0, 80000.0, 60)
+    res = pseudo_rayleigh_dispersion(
+        freq, vp=PR_VP, vs=PR_VS, rho=PR_RHO,
+        vf=PR_VF, rho_f=PR_RHO_F, a=PR_A,
+    )
+    omega = 2.0 * np.pi * res.freq
+    kz = res.slowness * omega + 1j * res.attenuation_per_meter
+    segs = segments_from_kz_curve(res.freq, kz)
+    assert len(segs) == 1
+    assert len(segs[0]) == freq.size
+
