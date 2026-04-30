@@ -2523,6 +2523,144 @@ def _modal_determinant_n1(
     return float(np.linalg.det(M))
 
 
+def _modal_determinant_n1_complex(
+    kz: complex,
+    omega: float,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    *,
+    leaky_p: bool = False,
+    leaky_s: bool = False,
+) -> complex:
+    """
+    Complex-``k_z`` n=1 dipole modal determinant with optional
+    leaky-wave branches.
+
+    Mirrors the matrix structure of the real-valued
+    :func:`_modal_determinant_n1` (see its docstring for the full
+    Kurkjian-Chang derivation): four boundary conditions at
+    ``r = a`` (continuity of u_r in the cos sector, sigma_rr +
+    P = 0 in the cos sector, sigma_r_theta = 0 in the sin sector,
+    sigma_rz = 0 in the cos sector), four unknown amplitudes
+    (A in the fluid, B / C / D in the solid for the P / SV / SH
+    potentials), and the same row-4-by-i / column-C-by-(-i) phase
+    rescaling that makes the matrix real in the fully-bound
+    regime.
+
+    What's new:
+
+    * ``kz`` is complex. The radial wavenumbers F, p, s are
+      complex too.
+    * ``leaky_p`` / ``leaky_s`` flags select the K-Bessel (bound)
+      vs Hankel (leaky) evaluator for the formation P and S
+      waves; the fluid I-Bessel always uses ``iv`` (regular at
+      the borehole axis), with ``F`` complex handled
+      transparently by scipy.
+    * Returns a complex scalar. In the fully-bound regime
+      (real ``kz``, both ``leaky_*`` flags False) the imaginary
+      part is zero to floating-point precision and the real
+      part matches the real-only :func:`_modal_determinant_n1`
+      exactly -- a regression invariant tested in
+      ``tests/test_cylindrical_solver.py``.
+
+    Parameters
+    ----------
+    kz : complex
+        Axial wavenumber. May be complex.
+    omega, vp, vs, rho, vf, rho_f, a : float
+        Same as :func:`_modal_determinant_n1`.
+    leaky_p, leaky_s : bool, default False
+        Select the leaky branch (Hankel evaluator) for the
+        formation P and S waves. Use
+        :func:`_detect_leaky_branches` to set these from
+        ``(kz, omega)`` for typical regime-detection workflows.
+
+    Returns
+    -------
+    complex
+        ``det M(kz, omega)`` evaluated with the chosen branches.
+
+    See Also
+    --------
+    _modal_determinant_n1 : The real-valued bound-only counterpart.
+        The two functions agree exactly when ``kz`` is real and
+        both ``leaky_*`` flags are False.
+    _modal_determinant_n0_complex : The n=0 sister (Stoneley +
+        pseudo-Rayleigh).
+    """
+    kz_c = complex(kz)
+    F = np.sqrt(kz_c * kz_c - (omega / vf) ** 2)
+    p = np.sqrt(kz_c * kz_c - (omega / vp) ** 2)
+    s = np.sqrt(kz_c * kz_c - (omega / vs) ** 2)
+    Fa = F * a
+
+    # Fluid: I-Bessel always (regular at r=0). scipy.special.iv
+    # supports complex arguments transparently; for ``F^2 < 0``
+    # (fast-formation flexural regime, F purely imaginary)
+    # ``iv`` returns the J-Bessel-equivalent oscillatory pattern
+    # with the appropriate i^n phase, and the row/column
+    # rescaling below carries through that phase consistently.
+    I0Fa = complex(special.iv(0, Fa))
+    I1Fa = complex(special.iv(1, Fa))
+
+    # Formation P and S K-Bessel pairs (or Hankel via analytic
+    # continuation in the leaky regime).
+    K0pa, K1pa = _k_or_hankel(0, p, a, leaky=leaky_p)
+    K0sa, K1sa = _k_or_hankel(0, s, a, leaky=leaky_s)
+
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz_c * kz_c - kS2
+
+    # Same matrix layout as _modal_determinant_n1; entries are now
+    # complex but the structure is identical.
+
+    # Row 1: u_r^{(f)} - u_r^{(s)} = 0 at r = a (cos sector).
+    M11 = (F * I0Fa - I1Fa / a) / (rho_f * omega ** 2)
+    M12 = p * K0pa + K1pa / a
+    M13 = kz_c * K1sa
+    M14 = -K1sa / a
+
+    # Row 2: -(sigma_rr^{(s)} + P) = 0 at r = a (cos sector;
+    # row negated for visual parallel with the n=0 form).
+    M21 = -I1Fa
+    M22 = -mu * (
+        two_kz2_minus_kS2 * K1pa + 2.0 * p * K0pa / a + 4.0 * K1pa / (a * a)
+    )
+    M23 = -2.0 * kz_c * mu * (s * K0sa + K1sa / a)
+    M24 = 2.0 * mu * (s * K0sa / a + 2.0 * K1sa / (a * a))
+
+    # Row 3: sigma_r_theta^{(s)} = 0 at r = a (sin sector;
+    # fluid carries no shear, so M31 = 0).
+    M31 = 0.0 + 0j
+    M32 = 2.0 * mu * (p * K0pa / a + 2.0 * K1pa / (a * a))
+    M33 = kz_c * mu * K1sa / a
+    M34 = -mu * (s * s * K1sa + 2.0 * s * K0sa / a + 4.0 * K1sa / (a * a))
+
+    # Row 4: sigma_rz^{(s)} = 0 at r = a (cos sector). Same
+    # row-4-by-i / column-C-by-(-i) rescaling as the real
+    # version, applied after the K -> Hankel substitution above.
+    M41 = 0.0 + 0j
+    M42 = 2.0 * kz_c * mu * (p * K0pa + K1pa / a)
+    M43 = mu * two_kz2_minus_kS2 * K1sa
+    M44 = -kz_c * mu * K1sa / a
+
+    M = np.array(
+        [
+            [M11, M12, M13, M14],
+            [M21, M22, M23, M24],
+            [M31, M32, M33, M34],
+            [M41, M42, M43, M44],
+        ],
+        dtype=complex,
+    )
+    return complex(np.linalg.det(M))
+
+
 # ---------------------------------------------------------------------
 # Flexural dispersion: track the lowest n=1 root across frequency
 # ---------------------------------------------------------------------
@@ -2563,6 +2701,129 @@ def _flexural_kz_bracket(
     return kz_lo, kz_hi
 
 
+def _flexural_dispersion_fast_formation(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> BoreholeMode:
+    r"""
+    Fast-formation (``V_S > V_f``) flexural dispersion.
+
+    Tracks the lowest n=1 root in the slowness window
+    ``(1/V_S, 1/V_R)`` -- equivalently, phase velocity in
+    ``(V_R, V_S)``. In this regime ``F^2 = k_z^2 - (omega/V_f)^2 < 0``
+    so the fluid radial wavenumber is purely imaginary and the
+    fluid pressure is oscillatory in ``r``; the formation P and S
+    branches stay bound (``p^2, s^2 > 0``), so the converged root
+    has ``Im(k_z) = 0`` to floating-point precision and the mode
+    is genuinely bound rather than truly leaky.
+
+    The complex modal determinant
+    :func:`_modal_determinant_n1_complex` evaluated at real ``k_z``
+    is overwhelmingly imaginary in this regime (the real part is
+    suppressed by ~10 orders of magnitude relative to the
+    imaginary part), so the root condition reduces to
+    ``Im(det) = 0`` and :func:`scipy.optimize.brentq` along the
+    real ``k_z`` axis is the natural tool. Bracket: ``k_z`` in
+    ``(omega/V_S * (1 + eps), omega/V_R * (1 - eps))`` -- strictly
+    inside the leaky-F regime to keep ``F^2 < 0`` and to avoid the
+    numerical degeneracy at ``k_z = omega/V_S`` (where ``s = 0``).
+    """
+    from fwap.cylindrical import rayleigh_speed
+
+    f_arr = np.asarray(freq, dtype=float)
+    n_f = f_arr.size
+    slowness = np.full(n_f, np.nan, dtype=float)
+    if n_f == 0:
+        return BoreholeMode(
+            name="flexural", azimuthal_order=1,
+            freq=f_arr, slowness=slowness,
+        )
+
+    vR = rayleigh_speed(vp, vs)
+    eps = 1.0e-4
+
+    def _im_det(kz: float, _omega: float) -> float:
+        return _modal_determinant_n1_complex(
+            complex(kz, 0.0), _omega, vp, vs, rho, vf, rho_f, a,
+            leaky_p=False, leaky_s=False,
+        ).imag
+
+    def _find_root_in_bracket(
+        kz_lo: float, kz_hi: float, omega: float,
+    ) -> float | None:
+        """brentq on Im(det) within the given bracket; returns
+        ``None`` if the bracket has no sign change or evaluation
+        fails."""
+        try:
+            d_lo = _im_det(kz_lo, omega)
+            d_hi = _im_det(kz_hi, omega)
+            if not (np.isfinite(d_lo) and np.isfinite(d_hi)):
+                return None
+            if np.sign(d_lo) == np.sign(d_hi):
+                return None
+            return float(optimize.brentq(
+                _im_det, kz_lo, kz_hi, args=(omega,), xtol=1.0e-10,
+            ))
+        except (ValueError, RuntimeError):
+            return None
+
+    # Walk high to low frequency. At each step, try a narrow
+    # bracket centred on the previous step's slowness first; if
+    # that fails, fall back to the wide ``(1/V_S, 1/V_R)`` bracket.
+    # This continuation strategy keeps the marcher on the same
+    # physical branch even when the determinant has multiple
+    # competing roots in the wide bracket.
+    order_desc = np.argsort(-f_arr)
+    f_desc = f_arr[order_desc]
+    slowness_desc = np.full(f_desc.size, np.nan, dtype=float)
+    slowness_prev: float | None = None
+
+    for i, f in enumerate(f_desc):
+        omega = 2.0 * np.pi * float(f)
+        kz_root: float | None = None
+
+        # Continuation bracket: previous slowness +- 2 % (a wide
+        # neighbourhood since fast-flexural slowness is nearly flat
+        # vs frequency, ~ V_R asymptote).
+        if slowness_prev is not None:
+            kz_centre = slowness_prev * omega
+            kz_lo = max(kz_centre * 0.98, omega / vs * (1.0 + eps))
+            kz_hi = min(kz_centre * 1.02, omega / vR * (1.0 - eps))
+            if kz_hi > kz_lo:
+                kz_root = _find_root_in_bracket(kz_lo, kz_hi, omega)
+
+        # Fall back to the wide bracket if continuation fails.
+        if kz_root is None:
+            kz_lo = omega / vs * (1.0 + eps)
+            kz_hi = omega / vR * (1.0 - eps)
+            if kz_hi > kz_lo:
+                kz_root = _find_root_in_bracket(kz_lo, kz_hi, omega)
+
+        if kz_root is None:
+            logger.debug(
+                "_flexural_dispersion_fast_formation: no Im(det) "
+                "sign change at f=%.1f Hz; mode likely outside "
+                "supported band", f,
+            )
+            continue
+
+        slowness_desc[i] = kz_root / omega
+        slowness_prev = slowness_desc[i]
+
+    slowness[order_desc] = slowness_desc
+
+    return BoreholeMode(
+        name="flexural", azimuthal_order=1,
+        freq=f_arr, slowness=slowness,
+    )
+
+
 def flexural_dispersion(
     freq: np.ndarray,
     *,
@@ -2577,12 +2838,26 @@ def flexural_dispersion(
     Dipole flexural-wave phase slowness vs frequency from the n=1
     isotropic-elastic modal determinant (Schmitt 1988).
 
-    Tracks the lowest-:math:`k_z` zero of the n=1 4x4 modal
-    determinant across the supplied frequency grid. At each
-    frequency the bound regime is :math:`k_z > \omega/V_S`; a
-    bracketing search seeded just above ``omega / V_S`` and
-    extending past the vacuum-loaded Rayleigh asymptote
-    refines the root via :func:`scipy.optimize.brentq`.
+    Auto-dispatches on the formation type:
+
+    * **Slow formation** (``V_S < V_f``): bound mode in the slowness
+      window ``(1/V_S, ~1/V_R)`` (phase velocity in ``(V_R, V_S)``,
+      well below ``V_f``). All radial wavenumbers ``F``, ``p``,
+      ``s`` are real positive and the real-valued
+      :func:`_modal_determinant_n1` is brentq'd directly.
+
+    * **Fast formation** (``V_S > V_f``): bound mode in the same
+      slowness window ``(1/V_S, 1/V_R)``, now with phase velocity
+      *above* ``V_f``. The fluid radial wavenumber becomes purely
+      imaginary (``F^2 < 0``); the formation P / S radial
+      wavenumbers stay real positive. Dispatched to
+      :func:`_flexural_dispersion_fast_formation`, which uses the
+      complex-aware :func:`_modal_determinant_n1_complex` and
+      brentq's its imaginary part along the real ``k_z`` axis
+      (the real part is suppressed by ~10 orders of magnitude).
+
+    In both regimes the converged ``k_z`` is real and the
+    ``BoreholeMode.attenuation_per_meter`` field is ``None``.
 
     Parameters
     ----------
@@ -2603,25 +2878,19 @@ def flexural_dispersion(
         ``name = "flexural"``, ``azimuthal_order = 1``, with
         ``freq`` echoed and ``slowness[i]`` the phase slowness
         ``k_z(omega[i]) / omega[i]``. ``NaN`` at any frequency
-        where the bracket failed; two physically distinct cases:
+        where the bracket failed -- typically below the geometric
+        cutoff (``f < V_S / (2 pi a)``) where no bound flexural
+        root exists.
 
-        1. **Fast formation** (``V_S > V_f``): the flexural mode
-           has phase velocity above ``V_f``, putting it in the
-           narrowly-leaky regime that needs outgoing-wave Hankel
-           BCs. All frequencies return NaN.
-
-        2. **Below the geometric cutoff** in a slow formation
-           (typically ``f < V_S / (2 pi a)``): no propagating
-           bound flexural mode exists at low f; the determinant
-           has the same sign throughout the bound bracket and
-           no root is found. NaN returned for those frequencies
-           individually.
-
-        Above the cutoff in a slow formation, the slowness is
-        well-defined and approaches ``1 / V_S`` from above as
-        ``f -> cutoff^+`` (substep-1.6.b asymptote) and tapers
-        toward slightly above ``1 / V_R`` at high f (Scholte /
-        fluid-loading offset; substep-1.6.c-d).
+        Above the cutoff the slowness approaches ``1 / V_S`` from
+        above as ``f -> cutoff^+`` (substep-1.6.b asymptote) and
+        tapers toward slightly above ``1 / V_R`` at high f
+        (Scholte / fluid-loading offset; substep-1.6.c-d). The
+        fast- and slow-formation branches share this asymptotic
+        layout; the only practical difference is which determinant
+        evaluator is used internally
+        (:func:`_modal_determinant_n1` for slow,
+        :func:`_modal_determinant_n1_complex` for fast).
 
     Raises
     ------
@@ -2631,19 +2900,22 @@ def flexural_dispersion(
 
     Notes
     -----
-    For fast formations (``V_S > V_f``), the flexural mode has
-    phase velocity between ``V_R`` and ``V_S``, both above
-    ``V_f``. The fluid-side radial wavenumber
-    :math:`F = \sqrt{k_z^2 - (\omega/V_f)^2}` becomes imaginary,
-    putting the mode in the narrowly-leaky regime that needs
-    outgoing-wave (Hankel) boundary conditions and complex-
-    :math:`k_z` Mueller iteration -- the same extension pattern
-    that turns the n=0 Stoneley solver into a leaky pseudo-
-    Rayleigh solver. ``flexural_dispersion`` returns NaN for
-    such frequencies; callers that need the high-f flexural
-    branch in fast formations should fall back to
-    :func:`fwap.cylindrical.flexural_dispersion_physical` for
-    the phenomenological smoothed-step model.
+    Plan item B in ``docs/plans/cylindrical_biot.md`` reuses the
+    bound-regime brentq scaffolding for the fast-formation case
+    via the complex modal determinant. The "fast-formation
+    flexural is leaky and needs complex-k_z Mueller iteration"
+    framing in earlier comments turned out to be over-stated for
+    the canonical mode in the ``(V_R, V_S)`` velocity window:
+    when the formation P / S branches are bound, the fast-
+    formation root is also bound (real ``k_z``, ``Im(k_z) = 0``
+    to floating-point precision), and the only difference from
+    the slow-formation case is that the modal determinant picks
+    up an overall ``i^k`` phase from ``F^2 < 0`` -- handled by
+    brentq'ing the imaginary part of
+    :func:`_modal_determinant_n1_complex`. Truly leaky n=1 modes
+    with non-trivial ``Im(k_z) > 0`` (e.g., higher-order leaky
+    flexural, fast-formation pseudo-flexural) need the complex
+    marcher and are out of scope for this routine.
 
     References
     ----------
@@ -2663,6 +2935,13 @@ def flexural_dispersion(
     f_arr = np.asarray(freq, dtype=float)
     if np.any(f_arr <= 0):
         raise ValueError("freq must be strictly positive")
+
+    if vs > vf:
+        # Fast formation: F^2 < 0, dispatch to complex-determinant
+        # path with brentq on Im(det) along the real-kz axis.
+        return _flexural_dispersion_fast_formation(
+            f_arr, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        )
 
     slowness = np.full_like(f_arr, np.nan, dtype=float)
     for i, f in enumerate(f_arr):
@@ -3272,6 +3551,283 @@ def _march_complex_dispersion(
 
 
 # ---------------------------------------------------------------------
+# Cutoff handling + branch tracker (plan item C in
+# docs/plans/cylindrical_biot.md). The naive marcher above stops at
+# the first convergence failure; the validated marcher below
+# distinguishes "the converged root is in a different physical
+# regime" (regime exit) from "the root finder failed altogether"
+# (convergence failure), and tolerates a small budget of consecutive
+# bad steps before giving up. Together with :class:`BranchSegment`
+# and :func:`segments_from_kz_curve` this lets a public dispersion
+# API recover from one-off branch hops and report the contiguous
+# stretches where the mode was physically present.
+# ---------------------------------------------------------------------
+
+
+def _classify_marcher_step(
+    kz_root: complex | None,
+    omega: float,
+    validator,
+) -> str:
+    """
+    Classify a single marcher step as ``"ok"``, ``"regime_exit"``,
+    or ``"convergence_failure"``.
+
+    Parameters
+    ----------
+    kz_root : complex or None
+        Output of :func:`_track_complex_root`; ``None`` means
+        the underlying root finder did not converge.
+    omega : float
+        Angular frequency of the step (passed through to
+        ``validator``).
+    validator : callable or None
+        ``(kz: complex, omega: float) -> bool``. ``True`` means the
+        converged ``kz`` lies in the regime the caller wants to
+        track. ``None`` disables regime checking (every converged
+        root is accepted).
+
+    Returns
+    -------
+    str
+        One of:
+
+        * ``"ok"`` -- ``kz_root`` is a converged complex value and
+          (if a validator was given) it accepted the root.
+        * ``"regime_exit"`` -- ``kz_root`` converged but the
+          validator rejected it. Typical causes are crossing a
+          cutoff into a regime that needs different leaky flags,
+          or the root finder hopping to a neighbouring mode.
+        * ``"convergence_failure"`` -- ``kz_root`` is ``None``.
+
+    Notes
+    -----
+    The classifier is intentionally narrower than what the original
+    plan called out: a "branch flipped" verdict (re-detect leaky
+    flags via :func:`_detect_leaky_branches` and retry) would
+    require the marcher to rebuild ``det_fn`` mid-march, which is
+    structurally heavier than the validator-callback design here.
+    For modes whose flag pattern is fixed across the whole band of
+    interest (Stoneley, pseudo-Rayleigh, slow-formation flexural)
+    the validator-callback version covers the same ground; for
+    modes that flip flags at a cutoff (fast-formation flexural,
+    plan item B) the marcher can be re-driven from the cutoff with
+    fresh flags and a fresh seed -- a public-API responsibility,
+    not a marcher one.
+    """
+    if kz_root is None:
+        return "convergence_failure"
+    if validator is None:
+        return "ok"
+    try:
+        ok = bool(validator(kz_root, omega))
+    except (ValueError, ArithmeticError):
+        return "regime_exit"
+    return "ok" if ok else "regime_exit"
+
+
+@dataclass
+class BranchSegment:
+    """
+    Contiguous stretch of finite samples in a dispersion curve.
+
+    A :class:`BoreholeMode` may contain multiple physical segments
+    separated by NaN gaps where the underlying mode does not exist
+    (e.g., below a geometric cutoff) or where the marcher rejected
+    a step. :class:`BranchSegment` represents one such contiguous
+    stretch.
+
+    Attributes
+    ----------
+    start_idx : int
+        Index of the first sample of the segment in the original
+        frequency grid (inclusive).
+    end_idx : int
+        Index of the last sample of the segment in the original
+        frequency grid (inclusive). For a single-sample segment,
+        ``end_idx == start_idx``.
+    freq : ndarray, shape (n,)
+        Frequencies in this segment, copied (or sliced) from the
+        original frequency grid in the same order.
+    kz : ndarray, shape (n,) complex
+        Complex axial wavenumbers at each frequency in the
+        segment.
+
+    See Also
+    --------
+    segments_from_kz_curve : Build a list of segments from a marcher
+        output.
+    """
+
+    start_idx: int
+    end_idx: int
+    freq: np.ndarray
+    kz: np.ndarray
+
+    def __len__(self) -> int:
+        return int(self.end_idx - self.start_idx + 1)
+
+
+def segments_from_kz_curve(
+    freq_grid: np.ndarray,
+    kz_curve: np.ndarray,
+) -> list[BranchSegment]:
+    """
+    Split a marcher output into contiguous :class:`BranchSegment`s.
+
+    A "segment" is a maximal run of samples for which both
+    ``Re(kz_curve[i])`` and ``Im(kz_curve[i])`` are finite. Pure-
+    NaN samples (the marcher's ``"this step was rejected"``
+    sentinel) split segments.
+
+    Parameters
+    ----------
+    freq_grid : ndarray, shape (n_f,)
+        Frequencies in the original input order.
+    kz_curve : ndarray, shape (n_f,) complex
+        Complex axial wavenumbers, one per frequency. NaN+NaNj at
+        rejected / failed steps.
+
+    Returns
+    -------
+    list of BranchSegment
+        Empty list if no finite samples exist. Otherwise one entry
+        per maximal run of finite samples, preserving input order.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> f = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    >>> nan = np.nan + 1j * np.nan
+    >>> kz = np.array([1.0+0j, 2.0+0j, nan, 4.0+0j, 5.0+0j])
+    >>> segs = segments_from_kz_curve(f, kz)
+    >>> len(segs)
+    2
+    >>> segs[0].start_idx, segs[0].end_idx
+    (0, 1)
+    >>> segs[1].start_idx, segs[1].end_idx
+    (3, 4)
+    """
+    f_arr = np.asarray(freq_grid)
+    kz_arr = np.asarray(kz_curve, dtype=complex)
+    if f_arr.size != kz_arr.size:
+        raise ValueError(
+            f"freq_grid and kz_curve must have the same length; "
+            f"got {f_arr.size} and {kz_arr.size}"
+        )
+    finite = np.isfinite(kz_arr.real) & np.isfinite(kz_arr.imag)
+    segments: list[BranchSegment] = []
+    n = f_arr.size
+    i = 0
+    while i < n:
+        if not finite[i]:
+            i += 1
+            continue
+        j = i
+        while j + 1 < n and finite[j + 1]:
+            j += 1
+        segments.append(
+            BranchSegment(
+                start_idx=int(i),
+                end_idx=int(j),
+                freq=f_arr[i:j + 1].copy(),
+                kz=kz_arr[i:j + 1].copy(),
+            )
+        )
+        i = j + 1
+    return segments
+
+
+def _march_complex_dispersion_validated(
+    det_fn,
+    freq_grid: np.ndarray,
+    kz_start: complex,
+    *,
+    validator=None,
+    max_consecutive_invalid: int = 3,
+    xtol: float = 1.0e-12,
+) -> np.ndarray:
+    r"""
+    :func:`_march_complex_dispersion` plus a per-step validator and a
+    consecutive-invalid budget for tolerating one-off bad steps.
+
+    Each step's converged ``kz`` is classified by
+    :func:`_classify_marcher_step`. ``"ok"`` steps are recorded and
+    used as the seed for the next step's continuation; ``"regime_exit"``
+    and ``"convergence_failure"`` steps are recorded as NaN+NaNj
+    and counted against ``max_consecutive_invalid``. As long as the
+    invalid count stays below the budget, marching continues with
+    the seed pinned to the last good step. Once the budget is
+    exhausted, the marcher stops and the rest of the curve stays
+    NaN.
+
+    Parameters
+    ----------
+    det_fn : callable
+        ``det_fn(kz: complex, omega: float) -> complex``.
+    freq_grid : ndarray, shape (n_f,)
+        Frequency grid (Hz) walked in the order given.
+    kz_start : complex
+        Initial seed for the first frequency.
+    validator : callable or None, optional
+        ``(kz: complex, omega: float) -> bool``. Returns ``True``
+        when the converged root sits in the regime the caller
+        wants to track. ``None`` (default) accepts every converged
+        root.
+    max_consecutive_invalid : int, default 3
+        Number of consecutive non-``"ok"`` steps the marcher will
+        skip past before stopping. Setting this to ``0`` recovers
+        the strict-stop semantics of
+        :func:`_march_complex_dispersion`.
+    xtol : float, default 1e-12
+        Per-step ``scipy.optimize.root`` parameter-space tolerance.
+
+    Returns
+    -------
+    ndarray, shape (n_f,) complex
+        Complex ``k_z`` at each frequency, NaN+NaNj at every
+        rejected step (validator failure, root-finder failure, or
+        post-budget tail).
+    """
+    f_arr = np.asarray(freq_grid, dtype=float)
+    n = f_arr.size
+    kz_curve = np.full(n, np.nan + 1j * np.nan, dtype=complex)
+    if n == 0:
+        return kz_curve
+    kz_prev = complex(kz_start)
+    omega_prev: float | None = None
+    consecutive_invalid = 0
+    for i in range(n):
+        omega = 2.0 * np.pi * float(f_arr[i])
+        if omega_prev is None:
+            kz_seed = kz_prev
+        else:
+            kz_seed = kz_prev * (omega / omega_prev)
+        det_at_omega = (lambda kz, _omega=omega:  # noqa: E731
+                        det_fn(kz, _omega))
+        kz_root = _track_complex_root(det_at_omega, kz_seed, xtol=xtol)
+        verdict = _classify_marcher_step(kz_root, omega, validator)
+        if verdict == "ok":
+            kz_curve[i] = kz_root
+            kz_prev = kz_root  # type: ignore[assignment]
+            omega_prev = omega
+            consecutive_invalid = 0
+            continue
+        # Rejected step: leave NaN, do not update kz_prev / omega_prev
+        # so the next step still extrapolates from the last good one.
+        consecutive_invalid += 1
+        logger.debug(
+            "_march_complex_dispersion_validated: step %d/%d at f=%.1f "
+            "Hz rejected (%s, consecutive=%d/%d)",
+            i, n, omega / (2.0 * np.pi), verdict,
+            consecutive_invalid, max_consecutive_invalid,
+        )
+        if consecutive_invalid > max_consecutive_invalid:
+            break
+    return kz_curve
+
+
+# ---------------------------------------------------------------------
 # L4 -- Public n=0 leaky API: pseudo-Rayleigh dispersion.
 # ---------------------------------------------------------------------
 #
@@ -3441,8 +3997,7 @@ def pseudo_rayleigh_dispersion(
         )
 
     # Sort frequencies descending. The marcher seeds from the
-    # analytic high-f asymptote (slowness -> 1/V_S from below) and
-    # walks toward the cutoff.
+    # high-f asymptote and walks toward the cutoff.
     order_desc = np.argsort(-f_arr)
     f_desc = f_arr[order_desc]
 
@@ -3457,59 +4012,52 @@ def pseudo_rayleigh_dispersion(
     # regime. The 5% offset is well-tested empirically against
     # standard fast-formation parameters (V_S/V_f ~ 2).
     omega_max = 2.0 * np.pi * float(f_desc[0])
-    kz_prev = complex(
+    kz_seed = complex(
         omega_max / vs * 0.95,
         omega_max / vs * 5.0e-3,
     )
-    omega_prev: float | None = None
 
     # Valid leaky-S regime in slowness terms: open interval
-    # (1/V_P, 1/V_S). Allow a small numerical slack on the upper
-    # boundary so a converged k_z exactly at omega/V_S (numerical
-    # boundary case) is still accepted.
+    # (1/V_P, 1/V_S), with a small upper-side numerical slack so
+    # a converged kz exactly at omega/V_S (boundary case) is still
+    # accepted. The validated marcher (plan item C) uses this
+    # callable per step; a step whose converged root falls outside
+    # the regime is rejected as "regime_exit", left as NaN, and
+    # the marcher continues from the last good step within the
+    # consecutive-invalid budget.
     slowness_lo = 1.0 / vp
     slowness_hi = 1.0 / vs
     slowness_slack = 1.0e-6 * slowness_hi
 
-    slowness_desc = np.full(f_desc.size, np.nan, dtype=float)
-    attenuation_desc = np.full(f_desc.size, np.nan, dtype=float)
+    def _validator(kz: complex, omega_step: float) -> bool:
+        if kz.imag <= 0.0:
+            return False
+        s = kz.real / omega_step
+        return slowness_lo < s < slowness_hi + slowness_slack
 
-    for i, f in enumerate(f_desc):
-        omega = 2.0 * np.pi * float(f)
-        if omega_prev is None:
-            kz_seed = kz_prev
-        else:
-            # Constant-slowness extrapolation: kz scales linearly
-            # with omega for any smooth dispersion law.
-            kz_seed = kz_prev * (omega / omega_prev)
+    def _det(kz: complex, omega_step: float) -> complex:
+        return _modal_determinant_n0_complex(
+            kz, omega_step, vp, vs, rho, vf, rho_f, a,
+            leaky_p=False, leaky_s=True,
+        )
 
-        def _det(kz: complex, _omega: float = omega) -> complex:
-            return _modal_determinant_n0_complex(
-                kz, _omega, vp, vs, rho, vf, rho_f, a,
-                leaky_p=False, leaky_s=True,
-            )
+    kz_curve_desc = _march_complex_dispersion_validated(
+        _det,
+        f_desc,
+        kz_seed,
+        validator=_validator,
+        max_consecutive_invalid=3,
+    )
 
-        kz_root = _track_complex_root(_det, kz_seed)
-        if kz_root is None:
-            # Convergence failure: typically the geometric cutoff.
-            # Stop walking; remaining low-f samples stay NaN.
-            break
-        if kz_root.imag <= 0.0:
-            # Mode merged with the bound regime, or the marcher
-            # drifted to an unphysical (growing) root. Either way
-            # the leaky branch ends here.
-            break
-        s_re = kz_root.real / omega
-        if not (slowness_lo < s_re < slowness_hi + slowness_slack):
-            # Marcher hopped to a different physical regime
-            # (slowness above 1/V_S = bound; below 1/V_P = both
-            # branches leaky). Treat as end-of-mode.
-            break
-
-        slowness_desc[i] = s_re
-        attenuation_desc[i] = kz_root.imag
-        kz_prev = kz_root
-        omega_prev = omega
+    omega_desc = 2.0 * np.pi * f_desc
+    with np.errstate(invalid='ignore'):
+        slowness_desc = kz_curve_desc.real / omega_desc
+    attenuation_desc = kz_curve_desc.imag
+    finite_desc = np.isfinite(kz_curve_desc.real) & np.isfinite(
+        kz_curve_desc.imag
+    )
+    slowness_desc = np.where(finite_desc, slowness_desc, np.nan)
+    attenuation_desc = np.where(finite_desc, attenuation_desc, np.nan)
 
     slowness[order_desc] = slowness_desc
     attenuation[order_desc] = attenuation_desc
@@ -3520,5 +4068,626 @@ def pseudo_rayleigh_dispersion(
         freq=f_arr,
         slowness=slowness,
         attenuation_per_meter=attenuation,
+    )
+
+
+# =====================================================================
+# n = 2 quadrupole modal determinant (plan item D)
+# =====================================================================
+#
+# General-n extension of the n = 0 / n = 1 derivations. The
+# Helmholtz-decomposition machinery, gauge choice, and BC structure
+# are identical to n = 1 (substep blocks 1.1 - 1.6 above); the only
+# thing that changes is which (n-1, n) Bessel pair appears in each
+# entry and which factors of ``n`` come out of the
+# ``d_theta cos(n theta) = -n sin(n theta)`` step.
+#
+# Generalisation rules used to build the entries below (verified by
+# specialising to n = 1 and matching the existing
+# :func:`_modal_determinant_n1` line by line):
+#
+# * Wherever the n = 1 form has ``I_0 / I_1``, the general form has
+#   ``I_{n-1} / I_n``; same for ``K_0 / K_1 -> K_{n-1} / K_n``.
+# * Each azimuthal-derivative factor of 1 in the n = 1 form
+#   generalises to ``n`` (e.g., the ``- K_1(sa)/a`` in M14 becomes
+#   ``- n K_n(sa)/a`` at general n).
+# * Each ``2 K_1(pa)/a^2`` "1/r^2 correction" in M22 / M32 / M34
+#   generalises via the ``K_{n-2}(pa) -> K_n(pa) - 2(n-1) K_{n-1}(pa)/(pa)``
+#   recurrence to a clean ``2 n(n+1) K_n(.)/a^2`` form (the
+#   ``K_{n-2}`` cancels against an offsetting term in the
+#   ``2(n-1)`` recurrence coefficient and leaves only ``K_n / K_{n-1}``
+#   evaluations).
+# * The sigma_rz C-coefficient picks up an ``(n^2 - 1)/a^2``
+#   correction at general n (zero at n = 1, finite at n >= 2)
+#   from the new ``(1 - n) / r * K_n(sr)`` term in u_z that vanishes
+#   for the dipole case but contributes for the quadrupole.
+#
+# Specialised to n = 2: K_{n-1} = K_1, K_n = K_2, I_{n-1} = I_1,
+# I_n = I_2; the ``n(n+1) = 6`` and ``n^2 - 1 = 3`` factors that
+# appear repeatedly below come out of those rules.
+#
+# The whole module-docstring sign convention (time dependence
+# ``e^{-i omega t}``, ``e^{i k_z z}``, ``e^{i n theta}``) and the
+# row-4-by-i / column-C-by-(-i) phase rescaling that makes the
+# bound-regime matrix purely real are unchanged from n = 1; the
+# entries below are already in the real form.
+
+
+def _modal_determinant_n2(
+    kz: float,
+    omega: float,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> float:
+    r"""
+    4x4 quadrupole (n = 2) modal determinant in the bound-mode
+    regime.
+
+    Same boundary-condition layout, gauge choice, and row-4 / column-C
+    phase rescaling as :func:`_modal_determinant_n1`; the entries
+    differ only in the Bessel-function index pair ``(K_{n-1}, K_n) =
+    (K_1, K_2)`` and the explicit ``n = 2`` factors that come out of
+    the ``d_theta cos(n theta) = -n sin(n theta)`` step.
+
+    Field representation (bound regime, ``cos(2 theta)`` and
+    ``sin(2 theta)`` sectors):
+
+    * Fluid pressure:  :math:`P = A I_2(F r) \cos(2 \theta)`,
+      :math:`F = \sqrt{k_z^2 - \omega^2 / V_f^2}`.
+    * Formation P scalar potential:
+      :math:`\phi = B K_2(p r) \cos(2 \theta)`,
+      :math:`p = \sqrt{k_z^2 - \omega^2 / V_P^2}`.
+    * Formation SV vector-potential, theta component:
+      :math:`\psi_\theta = C K_2(s r) \cos(2 \theta)`,
+      :math:`s = \sqrt{k_z^2 - \omega^2 / V_S^2}`.
+    * Formation SH vector-potential, z component:
+      :math:`\psi_z = D K_2(s r) \sin(2 \theta)`.
+
+    Matrix entries (post-rescaling, all real when ``kz, F, p, s``
+    are all real positive):
+
+    Row 1 (BC1, ``u_r^{(f)} - u_r^{(s)} = 0``, cos(2 theta) sector):
+        ``[ (F I_1(Fa) - 2 I_2(Fa) / a) / (rho_f omega^2),
+            p K_1(pa) + 2 K_2(pa) / a,
+            kz K_2(sa),
+            -2 K_2(sa) / a ]``
+
+    Row 2 (BC2, ``-(sigma_rr^{(s)} + P) = 0``, cos(2 theta) sector,
+    row negated for visual parallel with the n = 0 / n = 1 forms):
+        ``[ -I_2(Fa),
+            -mu * [(2 kz^2 - kS^2) K_2(pa) + 2 p K_1(pa)/a + 12 K_2(pa)/a^2],
+            -2 mu kz * [s K_1(sa) + 2 K_2(sa)/a],
+            +4 mu * [s K_1(sa)/a + 3 K_2(sa)/a^2] ]``
+
+    Row 3 (BC3, ``sigma_r_theta^{(s)} = 0``, sin(2 theta) sector):
+        ``[ 0,
+            +4 mu * [p K_1(pa)/a + 3 K_2(pa)/a^2],
+            +2 mu kz K_2(sa)/a,
+            -mu * [(s^2 + 12/a^2) K_2(sa) + 2 s K_1(sa)/a] ]``
+
+    Row 4 (BC4, ``sigma_rz^{(s)} = 0``, cos(2 theta) sector,
+    after row-4-by-i / column-C-by-(-i) rescale):
+        ``[ 0,
+            +2 mu kz * [p K_1(pa) + 2 K_2(pa)/a],
+            +mu * [(2 kz^2 - kS^2) + 3/a^2] K_2(sa),
+            -2 mu kz K_2(sa)/a ]``
+
+    Where ``Fa = F a, pa = p a, sa = s a, mu = rho V_S^2,
+    kS = omega / V_S``. The ``12 = 2 n(n+1)`` and ``3 = n^2 - 1``
+    factors with ``n = 2`` are the only structural differences
+    from the n = 1 form in :func:`_modal_determinant_n1`; the
+    Bessel-index shift ``(K_0, K_1) -> (K_1, K_2)`` accounts for
+    everything else.
+
+    See Also
+    --------
+    _modal_determinant_n0 : The n = 0 axisymmetric (Stoneley)
+        counterpart (3x3).
+    _modal_determinant_n1 : The n = 1 dipole counterpart.
+
+    References
+    ----------
+    * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
+      Acoustic Methods.* Elsevier, sect. 2.5 (LWD quadrupole
+      modal determinant).
+    * Kurkjian, A. L., & Chang, S.-K. (1986). Acoustic multipole
+      sources in fluid-filled boreholes. *Geophysics* 51(1),
+      148-163 (general-n derivation, equations 8 and 9).
+    """
+    F = np.sqrt(kz * kz - (omega / vf) ** 2)
+    p = np.sqrt(kz * kz - (omega / vp) ** 2)
+    s = np.sqrt(kz * kz - (omega / vs) ** 2)
+    Fa, pa, sa = F * a, p * a, s * a
+
+    I1Fa = float(special.iv(1, Fa))
+    I2Fa = float(special.iv(2, Fa))
+    K1pa = float(special.kv(1, pa))
+    K2pa = float(special.kv(2, pa))
+    K1sa = float(special.kv(1, sa))
+    K2sa = float(special.kv(2, sa))
+
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    # Row 1: u_r^{(f)} - u_r^{(s)} = 0 at r = a (cos(2 theta) sector).
+    M11 = (F * I1Fa - 2.0 * I2Fa / a) / (rho_f * omega ** 2)
+    M12 = p * K1pa + 2.0 * K2pa / a
+    M13 = kz * K2sa
+    M14 = -2.0 * K2sa / a
+
+    # Row 2: -(sigma_rr^{(s)} + P) = 0 at r = a (cos(2 theta) sector;
+    # row negated for visual parallel with the n = 0 / n = 1 forms).
+    M21 = -I2Fa
+    M22 = -mu * (
+        two_kz2_minus_kS2 * K2pa + 2.0 * p * K1pa / a + 12.0 * K2pa / (a * a)
+    )
+    M23 = -2.0 * kz * mu * (s * K1sa + 2.0 * K2sa / a)
+    M24 = 4.0 * mu * (s * K1sa / a + 3.0 * K2sa / (a * a))
+
+    # Row 3: sigma_r_theta^{(s)} = 0 at r = a (sin(2 theta) sector;
+    # fluid carries no shear, so M31 = 0).
+    M31 = 0.0
+    M32 = 4.0 * mu * (p * K1pa / a + 3.0 * K2pa / (a * a))
+    M33 = 2.0 * kz * mu * K2sa / a
+    M34 = -mu * (
+        (s * s + 12.0 / (a * a)) * K2sa + 2.0 * s * K1sa / a
+    )
+
+    # Row 4: sigma_rz^{(s)} = 0 at r = a (cos(2 theta) sector; M41 = 0
+    # for the same fluid-no-shear reason). Entries below are the
+    # post-rescaling form: row 4 multiplied by i and column C
+    # (= column 3 here) by -i, leaving a real matrix.
+    M41 = 0.0
+    M42 = 2.0 * kz * mu * (p * K1pa + 2.0 * K2pa / a)
+    M43 = mu * (two_kz2_minus_kS2 + 3.0 / (a * a)) * K2sa
+    M44 = -2.0 * kz * mu * K2sa / a
+
+    M = np.array(
+        [
+            [M11, M12, M13, M14],
+            [M21, M22, M23, M24],
+            [M31, M32, M33, M34],
+            [M41, M42, M43, M44],
+        ],
+        dtype=float,
+    )
+    return float(np.linalg.det(M))
+
+
+def _modal_determinant_n2_complex(
+    kz: complex,
+    omega: float,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    *,
+    leaky_p: bool = False,
+    leaky_s: bool = False,
+) -> complex:
+    """
+    Complex-``k_z`` n=2 quadrupole modal determinant with optional
+    leaky-wave branches.
+
+    Mirrors the matrix structure of the real-valued
+    :func:`_modal_determinant_n2` (see its docstring for the full
+    set of entries): four boundary conditions at ``r = a`` in the
+    cos(2 theta) / sin(2 theta) sectors, four unknown amplitudes
+    (A in the fluid, B / C / D in the solid for the P / SV / SH
+    potentials), and the same row-4-by-i / column-C-by-(-i) phase
+    rescaling that makes the matrix real in the fully-bound regime.
+
+    What's new (relative to the real version):
+
+    * ``kz`` is complex. The radial wavenumbers F, p, s are
+      complex too.
+    * ``leaky_p`` / ``leaky_s`` flags select the K-Bessel (bound)
+      vs Hankel (leaky) evaluator for the formation P and S
+      waves; the fluid I-Bessel always uses ``iv`` (regular at
+      the borehole axis), with ``F`` complex handled
+      transparently by scipy.
+    * Returns a complex scalar. In the fully-bound regime
+      (real ``kz``, both ``leaky_*`` flags False) the imaginary
+      part is zero to floating-point precision and the real
+      part matches the real-only :func:`_modal_determinant_n2`
+      exactly -- the regression invariant.
+
+    Parameters
+    ----------
+    kz : complex
+        Axial wavenumber. May be complex.
+    omega, vp, vs, rho, vf, rho_f, a : float
+        Same as :func:`_modal_determinant_n2`.
+    leaky_p, leaky_s : bool, default False
+        Select the leaky branch (Hankel evaluator) for the
+        formation P and S waves. Use
+        :func:`_detect_leaky_branches` to set these from
+        ``(kz, omega)`` for typical regime-detection workflows.
+
+    Returns
+    -------
+    complex
+        ``det M(kz, omega)`` evaluated with the chosen branches.
+
+    See Also
+    --------
+    _modal_determinant_n2 : The real-valued bound-only counterpart.
+    _modal_determinant_n1_complex : The n=1 sister.
+    """
+    kz_c = complex(kz)
+    F = np.sqrt(kz_c * kz_c - (omega / vf) ** 2)
+    p = np.sqrt(kz_c * kz_c - (omega / vp) ** 2)
+    s = np.sqrt(kz_c * kz_c - (omega / vs) ** 2)
+    Fa = F * a
+
+    # Fluid: I-Bessel always (regular at r=0). scipy.special.iv
+    # supports complex arguments transparently; for ``F^2 < 0``
+    # (fast-formation quadrupole regime, F purely imaginary) iv
+    # returns the J-Bessel-equivalent oscillatory pattern with the
+    # appropriate i^n phase, and the row/column rescaling carries
+    # that phase consistently.
+    I1Fa = complex(special.iv(1, Fa))
+    I2Fa = complex(special.iv(2, Fa))
+
+    # Formation P and S K-Bessel pairs (or Hankel via analytic
+    # continuation in the leaky regime). For n=2 we need
+    # K_{n-1} = K_1 and K_n = K_2, which is exactly what
+    # ``_k_or_hankel(1, ...)`` returns.
+    K1pa, K2pa = _k_or_hankel(1, p, a, leaky=leaky_p)
+    K1sa, K2sa = _k_or_hankel(1, s, a, leaky=leaky_s)
+
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz_c * kz_c - kS2
+
+    # Same matrix layout as _modal_determinant_n2; entries are now
+    # complex but the structure is identical.
+
+    # Row 1: u_r^{(f)} - u_r^{(s)} = 0 at r = a (cos(2 theta) sector).
+    M11 = (F * I1Fa - 2.0 * I2Fa / a) / (rho_f * omega ** 2)
+    M12 = p * K1pa + 2.0 * K2pa / a
+    M13 = kz_c * K2sa
+    M14 = -2.0 * K2sa / a
+
+    # Row 2: -(sigma_rr^{(s)} + P) = 0 at r = a (cos(2 theta) sector;
+    # row negated for visual parallel with the n=0 / n=1 forms).
+    M21 = -I2Fa
+    M22 = -mu * (
+        two_kz2_minus_kS2 * K2pa + 2.0 * p * K1pa / a + 12.0 * K2pa / (a * a)
+    )
+    M23 = -2.0 * kz_c * mu * (s * K1sa + 2.0 * K2sa / a)
+    M24 = 4.0 * mu * (s * K1sa / a + 3.0 * K2sa / (a * a))
+
+    # Row 3: sigma_r_theta^{(s)} = 0 at r = a (sin(2 theta) sector;
+    # fluid carries no shear, M31 = 0).
+    M31 = 0.0 + 0j
+    M32 = 4.0 * mu * (p * K1pa / a + 3.0 * K2pa / (a * a))
+    M33 = 2.0 * kz_c * mu * K2sa / a
+    M34 = -mu * ((s * s + 12.0 / (a * a)) * K2sa + 2.0 * s * K1sa / a)
+
+    # Row 4: sigma_rz^{(s)} = 0 at r = a (cos(2 theta) sector;
+    # M41 = 0 same fluid-no-shear reason). Same row-4-by-i /
+    # column-C-by-(-i) rescale as the real version.
+    M41 = 0.0 + 0j
+    M42 = 2.0 * kz_c * mu * (p * K1pa + 2.0 * K2pa / a)
+    M43 = mu * (two_kz2_minus_kS2 + 3.0 / (a * a)) * K2sa
+    M44 = -2.0 * kz_c * mu * K2sa / a
+
+    M = np.array(
+        [
+            [M11, M12, M13, M14],
+            [M21, M22, M23, M24],
+            [M31, M32, M33, M34],
+            [M41, M42, M43, M44],
+        ],
+        dtype=complex,
+    )
+    return complex(np.linalg.det(M))
+
+
+def _quadrupole_kz_bracket(
+    omega: float,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> tuple[float, float]:
+    """
+    Bracket the n=2 quadrupole bound root in (k_z_lo, k_z_hi).
+
+    Same shape as :func:`_flexural_kz_bracket`: the slow-formation
+    bound mode has phase velocity between ``V_R`` (high-f) and
+    ``V_S`` (low-f cutoff), so the slowness is in
+    ``(1/V_S, ~1.1/V_R)``. The brentq caller can expand the upper
+    bound outward if no sign change is found in this initial
+    range -- mirrors the n = 1 bracket-expansion loop.
+    """
+    from fwap.cylindrical import rayleigh_speed
+
+    vR = rayleigh_speed(vp, vs)
+    kz_lo = omega / vs * (1.0 + 1.0e-6)
+    kz_hi = omega / vR * 1.10
+    return kz_lo, kz_hi
+
+
+def _quadrupole_dispersion_fast_formation(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> BoreholeMode:
+    r"""
+    Fast-formation (``V_S > V_f``) quadrupole dispersion (plan
+    item E).
+
+    Direct n=2 analogue of :func:`_flexural_dispersion_fast_formation`:
+    in the slowness window ``(1/V_S, 1/V_R)`` (phase velocity in
+    ``(V_R, V_S)``, both above ``V_f``) the fluid radial wavenumber
+    becomes purely imaginary (``F^2 < 0``) while the formation
+    P / S branches stay bound. The complex modal determinant
+    :func:`_modal_determinant_n2_complex` evaluated at real
+    ``k_z`` is overwhelmingly imaginary in this regime, so the
+    root condition reduces to ``Im(det) = 0`` and brentq along
+    the real axis is the natural tool. Continuation across
+    frequency uses the previous root as a narrow-bracket seed,
+    falling back to the wide ``(omega/V_S, omega/V_R)`` bracket
+    when the narrow bracket has no sign change.
+
+    The converged ``k_z`` is real to floating-point precision
+    (mode is bound; ``F^2 < 0`` only adds an overall ``i^k`` phase
+    to the determinant), so the returned
+    ``BoreholeMode.attenuation_per_meter`` is ``None``.
+    """
+    from fwap.cylindrical import rayleigh_speed
+
+    f_arr = np.asarray(freq, dtype=float)
+    n_f = f_arr.size
+    slowness = np.full(n_f, np.nan, dtype=float)
+    if n_f == 0:
+        return BoreholeMode(
+            name="quadrupole", azimuthal_order=2,
+            freq=f_arr, slowness=slowness,
+        )
+
+    vR = rayleigh_speed(vp, vs)
+    eps = 1.0e-4
+
+    def _im_det(kz: float, _omega: float) -> float:
+        return _modal_determinant_n2_complex(
+            complex(kz, 0.0), _omega, vp, vs, rho, vf, rho_f, a,
+            leaky_p=False, leaky_s=False,
+        ).imag
+
+    def _find_root_in_bracket(
+        kz_lo: float, kz_hi: float, omega: float,
+    ) -> float | None:
+        try:
+            d_lo = _im_det(kz_lo, omega)
+            d_hi = _im_det(kz_hi, omega)
+            if not (np.isfinite(d_lo) and np.isfinite(d_hi)):
+                return None
+            if np.sign(d_lo) == np.sign(d_hi):
+                return None
+            return float(optimize.brentq(
+                _im_det, kz_lo, kz_hi, args=(omega,), xtol=1.0e-10,
+            ))
+        except (ValueError, RuntimeError):
+            return None
+
+    # Walk high to low frequency with continuation: narrow
+    # bracket centred on the previous step's slowness first;
+    # fall back to the wide ``(1/V_S, 1/V_R)`` bracket if the
+    # narrow one fails. Mirrors the n=1 fast-formation strategy.
+    order_desc = np.argsort(-f_arr)
+    f_desc = f_arr[order_desc]
+    slowness_desc = np.full(f_desc.size, np.nan, dtype=float)
+    slowness_prev: float | None = None
+
+    for i, f in enumerate(f_desc):
+        omega = 2.0 * np.pi * float(f)
+        kz_root: float | None = None
+
+        if slowness_prev is not None:
+            kz_centre = slowness_prev * omega
+            kz_lo = max(kz_centre * 0.98, omega / vs * (1.0 + eps))
+            kz_hi = min(kz_centre * 1.02, omega / vR * (1.0 - eps))
+            if kz_hi > kz_lo:
+                kz_root = _find_root_in_bracket(kz_lo, kz_hi, omega)
+
+        if kz_root is None:
+            kz_lo = omega / vs * (1.0 + eps)
+            kz_hi = omega / vR * (1.0 - eps)
+            if kz_hi > kz_lo:
+                kz_root = _find_root_in_bracket(kz_lo, kz_hi, omega)
+
+        if kz_root is None:
+            logger.debug(
+                "_quadrupole_dispersion_fast_formation: no Im(det) "
+                "sign change at f=%.1f Hz", f,
+            )
+            continue
+
+        slowness_desc[i] = kz_root / omega
+        slowness_prev = slowness_desc[i]
+
+    slowness[order_desc] = slowness_desc
+
+    return BoreholeMode(
+        name="quadrupole", azimuthal_order=2,
+        freq=f_arr, slowness=slowness,
+    )
+
+
+def quadrupole_dispersion(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> BoreholeMode:
+    r"""
+    Quadrupole-wave (n = 2) phase slowness vs frequency from the
+    isotropic-elastic modal determinant.
+
+    Auto-dispatches on the formation type:
+
+    * **Slow formation** (``V_S < V_f``): bound mode in the
+      slowness window ``(1/V_S, ~1.1/V_R)``. All radial
+      wavenumbers ``F``, ``p``, ``s`` are real positive and the
+      real-valued :func:`_modal_determinant_n2` is brentq'd
+      directly.
+    * **Fast formation** (``V_S > V_f``): bound mode in the
+      slowness window ``(1/V_S, 1/V_R)``, now with phase velocity
+      *above* ``V_f``. The fluid radial wavenumber becomes purely
+      imaginary (``F^2 < 0``); the formation P / S branches stay
+      real positive. Dispatched to
+      :func:`_quadrupole_dispersion_fast_formation`, which
+      brentq's the imaginary part of
+      :func:`_modal_determinant_n2_complex` along the real
+      ``k_z`` axis. Direct n=2 sister of the n=1 path
+      :func:`_flexural_dispersion_fast_formation`.
+
+    In both regimes the converged ``k_z`` is real and the
+    ``BoreholeMode.attenuation_per_meter`` field is ``None``.
+
+    Parameters
+    ----------
+    freq : ndarray
+        Frequency grid (Hz). Must be strictly positive.
+    vp, vs, rho : float
+        Formation P-wave velocity (m/s), S-wave velocity (m/s),
+        and bulk density (kg/m^3). Must satisfy ``vp > vs > 0``
+        and ``rho > 0``.
+    vf, rho_f : float
+        Borehole-fluid velocity (m/s) and density (kg/m^3).
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "quadrupole"``, ``azimuthal_order = 2``, with
+        ``freq`` echoed and ``slowness[i] = k_z(omega[i]) /
+        omega[i]``. ``NaN`` at any frequency where the bracket
+        fails -- typically below the geometric cutoff
+        ``f ~ V_S / (2 pi a)``. The bound- and leaky-regime
+        branches share this asymptotic layout; the only practical
+        difference is which determinant evaluator is used
+        internally (:func:`_modal_determinant_n2` for slow,
+        :func:`_modal_determinant_n2_complex` for fast).
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive, ``vp <= vs``, or ``freq``
+        contains a non-positive entry.
+
+    Notes
+    -----
+    Long-wavelength asymptote (``omega a / V_S -> 0``): the lowest
+    bound n = 2 root sits just above ``k_z = omega / V_S``, so
+    ``slowness -> 1 / V_S`` at the geometric cutoff. The upper-
+    frequency asymptote is the Scholte / fluid-loaded Rayleigh
+    speed (slightly above ``1 / V_R``), same as for n = 1.
+
+    See Also
+    --------
+    fwap.lwd.lwd_quadrupole_priors : phenomenological LWD-
+        quadrupole prior factory the present function supersedes
+        (the prior is still useful as a Viterbi seed when only
+        rough V_S is known and the full formation properties are
+        not).
+
+    References
+    ----------
+    * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
+      Acoustic Methods.* Elsevier, sect. 2.5 and fig 3.7
+      (LWD quadrupole dispersion).
+    * Kurkjian, A. L., & Chang, S.-K. (1986). Acoustic multipole
+      sources in fluid-filled boreholes. *Geophysics* 51(1),
+      148-163.
+    """
+    if vp <= 0 or vs <= 0 or rho <= 0:
+        raise ValueError("vp, vs, rho must all be positive")
+    if vf <= 0 or rho_f <= 0:
+        raise ValueError("vf and rho_f must be positive")
+    if a <= 0:
+        raise ValueError("a must be positive")
+    if vp <= vs:
+        raise ValueError("require vp > vs")
+    f_arr = np.asarray(freq, dtype=float)
+    if np.any(f_arr <= 0):
+        raise ValueError("freq must be strictly positive")
+
+    if vs > vf:
+        # Fast formation: F^2 < 0, dispatch to complex-determinant
+        # path with brentq on Im(det) along the real-kz axis.
+        return _quadrupole_dispersion_fast_formation(
+            f_arr, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        )
+
+    slowness = np.full_like(f_arr, np.nan, dtype=float)
+
+    for i, f in enumerate(f_arr):
+        omega = 2.0 * np.pi * float(f)
+
+        def _det(kz, omega=omega):
+            return _modal_determinant_n2(kz, omega, vp, vs, rho, vf, rho_f, a)
+
+        kz_lo, kz_hi = _quadrupole_kz_bracket(
+            omega, vp, vs, rho, vf, rho_f, a,
+        )
+        try:
+            d_lo = _det(kz_lo)
+            d_hi = _det(kz_hi)
+            n_expand = 0
+            while (
+                np.isfinite(d_lo)
+                and np.isfinite(d_hi)
+                and np.sign(d_lo) == np.sign(d_hi)
+                and n_expand < 8
+            ):
+                kz_hi *= 1.5
+                d_hi = _det(kz_hi)
+                n_expand += 1
+            if (not np.isfinite(d_lo)) or (not np.isfinite(d_hi)):
+                logger.debug(
+                    "quadrupole_dispersion: bound-regime det evaluation "
+                    "failed at f=%.1f Hz", f,
+                )
+                continue
+            if np.sign(d_lo) == np.sign(d_hi):
+                logger.debug(
+                    "quadrupole_dispersion: failed to bracket at "
+                    "f=%.1f Hz (likely below cutoff)", f,
+                )
+                continue
+            kz_root = optimize.brentq(_det, kz_lo, kz_hi, xtol=1.0e-10)
+            slowness[i] = kz_root / omega
+        except (ValueError, RuntimeError) as exc:
+            logger.debug(
+                "quadrupole_dispersion: brentq failed at f=%.1f Hz: %s",
+                f, exc,
+            )
+
+    return BoreholeMode(
+        name="quadrupole", azimuthal_order=2,
+        freq=f_arr, slowness=slowness,
     )
 

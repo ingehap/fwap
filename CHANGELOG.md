@@ -6,7 +6,199 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **``quadrupole_dispersion`` now auto-dispatches to a fast-formation
+  path when ``V_S > V_f``** (Roadmap A, plan item E in
+  ``docs/plans/cylindrical_biot.md``). Direct n=2 sister of the
+  plan item B work on ``flexural_dispersion``: previously
+  fast-formation inputs returned NaN throughout (with a
+  documented "plan item E follow-up" caveat), now they dispatch
+  to a new private ``_quadrupole_dispersion_fast_formation`` that
+  brentq's the imaginary part of
+  :func:`_modal_determinant_n2_complex` along the real-``k_z``
+  axis in the ``(omega/V_S, omega/V_R)`` bracket, with
+  continuation across frequencies. Slow-formation behaviour is
+  unchanged bit-for-bit.
+
+  As with the n=1 case, the converged ``k_z`` is real to
+  floating-point precision: the formation P/S branches stay
+  bound, so the mode is bound; the only effect of ``F^2 < 0`` is
+  an overall ``i^k`` phase that makes the determinant
+  predominantly imaginary at real ``k_z``, reducing the root
+  condition to ``Im(det) = 0``. The n=2 determinant magnitudes
+  are about 15 orders larger than the n=1 sister, so the
+  absolute residual at the converged root sits at ~10^8 rather
+  than ~10^4; the relative residual ``|Im(det)|/|det|`` is at
+  machine precision in both cases.
+
 ### Added
+- **``_modal_determinant_n2_complex``** (Roadmap A, plan item E
+  scaffolding). Complex-``k_z`` n=2 quadrupole modal determinant
+  with optional ``leaky_p`` / ``leaky_s`` flags, structurally
+  identical to :func:`_modal_determinant_n2` with K-Bessel
+  evaluations swapped for the Hankel analytic continuation in
+  the leaky regime via :func:`_k_or_hankel`. Fluid I-Bessel
+  handles complex ``F`` transparently via ``scipy.special.iv``.
+  In the fully-bound regime (real ``kz``, both flags False) the
+  result agrees with the real-only sister to floating-point
+  precision -- the regression invariant tested in
+  ``tests/test_cylindrical_solver.py::test_complex_n2_matches_real_in_bound_regime``.
+
+  Four new tests added for the leaky-quadrupole deliverable:
+  bound-regime regression, slow-formation bit-identical guard
+  (``quadrupole_dispersion`` reproduces an open-coded brentq +
+  bracket-helper reference value), fast-formation regime sanity
+  (velocities in ``(V_R, V_S)``, attenuation_per_meter is None),
+  ``Im(det)/|det|`` machine-precision check at converged
+  fast-formation roots, and frequency-order invariance.
+
+- **``quadrupole_dispersion`` public API** (Roadmap A, plan item D
+  in ``docs/plans/cylindrical_biot.md``). Real-valued n=2 modal-
+  determinant solver for the slow-formation (``V_S < V_f``) bound
+  regime, the LWD-quadrupole mode framed in Tang & Cheng 2004
+  sect. 2.5. Tracks the lowest-``k_z`` zero of a 4x4
+  :func:`_modal_determinant_n2` across the input frequency grid
+  with the same ``brentq`` + bracket-expansion pattern as
+  ``stoneley_dispersion`` and ``flexural_dispersion``. Returns
+  ``BoreholeMode(name="quadrupole", azimuthal_order=2)``.
+
+  Implementation: extends the existing n=1 derivation by the rules
+  ``(I_0, I_1, K_0, K_1) -> (I_{n-1}, I_n, K_{n-1}, K_n)`` and
+  ``azimuthal-derivative factor 1 -> n``, with two structural
+  factors that are zero at n=1 but finite at n>=2: a
+  ``2 n(n+1)`` overall-rank coefficient that turns the
+  ``+ 4 K_1(pa)/a^2`` 1/r^2 correction in M22 into
+  ``+ 12 K_2(pa)/a^2`` at n=2, and an ``(n^2-1)/a^2`` correction
+  to the sigma_rz C-coefficient that vanishes at n=1 but adds
+  a ``+ 3/a^2`` term to M43 at n=2. Specialised to n=2 the
+  matrix uses the ``(K_1, K_2)`` and ``(I_1, I_2)`` Bessel
+  index pairs.
+
+  **Slow-formation only in this release**: the fast-formation
+  (``V_S > V_f``) leaky-quadrupole regime needs the same complex-
+  modal-determinant scaffolding that plan item B used for
+  fast-flexural and is plan item E. Fast formations return
+  all-NaN.
+
+  ``fwap.lwd.lwd_quadrupole_priors`` now points at the new
+  ``quadrupole_dispersion`` for callers that have full formation
+  properties; the rectangular-window prior factory is retained
+  as a Viterbi seed for the rough-V_S case where the full set
+  of formation parameters is not available.
+
+  8 new tests cover the dataclass contract, slow-formation
+  finite-output + velocity-window sanity, fast-formation
+  all-NaN guard, below-cutoff NaN, the ``slowness > 1/V_S``
+  invariant, the local-zero property of the modal determinant
+  at converged roots, and input validation
+  (non-positive scalars, ``vp <= vs``, non-positive freq).
+
+### Changed
+- **``flexural_dispersion`` now auto-dispatches to a fast-formation
+  path when ``V_S > V_f``** (Roadmap A, plan item B in
+  ``docs/plans/cylindrical_biot.md``). Previously the public
+  ``flexural_dispersion`` returned NaN throughout for any fast
+  formation -- a documented limitation. The function now detects
+  ``V_S > V_f`` at call time and dispatches to a new private
+  ``_flexural_dispersion_fast_formation`` that brentq's the
+  imaginary part of :func:`_modal_determinant_n1_complex` along
+  the real-``k_z`` axis. Slow-formation behaviour is unchanged
+  bit-for-bit (the dispatch is purely additive).
+
+  **Empirical finding that informed the implementation**: in the
+  canonical ``(V_R, V_S)`` velocity window the converged ``k_z``
+  is real to floating-point precision rather than complex. The
+  earlier "fast-formation flexural is leaky and needs complex-
+  ``k_z`` Mueller iteration" framing in the Roadmap-A comments
+  was over-stated for this particular root: the formation P/S
+  branches stay bound in this regime, so the mode is also bound.
+  The complex modal determinant is needed only because ``F^2 < 0``
+  introduces an overall ``i^k`` phase that makes the determinant
+  predominantly imaginary at real ``k_z``; the root condition
+  reduces to ``Im(det) = 0`` and brentq along the real axis is
+  the natural tool. Truly leaky n=1 modes with non-trivial
+  ``Im(k_z) > 0`` (higher-order leaky flexural, fast-formation
+  pseudo-flexural) need the complex marcher and remain out of
+  scope for this routine.
+
+  Backward compatibility note: callers that explicitly relied on
+  ``flexural_dispersion`` returning all-NaN for fast formations
+  must now check ``np.isfinite`` per element. The previous
+  "all-NaN sentinel" was documented as a stop-gap pending plan
+  item B, so the change is in the spirit of the original API
+  rather than against it.
+
+### Added
+- **``_modal_determinant_n1_complex``** (Roadmap A, plan item B
+  scaffolding). Complex-``k_z`` n=1 dipole modal determinant with
+  optional ``leaky_p`` / ``leaky_s`` flags, structurally
+  identical to the real-valued :func:`_modal_determinant_n1`
+  with K-Bessel evaluations swapped for the Hankel analytic
+  continuation in the leaky regime. Fluid I-Bessel handles
+  complex ``F`` transparently via ``scipy.special.iv``. In the
+  fully-bound regime (real ``kz``, both flags False) the result
+  agrees with the real-only sister to floating-point precision
+  -- the regression invariant tested in
+  ``tests/test_cylindrical_solver.py::test_complex_n1_matches_real_in_bound_regime``.
+
+  Five new tests added for the leaky-flexural deliverable:
+  bound-regime regression, slow-formation bit-identical guard
+  (``flexural_dispersion`` reproduces an open-coded brentq +
+  bracket-helper reference value), fast-formation finite-output
+  + velocity-window check (``V_R < v < V_S``), local-zero
+  property of ``Im(det)`` at converged fast-formation roots,
+  and frequency-order invariance of the fast-formation marcher
+  (ascending and descending input grids produce identical output).
+
+- **Cutoff handling + branch tracker** (Roadmap A, plan item C
+  in ``docs/plans/cylindrical_biot.md``). Adds a validator-aware
+  marcher that distinguishes a converged-but-out-of-regime root
+  from a root-finder failure, tolerates a small budget of
+  consecutive bad steps before giving up, and recovers from
+  one-off branch hops by resuming the march from the last good
+  step. Three new symbols in ``fwap.cylindrical_solver``:
+
+  * ``_classify_marcher_step(kz_root, omega, validator) -> str`` --
+    private classifier returning ``"ok"``, ``"regime_exit"``, or
+    ``"convergence_failure"``. Validator exceptions
+    (``ValueError`` / ``ArithmeticError``) collapse to
+    ``"regime_exit"`` so a numerically ill-conditioned step does
+    not abort the march.
+
+  * ``BranchSegment`` -- public dataclass representing a
+    contiguous stretch of finite samples in a dispersion curve
+    (``start_idx``, ``end_idx``, ``freq``, ``kz``). Re-exported
+    at top level. ``len(segment)`` returns the inclusive sample
+    count.
+
+  * ``segments_from_kz_curve(freq_grid, kz_curve)
+    -> list[BranchSegment]`` -- public splitter that walks a
+    marcher output and emits one ``BranchSegment`` per maximal
+    run of finite ``kz``. Re-exported at top level.
+
+  * ``_march_complex_dispersion_validated(det_fn, freq_grid,
+    kz_start, *, validator, max_consecutive_invalid, xtol)`` --
+    private validator-aware marcher. ``validator(kz, omega) ->
+    bool`` says whether a converged step belongs to the regime
+    the caller wants to track; failed steps stay NaN, do not
+    update the continuation seed, and count against
+    ``max_consecutive_invalid``. Setting that to ``0`` recovers
+    the strict-stop semantics of the original
+    ``_march_complex_dispersion``.
+
+  ``pseudo_rayleigh_dispersion`` is refactored to drive the new
+  marcher with a leaky-S-regime validator (``Im(k_z) > 0`` and
+  ``1/V_P < slowness < 1/V_S``). On the standard fast-formation
+  parameter set the refactor recovers steps that the previous
+  step-by-step loop dropped to single-step root hops, returning
+  one contiguous segment over the supported band. 12 new tests
+  cover the classifier verdicts (each return value, plus
+  exception-as-regime-exit), the dataclass contract,
+  ``segments_from_kz_curve`` (NaN-gap split, all-NaN, mismatched
+  inputs), the validated marcher (skip-and-continue, budget
+  exhaustion, empty grid, zero-budget = strict semantics), and
+  the pseudo-Rayleigh single-segment regression.
+
 - **``pseudo_rayleigh_dispersion`` public API** (Roadmap A,
   plan item A in ``docs/plans/cylindrical_biot.md``). First
   leaky-mode product on top of the L1-L3 scaffolding. Tracks the

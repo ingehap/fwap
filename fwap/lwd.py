@@ -580,6 +580,16 @@ def lwd_quadrupole_priors() -> dict[str, dict[str, float]]:
     records that ordering can be reversed; pass a custom priors
     dict in that regime.
 
+    Note
+    ----
+    For the formation-shear branch, when the rock properties are
+    known (V_P, V_S, rho, fluid, borehole radius)
+    :func:`fwap.cylindrical_solver.quadrupole_dispersion` returns
+    the actual modal-determinant dispersion curve and supersedes
+    the rectangular slowness window of this prior factory. The
+    prior is still useful as a Viterbi seed when only a rough V_S
+    is available and the full formation properties are not.
+
     Returns
     -------
     dict[str, dict[str, float]]
