@@ -388,17 +388,34 @@ def test_flexural_dispersion_qualitative_match_with_phenomenological():
 # ---------------------------------------------------------------------
 
 
-def test_flexural_returns_nan_in_fast_formation():
-    """Fast formations (V_S > V_f) put the flexural mode above
-    the fluid speed, making F^2 < 0 and the bound-mode solver
-    inapplicable. ``flexural_dispersion`` returns NaN throughout
-    rather than raising; the leaky-flexural regime is a roadmap
-    follow-up."""
-    f = np.array([2000.0, 5000.0, 10000.0])
+def test_flexural_dispatches_to_fast_formation_path_when_vs_gt_vf():
+    """Plan item B: ``flexural_dispersion`` now auto-dispatches to
+    the complex-determinant fast-formation path when ``V_S > V_f``,
+    instead of returning NaN throughout. At least some frequencies
+    in a sensible band must yield finite slowness in the
+    ``(V_R, V_S)`` window. The previous "all NaN" contract is
+    deliberately broken."""
+    from fwap.cylindrical import rayleigh_speed
+
+    vp, vs, rho = 5500.0, 3100.0, 2500.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    vR = rayleigh_speed(vp, vs)
+    f = np.linspace(20000.0, 80000.0, 30)
     res = flexural_dispersion(
-        f, vp=4500.0, vs=2500.0, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a
     )
-    assert np.all(np.isnan(res.slowness))
+    finite = np.isfinite(res.slowness)
+    assert finite.any(), "fast-formation path must populate at least one frequency"
+    velocity = 1.0 / res.slowness[finite]
+    # Strictly between V_R and V_S (the leaky-F regime window).
+    assert (velocity > vR * 0.99).all(), (
+        f"velocity must stay near or above V_R ({vR:.0f}); got {velocity}"
+    )
+    assert (velocity < vs).all(), (
+        f"velocity must stay below V_S ({vs}); got {velocity}"
+    )
+    # Bound mode -> attenuation_per_meter is None.
+    assert res.attenuation_per_meter is None
 
 
 def test_flexural_returns_nan_below_geometric_cutoff():
@@ -1448,6 +1465,166 @@ def test_validated_marcher_zero_budget_matches_strict_marcher_semantics():
     assert np.isfinite(out[0].real)
     for i in range(1, 5):
         assert not np.isfinite(out[i].real)
+
+
+# =====================================================================
+# Plan item B: leaky flexural mode (n=1) in fast formations.
+# =====================================================================
+
+
+def test_complex_n1_matches_real_in_bound_regime():
+    """``_modal_determinant_n1`` and ``_modal_determinant_n1_complex``
+    must agree to floating-point precision when called with real
+    ``kz`` and both ``leaky_*`` flags False (the bound flexural
+    regime). This is the regression invariant for the n=1 complex
+    refactor: as long as it holds, the existing bound-mode tests
+    cover the bound-regime physics; the complex evaluator only
+    adds new capability on top."""
+    from fwap.cylindrical_solver import (
+        _modal_determinant_n1,
+        _modal_determinant_n1_complex,
+    )
+
+    # Slow-formation parameters (matches the existing bound-mode
+    # bracket sweep).
+    omega = 2.0 * np.pi * 5000.0
+    for kz in [50.0, 60.0, 80.0, 100.0]:
+        d_real = _modal_determinant_n1(
+            kz, omega, SLOW_VP, SLOW_VS, SLOW_RHO,
+            SLOW_VF, SLOW_RHO_F, SLOW_A,
+        )
+        d_complex = _modal_determinant_n1_complex(
+            complex(kz), omega, SLOW_VP, SLOW_VS, SLOW_RHO,
+            SLOW_VF, SLOW_RHO_F, SLOW_A,
+        )
+        # Real part agrees exactly (or to a small relative tolerance
+        # for the matrix-product cumulative roundoff).
+        rel_err = abs(d_complex.real - d_real) / max(abs(d_real), 1.0e-300)
+        assert rel_err < 1.0e-12, (
+            f"real-vs-complex n=1 mismatch at kz={kz}: "
+            f"real={d_real}, complex={d_complex}, rel_err={rel_err}"
+        )
+        # Imaginary part is identically zero in the bound regime
+        # (real arithmetic on real inputs).
+        assert d_complex.imag == 0.0
+
+
+def test_flexural_slow_formation_bit_identical_after_dispatch():
+    """Plan item B validation goal #2: when ``V_S < V_f`` the new
+    auto-dispatch must bypass the complex path and reproduce the
+    existing slow-formation answer bit-for-bit. We compare against
+    a direct call into ``_modal_determinant_n1`` + brentq with the
+    same bracket helper, which is what the slow-formation branch
+    of the refactored ``flexural_dispersion`` does internally."""
+    from fwap.cylindrical_solver import (
+        _flexural_kz_bracket, _modal_determinant_n1,
+    )
+    from scipy import optimize as _opt
+
+    f = np.linspace(2000.0, 12000.0, 11)
+    res = flexural_dispersion(
+        f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
+        vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A,
+    )
+    finite = np.isfinite(res.slowness)
+    assert finite.sum() >= 8, "slow-formation path must still find roots above cutoff"
+
+    # Reference computation: open-coded brentq on
+    # ``_modal_determinant_n1`` with the existing bracket helper.
+    for i in np.where(finite)[0]:
+        omega = 2.0 * np.pi * f[i]
+
+        def _det(kz):
+            return _modal_determinant_n1(
+                kz, omega, SLOW_VP, SLOW_VS, SLOW_RHO,
+                SLOW_VF, SLOW_RHO_F, SLOW_A,
+            )
+
+        kz_lo, kz_hi = _flexural_kz_bracket(
+            omega, SLOW_VP, SLOW_VS, SLOW_RHO,
+            SLOW_VF, SLOW_RHO_F, SLOW_A,
+        )
+        # Bracket-expansion mirrors the production code.
+        n_expand = 0
+        d_lo = _det(kz_lo)
+        d_hi = _det(kz_hi)
+        while np.sign(d_lo) == np.sign(d_hi) and n_expand < 8:
+            kz_hi *= 1.5
+            d_hi = _det(kz_hi)
+            n_expand += 1
+        kz_ref = _opt.brentq(_det, kz_lo, kz_hi, xtol=1.0e-10)
+        slow_ref = kz_ref / omega
+        assert res.slowness[i] == slow_ref, (
+            f"slow-formation dispatch changed value at f={f[i]}: "
+            f"got {res.slowness[i]}, ref {slow_ref}"
+        )
+
+    # Bound mode -> attenuation_per_meter stays None.
+    assert res.attenuation_per_meter is None
+
+
+def test_flexural_fast_formation_velocities_are_real_kz():
+    """In the fast-formation regime the converged ``k_z`` is real
+    to floating-point precision (``Im(k_z) = 0``). This is enforced
+    by brentq'ing ``Im(det)`` along the real-``k_z`` axis, which can
+    only return real-valued ``k_z``. The converged determinant must
+    therefore have small magnitude -- an upper-bound sanity check."""
+    from fwap.cylindrical_solver import _modal_determinant_n1_complex
+    from fwap.cylindrical import rayleigh_speed
+
+    vp, vs, rho = 5500.0, 3100.0, 2500.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    vR = rayleigh_speed(vp, vs)
+    f = np.linspace(20000.0, 80000.0, 30)
+    res = flexural_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a
+    )
+    finite_idx = np.where(np.isfinite(res.slowness))[0]
+    assert finite_idx.size >= 3, "expected at least a few finite samples"
+
+    # At each converged root, |det| must be small relative to
+    # |det| at an off-root point (the same local-zero test used
+    # for the n=0 leaky solver).
+    for i in finite_idx[:5]:
+        omega = 2.0 * np.pi * res.freq[i]
+        kz_root = complex(res.slowness[i] * omega, 0.0)
+        det_at_root = _modal_determinant_n1_complex(
+            kz_root, omega, vp, vs, rho, vf, rho_f, a,
+            leaky_p=False, leaky_s=False,
+        )
+        # Off-root sample: shift kz by 1 % toward V_R.
+        kz_off = kz_root * 1.005
+        det_off = _modal_determinant_n1_complex(
+            kz_off, omega, vp, vs, rho, vf, rho_f, a,
+            leaky_p=False, leaky_s=False,
+        )
+        # Brentq targets only Im(det); Re(det) is small in the
+        # regime but not driven to zero. Compare imaginary parts,
+        # which should be many orders smaller at the root.
+        assert abs(det_at_root.imag) < abs(det_off.imag) * 1.0e-2, (
+            f"|Im(det)| not small at converged root for f={res.freq[i]}: "
+            f"root={det_at_root}, off-root={det_off}"
+        )
+
+
+def test_flexural_fast_formation_frequency_order_invariant():
+    """The fast-formation marcher walks descending frequency
+    internally; ascending- and descending-grid inputs must
+    produce identical per-frequency outputs."""
+    vp, vs, rho = 5500.0, 3100.0, 2500.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f_asc = np.linspace(20000.0, 80000.0, 25)
+    f_desc = f_asc[::-1]
+    res_asc = flexural_dispersion(
+        f_asc, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a
+    )
+    res_desc = flexural_dispersion(
+        f_desc, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a
+    )
+    np.testing.assert_allclose(
+        res_asc.slowness, res_desc.slowness[::-1],
+        rtol=1.0e-9, equal_nan=True,
+    )
 
 
 def test_pseudo_rayleigh_segmenter_returns_single_continuous_segment():

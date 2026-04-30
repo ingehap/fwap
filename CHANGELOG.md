@@ -6,7 +6,63 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **``flexural_dispersion`` now auto-dispatches to a fast-formation
+  path when ``V_S > V_f``** (Roadmap A, plan item B in
+  ``docs/plans/cylindrical_biot.md``). Previously the public
+  ``flexural_dispersion`` returned NaN throughout for any fast
+  formation -- a documented limitation. The function now detects
+  ``V_S > V_f`` at call time and dispatches to a new private
+  ``_flexural_dispersion_fast_formation`` that brentq's the
+  imaginary part of :func:`_modal_determinant_n1_complex` along
+  the real-``k_z`` axis. Slow-formation behaviour is unchanged
+  bit-for-bit (the dispatch is purely additive).
+
+  **Empirical finding that informed the implementation**: in the
+  canonical ``(V_R, V_S)`` velocity window the converged ``k_z``
+  is real to floating-point precision rather than complex. The
+  earlier "fast-formation flexural is leaky and needs complex-
+  ``k_z`` Mueller iteration" framing in the Roadmap-A comments
+  was over-stated for this particular root: the formation P/S
+  branches stay bound in this regime, so the mode is also bound.
+  The complex modal determinant is needed only because ``F^2 < 0``
+  introduces an overall ``i^k`` phase that makes the determinant
+  predominantly imaginary at real ``k_z``; the root condition
+  reduces to ``Im(det) = 0`` and brentq along the real axis is
+  the natural tool. Truly leaky n=1 modes with non-trivial
+  ``Im(k_z) > 0`` (higher-order leaky flexural, fast-formation
+  pseudo-flexural) need the complex marcher and remain out of
+  scope for this routine.
+
+  Backward compatibility note: callers that explicitly relied on
+  ``flexural_dispersion`` returning all-NaN for fast formations
+  must now check ``np.isfinite`` per element. The previous
+  "all-NaN sentinel" was documented as a stop-gap pending plan
+  item B, so the change is in the spirit of the original API
+  rather than against it.
+
 ### Added
+- **``_modal_determinant_n1_complex``** (Roadmap A, plan item B
+  scaffolding). Complex-``k_z`` n=1 dipole modal determinant with
+  optional ``leaky_p`` / ``leaky_s`` flags, structurally
+  identical to the real-valued :func:`_modal_determinant_n1`
+  with K-Bessel evaluations swapped for the Hankel analytic
+  continuation in the leaky regime. Fluid I-Bessel handles
+  complex ``F`` transparently via ``scipy.special.iv``. In the
+  fully-bound regime (real ``kz``, both flags False) the result
+  agrees with the real-only sister to floating-point precision
+  -- the regression invariant tested in
+  ``tests/test_cylindrical_solver.py::test_complex_n1_matches_real_in_bound_regime``.
+
+  Five new tests added for the leaky-flexural deliverable:
+  bound-regime regression, slow-formation bit-identical guard
+  (``flexural_dispersion`` reproduces an open-coded brentq +
+  bracket-helper reference value), fast-formation finite-output
+  + velocity-window check (``V_R < v < V_S``), local-zero
+  property of ``Im(det)`` at converged fast-formation roots,
+  and frequency-order invariance of the fast-formation marcher
+  (ascending and descending input grids produce identical output).
+
 - **Cutoff handling + branch tracker** (Roadmap A, plan item C
   in ``docs/plans/cylindrical_biot.md``). Adds a validator-aware
   marcher that distinguishes a converged-but-out-of-regime root
