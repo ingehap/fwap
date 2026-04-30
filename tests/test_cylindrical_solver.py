@@ -1023,3 +1023,214 @@ def test_existing_stoneley_solver_attenuation_field_is_None():
     )
     assert res.attenuation_per_meter is None
 
+
+# =====================================================================
+# n=0 leaky pseudo-Rayleigh modal-determinant solver tests
+# =====================================================================
+#
+# Fast-formation parameters used throughout (V_S > V_f so the
+# pseudo-Rayleigh leaky mode exists in the slowness window
+# (1/V_P, 1/V_S)). Limestone-like properties.
+
+PR_VP = 5500.0
+PR_VS = 3100.0
+PR_RHO = 2500.0
+PR_VF = 1500.0
+PR_RHO_F = 1000.0
+PR_A = 0.1
+
+
+def test_pseudo_rayleigh_rejects_slow_formation():
+    """The pseudo-Rayleigh mode does not exist when V_S <= V_f
+    (slow formation -- the s-branch leaky condition is unreachable
+    inside the fluid-bound regime). Construct must reject."""
+    from fwap.cylindrical_solver import pseudo_rayleigh_dispersion
+
+    f = np.array([10000.0])
+    with pytest.raises(ValueError, match="fast formation"):
+        pseudo_rayleigh_dispersion(
+            f, vp=PR_VP, vs=1200.0, rho=PR_RHO,
+            vf=PR_VF, rho_f=PR_RHO_F, a=PR_A,
+        )
+
+
+def test_pseudo_rayleigh_rejects_non_positive_inputs():
+    from fwap.cylindrical_solver import pseudo_rayleigh_dispersion
+
+    f = np.array([10000.0])
+    base = dict(vp=PR_VP, vs=PR_VS, rho=PR_RHO,
+                vf=PR_VF, rho_f=PR_RHO_F, a=PR_A)
+    with pytest.raises(ValueError, match="vp, vs, rho"):
+        pseudo_rayleigh_dispersion(f, **{**base, "rho": 0.0})
+    with pytest.raises(ValueError, match="vf and rho_f"):
+        pseudo_rayleigh_dispersion(f, **{**base, "vf": 0.0})
+    with pytest.raises(ValueError, match="^a must"):
+        pseudo_rayleigh_dispersion(f, **{**base, "a": -0.1})
+    with pytest.raises(ValueError, match="vp > vs"):
+        pseudo_rayleigh_dispersion(f, **{**base, "vp": PR_VS})
+
+
+def test_pseudo_rayleigh_rejects_non_positive_freq():
+    from fwap.cylindrical_solver import pseudo_rayleigh_dispersion
+
+    bad_freq = np.array([1000.0, 0.0, 5000.0])
+    with pytest.raises(ValueError, match="freq"):
+        pseudo_rayleigh_dispersion(
+            bad_freq, vp=PR_VP, vs=PR_VS, rho=PR_RHO,
+            vf=PR_VF, rho_f=PR_RHO_F, a=PR_A,
+        )
+
+
+def test_pseudo_rayleigh_returns_borehole_mode_with_attenuation():
+    """The leaky-mode return contract: ``BoreholeMode`` with the
+    expected name, n=0 azimuthal order, frequency echoed, and a
+    populated ``attenuation_per_meter`` field whose shape matches
+    ``slowness``."""
+    from fwap.cylindrical_solver import pseudo_rayleigh_dispersion
+
+    freq = np.linspace(30000.0, 80000.0, 20)
+    res = pseudo_rayleigh_dispersion(
+        freq, vp=PR_VP, vs=PR_VS, rho=PR_RHO,
+        vf=PR_VF, rho_f=PR_RHO_F, a=PR_A,
+    )
+    assert isinstance(res, BoreholeMode)
+    assert res.name == "pseudo_rayleigh"
+    assert res.azimuthal_order == 0
+    np.testing.assert_array_equal(res.freq, freq)
+    assert res.slowness.shape == freq.shape
+    assert res.attenuation_per_meter is not None
+    assert res.attenuation_per_meter.shape == freq.shape
+
+
+def test_pseudo_rayleigh_within_leaky_s_regime():
+    """Every finite slowness must sit strictly inside the leaky-S
+    window ``1/V_P < slowness < 1/V_S`` (equivalently, phase
+    velocity in (V_S, V_P)). Outside that window the s-branch
+    formula is not physical."""
+    from fwap.cylindrical_solver import pseudo_rayleigh_dispersion
+
+    freq = np.linspace(30000.0, 80000.0, 50)
+    res = pseudo_rayleigh_dispersion(
+        freq, vp=PR_VP, vs=PR_VS, rho=PR_RHO,
+        vf=PR_VF, rho_f=PR_RHO_F, a=PR_A,
+    )
+    finite = np.isfinite(res.slowness)
+    assert finite.any(), "expected at least some finite slownesses"
+    s = res.slowness[finite]
+    assert (s > 1.0 / PR_VP).all()
+    assert (s < 1.0 / PR_VS).all()
+
+
+def test_pseudo_rayleigh_attenuation_strictly_positive():
+    """Spatial attenuation ``Im(k_z) > 0`` everywhere the mode is
+    finite -- a defining property of the radiating leaky regime."""
+    from fwap.cylindrical_solver import pseudo_rayleigh_dispersion
+
+    freq = np.linspace(30000.0, 80000.0, 50)
+    res = pseudo_rayleigh_dispersion(
+        freq, vp=PR_VP, vs=PR_VS, rho=PR_RHO,
+        vf=PR_VF, rho_f=PR_RHO_F, a=PR_A,
+    )
+    finite = np.isfinite(res.attenuation_per_meter)
+    assert finite.any()
+    assert (res.attenuation_per_meter[finite] > 0.0).all()
+
+
+def test_pseudo_rayleigh_frequency_order_invariant():
+    """The marcher walks descending frequency internally; the same
+    physical inputs must produce the same per-frequency outputs
+    regardless of whether the caller passes an ascending or
+    descending grid."""
+    from fwap.cylindrical_solver import pseudo_rayleigh_dispersion
+
+    freq_asc = np.linspace(30000.0, 80000.0, 30)
+    freq_desc = freq_asc[::-1]
+    res_asc = pseudo_rayleigh_dispersion(
+        freq_asc, vp=PR_VP, vs=PR_VS, rho=PR_RHO,
+        vf=PR_VF, rho_f=PR_RHO_F, a=PR_A,
+    )
+    res_desc = pseudo_rayleigh_dispersion(
+        freq_desc, vp=PR_VP, vs=PR_VS, rho=PR_RHO,
+        vf=PR_VF, rho_f=PR_RHO_F, a=PR_A,
+    )
+    # Compare element-wise between freq[i] in ascending order and
+    # the matching freq[-1-i] in descending order.
+    np.testing.assert_allclose(
+        res_asc.slowness, res_desc.slowness[::-1],
+        rtol=1.0e-9, equal_nan=True,
+    )
+    np.testing.assert_allclose(
+        res_asc.attenuation_per_meter,
+        res_desc.attenuation_per_meter[::-1],
+        rtol=1.0e-9, equal_nan=True,
+    )
+
+
+def test_pseudo_rayleigh_handles_empty_frequency_array():
+    """Empty ``freq`` should return empty arrays without crashing
+    -- a no-op that the marcher must short-circuit before
+    indexing the (non-existent) high-frequency seed point."""
+    from fwap.cylindrical_solver import pseudo_rayleigh_dispersion
+
+    res = pseudo_rayleigh_dispersion(
+        np.array([], dtype=float),
+        vp=PR_VP, vs=PR_VS, rho=PR_RHO,
+        vf=PR_VF, rho_f=PR_RHO_F, a=PR_A,
+    )
+    assert res.slowness.size == 0
+    assert res.attenuation_per_meter.size == 0
+
+
+def test_pseudo_rayleigh_modal_determinant_at_root_is_small():
+    """At a converged pseudo-Rayleigh root the leaky-formulated
+    n=0 modal determinant must be small relative to nearby points
+    (a local zero on the leaky branch). Validates that the public
+    function is converging onto an actual root rather than a
+    plateau."""
+    from fwap.cylindrical_solver import (
+        _modal_determinant_n0_complex, pseudo_rayleigh_dispersion,
+    )
+
+    freq = np.array([60000.0])
+    res = pseudo_rayleigh_dispersion(
+        freq, vp=PR_VP, vs=PR_VS, rho=PR_RHO,
+        vf=PR_VF, rho_f=PR_RHO_F, a=PR_A,
+    )
+    assert np.isfinite(res.slowness[0])
+    omega = 2.0 * np.pi * freq[0]
+    kz_root = complex(res.slowness[0] * omega, res.attenuation_per_meter[0])
+    det_at_root = _modal_determinant_n0_complex(
+        kz_root, omega, PR_VP, PR_VS, PR_RHO, PR_VF, PR_RHO_F, PR_A,
+        leaky_p=False, leaky_s=True,
+    )
+    # The matrix entries scale with K_n / I_n / Hankel values that
+    # span many orders of magnitude (matrix norm ~ 1e9 for these
+    # parameters); the determinant at a true zero is many orders
+    # below that scale.
+    kz_off_root = kz_root * 1.05
+    det_off_root = _modal_determinant_n0_complex(
+        kz_off_root, omega, PR_VP, PR_VS, PR_RHO, PR_VF, PR_RHO_F, PR_A,
+        leaky_p=False, leaky_s=True,
+    )
+    assert abs(det_at_root) < abs(det_off_root) * 1.0e-2
+
+
+def test_pseudo_rayleigh_high_velocity_below_vp():
+    """As frequency decreases toward the cutoff, the mode's phase
+    velocity rises but never crosses V_P (the upper edge of the
+    leaky-S regime). Check the maximum velocity over the supported
+    band stays below V_P."""
+    from fwap.cylindrical_solver import pseudo_rayleigh_dispersion
+
+    freq = np.linspace(30000.0, 100000.0, 60)
+    res = pseudo_rayleigh_dispersion(
+        freq, vp=PR_VP, vs=PR_VS, rho=PR_RHO,
+        vf=PR_VF, rho_f=PR_RHO_F, a=PR_A,
+    )
+    finite = np.isfinite(res.slowness)
+    velocity = 1.0 / res.slowness[finite]
+    # All velocities strictly below V_P (matches slowness > 1/V_P).
+    assert (velocity < PR_VP).all()
+    # And strictly above V_S (matches slowness < 1/V_S).
+    assert (velocity > PR_VS).all()
+

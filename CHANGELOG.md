@@ -7,6 +7,54 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **``pseudo_rayleigh_dispersion`` public API** (Roadmap A,
+  plan item A in ``docs/plans/cylindrical_biot.md``). First
+  leaky-mode product on top of the L1-L3 scaffolding. Tracks the
+  n=0 leaky root with the formation S wave radiating outward
+  (``s``-branch leaky) while the fluid pressure and the formation
+  P wave stay bound. Mode exists in fast formations only
+  (``V_S > V_f``) above a low-frequency cutoff where it merges
+  with the body S head wave.
+
+  Implementation: walks the input frequency grid from high to low
+  internally. Seeds at the highest frequency with slowness
+  ``0.95 / V_S`` (5% inside the leaky-S regime) plus a small
+  positive imaginary part; subsequent steps use the previous
+  step's converged ``k_z`` rescaled to the next ``omega`` as the
+  seed (constant-slowness extrapolation). The marcher stops as
+  soon as
+
+  1. ``scipy.optimize.root`` fails to converge, or
+  2. the converged ``Im(k_z)`` is non-positive (mode merged with
+     the bound regime, or root finder drifted to a non-physical
+     growing branch), or
+  3. the converged slowness falls outside ``(1/V_P, 1/V_S)``
+     (root hopped to a different physical regime).
+
+  Remaining low-frequency samples stay NaN; branch-stitching
+  across the cutoff is plan item C. Returns
+  :class:`BoreholeMode` with ``slowness = Re(k_z)/omega`` and the
+  newly-populated ``attenuation_per_meter = Im(k_z)`` field.
+
+  Re-exported at top level as ``pseudo_rayleigh_modal_dispersion``
+  to disambiguate from the existing
+  :func:`fwap.synthetic.pseudo_rayleigh_dispersion`
+  phenomenological callable-factory model
+  (kept unchanged for backward compatibility). Both names remain
+  accessible by their fully-qualified module paths.
+
+  10 tests cover input validation (slow-formation rejection,
+  non-positive inputs, invalid frequencies), output contract
+  (``BoreholeMode`` shape and ``attenuation_per_meter``
+  population), regime sanity (slowness strictly inside
+  ``(1/V_P, 1/V_S)``; ``Im(k_z) > 0`` everywhere finite;
+  velocity strictly between ``V_S`` and ``V_P``), the
+  frequency-order invariance of the marcher (ascending and
+  descending input grids produce identical per-frequency
+  output), the empty-frequency-array no-op, and the local-zero
+  property of the determinant at converged roots
+  (``|det(root)| < 1% * |det(off-root)|``).
+
 - **``BoreholeMode.attenuation_per_meter`` field** (Roadmap A
   continuation, dataclass extension for upcoming leaky-mode
   solvers). Adds an optional
@@ -19,24 +67,6 @@ the project uses [Semantic Versioning](https://semver.org/).
   default-None, accepts an ndarray, and the existing Stoneley
   solver continues to return ``None`` (bound mode -> no
   attenuation).
-
-  **Scope statement**: the public-API
-  ``pseudo_rayleigh_dispersion`` is deferred to a future PR.
-  An earlier draft of this PR included a private
-  ``_pseudo_rayleigh_dispersion_experimental`` helper, but the
-  ``scipy.optimize.root`` (Newton-style) iterator used by
-  ``_track_complex_root`` tended to converge to the Stoneley
-  branch near the pseudo-Rayleigh cutoff -- the two roots are
-  close in residual landscape and Newton iteration loses the
-  target branch. The robust public solver requires
-  Mueller-iteration root finding with self-consistent root
-  deflation OR an Argument-Principle contour-integral
-  pre-locator, both larger than the scope of this PR. The
-  experimental code was removed so main does not carry
-  half-finished private helpers; the L1/L2/L3 scaffolding
-  (sign conventions, leaky-branch detector, complex
-  determinant evaluator, complex root tracker, frequency
-  marcher) remains and is what L4 will build on.
 
 - **Complex-``k_z`` root finder + frequency-marching tracker for
   the leaky-mode solver** (Roadmap A continuation, phase L3). Two
