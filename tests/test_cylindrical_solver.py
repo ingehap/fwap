@@ -20,6 +20,7 @@ from fwap.cylindrical_solver import (
     _layered_n0_row2_at_a,
     _layered_n0_row3_at_a,
     _layered_n0_row4_at_b,
+    _layered_n0_row5_at_b,
     _modal_determinant_n0,
     _modal_determinant_n1,
     flexural_dispersion,
@@ -2720,4 +2721,118 @@ def test_layered_row4_at_b_annulus_K_sign_opposite_to_row1_at_a():
     )
     b = p["a"] + p["layer"].thickness
     assert row4[2].real == pytest.approx(-p_m * float(sp.kv(1, p_m * b)))
+
+
+# =====================================================================
+# Plan item F.1.b.3.b -- row 5 of the n=0 layered determinant (r = b)
+# =====================================================================
+#
+# Row 5 is the u_z continuity BC at the second interface. Genuinely
+# new at the layered case: no single-interface analog because the
+# fluid-solid interface at r = a replaces u_z continuity with
+# sigma_rz = 0. Imaginary-power pattern is the *opposite* of row 4
+# (B-imag / C-real pre-rescale, like rows 3 and 7); the post-
+# rescale row * i scaling is what makes the row real.
+
+
+def test_layered_row5_at_b_layer_equals_formation_K_flavour_cancels():
+    """Substep F.1.a.6 self-check: at layer=formation the K-flavour
+    annulus + formation columns of row 5 cancel pair-wise.
+
+        row5[2] (B_K) + row5[5] (B) == 0
+        row5[4] (C_K) + row5[6] (C) == 0
+    """
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _layered_n0_row5_at_b(
+        kz, omega, vp=vp, vs=vs, rho=rho,
+        vf=vf, rho_f=rho_f, a=a, layer=layer,
+    )
+    assert row[2].real + row[5].real == pytest.approx(0.0, abs=1.0e-14)
+    assert row[4].real + row[6].real == pytest.approx(0.0, abs=1.0e-14)
+
+
+def test_layered_row5_at_b_fluid_column_is_zero():
+    """Fluid lives at ``r < a``; column 0 (A) is identically zero."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n0_row5_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    assert row[0] == 0.0
+
+
+def test_layered_row5_at_b_is_real_in_bound_regime():
+    """Substep F.1.a.5 phase rescale: the row * i scaling on row 5
+    (z-derivative-bearing) plus column-by-(-i) on C_I, C_K, C
+    leaves the post-rescale row real-valued in the bound regime.
+    Forgetting the row * i is the most direct transcription error
+    F.1.a.5 calls out -- this test catches it."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n0_row5_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e-14)
+
+
+def test_layered_row5_at_b_matches_closed_form_per_column():
+    """Per-column transcription check against substep F.1.a.2 at
+    r = b, with the row * i / col * -i rescaling applied. Notable
+    feature: row 5 uses degree-0 Bessel functions (I_0 / K_0),
+    distinguishing it from rows 1, 4, 6 (degree-1)."""
+    p, omega, kz = _row1_test_setup()
+    F_f, p_m, s_m, p_form, s_form = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    a = p["a"]
+    b = a + p["layer"].thickness
+    from scipy import special as sp
+
+    row = _layered_n0_row5_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=a, layer=p["layer"],
+    )
+
+    assert row[1].real == pytest.approx(-kz * float(sp.iv(0, p_m * b)))
+    assert row[2].real == pytest.approx(-kz * float(sp.kv(0, p_m * b)))
+    assert row[3].real == pytest.approx(+s_m * float(sp.iv(0, s_m * b)))
+    assert row[4].real == pytest.approx(-s_m * float(sp.kv(0, s_m * b)))
+    assert row[5].real == pytest.approx(+kz * float(sp.kv(0, p_form * b)))
+    assert row[6].real == pytest.approx(+s_form * float(sp.kv(0, s_form * b)))
+
+
+def test_layered_row5_at_b_uses_degree0_not_degree1_bessel():
+    """Structural check distinguishing u_z (row 5) from u_r (row 4):
+    at the same kz, omega, layer, the B_K coefficient in row 5 is
+    proportional to ``K_0(p_m b)`` while row 4's B_K coefficient is
+    proportional to ``K_1(p_m b)``. The Bessel-index difference
+    flows from the ``u_z = i k_z phi`` term (no derivative) vs
+    ``u_r = d_r phi`` (one derivative; bumps the Bessel index)."""
+    p, omega, kz = _row1_test_setup()
+    F_f, p_m, _, _, _ = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    from scipy import special as sp
+
+    row4 = _layered_n0_row4_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    row5 = _layered_n0_row5_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    b = p["a"] + p["layer"].thickness
+
+    # row 4: B_K column = -p_m K_1(p_m b)
+    # row 5: B_K column = -k_z K_0(p_m b)
+    # Their ratio should be (p_m K_1) / (k_z K_0).
+    assert row4[2].real / row5[2].real == pytest.approx(
+        (p_m * float(sp.kv(1, p_m * b))) / (kz * float(sp.kv(0, p_m * b)))
+    )
 
