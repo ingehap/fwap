@@ -4779,6 +4779,369 @@ def quadrupole_dispersion(
 #     ``layers=()`` and stays as the floating-point oracle for the
 #     non-trivial case.
 
+# =====================================================================
+# Substep F.1.a -- math scaffolding for the n=0 layered determinant
+# =====================================================================
+#
+# Conventions and notation used throughout substeps F.1.a.1 through
+# F.1.a.6 below; the n=0 single-interface derivation in
+# :func:`_modal_determinant_n0` (and the n=1 substep blocks above) is
+# the structural prior. The new ingredient is one annular elastic
+# layer sandwiched between the borehole fluid and the formation
+# half-space:
+#
+#       fluid (r < a)  |  annulus (a < r < b)  |  formation (r > b)
+#
+# with ``b = a + h`` and ``h = layer.thickness``. The annulus has its
+# own ``(V_P_m, V_S_m, rho_m)``; primes are not used (they would
+# clash with derivative notation), instead the suffix ``_m`` ("mudcake")
+# tags annulus quantities and the unsuffixed names continue to denote
+# the formation half-space.
+#
+# The substep blocks below land the maths only; the matrix
+# transcription (substep F.1.b) and the public-API hook (substep F.1.c)
+# follow in dependent commits per ``docs/plans/cylindrical_biot_F.md``.
+
+# =====================================================================
+# Substep F.1.a.1 -- sign conventions, regime gate, field ansatz
+# =====================================================================
+#
+# Conventions inherited verbatim from the module docstring:
+#
+#   * Time dependence ``e^{-i omega t}``.
+#   * Axial dependence ``e^{i k_z z}``.
+#   * Bound regime: every radial wavenumber is real positive.
+#
+# Five radial wavenumbers (one per body-wave / region pair):
+#
+#       F_f = sqrt(k_z^2 - (omega / V_f)^2)         > 0    (fluid)
+#       p_m = sqrt(k_z^2 - (omega / V_P_m)^2)       > 0    (annulus P)
+#       s_m = sqrt(k_z^2 - (omega / V_S_m)^2)       > 0    (annulus S)
+#       p   = sqrt(k_z^2 - (omega / V_P)^2)         > 0    (formation P)
+#       s   = sqrt(k_z^2 - (omega / V_S)^2)         > 0    (formation S)
+#
+# Bound-regime gate: all five are real positive iff
+#
+#       k_z > omega / min(V_S_m, V_S, V_f).
+#
+# (V_P_m and V_P are always faster than the corresponding shear, so
+# they don't tighten the bound.) The implementation in F.1.b raises
+# ``ValueError`` when the gate fails -- the I_n + K_n basis no longer
+# spans the annulus solution space and a J_n + Y_n sister
+# (oscillatory-radial annulus) is required, which is out of scope for
+# F.1 and re-enters in plan item G.
+#
+# Field representation (four scalar potentials, one per
+# region+wave). Only the regular-at-origin / decaying-at-infinity
+# pieces survive in the bounded regions; the annulus carries both:
+#
+#   Fluid (r < a):
+#       P^{(f)}        = A * I_0(F_f r)
+#
+#   Annulus (a < r < b):
+#       phi^{(m)}      = B_I * I_0(p_m r) + B_K * K_0(p_m r)
+#       psi_theta^{(m)} = C_I * I_1(s_m r) + C_K * K_1(s_m r)
+#
+#   Formation (r > b):
+#       phi^{(s)}      = B   * K_0(p r)
+#       psi_theta^{(s)} = C   * K_1(s r)
+#
+# Seven amplitudes in column order:  [ A | B_I, B_K, C_I, C_K | B, C ]
+#
+# The column partition keeps the three BCs at r = a (substep F.1.a.4
+# rows 1-3) supported on columns 1-5 and the four BCs at r = b (rows
+# 4-7) supported on columns 2-7 -- a sparse block-bidiagonal layout
+# that pays off when the matrix is assembled in F.1.b and that
+# generalises to multi-layer in plan item G.
+
+# =====================================================================
+# Substep F.1.a.2 -- displacements per region
+# =====================================================================
+#
+# Bessel-derivative identities used below.
+#
+# Modified-Bessel derivatives (regular and singular branches; sign
+# difference is the only structural change going from K_n to I_n):
+#
+#       I_0'(x) = +I_1(x)             K_0'(x) = -K_1(x)
+#       I_1'(x) = I_0(x) - I_1(x)/x   K_1'(x) = -K_0(x) - K_1(x)/x
+#
+# "(1/r) d_r [r J_1(alpha r)]" identity (J_1 = either I_1 or K_1):
+#
+#       (1/r) d_r [r I_1(alpha r)] = +alpha * I_0(alpha r)
+#       (1/r) d_r [r K_1(alpha r)] = -alpha * K_0(alpha r)
+#
+# (Derivation for the I-flavor:
+#       d_r [r I_1(alpha r)] = I_1(alpha r) + r alpha I_1'(alpha r)
+#                            = I_1(alpha r) + r alpha [I_0(alpha r)
+#                                                       - I_1(alpha r)/(alpha r)]
+#                            = r alpha I_0(alpha r).)
+#
+# Sign convention: the I-flavor identities are the "positive twin" of
+# the K-flavor; every formula below that has a +alpha I-term has a
+# -alpha K-term in the same slot.
+#
+# Fluid displacement (Euler equation, same as the n=0 single-
+# interface case):
+#
+#       u_r^{(f)} = (A F_f / (rho_f omega^2)) * I_1(F_f r)
+#       u_z^{(f)} = (i k_z A / (rho_f omega^2)) * I_0(F_f r)
+#
+# Annulus displacement (Helmholtz decomposition u = grad phi +
+# curl psi with psi_r = 0 and psi_z = 0 at axisymmetric n=0):
+#
+#   u_r^{(m)} = d_r phi^{(m)} - d_z psi_theta^{(m)}
+#
+#       d_r phi^{(m)}     = B_I p_m I_1(p_m r) - B_K p_m K_1(p_m r)
+#       d_z psi_theta^{(m)} = i k_z [C_I I_1(s_m r) + C_K K_1(s_m r)]
+#
+#       ==> u_r^{(m)} =  B_I p_m I_1(p_m r)
+#                       - B_K p_m K_1(p_m r)
+#                       - i k_z C_I I_1(s_m r)
+#                       - i k_z C_K K_1(s_m r)
+#
+#   u_z^{(m)} = d_z phi^{(m)} + (1/r) d_r [r psi_theta^{(m)}]
+#
+#       d_z phi^{(m)}                = i k_z [B_I I_0(p_m r)
+#                                              + B_K K_0(p_m r)]
+#       (1/r) d_r [r psi_theta^{(m)}] = + s_m C_I I_0(s_m r)
+#                                       - s_m C_K K_0(s_m r)
+#
+#       ==> u_z^{(m)} =  i k_z B_I I_0(p_m r)
+#                       + i k_z B_K K_0(p_m r)
+#                       +     C_I s_m I_0(s_m r)
+#                       -     C_K s_m K_0(s_m r)
+#
+# Formation displacement (only the K-amplitudes survive, identical to
+# the single-interface n=0 form):
+#
+#       u_r^{(s)} = -B p K_1(p r) - i k_z C K_1(s r)
+#       u_z^{(s)} =  i k_z B K_0(p r) - C s K_0(s r)
+#
+# Note: the annulus expressions reduce to the formation expressions
+# when the I-amplitudes vanish (B_I = C_I = 0) and the K-amplitudes
+# are renamed (B_K -> -B, C_K -> -C). This sign-flip on the rename is
+# fixed by the sign of d_r [B_I I_0] = +B_I p_m I_1 vs the formation
+# convention u_r = -B p K_1 (the formation amplitude B absorbs the
+# minus from K_0' = -K_1; the annulus K-amplitude B_K is defined so
+# d_r [B_K K_0] = -B_K p_m K_1 carries its own sign explicitly).
+# Substep F.1.a.6's degenerate-limit cross-check pins this down.
+
+# =====================================================================
+# Substep F.1.a.3 -- stresses per region
+# =====================================================================
+#
+# Hooke's law in cylindrical coordinates, isotropic solid:
+#
+#       sigma_rr = lambda * div(u) + 2 mu * d_r u_r
+#       sigma_rz = mu * (d_z u_r + d_r u_z)
+#
+# (sigma_r_theta vanishes identically for n=0 axisymmetric fields and
+# is not a BC; that boundary condition re-appears at n=1.)
+#
+# Lamé reduction in each region. With the gauge u = grad phi + curl
+# psi and psi_r = 0:
+#
+#       div(u) = laplacian(phi)       (curl is divergence-free).
+#
+# Both I_n and K_n solve the same modified-Bessel equation
+# ``(d_r^2 + (1/r) d_r) f - alpha^2 f = 0``, so for any
+# scalar phi(r,z) = f(r) e^{i k_z z} with f built from
+# ``I_0(alpha r)`` or ``K_0(alpha r)``:
+#
+#       laplacian(phi) = (alpha^2 - k_z^2) phi
+#                      = -(omega / V_P_region)^2 phi
+#                      = - k_P_region^2 phi.
+#
+# The same algebraic identity used in
+# :func:`_modal_determinant_n0` therefore carries through region by
+# region:
+#
+#       - lambda_R k_P_R^2 + 2 mu_R p_R^2 = mu_R (2 k_z^2 - k_S_R^2)
+#
+# with ``R`` ranging over {annulus, formation} and the per-region
+# constants
+#
+#       lambda_m = rho_m (V_P_m^2 - 2 V_S_m^2),  mu_m = rho_m V_S_m^2
+#       lambda   = rho   (V_P^2   - 2 V_S^2  ),  mu   = rho   V_S^2
+#       k_S_m    = omega / V_S_m,   k_S = omega / V_S
+#
+# Stress expressions at a generic radius r (annulus form; formation
+# form drops the I-amplitudes):
+#
+#   sigma_rr^{(m)} =  mu_m (2 k_z^2 - k_S_m^2)
+#                          [B_I I_0(p_m r) + B_K K_0(p_m r)]
+#                   + 2 mu_m d_r u_r^{(m)}
+#
+#   d_r u_r^{(m)}  =   B_I p_m^2 I_0(p_m r)
+#                            - B_I p_m I_1(p_m r) / r
+#                    + B_K p_m^2 K_0(p_m r)
+#                            + B_K p_m K_1(p_m r) / r
+#                    - i k_z C_I [s_m I_0(s_m r) - I_1(s_m r) / r]
+#                    - i k_z C_K [-s_m K_0(s_m r) - K_1(s_m r) / r]
+#
+# (using I_1' = I_0 - I_1 / x at x = alpha r, etc.)
+#
+# After collecting on r = a or r = b the stress combinations reduce
+# to the same pattern as the n=0 single-interface form, with two
+# extra columns per body-wave (the I_n flavour). The explicit
+# r = a / r = b row entries are deferred to substep F.1.a.4 below;
+# carrying the symbolic forms here keeps the substep blocks
+# transcription-checkable.
+#
+# Axial-shear stress (single Lamé constant ``mu``):
+#
+#   sigma_rz^{(m)} = mu_m (d_z u_r^{(m)} + d_r u_z^{(m)})
+#
+#       d_z u_r^{(m)} = i k_z * [annulus u_r^{(m)} expression]
+#       d_r u_z^{(m)} = i k_z [B_I p_m I_1(p_m r) - B_K p_m K_1(p_m r)]
+#                       + C_I s_m^2 I_1(s_m r)
+#                       + C_K s_m * (-K_0' on s_m r form):
+#                          d_r [s_m C_K * (-K_0(s_m r))] handled
+#                          via d_r K_0(s_m r) = -s_m K_1(s_m r)
+#                       i.e. d_r [-C_K s_m K_0(s_m r)] = +C_K s_m^2 K_1(s_m r)
+#
+# After the row-3-by-i / C-columns-by-(-i) phase rescale (substep
+# F.1.a.5) every entry in the resulting matrix is real, exactly as
+# in the single-interface n=0 case.
+#
+# Formation-side stresses are obtained from the annulus forms by
+# setting ``B_I = C_I = 0``, swapping ``rho_m -> rho``,
+# ``V_P_m -> V_P``, ``V_S_m -> V_S``, and renaming ``B_K -> -B`` ,
+# ``C_K -> -C``. This is the same algebraic step that makes
+# :func:`_modal_determinant_n0` line up; see substep F.1.a.6 for the
+# explicit cross-check.
+
+# =====================================================================
+# Substep F.1.a.4 -- 7x7 boundary-condition row layout
+# =====================================================================
+#
+# Rows are the seven boundary conditions; columns are the seven
+# amplitudes in the order [A | B_I, B_K, C_I, C_K | B, C].
+#
+#   Row 1   u_r^{(f)} - u_r^{(m)} = 0           at r = a
+#   Row 2   sigma_rr^{(m)} + P^{(f)} = 0        at r = a
+#   Row 3   sigma_rz^{(m)} = 0                  at r = a
+#   Row 4   u_r^{(m)} - u_r^{(s)} = 0           at r = b
+#   Row 5   u_z^{(m)} - u_z^{(s)} = 0           at r = b
+#   Row 6   sigma_rr^{(m)} - sigma_rr^{(s)} = 0 at r = b
+#   Row 7   sigma_rz^{(m)} - sigma_rz^{(s)} = 0 at r = b
+#
+# Sparsity pattern (X = generically non-zero, . = identically zero):
+#
+#               A   B_I B_K C_I C_K |  B   C
+#       Row 1 [ X    X   X   X   X  |  .   . ]   <- r = a, fluid+annulus
+#       Row 2 [ X    X   X   X   X  |  .   . ]
+#       Row 3 [ .    X   X   X   X  |  .   . ]   <- fluid carries no shear
+#       Row 4 [ .    X   X   X   X  |  X   X ]   <- r = b, annulus+formation
+#       Row 5 [ .    X   X   X   X  |  X   X ]
+#       Row 6 [ .    X   X   X   X  |  X   X ]
+#       Row 7 [ .    X   X   X   X  |  X   X ]
+#
+# Block-bidiagonal: A only enters rows 1-2; B and C only enter rows
+# 4-7. This is the n=2 generalisation of the 3x3 single-interface
+# case (which had A | B, C as the column partition and rows 1-3 all
+# at r = a). The extra rows 4-7 are the second interface; the extra
+# columns B_I, C_I are the I-flavour annulus amplitudes that absorb
+# the displacement jumps continuity demands.
+#
+# Per-row entries (rows 1-3 reuse the single-interface n=0
+# expressions with K -> {I, K} columns; rows 4-7 reuse the same
+# expressions for the annulus side and the formation-side sign-
+# matched versions for the formation).
+#
+# The explicit entry list lives next to the matrix construction in
+# F.1.b; the cross-check is "feed the layer=formation degenerate
+# values and sum the I_K + K columns: the result must match the
+# 3-column single-interface form to floating-point precision".
+
+# =====================================================================
+# Substep F.1.a.5 -- phase rescaling for a real-valued matrix
+# =====================================================================
+#
+# Pre-rescale phase pattern of each row (zero entries excluded;
+# entries are either purely real ``R`` or purely imaginary ``i*R``):
+#
+#       Row | A  | B_I B_K B | C_I C_K C   <- column groupings
+#       ----+----+-----------+-----------
+#        1  | R  |   R       |   i*R       (u_r at r = a)
+#        2  | R  |   R       |   i*R       (sigma_rr at r = a)
+#        3  | 0  |   i*R     |   R         (sigma_rz at r = a)
+#        4  | 0  |   R       |   i*R       (u_r at r = b)
+#        5  | 0  |   i*R     |   R         (u_z at r = b)        <-- new at layered
+#        6  | 0  |   R       |   i*R       (sigma_rr at r = b)
+#        7  | 0  |   i*R     |   R         (sigma_rz at r = b)
+#
+# The ``B-imag, C-real`` pattern is shared by every row whose physical
+# meaning is "z-derivative-bearing": sigma_rz (rows 3, 7) and u_z
+# (row 5). The complementary ``B-real, C-imag`` pattern lives on
+# every "no-z-derivative" row: u_r and sigma_rr (rows 1, 2, 4, 6).
+#
+# A real matrix is recovered by:
+#
+#   * Multiplying rows 3, 5, 7 by ``i``  (flips ``i*R -> R`` on B
+#     columns and ``R -> i*R`` on C columns of those rows).
+#   * Multiplying columns C_I, C_K, C by ``-i``  (flips ``i*R -> R``
+#     on rows 1, 2, 4, 6 of the C columns, and ``i*R -> R`` on rows
+#     3, 5, 7 of the C columns -- net factor on those crossings is
+#     ``i * (-i) = 1``).
+#
+# Net effect on the determinant:
+#
+#   det(M_rescaled) = (i^3) * ((-i)^3) * det(M)
+#                   = (-i) * (i) * det(M)
+#                   = +1 * det(M).
+#
+# So the rescaling is determinant-preserving (the row factor of ``-i``
+# and the column factor of ``+i`` cancel) -- the same property that
+# the n=0 single-interface form relies on. The modal-determinant
+# convention used throughout this module is to return the rescaled
+# (real) determinant directly; substep F.1.a.6's degenerate-limit
+# check is what verifies the rescale was wired up correctly.
+#
+# Note vs the n=0 single-interface case: the single-interface form
+# rescales one row (``sigma_rz`` at the only interface) and one
+# column (the only ``C``). The layered form rescales three of each
+# because two extra rows of the new pattern (row 5 ``u_z`` continuity
+# at r = b, plus the second ``sigma_rz`` at r = b) joined the matrix,
+# along with two extra C columns (``C_I``, ``C_K``). Mismatching
+# this count -- e.g., forgetting to rescale row 5 -- produces a
+# matrix with a non-vanishing imaginary part in the bound regime,
+# the most direct way to catch a transcription error in F.1.b.
+
+# =====================================================================
+# Substep F.1.a.6 -- self-check protocol (degenerate-limit collapse)
+# =====================================================================
+#
+# Two algebraic identities the layered determinant must satisfy by
+# construction; both are landed as tests in F.1.d:
+#
+# (a) Layer = formation. Setting ``(V_P_m, V_S_m, rho_m) =
+#     (V_P, V_S, rho)`` makes the annulus material identical to the
+#     formation. The annulus then has only the bound (decaying-
+#     outward) physical solution; the I-amplitudes (B_I, C_I) must
+#     therefore vanish at the root for any thickness. The
+#     determinant *root* must coincide with the
+#     :func:`_modal_determinant_n0` root to floating-point precision
+#     (the determinant *value* differs by a constant pre-factor of
+#     no physical relevance).
+#
+# (b) Thickness -> 0. The rows at r = b approach the rows at r = a
+#     in the limit b -> a. In that limit the seven BCs reduce to
+#     three independent ones (the four interface-continuity rows
+#     collapse onto each other) and the converged k_z must approach
+#     the single-interface value continuously.
+#
+# The two checks together pin both the matrix entries (via (a)) and
+# the matrix algebra around the second interface (via (b)). The F.1.b
+# transcription is implementation-correct iff both pass.
+#
+# References for the layered derivation: Cheng & Toksoz (1981) Sect.
+# IV, Schmitt (1988) Appendix A, Tang & Cheng (2004) Sect. 7.1
+# (cased-hole) -- the latter generalises the same I_n + K_n
+# annulus to N stacked layers and feeds plan item G.
+
+
 
 def stoneley_dispersion_layered(
     freq: np.ndarray,
