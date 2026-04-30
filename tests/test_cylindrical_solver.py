@@ -25,6 +25,7 @@ from fwap.cylindrical_solver import (
     _layered_n0_row7_at_b,
     _modal_determinant_n0,
     _modal_determinant_n0_layered,
+    flexural_dispersion_layered,
     _modal_determinant_n1,
     flexural_dispersion,
     stoneley_dispersion,
@@ -3411,4 +3412,110 @@ def test_stoneley_dispersion_layered_low_f_layer_shifts_off_formation_white():
     # layer is softer than formation -> s_layer > s_formation.
     # The layered slowness must lie between the two.
     assert s_formation < res.slowness[0] < s_layer
+
+
+# =====================================================================
+# Plan item F.2.0 -- public-API foundation for layered flexural
+# =====================================================================
+#
+# Sister of the F.1 foundation tests. The 10x10 layered modal
+# determinant is scheduled in plan item F.2; here we only exercise
+# the public-API surface (validation, empty-layers dispatch,
+# NotImplementedError sentinel for non-empty).
+
+
+def test_flexural_dispersion_layered_empty_layers_bit_matches_unlayered():
+    """Degenerate single-interface case: ``layers=()`` must produce
+    a slowness curve bit-identical to :func:`flexural_dispersion`.
+    Floating-point oracle that will continue to anchor the layered
+    flexural solver once the 10x10 modal determinant lands in F.2.d.
+    """
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f = np.linspace(2000.0, 8000.0, 12)
+    res_unlayered = flexural_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    res_layered = flexural_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a, layers=(),
+    )
+    np.testing.assert_array_equal(res_layered.slowness, res_unlayered.slowness)
+    np.testing.assert_array_equal(res_layered.freq, res_unlayered.freq)
+    assert res_layered.name == res_unlayered.name == "flexural"
+    assert res_layered.azimuthal_order == 1
+
+
+def test_flexural_dispersion_layered_empty_layers_returns_borehole_mode():
+    f = np.linspace(2000.0, 5000.0, 5)
+    res = flexural_dispersion_layered(
+        f, vp=4500.0, vs=2500.0, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert isinstance(res, BoreholeMode)
+    assert res.name == "flexural"
+    assert res.azimuthal_order == 1
+
+
+def test_flexural_dispersion_layered_non_empty_layers_raises_not_implemented():
+    """Non-empty layers are blocked on plan item F.2 (the 10x10
+    layered modal determinant); the public API raises
+    NotImplementedError so callers don't silently get the unlayered
+    answer."""
+    f = np.array([2000.0, 4000.0])
+    layer = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.01)
+    with pytest.raises(NotImplementedError, match="plan item F\\.2"):
+        flexural_dispersion_layered(
+            f,
+            vp=4500.0, vs=2500.0, rho=2400.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+            layers=(layer,),
+        )
+
+
+def test_flexural_dispersion_layered_rejects_bad_layer_object():
+    f = np.array([2000.0])
+    with pytest.raises(ValueError, match="BoreholeLayer"):
+        flexural_dispersion_layered(
+            f,
+            vp=4500.0, vs=2500.0, rho=2400.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+            layers=("not a layer",),
+        )
+
+
+@pytest.mark.parametrize(
+    "kwargs, msg",
+    [
+        ({"vp": 0.0, "vs": 1.0, "rho": 1.0, "thickness": 1.0}, "positive"),
+        ({"vp": 1.0, "vs": -1.0, "rho": 1.0, "thickness": 1.0}, "positive"),
+        ({"vp": 1.0, "vs": 1.0, "rho": 0.0, "thickness": 1.0}, "positive"),
+        ({"vp": 1.0, "vs": 2.0, "rho": 1.0, "thickness": 1.0}, "vp > vs"),
+        ({"vp": 4.0, "vs": 2.0, "rho": 1.0, "thickness": 0.0}, "thickness"),
+        ({"vp": 4.0, "vs": 2.0, "rho": 1.0, "thickness": -0.1}, "thickness"),
+    ],
+)
+def test_flexural_dispersion_layered_rejects_malformed_layer_params(kwargs, msg):
+    f = np.array([2000.0])
+    layer = BoreholeLayer(**kwargs)
+    with pytest.raises(ValueError, match=msg):
+        flexural_dispersion_layered(
+            f,
+            vp=4500.0, vs=2500.0, rho=2400.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+            layers=(layer,),
+        )
+
+
+def test_flexural_dispersion_layered_accepts_list_for_layers():
+    """``layers`` should accept any iterable that ``tuple(...)``
+    consumes; empty list dispatches to the unlayered solver."""
+    f = np.linspace(2000.0, 5000.0, 4)
+    res_tuple = flexural_dispersion_layered(
+        f, vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=0.1, layers=(),
+    )
+    res_list = flexural_dispersion_layered(
+        f, vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=0.1, layers=[],
+    )
+    np.testing.assert_array_equal(res_tuple.slowness, res_list.slowness)
 

@@ -6528,3 +6528,112 @@ def stoneley_dispersion_layered(
         slowness=slowness,
     )
 
+
+# =====================================================================
+# Plan item F.2.0 -- public-API foundation for layered flexural
+# =====================================================================
+#
+# Sister of :func:`stoneley_dispersion_layered` at azimuthal order 1.
+# Lands the public-API surface and the layer=formation regression
+# oracle ahead of the 10x10 layered modal-determinant work scheduled
+# in plan item F.2 (``docs/plans/cylindrical_biot_F_2.md``).
+#
+# Scope of this foundation:
+#
+#   * :func:`flexural_dispersion_layered` is the public n=1 entry
+#     point. With ``layers=()`` it dispatches bit-equivalently to
+#     :func:`flexural_dispersion`; with non-empty layers it raises
+#     ``NotImplementedError`` referencing the F.2 plan.
+#   * Reuses :class:`BoreholeLayer` and
+#     :func:`_validate_borehole_layers` from the F.1 foundation
+#     (PR #43); no new data structures required.
+#
+# What this lets downstream F.2 work assume:
+#
+#   * The public-API surface (parameter names, validation rules,
+#     return type) is fixed. The follow-up implementing
+#     ``_modal_determinant_n1_layered`` and the per-row builders
+#     (substeps F.2.b and F.2.c) only needs to swap the dispatch
+#     branch below.
+#   * The layer=formation regression test in
+#     ``tests/test_cylindrical_solver.py`` is already passing with
+#     ``layers=()`` and stays as the floating-point oracle for the
+#     non-trivial case.
+
+
+def flexural_dispersion_layered(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...] = (),
+) -> BoreholeMode:
+    r"""
+    Flexural-wave (n=1) phase slowness vs frequency for a borehole
+    with optional mudcake / altered-zone annular layers between the
+    fluid and the formation half-space.
+
+    With ``layers=()`` (no extra layers) this is bit-equivalent to
+    :func:`flexural_dispersion`. With one or more
+    :class:`BoreholeLayer` entries this is the public entry point
+    for plan item F.2 in ``docs/plans/cylindrical_biot_F_2.md``;
+    the underlying 10x10 layered modal determinant is scheduled
+    as the next steps of that plan and currently raises
+    ``NotImplementedError``.
+
+    Parameters
+    ----------
+    freq : ndarray
+        Frequency grid (Hz). Must be strictly positive.
+    vp, vs, rho : float
+        Formation half-space P-wave velocity (m/s), S-wave
+        velocity (m/s), and bulk density (kg/m^3). Must satisfy
+        ``vp > vs > 0`` and ``rho > 0``.
+    vf, rho_f : float
+        Borehole-fluid velocity (m/s) and density (kg/m^3).
+    a : float
+        Borehole (fluid-side) radius (m).
+    layers : tuple of BoreholeLayer, default ()
+        Annular elastic layers between the fluid (``r < a``) and
+        the formation half-space, ordered radially outward. The
+        empty tuple is the degenerate single-interface case and
+        dispatches to :func:`flexural_dispersion`.
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "flexural"``, ``azimuthal_order = 1``, with
+        ``freq`` echoed and ``slowness[i]`` the phase slowness at
+        each frequency. ``NaN`` at any frequency where the bracket
+        failed (typically below the geometric cutoff for slow
+        formations, or in the wrong physical regime).
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive, ``vp <= vs``, ``freq``
+        contains a non-positive entry, or any layer in ``layers``
+        is malformed.
+    NotImplementedError
+        If ``layers`` is non-empty. The non-degenerate path is
+        blocked on the layered modal-determinant implementation
+        (plan item F.2; see
+        ``docs/plans/cylindrical_biot_F_2.md``).
+    """
+    layers_tuple = tuple(layers)
+    _validate_borehole_layers(layers_tuple)
+    if not layers_tuple:
+        return flexural_dispersion(
+            freq, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        )
+    raise NotImplementedError(
+        "flexural_dispersion_layered with non-empty layers is not "
+        "implemented yet; the 10x10 layered modal determinant is "
+        "scheduled in plan item F.2 in "
+        "docs/plans/cylindrical_biot_F_2.md."
+    )
+
