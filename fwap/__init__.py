@@ -258,6 +258,9 @@ from fwap.cylindrical_solver import (
     flexural_dispersion,
     stoneley_dispersion,
 )
+from fwap.cylindrical_solver import (
+    pseudo_rayleigh_dispersion as pseudo_rayleigh_modal_dispersion,
+)
 
 # LWD (logging-while-drilling) phenomenological layer
 from fwap.lwd import (
@@ -412,6 +415,7 @@ __all__ = [
     "BoreholeMode",
     "stoneley_dispersion",
     "flexural_dispersion",
+    "pseudo_rayleigh_modal_dispersion",
     # LWD phenomenological layer
     "lwd_collar_mode",
     "synthesize_lwd_gather",

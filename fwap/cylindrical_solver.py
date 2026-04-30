@@ -14,17 +14,20 @@ Scope (this module)
   zone). The VTI extension lives on the roadmap as a follow-up
   (Schmitt 1989 elastic part); the numerical scaffolding here will
   be reused.
-* **Bound-mode regime only**: ``k_z > omega / V_S`` (and therefore
-  also ``> omega / V_P`` and ``> omega / V_f``). This covers the
-  Stoneley wave throughout its band on a typical sonic record.
-  The leaky-mode pseudo-Rayleigh and high-frequency leaky-flexural
-  regimes need outgoing-wave (Hankel-function) boundary conditions
-  and are out of scope.
-* **n=0 monopole only.** The n=1 dipole flexural mode follows the
-  same approach but with a 4x4 modal matrix derived from a three-
-  scalar Helmholtz decomposition (P, SV, SH potentials with
-  cos/sin azimuthal symmetries). It is a follow-up commit; see the
-  roadmap.
+* **Bound-mode + n=0 leaky regimes**: the bound-mode public APIs
+  (:func:`stoneley_dispersion`, :func:`flexural_dispersion`)
+  cover the regime ``k_z > omega / V_S`` (all radial wavenumbers
+  real). The first leaky-mode public API
+  (:func:`pseudo_rayleigh_dispersion`) extends this to the n=0
+  leaky regime via outgoing-wave Hankel-function boundary
+  conditions and complex-:math:`k_z` Mueller iteration. The
+  high-frequency leaky-flexural and quadrupole regimes follow
+  the same scaffolding and are scheduled as plan items B and E
+  in ``docs/plans/cylindrical_biot.md``.
+* **n=0 and n=1 monopole/dipole.** The n=2 quadrupole mode
+  follows the same approach but with a 4x4 modal matrix derived
+  from a three-scalar Helmholtz decomposition. It is plan item D;
+  see ``docs/plans/cylindrical_biot.md``.
 
 Sign conventions
 ----------------
@@ -3266,4 +3269,256 @@ def _march_complex_dispersion(
         kz_prev = kz_root
         f_prev = f
     return kz_curve
+
+
+# ---------------------------------------------------------------------
+# L4 -- Public n=0 leaky API: pseudo-Rayleigh dispersion.
+# ---------------------------------------------------------------------
+#
+# First product on top of the L1-L3 scaffolding above. The pseudo-
+# Rayleigh wave is the n=0 leaky mode of a fluid-filled borehole in a
+# fast formation (V_S > V_f). Its phase velocity sits between V_S and
+# V_P; the formation S wave radiates into the formation (s-branch
+# leaky) while the fluid I-Bessel and the formation P K-Bessel remain
+# bound. See Paillet & Cheng (1991) sect. 4.4 and fig 4.5.
+#
+# The mode appears above a low-frequency cutoff where it merges with
+# the body S head wave (slowness = 1/V_S, k_z = omega / V_S). A
+# closed-form approximation for the first-mode cutoff is
+#
+#     f_c ~ j_{1,1} V_f V_S / (2 pi a sqrt(V_S^2 - V_f^2))
+#
+# (rigid-pipe limit V_S -> infty recovers the Pochhammer-Chree first
+# cutoff f_c = j_{1,1} V_f / (2 pi a)). The implementation uses this
+# as a sanity bracket for the marcher's frequency grid rather than as
+# a hard cutoff -- the actual cutoff comes out of the root finder
+# losing convergence, which is the reliable test.
+
+
+# First positive zero of the Bessel function J_1. Used in the
+# rigid-pipe-limit cutoff approximation for n=0 leaky modes.
+_J1_FIRST_ZERO = 3.831705970207512
+
+
+def pseudo_rayleigh_dispersion(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> BoreholeMode:
+    r"""
+    Pseudo-Rayleigh leaky-mode dispersion from the n=0 modal
+    determinant.
+
+    Tracks the n=0 leaky root with the formation S wave radiating
+    outward (``s``-branch leaky) while the fluid pressure and the
+    formation P wave stay bound. The mode exists in fast formations
+    only (``V_S > V_f``) above a low-frequency cutoff where its phase
+    velocity merges with the body S head wave (``slowness -> 1 / V_S``).
+
+    Parameters
+    ----------
+    freq : ndarray
+        Frequency grid (Hz). Must be strictly positive. The marcher
+        walks the grid from high to low frequency internally; the
+        return arrays are indexed in input order.
+    vp, vs, rho : float
+        Formation P-wave velocity (m/s), S-wave velocity (m/s), and
+        bulk density (kg/m^3). Must satisfy ``vp > vs > 0`` and
+        ``rho > 0``.
+    vf, rho_f : float
+        Borehole-fluid velocity (m/s) and density (kg/m^3). Must
+        satisfy ``vs > vf`` (fast formation).
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "pseudo_rayleigh"``, ``azimuthal_order = 0``.
+        ``slowness[i] = Re(k_z(omega[i])) / omega[i]`` (s/m), and
+        ``attenuation_per_meter[i] = Im(k_z(omega[i]))`` (1/m, the
+        spatial decay rate of the mode in the +z direction). ``NaN``
+        at frequencies below the geometric cutoff, where the root
+        finder fails to converge, or where the converged root falls
+        outside the leaky-S regime ``1/V_P < slowness < 1/V_S`` with
+        ``Im(k_z) > 0``.
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive, ``vp <= vs``, ``vs <= vf``
+        (slow formation -- mode does not exist), or ``freq``
+        contains a non-positive entry.
+
+    Notes
+    -----
+    Implementation strategy: walk the frequency grid from high to
+    low frequency, seeded at the highest input frequency by the
+    analytic high-frequency asymptote (slowness slightly below
+    ``1/V_S`` with a small positive imaginary part, pushing the
+    s-branch into the leaky regime). At each step the converged
+    ``k_z`` from the previous frequency is rescaled by the
+    constant-slowness extrapolation ``k_z * (omega / omega_prev)``
+    and fed to :func:`scipy.optimize.root` as the seed for the next
+    step. The marcher stops as soon as
+
+    1. ``scipy.optimize.root`` fails to converge,
+    2. the converged ``k_z`` has ``Im(k_z) <= 0`` (mode left the
+       leaky regime, either by physical merger with the bulk S wave
+       at the cutoff, or by numerical drift to a non-physical
+       root), or
+    3. the converged slowness ``Re(k_z) / omega`` falls outside the
+       open interval ``(1/V_P, 1/V_S)`` (mode hopped to a different
+       physical regime).
+
+    All three stopping conditions leave the remaining low-frequency
+    samples as NaN. The implementation does not currently attempt
+    branch-stitching across the cutoff; that is plan item C
+    (`docs/plans/cylindrical_biot.md`).
+
+    The geometric cutoff frequency is approximately
+
+    .. math::
+        f_c \approx \frac{j_{1,1} V_f V_S}
+                         {2 \pi a \sqrt{V_S^2 - V_f^2}}
+
+    where ``j_{1,1} \approx 3.832`` is the first positive zero of
+    :math:`J_1`. This rigid-pipe-limit estimate is exposed as
+    :data:`_J1_FIRST_ZERO` for callers that want to guard against
+    requesting frequencies below the cutoff explicitly.
+
+    See Also
+    --------
+    stoneley_dispersion : The fully-bound n=0 sister.
+    flexural_dispersion : The bound n=1 sister (slow formations).
+    fwap.synthetic.pseudo_rayleigh_dispersion : Phenomenological
+        callable-factory model used as the synthetic-gather
+        dispersion law; the present function is the modal-
+        determinant counterpart.
+
+    References
+    ----------
+    * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
+      Boreholes.* CRC Press, sect. 4.4 and fig 4.5.
+    * Schmitt, D. P. (1988). Shear-wave logging in elastic
+      formations. *J. Acoust. Soc. Am.* 84(6), 2230-2244.
+    * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
+      Acoustic Methods.* Elsevier, sect. 3.2.
+    """
+    if vp <= 0 or vs <= 0 or rho <= 0:
+        raise ValueError("vp, vs, rho must all be positive")
+    if vf <= 0 or rho_f <= 0:
+        raise ValueError("vf and rho_f must be positive")
+    if a <= 0:
+        raise ValueError("a must be positive")
+    if vp <= vs:
+        raise ValueError("require vp > vs")
+    if vs <= vf:
+        raise ValueError(
+            f"pseudo-Rayleigh requires a fast formation (vs > vf); "
+            f"got vs={vs}, vf={vf}"
+        )
+    f_arr = np.asarray(freq, dtype=float)
+    if np.any(f_arr <= 0):
+        raise ValueError("freq must be strictly positive")
+
+    n_f = f_arr.size
+    slowness = np.full(n_f, np.nan, dtype=float)
+    attenuation = np.full(n_f, np.nan, dtype=float)
+
+    if n_f == 0:
+        return BoreholeMode(
+            name="pseudo_rayleigh",
+            azimuthal_order=0,
+            freq=f_arr,
+            slowness=slowness,
+            attenuation_per_meter=attenuation,
+        )
+
+    # Sort frequencies descending. The marcher seeds from the
+    # analytic high-f asymptote (slowness -> 1/V_S from below) and
+    # walks toward the cutoff.
+    order_desc = np.argsort(-f_arr)
+    f_desc = f_arr[order_desc]
+
+    # High-frequency seed: slowness ~ 0.95 / V_S (5% inside the
+    # leaky regime in slowness terms, equivalently 5% above V_S in
+    # phase velocity), with a substantial positive imaginary part
+    # so the determinant evaluator unambiguously sits on the leaky
+    # branch. A seed pinned to slowness ~ 1/V_S itself causes the
+    # hybrid root finder to converge to a numerical zero of the
+    # Hankel-formulated determinant that lies just above 1/V_S in
+    # slowness -- a non-physical solution outside the leaky-S
+    # regime. The 5% offset is well-tested empirically against
+    # standard fast-formation parameters (V_S/V_f ~ 2).
+    omega_max = 2.0 * np.pi * float(f_desc[0])
+    kz_prev = complex(
+        omega_max / vs * 0.95,
+        omega_max / vs * 5.0e-3,
+    )
+    omega_prev: float | None = None
+
+    # Valid leaky-S regime in slowness terms: open interval
+    # (1/V_P, 1/V_S). Allow a small numerical slack on the upper
+    # boundary so a converged k_z exactly at omega/V_S (numerical
+    # boundary case) is still accepted.
+    slowness_lo = 1.0 / vp
+    slowness_hi = 1.0 / vs
+    slowness_slack = 1.0e-6 * slowness_hi
+
+    slowness_desc = np.full(f_desc.size, np.nan, dtype=float)
+    attenuation_desc = np.full(f_desc.size, np.nan, dtype=float)
+
+    for i, f in enumerate(f_desc):
+        omega = 2.0 * np.pi * float(f)
+        if omega_prev is None:
+            kz_seed = kz_prev
+        else:
+            # Constant-slowness extrapolation: kz scales linearly
+            # with omega for any smooth dispersion law.
+            kz_seed = kz_prev * (omega / omega_prev)
+
+        def _det(kz: complex, _omega: float = omega) -> complex:
+            return _modal_determinant_n0_complex(
+                kz, _omega, vp, vs, rho, vf, rho_f, a,
+                leaky_p=False, leaky_s=True,
+            )
+
+        kz_root = _track_complex_root(_det, kz_seed)
+        if kz_root is None:
+            # Convergence failure: typically the geometric cutoff.
+            # Stop walking; remaining low-f samples stay NaN.
+            break
+        if kz_root.imag <= 0.0:
+            # Mode merged with the bound regime, or the marcher
+            # drifted to an unphysical (growing) root. Either way
+            # the leaky branch ends here.
+            break
+        s_re = kz_root.real / omega
+        if not (slowness_lo < s_re < slowness_hi + slowness_slack):
+            # Marcher hopped to a different physical regime
+            # (slowness above 1/V_S = bound; below 1/V_P = both
+            # branches leaky). Treat as end-of-mode.
+            break
+
+        slowness_desc[i] = s_re
+        attenuation_desc[i] = kz_root.imag
+        kz_prev = kz_root
+        omega_prev = omega
+
+    slowness[order_desc] = slowness_desc
+    attenuation[order_desc] = attenuation_desc
+
+    return BoreholeMode(
+        name="pseudo_rayleigh",
+        azimuthal_order=0,
+        freq=f_arr,
+        slowness=slowness,
+        attenuation_per_meter=attenuation,
+    )
 
