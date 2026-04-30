@@ -1647,3 +1647,171 @@ def test_pseudo_rayleigh_segmenter_returns_single_continuous_segment():
     assert len(segs) == 1
     assert len(segs[0]) == freq.size
 
+
+# =====================================================================
+# Plan item D: n=2 quadrupole bound-mode dispersion tests.
+# =====================================================================
+#
+# Slow-formation parameters (V_S < V_f). Same set as the slow-formation
+# flexural tests so the two suites can share intuition about the
+# cutoff and the V_R high-f asymptote.
+
+QUAD_VP = 2200.0
+QUAD_VS = 800.0
+QUAD_RHO = 2200.0
+QUAD_VF = 1500.0
+QUAD_RHO_F = 1000.0
+QUAD_A = 0.1
+
+
+def test_quadrupole_returns_borehole_mode_with_n2_label():
+    """Output dataclass contract: ``BoreholeMode`` with
+    ``name = "quadrupole"`` and ``azimuthal_order = 2``."""
+    from fwap.cylindrical_solver import quadrupole_dispersion
+
+    f = np.linspace(3000.0, 12000.0, 5)
+    res = quadrupole_dispersion(
+        f, vp=QUAD_VP, vs=QUAD_VS, rho=QUAD_RHO,
+        vf=QUAD_VF, rho_f=QUAD_RHO_F, a=QUAD_A,
+    )
+    assert isinstance(res, BoreholeMode)
+    assert res.name == "quadrupole"
+    assert res.azimuthal_order == 2
+    np.testing.assert_array_equal(res.freq, f)
+    assert res.slowness.shape == f.shape
+    # Bound mode -> attenuation_per_meter is None (same convention
+    # as Stoneley and the bound flexural).
+    assert res.attenuation_per_meter is None
+
+
+def test_quadrupole_finite_above_cutoff_in_slow_formation():
+    """In the slow-formation regime the bound n=2 mode exists
+    above a geometric cutoff. At least one frequency in a
+    reasonable band must yield a finite slowness in the
+    ``(1/V_S, ~1.1/V_R)`` window."""
+    from fwap.cylindrical_solver import quadrupole_dispersion
+    from fwap.cylindrical import rayleigh_speed
+
+    vR = rayleigh_speed(QUAD_VP, QUAD_VS)
+    f = np.linspace(3000.0, 20000.0, 10)
+    res = quadrupole_dispersion(
+        f, vp=QUAD_VP, vs=QUAD_VS, rho=QUAD_RHO,
+        vf=QUAD_VF, rho_f=QUAD_RHO_F, a=QUAD_A,
+    )
+    finite = np.isfinite(res.slowness)
+    assert finite.any(), "expected the bound n=2 mode to exist above cutoff"
+    velocity = 1.0 / res.slowness[finite]
+    # All recovered velocities sit between the Scholte limit
+    # (slightly below V_R; fluid loading depresses the asymptote
+    # ~5% below the vacuum Rayleigh speed for this rock) and V_S.
+    assert (velocity < QUAD_VS).all()
+    assert (velocity > vR * 0.85).all()
+
+
+def test_quadrupole_returns_nan_throughout_in_fast_formation():
+    """Plan item D ships only the slow-formation bound regime; the
+    fast-formation leaky quadrupole is plan item E. Until E lands,
+    the function must return all-NaN throughout for any input
+    grid when ``V_S >= V_f``, with no warning and no exception."""
+    from fwap.cylindrical_solver import quadrupole_dispersion
+
+    f = np.array([2000.0, 5000.0, 20000.0])
+    res = quadrupole_dispersion(
+        f, vp=5500.0, vs=3100.0, rho=2500.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert np.all(np.isnan(res.slowness))
+
+
+def test_quadrupole_returns_nan_below_geometric_cutoff():
+    """The dipole-side cutoff is at ``V_S / (2 pi a) ~ 1273 Hz``
+    for these slow-formation parameters; the n=2 quadrupole
+    cutoff is higher (typically ~2.5 to 4 times the n=1 cutoff,
+    so ~3-5 kHz here). At very low frequencies the bracket has
+    no sign change and the function returns NaN rather than
+    spurious roots."""
+    from fwap.cylindrical_solver import quadrupole_dispersion
+
+    f = np.array([500.0, 1000.0])  # well below n=2 cutoff
+    res = quadrupole_dispersion(
+        f, vp=QUAD_VP, vs=QUAD_VS, rho=QUAD_RHO,
+        vf=QUAD_VF, rho_f=QUAD_RHO_F, a=QUAD_A,
+    )
+    assert np.all(np.isnan(res.slowness))
+
+
+def test_quadrupole_long_wavelength_slowness_above_inverse_vs():
+    """All bound n=2 roots above cutoff have ``slowness > 1/V_S``
+    (kz > omega/V_S, the bound-regime floor); just above the
+    cutoff slowness is closest to ``1/V_S`` and grows slightly at
+    higher frequency toward the Scholte limit."""
+    from fwap.cylindrical_solver import quadrupole_dispersion
+
+    f = np.linspace(5000.0, 30000.0, 26)
+    res = quadrupole_dispersion(
+        f, vp=QUAD_VP, vs=QUAD_VS, rho=QUAD_RHO,
+        vf=QUAD_VF, rho_f=QUAD_RHO_F, a=QUAD_A,
+    )
+    finite = np.isfinite(res.slowness)
+    assert finite.sum() >= 5
+    s_vals = res.slowness[finite]
+    assert (s_vals > 1.0 / QUAD_VS).all()
+
+
+def test_quadrupole_modal_determinant_at_root_is_near_zero():
+    """At a converged quadrupole root the bound-regime modal
+    determinant must be many orders smaller than the determinant
+    at a nearby off-root point. Same local-zero check used for
+    Stoneley and flexural roots."""
+    from fwap.cylindrical_solver import (
+        quadrupole_dispersion, _modal_determinant_n2,
+    )
+
+    f = np.array([8000.0])
+    res = quadrupole_dispersion(
+        f, vp=QUAD_VP, vs=QUAD_VS, rho=QUAD_RHO,
+        vf=QUAD_VF, rho_f=QUAD_RHO_F, a=QUAD_A,
+    )
+    assert np.isfinite(res.slowness[0])
+    omega = 2.0 * np.pi * f[0]
+    kz_root = res.slowness[0] * omega
+    det_at_root = _modal_determinant_n2(
+        kz_root, omega, QUAD_VP, QUAD_VS, QUAD_RHO,
+        QUAD_VF, QUAD_RHO_F, QUAD_A,
+    )
+    # Off-root sample 5 % below kz_root.
+    kz_off = kz_root * 0.95
+    det_off = _modal_determinant_n2(
+        kz_off, omega, QUAD_VP, QUAD_VS, QUAD_RHO,
+        QUAD_VF, QUAD_RHO_F, QUAD_A,
+    )
+    assert abs(det_at_root) < abs(det_off) * 1.0e-2
+
+
+def test_quadrupole_dispersion_rejects_non_positive_inputs():
+    """Mirrors the Stoneley / flexural input-validation suite."""
+    from fwap.cylindrical_solver import quadrupole_dispersion
+
+    f = np.array([5000.0])
+    base = dict(vp=QUAD_VP, vs=QUAD_VS, rho=QUAD_RHO,
+                vf=QUAD_VF, rho_f=QUAD_RHO_F, a=QUAD_A)
+    with pytest.raises(ValueError, match="vp, vs, rho"):
+        quadrupole_dispersion(f, **{**base, "rho": 0.0})
+    with pytest.raises(ValueError, match="vf and rho_f"):
+        quadrupole_dispersion(f, **{**base, "vf": 0.0})
+    with pytest.raises(ValueError, match="^a must"):
+        quadrupole_dispersion(f, **{**base, "a": -0.1})
+    with pytest.raises(ValueError, match="vp > vs"):
+        quadrupole_dispersion(f, **{**base, "vp": QUAD_VS})
+
+
+def test_quadrupole_dispersion_rejects_non_positive_freq():
+    from fwap.cylindrical_solver import quadrupole_dispersion
+
+    bad = np.array([1000.0, -500.0, 5000.0])
+    with pytest.raises(ValueError, match="freq"):
+        quadrupole_dispersion(
+            bad, vp=QUAD_VP, vs=QUAD_VS, rho=QUAD_RHO,
+            vf=QUAD_VF, rho_f=QUAD_RHO_F, a=QUAD_A,
+        )
+

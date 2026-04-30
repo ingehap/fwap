@@ -6,6 +6,48 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **``quadrupole_dispersion`` public API** (Roadmap A, plan item D
+  in ``docs/plans/cylindrical_biot.md``). Real-valued n=2 modal-
+  determinant solver for the slow-formation (``V_S < V_f``) bound
+  regime, the LWD-quadrupole mode framed in Tang & Cheng 2004
+  sect. 2.5. Tracks the lowest-``k_z`` zero of a 4x4
+  :func:`_modal_determinant_n2` across the input frequency grid
+  with the same ``brentq`` + bracket-expansion pattern as
+  ``stoneley_dispersion`` and ``flexural_dispersion``. Returns
+  ``BoreholeMode(name="quadrupole", azimuthal_order=2)``.
+
+  Implementation: extends the existing n=1 derivation by the rules
+  ``(I_0, I_1, K_0, K_1) -> (I_{n-1}, I_n, K_{n-1}, K_n)`` and
+  ``azimuthal-derivative factor 1 -> n``, with two structural
+  factors that are zero at n=1 but finite at n>=2: a
+  ``2 n(n+1)`` overall-rank coefficient that turns the
+  ``+ 4 K_1(pa)/a^2`` 1/r^2 correction in M22 into
+  ``+ 12 K_2(pa)/a^2`` at n=2, and an ``(n^2-1)/a^2`` correction
+  to the sigma_rz C-coefficient that vanishes at n=1 but adds
+  a ``+ 3/a^2`` term to M43 at n=2. Specialised to n=2 the
+  matrix uses the ``(K_1, K_2)`` and ``(I_1, I_2)`` Bessel
+  index pairs.
+
+  **Slow-formation only in this release**: the fast-formation
+  (``V_S > V_f``) leaky-quadrupole regime needs the same complex-
+  modal-determinant scaffolding that plan item B used for
+  fast-flexural and is plan item E. Fast formations return
+  all-NaN.
+
+  ``fwap.lwd.lwd_quadrupole_priors`` now points at the new
+  ``quadrupole_dispersion`` for callers that have full formation
+  properties; the rectangular-window prior factory is retained
+  as a Viterbi seed for the rough-V_S case where the full set
+  of formation parameters is not available.
+
+  8 new tests cover the dataclass contract, slow-formation
+  finite-output + velocity-window sanity, fast-formation
+  all-NaN guard, below-cutoff NaN, the ``slowness > 1/V_S``
+  invariant, the local-zero property of the modal determinant
+  at converged roots, and input validation
+  (non-positive scalars, ``vp <= vs``, non-positive freq).
+
 ### Changed
 - **``flexural_dispersion`` now auto-dispatches to a fast-formation
   path when ``V_S > V_f``** (Roadmap A, plan item B in

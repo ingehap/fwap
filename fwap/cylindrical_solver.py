@@ -4070,3 +4070,374 @@ def pseudo_rayleigh_dispersion(
         attenuation_per_meter=attenuation,
     )
 
+
+# =====================================================================
+# n = 2 quadrupole modal determinant (plan item D)
+# =====================================================================
+#
+# General-n extension of the n = 0 / n = 1 derivations. The
+# Helmholtz-decomposition machinery, gauge choice, and BC structure
+# are identical to n = 1 (substep blocks 1.1 - 1.6 above); the only
+# thing that changes is which (n-1, n) Bessel pair appears in each
+# entry and which factors of ``n`` come out of the
+# ``d_theta cos(n theta) = -n sin(n theta)`` step.
+#
+# Generalisation rules used to build the entries below (verified by
+# specialising to n = 1 and matching the existing
+# :func:`_modal_determinant_n1` line by line):
+#
+# * Wherever the n = 1 form has ``I_0 / I_1``, the general form has
+#   ``I_{n-1} / I_n``; same for ``K_0 / K_1 -> K_{n-1} / K_n``.
+# * Each azimuthal-derivative factor of 1 in the n = 1 form
+#   generalises to ``n`` (e.g., the ``- K_1(sa)/a`` in M14 becomes
+#   ``- n K_n(sa)/a`` at general n).
+# * Each ``2 K_1(pa)/a^2`` "1/r^2 correction" in M22 / M32 / M34
+#   generalises via the ``K_{n-2}(pa) -> K_n(pa) - 2(n-1) K_{n-1}(pa)/(pa)``
+#   recurrence to a clean ``2 n(n+1) K_n(.)/a^2`` form (the
+#   ``K_{n-2}`` cancels against an offsetting term in the
+#   ``2(n-1)`` recurrence coefficient and leaves only ``K_n / K_{n-1}``
+#   evaluations).
+# * The sigma_rz C-coefficient picks up an ``(n^2 - 1)/a^2``
+#   correction at general n (zero at n = 1, finite at n >= 2)
+#   from the new ``(1 - n) / r * K_n(sr)`` term in u_z that vanishes
+#   for the dipole case but contributes for the quadrupole.
+#
+# Specialised to n = 2: K_{n-1} = K_1, K_n = K_2, I_{n-1} = I_1,
+# I_n = I_2; the ``n(n+1) = 6`` and ``n^2 - 1 = 3`` factors that
+# appear repeatedly below come out of those rules.
+#
+# The whole module-docstring sign convention (time dependence
+# ``e^{-i omega t}``, ``e^{i k_z z}``, ``e^{i n theta}``) and the
+# row-4-by-i / column-C-by-(-i) phase rescaling that makes the
+# bound-regime matrix purely real are unchanged from n = 1; the
+# entries below are already in the real form.
+
+
+def _modal_determinant_n2(
+    kz: float,
+    omega: float,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> float:
+    r"""
+    4x4 quadrupole (n = 2) modal determinant in the bound-mode
+    regime.
+
+    Same boundary-condition layout, gauge choice, and row-4 / column-C
+    phase rescaling as :func:`_modal_determinant_n1`; the entries
+    differ only in the Bessel-function index pair ``(K_{n-1}, K_n) =
+    (K_1, K_2)`` and the explicit ``n = 2`` factors that come out of
+    the ``d_theta cos(n theta) = -n sin(n theta)`` step.
+
+    Field representation (bound regime, ``cos(2 theta)`` and
+    ``sin(2 theta)`` sectors):
+
+    * Fluid pressure:  :math:`P = A I_2(F r) \cos(2 \theta)`,
+      :math:`F = \sqrt{k_z^2 - \omega^2 / V_f^2}`.
+    * Formation P scalar potential:
+      :math:`\phi = B K_2(p r) \cos(2 \theta)`,
+      :math:`p = \sqrt{k_z^2 - \omega^2 / V_P^2}`.
+    * Formation SV vector-potential, theta component:
+      :math:`\psi_\theta = C K_2(s r) \cos(2 \theta)`,
+      :math:`s = \sqrt{k_z^2 - \omega^2 / V_S^2}`.
+    * Formation SH vector-potential, z component:
+      :math:`\psi_z = D K_2(s r) \sin(2 \theta)`.
+
+    Matrix entries (post-rescaling, all real when ``kz, F, p, s``
+    are all real positive):
+
+    Row 1 (BC1, ``u_r^{(f)} - u_r^{(s)} = 0``, cos(2 theta) sector):
+        ``[ (F I_1(Fa) - 2 I_2(Fa) / a) / (rho_f omega^2),
+            p K_1(pa) + 2 K_2(pa) / a,
+            kz K_2(sa),
+            -2 K_2(sa) / a ]``
+
+    Row 2 (BC2, ``-(sigma_rr^{(s)} + P) = 0``, cos(2 theta) sector,
+    row negated for visual parallel with the n = 0 / n = 1 forms):
+        ``[ -I_2(Fa),
+            -mu * [(2 kz^2 - kS^2) K_2(pa) + 2 p K_1(pa)/a + 12 K_2(pa)/a^2],
+            -2 mu kz * [s K_1(sa) + 2 K_2(sa)/a],
+            +4 mu * [s K_1(sa)/a + 3 K_2(sa)/a^2] ]``
+
+    Row 3 (BC3, ``sigma_r_theta^{(s)} = 0``, sin(2 theta) sector):
+        ``[ 0,
+            +4 mu * [p K_1(pa)/a + 3 K_2(pa)/a^2],
+            +2 mu kz K_2(sa)/a,
+            -mu * [(s^2 + 12/a^2) K_2(sa) + 2 s K_1(sa)/a] ]``
+
+    Row 4 (BC4, ``sigma_rz^{(s)} = 0``, cos(2 theta) sector,
+    after row-4-by-i / column-C-by-(-i) rescale):
+        ``[ 0,
+            +2 mu kz * [p K_1(pa) + 2 K_2(pa)/a],
+            +mu * [(2 kz^2 - kS^2) + 3/a^2] K_2(sa),
+            -2 mu kz K_2(sa)/a ]``
+
+    Where ``Fa = F a, pa = p a, sa = s a, mu = rho V_S^2,
+    kS = omega / V_S``. The ``12 = 2 n(n+1)`` and ``3 = n^2 - 1``
+    factors with ``n = 2`` are the only structural differences
+    from the n = 1 form in :func:`_modal_determinant_n1`; the
+    Bessel-index shift ``(K_0, K_1) -> (K_1, K_2)`` accounts for
+    everything else.
+
+    See Also
+    --------
+    _modal_determinant_n0 : The n = 0 axisymmetric (Stoneley)
+        counterpart (3x3).
+    _modal_determinant_n1 : The n = 1 dipole counterpart.
+
+    References
+    ----------
+    * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
+      Acoustic Methods.* Elsevier, sect. 2.5 (LWD quadrupole
+      modal determinant).
+    * Kurkjian, A. L., & Chang, S.-K. (1986). Acoustic multipole
+      sources in fluid-filled boreholes. *Geophysics* 51(1),
+      148-163 (general-n derivation, equations 8 and 9).
+    """
+    F = np.sqrt(kz * kz - (omega / vf) ** 2)
+    p = np.sqrt(kz * kz - (omega / vp) ** 2)
+    s = np.sqrt(kz * kz - (omega / vs) ** 2)
+    Fa, pa, sa = F * a, p * a, s * a
+
+    I1Fa = float(special.iv(1, Fa))
+    I2Fa = float(special.iv(2, Fa))
+    K1pa = float(special.kv(1, pa))
+    K2pa = float(special.kv(2, pa))
+    K1sa = float(special.kv(1, sa))
+    K2sa = float(special.kv(2, sa))
+
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    # Row 1: u_r^{(f)} - u_r^{(s)} = 0 at r = a (cos(2 theta) sector).
+    M11 = (F * I1Fa - 2.0 * I2Fa / a) / (rho_f * omega ** 2)
+    M12 = p * K1pa + 2.0 * K2pa / a
+    M13 = kz * K2sa
+    M14 = -2.0 * K2sa / a
+
+    # Row 2: -(sigma_rr^{(s)} + P) = 0 at r = a (cos(2 theta) sector;
+    # row negated for visual parallel with the n = 0 / n = 1 forms).
+    M21 = -I2Fa
+    M22 = -mu * (
+        two_kz2_minus_kS2 * K2pa + 2.0 * p * K1pa / a + 12.0 * K2pa / (a * a)
+    )
+    M23 = -2.0 * kz * mu * (s * K1sa + 2.0 * K2sa / a)
+    M24 = 4.0 * mu * (s * K1sa / a + 3.0 * K2sa / (a * a))
+
+    # Row 3: sigma_r_theta^{(s)} = 0 at r = a (sin(2 theta) sector;
+    # fluid carries no shear, so M31 = 0).
+    M31 = 0.0
+    M32 = 4.0 * mu * (p * K1pa / a + 3.0 * K2pa / (a * a))
+    M33 = 2.0 * kz * mu * K2sa / a
+    M34 = -mu * (
+        (s * s + 12.0 / (a * a)) * K2sa + 2.0 * s * K1sa / a
+    )
+
+    # Row 4: sigma_rz^{(s)} = 0 at r = a (cos(2 theta) sector; M41 = 0
+    # for the same fluid-no-shear reason). Entries below are the
+    # post-rescaling form: row 4 multiplied by i and column C
+    # (= column 3 here) by -i, leaving a real matrix.
+    M41 = 0.0
+    M42 = 2.0 * kz * mu * (p * K1pa + 2.0 * K2pa / a)
+    M43 = mu * (two_kz2_minus_kS2 + 3.0 / (a * a)) * K2sa
+    M44 = -2.0 * kz * mu * K2sa / a
+
+    M = np.array(
+        [
+            [M11, M12, M13, M14],
+            [M21, M22, M23, M24],
+            [M31, M32, M33, M34],
+            [M41, M42, M43, M44],
+        ],
+        dtype=float,
+    )
+    return float(np.linalg.det(M))
+
+
+def _quadrupole_kz_bracket(
+    omega: float,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> tuple[float, float]:
+    """
+    Bracket the n=2 quadrupole bound root in (k_z_lo, k_z_hi).
+
+    Same shape as :func:`_flexural_kz_bracket`: the slow-formation
+    bound mode has phase velocity between ``V_R`` (high-f) and
+    ``V_S`` (low-f cutoff), so the slowness is in
+    ``(1/V_S, ~1.1/V_R)``. The brentq caller can expand the upper
+    bound outward if no sign change is found in this initial
+    range -- mirrors the n = 1 bracket-expansion loop.
+    """
+    from fwap.cylindrical import rayleigh_speed
+
+    vR = rayleigh_speed(vp, vs)
+    kz_lo = omega / vs * (1.0 + 1.0e-6)
+    kz_hi = omega / vR * 1.10
+    return kz_lo, kz_hi
+
+
+def quadrupole_dispersion(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> BoreholeMode:
+    r"""
+    Quadrupole-wave (n = 2) phase slowness vs frequency from the
+    isotropic-elastic modal determinant.
+
+    Tracks the lowest-:math:`k_z` zero of the n = 2 4x4 modal
+    determinant across the supplied frequency grid. At each
+    frequency the bound regime is :math:`k_z > \omega/V_S`; a
+    bracketing search seeded just above ``omega / V_S`` and
+    extending past the vacuum-loaded Rayleigh asymptote refines
+    the root via :func:`scipy.optimize.brentq`. Direct counterpart
+    of :func:`stoneley_dispersion` and :func:`flexural_dispersion`
+    for the LWD-quadrupole mode of Tang & Cheng 2004 sect. 2.5.
+
+    **Slow-formation only** in this release: the fast-formation
+    (``V_S > V_f``) leaky-quadrupole regime is plan item E in
+    ``docs/plans/cylindrical_biot.md`` and not yet wired up. For
+    fast formations the function returns ``NaN`` throughout, with
+    no warning -- callers should guard explicitly when
+    interoperating with the LWD layer.
+
+    Parameters
+    ----------
+    freq : ndarray
+        Frequency grid (Hz). Must be strictly positive.
+    vp, vs, rho : float
+        Formation P-wave velocity (m/s), S-wave velocity (m/s),
+        and bulk density (kg/m^3). Must satisfy ``vp > vs > 0``
+        and ``rho > 0``.
+    vf, rho_f : float
+        Borehole-fluid velocity (m/s) and density (kg/m^3).
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "quadrupole"``, ``azimuthal_order = 2``, with
+        ``freq`` echoed and ``slowness[i] = k_z(omega[i]) /
+        omega[i]``. ``NaN`` at any frequency where the bracket
+        fails (typically below the geometric cutoff
+        ``f ~ V_S / (2 pi a)``, or throughout for fast
+        formations).
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive, ``vp <= vs``, or ``freq``
+        contains a non-positive entry.
+
+    Notes
+    -----
+    Long-wavelength asymptote (``omega a / V_S -> 0``): the lowest
+    bound n = 2 root sits just above ``k_z = omega / V_S``, so
+    ``slowness -> 1 / V_S`` at the geometric cutoff. The upper-
+    frequency asymptote is the Scholte / fluid-loaded Rayleigh
+    speed (slightly above ``1 / V_R``), same as for n = 1.
+
+    See Also
+    --------
+    fwap.lwd.lwd_quadrupole_priors : phenomenological LWD-
+        quadrupole prior factory the present function supersedes
+        (the prior is still useful as a Viterbi seed when only
+        rough V_S is known and the full formation properties are
+        not).
+
+    References
+    ----------
+    * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
+      Acoustic Methods.* Elsevier, sect. 2.5 and fig 3.7
+      (LWD quadrupole dispersion).
+    * Kurkjian, A. L., & Chang, S.-K. (1986). Acoustic multipole
+      sources in fluid-filled boreholes. *Geophysics* 51(1),
+      148-163.
+    """
+    if vp <= 0 or vs <= 0 or rho <= 0:
+        raise ValueError("vp, vs, rho must all be positive")
+    if vf <= 0 or rho_f <= 0:
+        raise ValueError("vf and rho_f must be positive")
+    if a <= 0:
+        raise ValueError("a must be positive")
+    if vp <= vs:
+        raise ValueError("require vp > vs")
+    f_arr = np.asarray(freq, dtype=float)
+    if np.any(f_arr <= 0):
+        raise ValueError("freq must be strictly positive")
+
+    slowness = np.full_like(f_arr, np.nan, dtype=float)
+
+    if vs >= vf:
+        # Fast formation: F^2 < 0 in the bound-velocity window
+        # (V_R, V_S). Real-valued evaluator returns NaN on
+        # ``np.sqrt`` of a negative real; leaky-mode quadrupole
+        # is plan item E, not yet wired up.
+        return BoreholeMode(
+            name="quadrupole", azimuthal_order=2,
+            freq=f_arr, slowness=slowness,
+        )
+
+    for i, f in enumerate(f_arr):
+        omega = 2.0 * np.pi * float(f)
+
+        def _det(kz, omega=omega):
+            return _modal_determinant_n2(kz, omega, vp, vs, rho, vf, rho_f, a)
+
+        kz_lo, kz_hi = _quadrupole_kz_bracket(
+            omega, vp, vs, rho, vf, rho_f, a,
+        )
+        try:
+            d_lo = _det(kz_lo)
+            d_hi = _det(kz_hi)
+            n_expand = 0
+            while (
+                np.isfinite(d_lo)
+                and np.isfinite(d_hi)
+                and np.sign(d_lo) == np.sign(d_hi)
+                and n_expand < 8
+            ):
+                kz_hi *= 1.5
+                d_hi = _det(kz_hi)
+                n_expand += 1
+            if (not np.isfinite(d_lo)) or (not np.isfinite(d_hi)):
+                logger.debug(
+                    "quadrupole_dispersion: bound-regime det evaluation "
+                    "failed at f=%.1f Hz", f,
+                )
+                continue
+            if np.sign(d_lo) == np.sign(d_hi):
+                logger.debug(
+                    "quadrupole_dispersion: failed to bracket at "
+                    "f=%.1f Hz (likely below cutoff)", f,
+                )
+                continue
+            kz_root = optimize.brentq(_det, kz_lo, kz_hi, xtol=1.0e-10)
+            slowness[i] = kz_root / omega
+        except (ValueError, RuntimeError) as exc:
+            logger.debug(
+                "quadrupole_dispersion: brentq failed at f=%.1f Hz: %s",
+                f, exc,
+            )
+
+    return BoreholeMode(
+        name="quadrupole", azimuthal_order=2,
+        freq=f_arr, slowness=slowness,
+    )
+
