@@ -14,6 +14,9 @@ from fwap.cylindrical import flexural_dispersion_physical, rayleigh_speed
 from fwap.cylindrical_solver import (
     BoreholeLayer,
     BoreholeMode,
+    _layered_n0_bessel_pack,
+    _layered_n0_radial_wavenumbers,
+    _layered_n0_row1_at_a,
     _modal_determinant_n0,
     _modal_determinant_n1,
     flexural_dispersion,
@@ -2115,4 +2118,296 @@ def test_stoneley_dispersion_layered_accepts_list_for_layers():
         vf=1500.0, rho_f=1000.0, a=0.1, layers=[],
     )
     np.testing.assert_array_equal(res_tuple.slowness, res_list.slowness)
+
+
+# =====================================================================
+# Plan item F.1.b.1 -- radial-wavenumber + Bessel-pack helpers
+# =====================================================================
+
+
+def _layered_typical_params():
+    """Bound-regime fast-formation parameters with a slower-than-
+    formation mudcake. Used as the default fixture for F.1.b
+    helper / row tests."""
+    return dict(
+        vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+        layer=BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005),
+    )
+
+
+def test_layered_radial_wavenumbers_bound_regime_returns_real_positive():
+    """Above the bound-regime floor ``omega / min(V_S, V_S_m, V_f)``
+    every wavenumber is real positive."""
+    p = _layered_typical_params()
+    omega = 2.0 * np.pi * 5000.0
+    floor = omega / min(p["vs"], p["layer"].vs, p["vf"])
+    kz = floor * 1.5
+    F_f, p_m, s_m, pp, ss = _layered_n0_radial_wavenumbers(
+        kz, omega,
+        vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    for v in (F_f, p_m, s_m, pp, ss):
+        assert np.isfinite(v)
+        assert v > 0.0
+
+
+def test_layered_radial_wavenumbers_below_bound_floor_returns_nan():
+    """Below the bound-regime floor the slowest-wave radial
+    wavenumber goes imaginary; numpy.sqrt of a negative real
+    returns NaN. The helper passes NaN through (brentq-safe;
+    no raise)."""
+    p = _layered_typical_params()
+    omega = 2.0 * np.pi * 5000.0
+    # Pick kz strictly below ``omega / max(...)`` so every wavenumber
+    # argument is negative (kz^2 - (omega/V)^2 < 0 needs
+    # kz < omega/V for *every* wave speed V, which means
+    # kz < omega/max(V)).
+    fastest = max(p["vf"], p["vs"], p["layer"].vs, p["layer"].vp, p["vp"])
+    kz = omega / fastest * 0.5
+    with np.errstate(invalid="ignore"):
+        F_f, p_m, s_m, pp, ss = _layered_n0_radial_wavenumbers(
+            kz, omega,
+            vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+        )
+    for v in (F_f, p_m, s_m, pp, ss):
+        assert np.isnan(v)
+
+
+def test_layered_radial_wavenumbers_satisfy_definition():
+    """Each wavenumber squared equals ``kz^2 - (omega / V)^2`` per
+    substep F.1.a.1."""
+    p = _layered_typical_params()
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(p["vs"], p["layer"].vs, p["vf"]) * 1.5
+    F_f, p_m, s_m, pp, ss = _layered_n0_radial_wavenumbers(
+        kz, omega,
+        vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    assert F_f ** 2 == pytest.approx(kz ** 2 - (omega / p["vf"]) ** 2)
+    assert p_m ** 2 == pytest.approx(kz ** 2 - (omega / p["layer"].vp) ** 2)
+    assert s_m ** 2 == pytest.approx(kz ** 2 - (omega / p["layer"].vs) ** 2)
+    assert pp ** 2 == pytest.approx(kz ** 2 - (omega / p["vp"]) ** 2)
+    assert ss ** 2 == pytest.approx(kz ** 2 - (omega / p["vs"]) ** 2)
+
+
+def test_layered_radial_wavenumbers_layer_equals_formation_collapses():
+    """When the annulus material matches the formation, ``p_m == p``
+    and ``s_m == s`` to floating-point precision -- the algebraic
+    cornerstone of the substep F.1.a.6 self-check."""
+    vp, vs = 4500.0, 2500.0
+    p = dict(
+        vp=vp, vs=vs, rho=2400.0, vf=1500.0,
+        layer=BoreholeLayer(vp=vp, vs=vs, rho=2400.0, thickness=0.01),
+    )
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, p["vf"]) * 1.5
+    F_f, p_m, s_m, pp, ss = _layered_n0_radial_wavenumbers(
+        kz, omega,
+        vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    assert p_m == pp
+    assert s_m == ss
+
+
+def test_layered_bessel_pack_has_22_keys():
+    """Substep F.1.b.1 plan: the pack covers 2 (fluid r=a) + 8
+    (annulus P, both interfaces) + 8 (annulus S, both interfaces)
+    + 4 (formation r=b) = 22 Bessel values."""
+    p = _layered_typical_params()
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(p["vs"], p["layer"].vs, p["vf"]) * 1.5
+    a = p["a"]
+    b = a + p["layer"].thickness
+    F_f, p_m, s_m, pp, ss = _layered_n0_radial_wavenumbers(
+        kz, omega,
+        vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    pack = _layered_n0_bessel_pack(F_f, p_m, s_m, pp, ss, a, b)
+    assert len(pack) == 22
+    expected_keys = {
+        "I0_Ff_a", "I1_Ff_a",
+        "I0_pm_a", "I1_pm_a", "K0_pm_a", "K1_pm_a",
+        "I0_sm_a", "I1_sm_a", "K0_sm_a", "K1_sm_a",
+        "I0_pm_b", "I1_pm_b", "K0_pm_b", "K1_pm_b",
+        "I0_sm_b", "I1_sm_b", "K0_sm_b", "K1_sm_b",
+        "K0_p_b", "K1_p_b", "K0_s_b", "K1_s_b",
+    }
+    assert set(pack.keys()) == expected_keys
+
+
+def test_layered_bessel_pack_matches_scipy_directly():
+    """Each entry in the pack must equal the corresponding direct
+    scipy.special call to floating-point precision; this is the
+    primary unit oracle for the helper."""
+    from scipy import special
+
+    p = _layered_typical_params()
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(p["vs"], p["layer"].vs, p["vf"]) * 1.5
+    a = p["a"]
+    b = a + p["layer"].thickness
+    F_f, p_m, s_m, pp, ss = _layered_n0_radial_wavenumbers(
+        kz, omega,
+        vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    pack = _layered_n0_bessel_pack(F_f, p_m, s_m, pp, ss, a, b)
+
+    # Fluid at r = a.
+    assert pack["I0_Ff_a"] == float(special.iv(0, F_f * a))
+    assert pack["I1_Ff_a"] == float(special.iv(1, F_f * a))
+
+    # Annulus P/S at both interfaces; formation P/S at r = b.
+    cases = [
+        ("pm", p_m, ("a", "b")),
+        ("sm", s_m, ("a", "b")),
+    ]
+    for wave, alpha, radii in cases:
+        for r_label, r in zip(radii, (a, b)):
+            x = alpha * r
+            assert pack[f"I0_{wave}_{r_label}"] == float(special.iv(0, x))
+            assert pack[f"I1_{wave}_{r_label}"] == float(special.iv(1, x))
+            assert pack[f"K0_{wave}_{r_label}"] == float(special.kv(0, x))
+            assert pack[f"K1_{wave}_{r_label}"] == float(special.kv(1, x))
+
+    assert pack["K0_p_b"] == float(special.kv(0, pp * b))
+    assert pack["K1_p_b"] == float(special.kv(1, pp * b))
+    assert pack["K0_s_b"] == float(special.kv(0, ss * b))
+    assert pack["K1_s_b"] == float(special.kv(1, ss * b))
+
+
+def test_layered_bessel_pack_layer_equals_formation_p_columns_match():
+    """Substep F.1.a.6 self-check at the Bessel level: when the
+    annulus material matches the formation, the K-flavour pack
+    entries at ``r = b`` for the annulus P (``K0_pm_b``) match the
+    formation P (``K0_p_b``); same for S."""
+    vp, vs = 4500.0, 2500.0
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=2400.0, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, 1500.0) * 1.5
+    a = 0.1
+    b = a + layer.thickness
+    F_f, p_m, s_m, pp, ss = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=vp, vs=vs, vf=1500.0, layer=layer,
+    )
+    pack = _layered_n0_bessel_pack(F_f, p_m, s_m, pp, ss, a, b)
+    assert pack["K0_pm_b"] == pack["K0_p_b"]
+    assert pack["K1_pm_b"] == pack["K1_p_b"]
+    assert pack["K0_sm_b"] == pack["K0_s_b"]
+    assert pack["K1_sm_b"] == pack["K1_s_b"]
+
+
+def test_layered_bessel_pack_propagates_nan_inputs():
+    """Out-of-regime radial wavenumbers (NaN) propagate to NaN
+    pack entries; the helper does not raise."""
+    nan = float("nan")
+    pack = _layered_n0_bessel_pack(nan, 10.0, 10.0, 10.0, 10.0, 0.1, 0.105)
+    assert np.isnan(pack["I0_Ff_a"])
+    assert np.isnan(pack["I1_Ff_a"])
+    # Non-NaN inputs still produce finite Bessel values.
+    assert np.isfinite(pack["K0_pm_a"])
+
+
+# =====================================================================
+# Plan item F.1.b.2.a -- row 1 of the n=0 layered determinant (r = a)
+# =====================================================================
+
+
+def _row1_test_setup():
+    """Bound-regime kz / omega above every wavenumber floor for the
+    typical fast-formation + soft-mudcake fixture."""
+    p = _layered_typical_params()
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(p["vs"], p["layer"].vs, p["vf"]) * 1.5
+    return p, omega, kz
+
+
+def test_layered_row1_at_a_layer_equals_formation_per_element():
+    """Substep F.1.a.6 self-check at the row level: with annulus
+    properties identical to the formation, row 1 of the layered
+    matrix has its (A, B_K, C_K) entries equal to ``M11, M12, M13``
+    of :func:`_modal_determinant_n0` to floating-point precision."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _layered_n0_row1_at_a(
+        kz, omega, vp=vp, vs=vs, rho=rho,
+        vf=vf, rho_f=rho_f, a=a, layer=layer,
+    )
+
+    # Reconstruct the corresponding entries of the unlayered matrix
+    # without invoking the determinant routine: M_11, M_12, M_13 of
+    # _modal_determinant_n0 (lifted from the docstring / source).
+    F = float(np.sqrt(kz * kz - (omega / vf) ** 2))
+    p = float(np.sqrt(kz * kz - (omega / vp) ** 2))
+    s = float(np.sqrt(kz * kz - (omega / vs) ** 2))
+    from scipy import special as sp
+
+    M11 = F * float(sp.iv(1, F * a)) / (rho_f * omega ** 2)
+    M12 = p * float(sp.kv(1, p * a))
+    M13 = kz * float(sp.kv(1, s * a))
+
+    # Layer=formation collapses ``p_m -> p``, ``s_m -> s``. The
+    # K-flavour columns (B_K, C_K) at indices 2, 4 then equal the
+    # M_12 / M_13 entries of the unlayered matrix.
+    assert row[0].real == pytest.approx(M11)
+    assert row[2].real == pytest.approx(M12)
+    assert row[4].real == pytest.approx(M13)
+    assert abs(row[0].imag) < 1.0e-14
+    assert abs(row[2].imag) < 1.0e-14
+    assert abs(row[4].imag) < 1.0e-14
+
+
+def test_layered_row1_at_a_formation_columns_are_zero():
+    """Sparsity: at ``r = a`` the formation columns (indices 5, 6)
+    are zero -- the formation half-space ``r > b`` doesn't touch
+    the fluid-annulus interface."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n0_row1_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    assert row[5] == 0.0
+    assert row[6] == 0.0
+
+
+def test_layered_row1_at_a_is_real_in_bound_regime():
+    """Substep F.1.a.5 phase rescale: post-rescale row entries are
+    purely real in the bound regime. Any non-zero imaginary part
+    flags a sign error in the C-flavour rescaling."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n0_row1_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e-14)
+
+
+def test_layered_row1_at_a_i_k_sign_flip():
+    """Substep F.1.a.2 sign convention: the I-flavour annulus
+    columns (B_I, C_I) carry the opposite sign of the K-flavour
+    counterparts (B_K, C_K) on the B amplitudes, the *same* sign on
+    the C amplitudes. Specifically:
+
+        row[1] / row[2] == -I_1(p_m a) / K_1(p_m a)    (B_I vs B_K)
+        row[3] / row[4] == +I_1(s_m a) / K_1(s_m a)    (C_I vs C_K)
+    """
+    p, omega, kz = _row1_test_setup()
+    F_f, p_m, s_m, _, _ = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    from scipy import special as sp
+
+    row = _layered_n0_row1_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+
+    expected_ratio_B = -float(sp.iv(1, p_m * p["a"])) / float(sp.kv(1, p_m * p["a"]))
+    expected_ratio_C = +float(sp.iv(1, s_m * p["a"])) / float(sp.kv(1, s_m * p["a"]))
+    assert row[1].real / row[2].real == pytest.approx(expected_ratio_B)
+    assert row[3].real / row[4].real == pytest.approx(expected_ratio_C)
 
