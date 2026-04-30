@@ -5142,6 +5142,161 @@ def quadrupole_dispersion(
 # annulus to N stacked layers and feeds plan item G.
 
 
+# =====================================================================
+# Substep F.1.b.1 -- radial-wavenumber + Bessel-pack helpers
+# =====================================================================
+
+
+def _layered_n0_radial_wavenumbers(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    vf: float,
+    layer: BoreholeLayer,
+) -> tuple[float, float, float, float, float]:
+    r"""
+    Bound-regime radial wavenumbers for the n=0 layered problem.
+
+    Computes the five radial wavenumbers in the field ansatz pinned
+    by substep F.1.a.1:
+
+        F_f = sqrt(k_z^2 - (omega / V_f)^2)         (fluid)
+        p_m = sqrt(k_z^2 - (omega / V_P_m)^2)       (annulus P)
+        s_m = sqrt(k_z^2 - (omega / V_S_m)^2)       (annulus S)
+        p   = sqrt(k_z^2 - (omega / V_P)^2)         (formation P)
+        s   = sqrt(k_z^2 - (omega / V_S)^2)         (formation S)
+
+    No regime gating is applied here. If any radial-wavenumber
+    argument is negative (``k_z`` below the bound-regime floor
+    ``omega / min(V_S, V_S_m, V_f)``), the corresponding output is
+    ``NaN`` via :func:`numpy.sqrt` of a negative real input. The
+    public dispatch (:func:`stoneley_dispersion_layered`) is
+    responsible for choosing brackets that keep brentq inside the
+    bound regime; this helper is brentq-safe by passing through
+    out-of-regime inputs as NaN rather than raising.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    vp, vs, vf : float
+        Formation P-wave, formation S-wave, and borehole-fluid
+        velocities (m / s).
+    layer : BoreholeLayer
+        The annular layer between fluid and formation. Only
+        ``layer.vp`` and ``layer.vs`` are used here.
+
+    Returns
+    -------
+    tuple of five floats
+        ``(F_f, p_m, s_m, p, s)`` in the order pinned by
+        substep F.1.a.1.
+
+    See Also
+    --------
+    _layered_n0_bessel_pack : The Bessel-evaluation downstream of
+        this helper.
+    """
+    F_f = float(np.sqrt(kz * kz - (omega / vf) ** 2))
+    p_m = float(np.sqrt(kz * kz - (omega / layer.vp) ** 2))
+    s_m = float(np.sqrt(kz * kz - (omega / layer.vs) ** 2))
+    p = float(np.sqrt(kz * kz - (omega / vp) ** 2))
+    s = float(np.sqrt(kz * kz - (omega / vs) ** 2))
+    return F_f, p_m, s_m, p, s
+
+
+def _layered_n0_bessel_pack(
+    F_f: float,
+    p_m: float,
+    s_m: float,
+    p: float,
+    s: float,
+    a: float,
+    b: float,
+) -> dict[str, float]:
+    """
+    Evaluate the 22 Bessel values needed by the n=0 layered modal
+    determinant.
+
+    The dict has 22 entries with the naming pattern
+    ``"<X><n>_<wavenumber>_<radius>"``:
+
+        ``X``         in ``{"I", "K"}``      (modified-Bessel kind)
+        ``n``         in ``{"0", "1"}``      (order)
+        ``wavenumber`` in ``{"Ff", "pm", "sm", "p", "s"}``
+                       (matches substep F.1.a.1)
+        ``radius``    in ``{"a", "b"}``       (interface radius)
+
+    Coverage:
+
+    * Fluid at ``r = a``: ``I_0(F_f a)``, ``I_1(F_f a)`` -- the
+      fluid is regular at the borehole axis ``r = 0``, no K-flavour
+      branch. Two values.
+    * Annulus P at ``r = a`` and ``r = b``: full I + K pairs at
+      both interfaces (eight values).
+    * Annulus S at ``r = a`` and ``r = b``: full I + K pairs at
+      both interfaces (eight values).
+    * Formation P, S at ``r = b``: K-flavour only (decaying at
+      infinity), four values.
+
+    Total: 2 + 8 + 8 + 4 = 22.
+
+    Parameters
+    ----------
+    F_f, p_m, s_m, p, s : float
+        Output of :func:`_layered_n0_radial_wavenumbers`.
+    a, b : float
+        Interface radii (m). ``a`` is the fluid-annulus interface
+        (= borehole wall); ``b = a + layer.thickness`` is the
+        annulus-formation interface.
+
+    Returns
+    -------
+    dict of {str: float}
+        See key naming above.
+
+    Notes
+    -----
+    Out-of-regime inputs (NaN from :func:`_layered_n0_radial_wavenumbers`)
+    propagate to NaN values in the output dict. Callers that need
+    finiteness must check explicitly.
+    """
+    pack: dict[str, float] = {}
+
+    # Fluid at r = a (no K-flavour because the regular-at-axis
+    # solution is I_n(F_f r); K_n(F_f r) is singular at r = 0).
+    pack["I0_Ff_a"] = float(special.iv(0, F_f * a))
+    pack["I1_Ff_a"] = float(special.iv(1, F_f * a))
+
+    # Annulus P-wave at r = a and r = b (full I + K pairs).
+    for radius_label, radius in (("a", a), ("b", b)):
+        x = p_m * radius
+        pack[f"I0_pm_{radius_label}"] = float(special.iv(0, x))
+        pack[f"I1_pm_{radius_label}"] = float(special.iv(1, x))
+        pack[f"K0_pm_{radius_label}"] = float(special.kv(0, x))
+        pack[f"K1_pm_{radius_label}"] = float(special.kv(1, x))
+
+    # Annulus S-wave at r = a and r = b (full I + K pairs).
+    for radius_label, radius in (("a", a), ("b", b)):
+        x = s_m * radius
+        pack[f"I0_sm_{radius_label}"] = float(special.iv(0, x))
+        pack[f"I1_sm_{radius_label}"] = float(special.iv(1, x))
+        pack[f"K0_sm_{radius_label}"] = float(special.kv(0, x))
+        pack[f"K1_sm_{radius_label}"] = float(special.kv(1, x))
+
+    # Formation P and S at r = b (K-flavour only; decaying at
+    # infinity rules out the I-flavour branch).
+    pack["K0_p_b"] = float(special.kv(0, p * b))
+    pack["K1_p_b"] = float(special.kv(1, p * b))
+    pack["K0_s_b"] = float(special.kv(0, s * b))
+    pack["K1_s_b"] = float(special.kv(1, s * b))
+
+    return pack
+
 
 def stoneley_dispersion_layered(
     freq: np.ndarray,
