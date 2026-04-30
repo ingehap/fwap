@@ -24,6 +24,7 @@ from fwap.cylindrical_solver import (
     _layered_n0_row6_at_b,
     _layered_n0_row7_at_b,
     _modal_determinant_n0,
+    _modal_determinant_n0_layered,
     _modal_determinant_n1,
     flexural_dispersion,
     stoneley_dispersion,
@@ -2061,18 +2062,19 @@ def test_stoneley_dispersion_layered_empty_layers_returns_borehole_mode():
     assert res.azimuthal_order == 0
 
 
-def test_stoneley_dispersion_layered_non_empty_layers_raises_not_implemented():
-    """Non-empty layers are blocked on plan item F.1 (the 7x7 layered
-    modal determinant); the public API raises NotImplementedError so
-    callers don't silently get the unlayered answer."""
+def test_stoneley_dispersion_layered_multilayer_raises_not_implemented():
+    """Multi-layer stacks (``len(layers) > 1``) are plan item G --
+    the cased-hole propagator-matrix extension. Single-layer and
+    unlayered are supported by F.1.b.4."""
     f = np.array([1000.0, 2000.0])
-    layer = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.01)
-    with pytest.raises(NotImplementedError, match="plan item F"):
+    layer1 = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
+    layer2 = BoreholeLayer(vp=3000.0, vs=1500.0, rho=1900.0, thickness=0.005)
+    with pytest.raises(NotImplementedError, match="plan item G"):
         stoneley_dispersion_layered(
             f,
             vp=4500.0, vs=2500.0, rho=2400.0,
             vf=1500.0, rho_f=1000.0, a=0.1,
-            layers=(layer,),
+            layers=(layer1, layer2),
         )
 
 
@@ -3110,4 +3112,165 @@ def test_layered_row7_at_b_layer_equals_formation_annulus_K_matches_row3_at_b():
 
     assert row7[2].real == pytest.approx(M32_at_b)
     assert row7[4].real == pytest.approx(M33_at_b)
+
+
+# =====================================================================
+# Plan item F.1.b.4 -- assembly + dispatch
+# =====================================================================
+#
+# Closes the F.1.b chain. Tests fall into two groups:
+#
+#   * ``_modal_determinant_n0_layered``: real-valued in bound regime;
+#     evaluates without raising; behaves correctly at the layer=
+#     formation degenerate point.
+#   * ``stoneley_dispersion_layered`` end-to-end: layer=formation
+#     reproduces ``stoneley_dispersion`` slowness curve to
+#     ``rtol=1e-8``; thickness->0 limit ditto; dispatched correctly.
+
+
+def test_modal_determinant_n0_layered_is_real_in_bound_regime():
+    """Substep F.1.a.5 phase rescale: each row builder applies the
+    rescale internally, so the assembled 7x7 is real-valued in
+    the bound regime."""
+    p, omega, kz = _row1_test_setup()
+    det = _modal_determinant_n0_layered(
+        kz, omega, p["vp"], p["vs"], p["rho"],
+        p["vf"], p["rho_f"], p["a"], layer=p["layer"],
+    )
+    assert np.isfinite(det)
+    assert isinstance(det, float)
+
+
+def test_modal_determinant_n0_layered_layer_equals_formation_root_matches_unlayered():
+    """The substep-F.1.a.6 self-check at the determinant level: at
+    layer=formation, the layered determinant has the same
+    Stoneley root as :func:`_modal_determinant_n0`. The two
+    determinants are not numerically equal (the 7x7 has a
+    different overall scale than the 3x3), but they share the
+    same root in ``k_z``.
+
+    Verify by: (a) computing the Stoneley root from
+    ``stoneley_dispersion`` (the 3x3); (b) evaluating the layered
+    7x7 at that root; (c) checking ``|det_layered|`` is small
+    relative to its order of magnitude away from the root."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+
+    bound = stoneley_dispersion(
+        np.array([5000.0]),
+        vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    kz_root = float(bound.slowness[0]) * omega
+
+    det_at_root = _modal_determinant_n0_layered(
+        kz_root, omega, vp, vs, rho, vf, rho_f, a, layer=layer,
+    )
+    det_off_root = _modal_determinant_n0_layered(
+        kz_root * 1.05, omega, vp, vs, rho, vf, rho_f, a, layer=layer,
+    )
+    # Not strictly zero (different matrix size + numerical noise),
+    # but several orders of magnitude smaller than away from root.
+    assert abs(det_at_root) < abs(det_off_root) * 1.0e-3
+
+
+def test_stoneley_dispersion_layered_layer_equals_formation_matches_unlayered():
+    """End-to-end integration test: with a layer whose properties
+    match the formation, the layered solver produces the same
+    Stoneley dispersion curve as the unlayered solver to
+    ``rtol=1e-8``. This is the floating-point oracle for the
+    entire F.1.b chain. Any algebra error accumulated across the
+    seven row builders surfaces here."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    f = np.linspace(500.0, 8000.0, 16)
+
+    res_unlayered = stoneley_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    res_layered = stoneley_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(layer,),
+    )
+    np.testing.assert_allclose(
+        res_layered.slowness, res_unlayered.slowness,
+        rtol=1.0e-8, equal_nan=True,
+    )
+
+
+def test_stoneley_dispersion_layered_thickness_zero_limit():
+    """As ``layer.thickness -> 0`` (with arbitrary layer material),
+    the layered solver continuously approaches the unlayered
+    answer. Algebraic identity: in the limit ``b -> a``, the rows
+    at r=b approach the rows at r=a, the second interface degenerates,
+    and the converged k_z must approach the single-interface root."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f = 5000.0
+
+    res_unlayered = stoneley_dispersion(
+        np.array([f]), vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+
+    # Even a "different" layer with vanishing thickness should
+    # converge to the unlayered Stoneley slowness.
+    layer_thin = BoreholeLayer(
+        vp=3500.0, vs=1800.0, rho=2100.0, thickness=1.0e-9,
+    )
+    res_thin = stoneley_dispersion_layered(
+        np.array([f]), vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(layer_thin,),
+    )
+    assert res_thin.slowness[0] == pytest.approx(
+        res_unlayered.slowness[0], rel=1.0e-4,
+    )
+
+
+def test_stoneley_dispersion_layered_non_trivial_layer_runs():
+    """End-to-end smoke: a soft mudcake layer different from the
+    formation produces a finite slowness curve in the bound
+    regime. No analytic oracle is asserted here (that's the
+    Schmitt 1988 fig 6 validation in F.1.d); the test just
+    confirms the dispatch + matrix + brentq + bracket all wire up
+    without raising."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
+    f = np.linspace(1000.0, 8000.0, 8)
+
+    res = stoneley_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(layer,),
+    )
+    assert res.name == "Stoneley"
+    assert res.azimuthal_order == 0
+    assert res.slowness.shape == f.shape
+    # All slownesses finite in this bound-regime fast-formation case.
+    assert np.all(np.isfinite(res.slowness))
+    # All slownesses above the slowest-shear floor.
+    assert np.all(res.slowness > 1.0 / max(vs, layer.vs, vf))
+
+
+def test_stoneley_dispersion_layered_softer_mudcake_slows_down():
+    """Sanity check: a mudcake softer than the formation
+    (lower V_S) increases the Stoneley slowness compared to
+    the unlayered formation -- the qualitative effect documented
+    in Schmitt 1988 fig 6 and the F.1.d validation target."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f = np.array([3000.0])
+
+    res_unlayered = stoneley_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    soft_layer = BoreholeLayer(
+        vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.01,
+    )
+    res_layered = stoneley_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(soft_layer,),
+    )
+    assert res_layered.slowness[0] > res_unlayered.slowness[0]
 

@@ -6262,6 +6262,135 @@ def _layered_n0_row7_at_b(
     return row
 
 
+# =====================================================================
+# Substep F.1.b.4 -- assembly + public-API dispatch
+# =====================================================================
+#
+# Stack the seven row builders (:func:`_layered_n0_row1_at_a` through
+# :func:`_layered_n0_row7_at_b`) into the 7x7 modal matrix and return
+# the determinant. Each row builder applies the substep-F.1.a.5
+# row / column phase rescale internally, so the assembled matrix is
+# real-valued in the bound regime; ``np.linalg.det`` returns the
+# real determinant directly. The public-API dispatch in
+# :func:`stoneley_dispersion_layered` replaces the previous
+# ``NotImplementedError`` with a brentq loop driven by the bound-
+# regime bracket extended to ``min(V_S, V_S_m, V_f)``.
+
+
+def _modal_determinant_n0_layered(
+    kz: float,
+    omega: float,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    *,
+    layer: BoreholeLayer,
+) -> float:
+    r"""
+    7x7 axisymmetric modal determinant for a borehole with one
+    annular layer between fluid and formation.
+
+    Stacks the seven row builders from substeps F.1.b.2 and F.1.b.3
+    into the 7x7 layered matrix, applies the substep-F.1.a.5 phase
+    rescale (already absorbed into each row), and returns the
+    determinant as a real scalar.
+
+    Reduces to :func:`_modal_determinant_n0` (up to an irrelevant
+    overall scale factor) when ``(layer.vp, layer.vs, layer.rho) =
+    (vp, vs, rho)``: the layer=formation regression test in
+    :func:`stoneley_dispersion_layered` is the floating-point
+    oracle for this routine.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m). Must lie in the bound
+        regime ``kz > omega / min(V_S, V_S_m, V_f)``; outside the
+        regime the determinant is NaN (one or more radial wavenumbers
+        go imaginary).
+    omega, vp, vs, rho, vf, rho_f, a : float
+        Formation, fluid, and borehole geometry parameters.
+    layer : BoreholeLayer
+        Annular layer between fluid and formation.
+
+    Returns
+    -------
+    float
+        ``det(M)`` of the 7x7 layered modal matrix, real-valued in
+        the bound regime. NaN outside the bound regime.
+    """
+    rows = [
+        _layered_n0_row1_at_a(
+            kz, omega, vp=vp, vs=vs, rho=rho,
+            vf=vf, rho_f=rho_f, a=a, layer=layer,
+        ),
+        _layered_n0_row2_at_a(
+            kz, omega, vp=vp, vs=vs, rho=rho,
+            vf=vf, rho_f=rho_f, a=a, layer=layer,
+        ),
+        _layered_n0_row3_at_a(
+            kz, omega, vp=vp, vs=vs, rho=rho,
+            vf=vf, rho_f=rho_f, a=a, layer=layer,
+        ),
+        _layered_n0_row4_at_b(
+            kz, omega, vp=vp, vs=vs, rho=rho,
+            vf=vf, rho_f=rho_f, a=a, layer=layer,
+        ),
+        _layered_n0_row5_at_b(
+            kz, omega, vp=vp, vs=vs, rho=rho,
+            vf=vf, rho_f=rho_f, a=a, layer=layer,
+        ),
+        _layered_n0_row6_at_b(
+            kz, omega, vp=vp, vs=vs, rho=rho,
+            vf=vf, rho_f=rho_f, a=a, layer=layer,
+        ),
+        _layered_n0_row7_at_b(
+            kz, omega, vp=vp, vs=vs, rho=rho,
+            vf=vf, rho_f=rho_f, a=a, layer=layer,
+        ),
+    ]
+    M = np.vstack(rows)
+    # Each row is real-valued post-rescale; the imaginary parts are
+    # zero to floating-point precision in the bound regime. Take the
+    # real part to discard sub-machine-epsilon imaginary noise.
+    return float(np.linalg.det(M.real))
+
+
+def _stoneley_kz_bracket_layered(
+    omega: float,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+) -> tuple[float, float]:
+    """
+    Bracket the layered n=0 Stoneley root in (k_z_lo, k_z_hi).
+
+    Lower bound: just above the bound-regime floor
+    ``omega / min(V_S, V_S_m, V_f)`` so all five radial wavenumbers
+    are real positive. Upper bound: scaled from the closed-form
+    Stoneley low-f estimate ``S_ST = sqrt(1/V_f^2 + rho_f / mu)``
+    using the *formation* shear modulus (the layer's contribution
+    to the low-f limit is a perturbation around the formation-only
+    value; the bracket need not be tight, just enclose the root).
+    """
+    mu_formation = rho * vs * vs
+    s_st_lf = np.sqrt(1.0 / vf ** 2 + rho_f / mu_formation)
+    kz_lf_est = omega * s_st_lf
+    # Bound-regime floor: the slowest body-wave kz floor across all
+    # waves in the stack.
+    slowest = min(vs, layer.vs, vf)
+    kz_lo = omega / slowest * (1.0 + 1.0e-6)
+    kz_hi = max(kz_lf_est * 1.5, kz_lo * 2.0)
+    return kz_lo, kz_hi
+
+
 def stoneley_dispersion_layered(
     freq: np.ndarray,
     *,
@@ -6279,12 +6408,11 @@ def stoneley_dispersion_layered(
     fluid and the formation half-space.
 
     With ``layers=()`` (no extra layers) this is bit-equivalent to
-    :func:`stoneley_dispersion`. With one or more
-    :class:`BoreholeLayer` entries this is the public entry point
-    for plan item F in ``docs/plans/cylindrical_biot.md``; the
-    underlying 7x7 layered modal determinant is scheduled as the
-    next step of that plan and currently raises
-    ``NotImplementedError``.
+    :func:`stoneley_dispersion`. With a single
+    :class:`BoreholeLayer` it dispatches to the 7x7 layered modal
+    determinant :func:`_modal_determinant_n0_layered` and brentq's
+    its lowest root across the frequency grid -- the public-API
+    payload of plan item F.
 
     Parameters
     ----------
@@ -6300,28 +6428,27 @@ def stoneley_dispersion_layered(
         Borehole (fluid-side) radius (m).
     layers : tuple of BoreholeLayer, default ()
         Annular elastic layers between the fluid (``r < a``) and
-        the formation half-space, ordered radially outward. The
-        empty tuple is the degenerate single-interface case and
-        dispatches to :func:`stoneley_dispersion`.
+        the formation half-space, ordered radially outward.
+        ``()`` dispatches to :func:`stoneley_dispersion`. A
+        single-element tuple dispatches to the 7x7 layered solver.
+        Multi-layer support is plan item G (cased-hole / propagator-
+        matrix); for now non-unit-length stacks raise
+        ``NotImplementedError``.
 
     Returns
     -------
     BoreholeMode
-        ``name = "Stoneley"``, ``azimuthal_order = 0``, with
-        ``freq`` echoed and ``slowness[i]`` the phase slowness at
-        each frequency. ``NaN`` at any frequency where the bracket
-        failed.
+        ``name = "Stoneley"``, ``azimuthal_order = 0``. ``slowness``
+        is ``NaN`` at any frequency where the bracket failed (rare
+        in the bound regime).
 
     Raises
     ------
     ValueError
         If any input is non-positive, ``vp <= vs``, ``freq``
-        contains a non-positive entry, or any layer in ``layers``
-        is malformed.
+        contains a non-positive entry, or any layer is malformed.
     NotImplementedError
-        If ``layers`` is non-empty. The non-degenerate path is
-        blocked on the layered modal-determinant implementation
-        (plan item F.1).
+        If ``len(layers) > 1`` (multi-layer is plan item G).
     """
     layers_tuple = tuple(layers)
     _validate_borehole_layers(layers_tuple)
@@ -6329,9 +6456,75 @@ def stoneley_dispersion_layered(
         return stoneley_dispersion(
             freq, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
         )
-    raise NotImplementedError(
-        "stoneley_dispersion_layered with non-empty layers is not "
-        "implemented yet; the 7x7 layered modal determinant is the "
-        "next step of plan item F in docs/plans/cylindrical_biot.md."
+    if len(layers_tuple) > 1:
+        raise NotImplementedError(
+            "stoneley_dispersion_layered with multi-layer stacks is "
+            "plan item G in docs/plans/cylindrical_biot.md (cased-hole "
+            "propagator matrix). Single-layer and unlayered are "
+            "supported."
+        )
+    if vp <= 0 or vs <= 0 or rho <= 0:
+        raise ValueError("vp, vs, rho must all be positive")
+    if vf <= 0 or rho_f <= 0:
+        raise ValueError("vf and rho_f must be positive")
+    if a <= 0:
+        raise ValueError("a must be positive")
+    if vp <= vs:
+        raise ValueError("require vp > vs")
+    f_arr = np.asarray(freq, dtype=float)
+    if np.any(f_arr <= 0):
+        raise ValueError("freq must be strictly positive")
+
+    layer = layers_tuple[0]
+    slowness = np.full_like(f_arr, np.nan, dtype=float)
+    for i, f in enumerate(f_arr):
+        omega = 2.0 * np.pi * float(f)
+
+        def _det(kz_, omega=omega):
+            return _modal_determinant_n0_layered(
+                kz_, omega, vp, vs, rho, vf, rho_f, a, layer=layer,
+            )
+
+        kz_lo, kz_hi = _stoneley_kz_bracket_layered(
+            omega, vp, vs, rho, vf, rho_f, a, layer,
+        )
+        try:
+            d_lo = _det(kz_lo)
+            d_hi = _det(kz_hi)
+            n_expand = 0
+            while (
+                np.isfinite(d_lo)
+                and np.isfinite(d_hi)
+                and np.sign(d_lo) == np.sign(d_hi)
+                and n_expand < 8
+            ):
+                kz_hi *= 1.5
+                d_hi = _det(kz_hi)
+                n_expand += 1
+            if (not np.isfinite(d_lo)) or (not np.isfinite(d_hi)):
+                logger.debug(
+                    "stoneley_dispersion_layered: det evaluation NaN "
+                    "at f=%.1f Hz (likely outside bound regime)", f,
+                )
+                continue
+            if np.sign(d_lo) == np.sign(d_hi):
+                logger.debug(
+                    "stoneley_dispersion_layered: failed to bracket "
+                    "at f=%.1f Hz", f,
+                )
+                continue
+            kz_root = optimize.brentq(_det, kz_lo, kz_hi, xtol=1.0e-10)
+            slowness[i] = kz_root / omega
+        except (ValueError, RuntimeError) as exc:
+            logger.debug(
+                "stoneley_dispersion_layered: brentq failed at "
+                "f=%.1f Hz: %s", f, exc,
+            )
+
+    return BoreholeMode(
+        name="Stoneley",
+        azimuthal_order=0,
+        freq=f_arr,
+        slowness=slowness,
     )
 
