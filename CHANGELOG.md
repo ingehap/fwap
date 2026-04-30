@@ -6,7 +6,52 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **``quadrupole_dispersion`` now auto-dispatches to a fast-formation
+  path when ``V_S > V_f``** (Roadmap A, plan item E in
+  ``docs/plans/cylindrical_biot.md``). Direct n=2 sister of the
+  plan item B work on ``flexural_dispersion``: previously
+  fast-formation inputs returned NaN throughout (with a
+  documented "plan item E follow-up" caveat), now they dispatch
+  to a new private ``_quadrupole_dispersion_fast_formation`` that
+  brentq's the imaginary part of
+  :func:`_modal_determinant_n2_complex` along the real-``k_z``
+  axis in the ``(omega/V_S, omega/V_R)`` bracket, with
+  continuation across frequencies. Slow-formation behaviour is
+  unchanged bit-for-bit.
+
+  As with the n=1 case, the converged ``k_z`` is real to
+  floating-point precision: the formation P/S branches stay
+  bound, so the mode is bound; the only effect of ``F^2 < 0`` is
+  an overall ``i^k`` phase that makes the determinant
+  predominantly imaginary at real ``k_z``, reducing the root
+  condition to ``Im(det) = 0``. The n=2 determinant magnitudes
+  are about 15 orders larger than the n=1 sister, so the
+  absolute residual at the converged root sits at ~10^8 rather
+  than ~10^4; the relative residual ``|Im(det)|/|det|`` is at
+  machine precision in both cases.
+
 ### Added
+- **``_modal_determinant_n2_complex``** (Roadmap A, plan item E
+  scaffolding). Complex-``k_z`` n=2 quadrupole modal determinant
+  with optional ``leaky_p`` / ``leaky_s`` flags, structurally
+  identical to :func:`_modal_determinant_n2` with K-Bessel
+  evaluations swapped for the Hankel analytic continuation in
+  the leaky regime via :func:`_k_or_hankel`. Fluid I-Bessel
+  handles complex ``F`` transparently via ``scipy.special.iv``.
+  In the fully-bound regime (real ``kz``, both flags False) the
+  result agrees with the real-only sister to floating-point
+  precision -- the regression invariant tested in
+  ``tests/test_cylindrical_solver.py::test_complex_n2_matches_real_in_bound_regime``.
+
+  Four new tests added for the leaky-quadrupole deliverable:
+  bound-regime regression, slow-formation bit-identical guard
+  (``quadrupole_dispersion`` reproduces an open-coded brentq +
+  bracket-helper reference value), fast-formation regime sanity
+  (velocities in ``(V_R, V_S)``, attenuation_per_meter is None),
+  ``Im(det)/|det|`` machine-precision check at converged
+  fast-formation roots, and frequency-order invariance.
+
 - **``quadrupole_dispersion`` public API** (Roadmap A, plan item D
   in ``docs/plans/cylindrical_biot.md``). Real-valued n=2 modal-
   determinant solver for the slow-formation (``V_S < V_f``) bound

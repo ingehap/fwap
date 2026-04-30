@@ -1708,19 +1708,34 @@ def test_quadrupole_finite_above_cutoff_in_slow_formation():
     assert (velocity > vR * 0.85).all()
 
 
-def test_quadrupole_returns_nan_throughout_in_fast_formation():
-    """Plan item D ships only the slow-formation bound regime; the
-    fast-formation leaky quadrupole is plan item E. Until E lands,
-    the function must return all-NaN throughout for any input
-    grid when ``V_S >= V_f``, with no warning and no exception."""
+def test_quadrupole_dispatches_to_fast_formation_path_when_vs_gt_vf():
+    """Plan item E: ``quadrupole_dispersion`` now auto-dispatches to
+    the complex-determinant fast-formation path when ``V_S > V_f``
+    instead of returning NaN throughout. At least some frequencies
+    in a sensible band must yield finite slowness in the
+    ``(V_R, V_S)`` velocity window. Direct sister of the n=1
+    fast-formation dispatch test."""
     from fwap.cylindrical_solver import quadrupole_dispersion
+    from fwap.cylindrical import rayleigh_speed
 
-    f = np.array([2000.0, 5000.0, 20000.0])
+    vp, vs, rho = 5500.0, 3100.0, 2500.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    vR = rayleigh_speed(vp, vs)
+    f = np.linspace(40000.0, 100000.0, 30)
     res = quadrupole_dispersion(
-        f, vp=5500.0, vs=3100.0, rho=2500.0,
-        vf=1500.0, rho_f=1000.0, a=0.1,
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
     )
-    assert np.all(np.isnan(res.slowness))
+    finite = np.isfinite(res.slowness)
+    assert finite.any(), "fast-formation path must populate at least one frequency"
+    velocity = 1.0 / res.slowness[finite]
+    assert (velocity > vR * 0.99).all(), (
+        f"velocity must stay near or above V_R ({vR:.0f}); got {velocity}"
+    )
+    assert (velocity < vs).all(), (
+        f"velocity must stay below V_S ({vs}); got {velocity}"
+    )
+    # Bound mode -> attenuation_per_meter is None.
+    assert res.attenuation_per_meter is None
 
 
 def test_quadrupole_returns_nan_below_geometric_cutoff():
@@ -1814,4 +1829,171 @@ def test_quadrupole_dispersion_rejects_non_positive_freq():
             bad, vp=QUAD_VP, vs=QUAD_VS, rho=QUAD_RHO,
             vf=QUAD_VF, rho_f=QUAD_RHO_F, a=QUAD_A,
         )
+
+
+# =====================================================================
+# Plan item E: leaky quadrupole mode (n=2) in fast formations.
+# =====================================================================
+
+
+def test_complex_n2_matches_real_in_bound_regime():
+    """``_modal_determinant_n2`` and ``_modal_determinant_n2_complex``
+    must agree to floating-point precision when called with real
+    ``kz`` and both ``leaky_*`` flags False (the bound quadrupole
+    regime). Same regression invariant as for n=0 and n=1; ensures
+    the existing slow-formation bound-mode tests carry over to the
+    complex evaluator without modification."""
+    from fwap.cylindrical_solver import (
+        _modal_determinant_n2,
+        _modal_determinant_n2_complex,
+    )
+
+    # Slow-formation parameters; pick kz values comfortably inside
+    # the bound regime ``kz > omega/V_S`` (avoiding the s = 0
+    # boundary where the real evaluator's np.sqrt of a negative
+    # would produce NaN).
+    omega = 2.0 * np.pi * 8000.0
+    for kz in [70.0, 90.0, 120.0, 200.0]:
+        d_real = _modal_determinant_n2(
+            kz, omega, QUAD_VP, QUAD_VS, QUAD_RHO,
+            QUAD_VF, QUAD_RHO_F, QUAD_A,
+        )
+        d_complex = _modal_determinant_n2_complex(
+            complex(kz), omega, QUAD_VP, QUAD_VS, QUAD_RHO,
+            QUAD_VF, QUAD_RHO_F, QUAD_A,
+        )
+        rel_err = abs(d_complex.real - d_real) / max(abs(d_real), 1.0e-300)
+        assert rel_err < 1.0e-12, (
+            f"real-vs-complex n=2 mismatch at kz={kz}: "
+            f"real={d_real}, complex={d_complex}, rel_err={rel_err}"
+        )
+        assert d_complex.imag == 0.0
+
+
+def test_quadrupole_slow_formation_bit_identical_after_dispatch():
+    """Plan item E validation goal #2: when ``V_S < V_f`` the new
+    auto-dispatch must bypass the complex path and reproduce the
+    existing slow-formation answer bit-for-bit. We compare against
+    a direct call into ``_modal_determinant_n2`` + brentq with the
+    same bracket helper, mirroring the n=1 fast-formation
+    bit-identical guard from plan item B."""
+    from fwap.cylindrical_solver import (
+        _quadrupole_kz_bracket, _modal_determinant_n2, quadrupole_dispersion,
+    )
+    from scipy import optimize as _opt
+
+    f = np.linspace(5000.0, 20000.0, 11)
+    res = quadrupole_dispersion(
+        f, vp=QUAD_VP, vs=QUAD_VS, rho=QUAD_RHO,
+        vf=QUAD_VF, rho_f=QUAD_RHO_F, a=QUAD_A,
+    )
+    finite = np.isfinite(res.slowness)
+    assert finite.sum() >= 8
+
+    for i in np.where(finite)[0]:
+        omega = 2.0 * np.pi * f[i]
+
+        def _det(kz):
+            return _modal_determinant_n2(
+                kz, omega, QUAD_VP, QUAD_VS, QUAD_RHO,
+                QUAD_VF, QUAD_RHO_F, QUAD_A,
+            )
+
+        kz_lo, kz_hi = _quadrupole_kz_bracket(
+            omega, QUAD_VP, QUAD_VS, QUAD_RHO,
+            QUAD_VF, QUAD_RHO_F, QUAD_A,
+        )
+        n_expand = 0
+        d_lo = _det(kz_lo)
+        d_hi = _det(kz_hi)
+        while np.sign(d_lo) == np.sign(d_hi) and n_expand < 8:
+            kz_hi *= 1.5
+            d_hi = _det(kz_hi)
+            n_expand += 1
+        kz_ref = _opt.brentq(_det, kz_lo, kz_hi, xtol=1.0e-10)
+        slow_ref = kz_ref / omega
+        assert res.slowness[i] == slow_ref, (
+            f"slow-formation dispatch changed value at f={f[i]}: "
+            f"got {res.slowness[i]}, ref {slow_ref}"
+        )
+
+
+def test_quadrupole_fast_formation_im_det_relative_zero():
+    """In the fast-formation regime the converged ``k_z`` is real
+    and brentq targets ``Im(det) = 0``. Because the n=2
+    determinant magnitudes are ~15 orders larger than the n=1
+    sister, the absolute residual ``|Im(det)|`` at the converged
+    root can still be ~1e8 -- but it must be *relatively* tiny
+    against ``|det|`` itself (machine-precision territory). This
+    is the n=2 analogue of the n=1 local-zero check, expressed
+    as a relative residual rather than as an absolute one."""
+    from fwap.cylindrical_solver import (
+        quadrupole_dispersion, _modal_determinant_n2_complex,
+    )
+
+    vp, vs, rho = 5500.0, 3100.0, 2500.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f = np.linspace(50000.0, 100000.0, 30)
+    res = quadrupole_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    finite_idx = np.where(np.isfinite(res.slowness))[0]
+    assert finite_idx.size >= 3
+
+    for i in finite_idx[:5]:
+        omega = 2.0 * np.pi * res.freq[i]
+        kz_root = complex(res.slowness[i] * omega, 0.0)
+        det_at_root = _modal_determinant_n2_complex(
+            kz_root, omega, vp, vs, rho, vf, rho_f, a,
+            leaky_p=False, leaky_s=False,
+        )
+        relative = abs(det_at_root.imag) / max(abs(det_at_root), 1.0e-300)
+        assert relative < 1.0e-12, (
+            f"Im(det)/|det| not at machine precision at converged "
+            f"root for f={res.freq[i]}: relative={relative}, "
+            f"det={det_at_root}"
+        )
+
+
+def test_quadrupole_fast_formation_velocities_in_bound_window():
+    """All fast-formation finite outputs must have phase velocity
+    strictly between V_R and V_S -- the bound-mode window for the
+    n=2 leaky-F regime. Mirrors the n=1 sister test."""
+    from fwap.cylindrical_solver import quadrupole_dispersion
+    from fwap.cylindrical import rayleigh_speed
+
+    vp, vs, rho = 5500.0, 3100.0, 2500.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    vR = rayleigh_speed(vp, vs)
+    f = np.linspace(40000.0, 100000.0, 50)
+    res = quadrupole_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    finite = np.isfinite(res.slowness)
+    assert finite.sum() >= 5
+    velocity = 1.0 / res.slowness[finite]
+    assert (velocity > vR * 0.99).all()
+    assert (velocity < vs).all()
+
+
+def test_quadrupole_fast_formation_frequency_order_invariant():
+    """The fast-formation marcher walks descending frequency
+    internally; ascending- and descending-grid inputs must
+    produce identical per-frequency outputs."""
+    from fwap.cylindrical_solver import quadrupole_dispersion
+
+    vp, vs, rho = 5500.0, 3100.0, 2500.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f_asc = np.linspace(50000.0, 100000.0, 25)
+    f_desc = f_asc[::-1]
+    res_asc = quadrupole_dispersion(
+        f_asc, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    res_desc = quadrupole_dispersion(
+        f_desc, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    np.testing.assert_allclose(
+        res_asc.slowness, res_desc.slowness[::-1],
+        rtol=1.0e-9, equal_nan=True,
+    )
 
