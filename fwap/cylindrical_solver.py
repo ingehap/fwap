@@ -5298,6 +5298,124 @@ def _layered_n0_bessel_pack(
     return pack
 
 
+# =====================================================================
+# Substep F.1.b.2.a -- row 1 of the n=0 layered determinant (r = a)
+# =====================================================================
+#
+# BC1: ``u_r^{(f)}(a) - u_r^{(m)}(a) = 0`` (cos-sector continuity of
+# radial displacement at the fluid-annulus interface). Coefficients
+# are read off the substep-F.1.a.2 displacement formulae:
+#
+#   u_r^{(f)} = (A F_f / (rho_f omega^2)) I_1(F_f r)                (cos)
+#   u_r^{(m)} =  B_I p_m I_1(p_m r)
+#               - B_K p_m K_1(p_m r)
+#               - i k_z C_I I_1(s_m r)
+#               - i k_z C_K K_1(s_m r)                              (cos)
+#
+# Substituting r = a and collecting on each amplitude:
+#
+#       Row 1 (pre-rescale) =
+#           [  F_f I_1(F_f a) / (rho_f omega^2),
+#             -p_m I_1(p_m a),
+#             +p_m K_1(p_m a),
+#             +i k_z I_1(s_m a),
+#             +i k_z K_1(s_m a),
+#              0,                  (formation B; r > b, untouched at a)
+#              0  ]                (formation C; r > b, untouched at a)
+#
+# Phase rescale (substep F.1.a.5) for *this* row: row 1 is one of
+# the no-z-derivative rows (B-real, C-imag pre-rescale), so it is
+# NOT scaled by ``i`` itself. The C-flavour columns (C_I, C_K, C)
+# are scaled by ``-i``, which kills the explicit ``i k_z`` factors
+# above. The post-rescale row is therefore real in the bound
+# regime; that real form is what
+# :func:`_modal_determinant_n0` compares against in the layer=
+# formation degenerate limit.
+
+
+def _layered_n0_row1_at_a(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+) -> np.ndarray:
+    r"""
+    Row 1 of the n=0 layered modal determinant evaluated at the
+    fluid-annulus interface ``r = a``.
+
+    The row encodes the radial-displacement continuity BC
+    ``u_r^{(f)}(a) - u_r^{(m)}(a) = 0`` (cos-sector). Returns the
+    seven coefficients in the column order pinned by substep
+    F.1.a.4: ``[A | B_I, B_K, C_I, C_K | B, C]``.
+
+    Post-rescale (substep F.1.a.5) form: column-C-by-``-i`` has
+    been applied so the ``i k_z`` factors on the C_I / C_K columns
+    are cancelled and the row is real-valued in the bound regime.
+    Row 1 itself receives no row scaling (it is a no-``z``-derivative
+    row).
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    vp, vs, rho : float
+        Formation half-space P / S velocity (m/s) and density
+        (kg/m^3). Not used by row 1; carried for signature
+        uniformity with rows 2-3 of F.1.b.2.
+    vf, rho_f : float
+        Fluid velocity (m/s) and density (kg/m^3).
+    a : float
+        Fluid-annulus interface radius (= borehole wall, m).
+    layer : BoreholeLayer
+        The annular layer; only ``layer.vp``, ``layer.vs`` are used
+        by this row.
+
+    Returns
+    -------
+    ndarray, shape (7,) complex
+        Coefficients of (A, B_I, B_K, C_I, C_K, B, C) in row 1.
+        Real-valued in the bound regime; complex dtype for
+        downstream uniform handling.
+
+    See Also
+    --------
+    _modal_determinant_n0 : The single-interface n=0 form. At
+        layer=formation, ``row[0]``, ``row[2]``, ``row[4]`` of this
+        function equal ``M11``, ``M12``, ``M13`` of the single-
+        interface matrix bit-exactly.
+    """
+    del rho  # not used by row 1 (no Lame term); kept for signature uniformity
+    F_f, p_m, s_m, _, _ = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=vp, vs=vs, vf=vf, layer=layer,
+    )
+    I1_Ff_a = float(special.iv(1, F_f * a))
+    I1_pm_a = float(special.iv(1, p_m * a))
+    K1_pm_a = float(special.kv(1, p_m * a))
+    I1_sm_a = float(special.iv(1, s_m * a))
+    K1_sm_a = float(special.kv(1, s_m * a))
+
+    row = np.zeros(7, dtype=complex)
+    row[0] = F_f * I1_Ff_a / (rho_f * omega ** 2)        # A column
+    row[1] = -p_m * I1_pm_a                               # B_I column
+    row[2] = +p_m * K1_pm_a                               # B_K column
+    # Pre-rescale C columns carry +i k_z; column-by-(-i) makes them real.
+    row[3] = +kz * I1_sm_a                                # C_I column
+    row[4] = +kz * K1_sm_a                                # C_K column
+    # Formation columns vanish at r = a (fields evaluated outside
+    # their region of support).
+    row[5] = 0.0
+    row[6] = 0.0
+    return row
+
+
 def stoneley_dispersion_layered(
     freq: np.ndarray,
     *,
