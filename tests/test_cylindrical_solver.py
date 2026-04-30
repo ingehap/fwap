@@ -3274,3 +3274,141 @@ def test_stoneley_dispersion_layered_softer_mudcake_slows_down():
     )
     assert res_layered.slowness[0] > res_unlayered.slowness[0]
 
+
+# =====================================================================
+# Plan item F.1.d -- validation tightening on top of F.1.b.4
+# =====================================================================
+#
+# Hardening tests for the assembled layered Stoneley solver. Each
+# tests an asymptotic / self-consistency property that the
+# layer=formation regression alone doesn't pin down.
+
+
+def test_stoneley_dispersion_layered_thickness_dominant_limit():
+    """As the layer thickness grows much larger than the field's
+    radial extent at r = a (set roughly by ``1 / p_m``), the
+    second interface becomes irrelevant and the Stoneley wave
+    propagates as if the *layer* material were the formation
+    half-space.
+
+    Concretely: layered_dispersion(formation=X, layer=Y,
+    thickness=large) -> stoneley_dispersion(formation=Y) as
+    thickness * p_m -> infty. We test at a frequency high enough
+    that p_m * thickness >> 1 with a 0.5 m thick layer.
+    """
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer_vp, layer_vs, layer_rho = 3500.0, 1800.0, 2100.0
+    f = np.array([5000.0])
+    # 0.5 m -- far thicker than any physical mudcake, just to
+    # stress-test the limit. p_m * thickness is well above 1
+    # at f = 5 kHz, so the field at r = b is exponentially small.
+    layer = BoreholeLayer(
+        vp=layer_vp, vs=layer_vs, rho=layer_rho, thickness=0.5,
+    )
+
+    res_layered = stoneley_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(layer,),
+    )
+    # Limit value: unlayered Stoneley with the LAYER properties as
+    # the formation half-space.
+    res_limit = stoneley_dispersion(
+        f, vp=layer_vp, vs=layer_vs, rho=layer_rho,
+        vf=vf, rho_f=rho_f, a=a,
+    )
+    # Tolerance is loose because the limit is asymptotic; tighter
+    # match would need an even thicker layer (numerically delicate
+    # because K_n decays exponentially).
+    assert res_layered.slowness[0] == pytest.approx(
+        res_limit.slowness[0], rel=1.0e-3,
+    )
+
+
+def test_modal_determinant_n0_layered_vanishes_at_converged_root():
+    """Self-consistency: at the converged ``k_z`` returned by
+    :func:`stoneley_dispersion_layered`, the layered determinant
+    is small compared to its off-root value. Tighter check than
+    the layer=formation det-at-root test (which only verifies the
+    F.1.a.6 self-check); this works for any non-trivial layer."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
+    f = 5000.0
+    omega = 2.0 * np.pi * f
+
+    res = stoneley_dispersion_layered(
+        np.array([f]), vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(layer,),
+    )
+    kz_root = float(res.slowness[0]) * omega
+
+    det_at = _modal_determinant_n0_layered(
+        kz_root, omega, vp, vs, rho, vf, rho_f, a, layer=layer,
+    )
+    det_off = _modal_determinant_n0_layered(
+        kz_root * 1.05, omega, vp, vs, rho, vf, rho_f, a, layer=layer,
+    )
+    # brentq returns a converged root, so |det_at| should be at
+    # least ~6 orders of magnitude smaller than |det_off|.
+    assert abs(det_at) < abs(det_off) * 1.0e-6
+
+
+def test_stoneley_dispersion_layered_multiple_frequencies_bound_regime():
+    """Smoke test across a wide frequency band to confirm the
+    bracket + brentq combination stays well-behaved over a range
+    spanning ~3 decades. The Stoneley slowness *decreases*
+    monotonically with frequency in a fast-formation borehole
+    (the wave speeds up toward a fluid-loaded Rayleigh /
+    Scholte-like asymptote at high f); same dispersion direction
+    as the unlayered case from
+    ``test_stoneley_dispersion_speeds_up_with_frequency``."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
+    f = np.geomspace(100.0, 20000.0, 25)
+
+    res = stoneley_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(layer,),
+    )
+    assert np.all(np.isfinite(res.slowness))
+    diffs = np.diff(res.slowness)
+    # Slowness decreases with frequency in a fast formation
+    # (phase velocity increases). Monotonic decrease across the
+    # full 100 Hz - 20 kHz band; allow a tiny tolerance for
+    # near-asymptote flatness.
+    assert np.all(diffs < 1.0e-9)
+
+
+def test_stoneley_dispersion_layered_low_f_layer_shifts_off_formation_white():
+    """At very low frequency the layer is NOT invisible: even a
+    5 mm mudcake at 10 Hz (wavelength ~2 km) shifts the Stoneley
+    slowness off the unlayered White (1983) formation-only
+    closed-form. Reason: the layer sits at the borehole wall
+    where the radial field amplitude is highest, so the effective
+    near-wall shear modulus is the layer's, not the formation's.
+
+    Verify the layered slowness lies *between* the two unlayered
+    White-formula values (formation and layer-as-formation),
+    closer to the formation value because the formation half-space
+    still provides the bulk of the back-field-decay support at
+    low f."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    layer_vp, layer_vs, layer_rho = 3500.0, 1800.0, 2100.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(
+        vp=layer_vp, vs=layer_vs, rho=layer_rho, thickness=0.005,
+    )
+    f = np.array([10.0])
+
+    res = stoneley_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(layer,),
+    )
+    s_formation = _stoneley_lf_truth(vs, rho, vf, rho_f)
+    s_layer = _stoneley_lf_truth(layer_vs, layer_rho, vf, rho_f)
+    # layer is softer than formation -> s_layer > s_formation.
+    # The layered slowness must lie between the two.
+    assert s_formation < res.slowness[0] < s_layer
+
