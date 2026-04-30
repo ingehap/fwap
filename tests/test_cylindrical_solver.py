@@ -19,6 +19,7 @@ from fwap.cylindrical_solver import (
     _layered_n0_row1_at_a,
     _layered_n0_row2_at_a,
     _layered_n0_row3_at_a,
+    _layered_n0_row4_at_b,
     _modal_determinant_n0,
     _modal_determinant_n1,
     flexural_dispersion,
@@ -2612,4 +2613,111 @@ def test_layered_row3_at_a_i_k_sign_flip():
     expected_ratio_C = +float(sp.iv(1, s_m * p["a"])) / float(sp.kv(1, s_m * p["a"]))
     assert row[1].real / row[2].real == pytest.approx(expected_ratio_B)
     assert row[3].real / row[4].real == pytest.approx(expected_ratio_C)
+
+
+# =====================================================================
+# Plan item F.1.b.3.a -- row 4 of the n=0 layered determinant (r = b)
+# =====================================================================
+#
+# First of the four interface-continuity rows at the second
+# interface ``r = b``. Unlike rows 1-3, no single-interface analog
+# exists, so the primary correctness oracle is the substep-F.1.a.6
+# K-flavour cancellation identity at layer=formation.
+
+
+def test_layered_row4_at_b_layer_equals_formation_K_flavour_cancels():
+    """Substep F.1.a.6 self-check at the row level: at layer=
+    formation the K-flavour annulus and formation columns of row 4
+    cancel pair-wise. Specifically:
+
+        row4[2] (B_K) + row4[5] (B) == 0
+        row4[4] (C_K) + row4[6] (C) == 0
+
+    Physically: when the annulus material matches the formation,
+    the second interface is fictitious, and the outgoing-wave
+    K-flavour contributions from both sides represent the same
+    field, so continuity is trivially satisfied. This is the
+    central correctness invariant for rows 4-7."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _layered_n0_row4_at_b(
+        kz, omega, vp=vp, vs=vs, rho=rho,
+        vf=vf, rho_f=rho_f, a=a, layer=layer,
+    )
+    assert row[2].real + row[5].real == pytest.approx(0.0, abs=1.0e-14)
+    assert row[4].real + row[6].real == pytest.approx(0.0, abs=1.0e-14)
+
+
+def test_layered_row4_at_b_fluid_column_is_zero():
+    """The fluid lives at ``r < a``; it does not reach ``r = b``.
+    Column 0 (A) is identically zero in row 4."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n0_row4_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    assert row[0] == 0.0
+
+
+def test_layered_row4_at_b_is_real_in_bound_regime():
+    """Substep F.1.a.5: post-rescale row 4 is real in the bound
+    regime (no row scaling; column-by-(-i) on C_I, C_K, C kills
+    the explicit ``i`` factors)."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n0_row4_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e-14)
+
+
+def test_layered_row4_at_b_matches_closed_form_per_column():
+    """Cross-check every non-zero entry against the substep-F.1.a.2
+    closed form, evaluated at ``r = b``. No single-interface analog
+    to compare against, so this is the per-element transcription
+    check."""
+    p, omega, kz = _row1_test_setup()
+    F_f, p_m, s_m, p_form, s_form = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    a = p["a"]
+    b = a + p["layer"].thickness
+    from scipy import special as sp
+
+    row = _layered_n0_row4_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=a, layer=p["layer"],
+    )
+
+    assert row[1].real == pytest.approx(+p_m * float(sp.iv(1, p_m * b)))
+    assert row[2].real == pytest.approx(-p_m * float(sp.kv(1, p_m * b)))
+    assert row[3].real == pytest.approx(-kz * float(sp.iv(1, s_m * b)))
+    assert row[4].real == pytest.approx(-kz * float(sp.kv(1, s_m * b)))
+    assert row[5].real == pytest.approx(+p_form * float(sp.kv(1, p_form * b)))
+    assert row[6].real == pytest.approx(+kz * float(sp.kv(1, s_form * b)))
+
+
+def test_layered_row4_at_b_annulus_K_sign_opposite_to_row1_at_a():
+    """Sign-flow consistency between the two interfaces. In row 1
+    (``u_r^{(f)} - u_r^{(m)} = 0`` at r=a) the annulus B_K
+    coefficient is ``+p_m K_1(p_m a)``. In row 4
+    (``u_r^{(m)} - u_r^{(s)} = 0`` at r=b) the same physical
+    quantity is ``-p_m K_1(p_m b)`` -- opposite sign because the
+    annulus appears with opposite sign in the two BCs."""
+    p, omega, kz = _row1_test_setup()
+    F_f, p_m, _, _, _ = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    from scipy import special as sp
+
+    row4 = _layered_n0_row4_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    b = p["a"] + p["layer"].thickness
+    assert row4[2].real == pytest.approx(-p_m * float(sp.kv(1, p_m * b)))
 
