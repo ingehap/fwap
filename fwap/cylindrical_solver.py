@@ -5416,6 +5416,135 @@ def _layered_n0_row1_at_a(
     return row
 
 
+# =====================================================================
+# Substep F.1.b.2.b -- row 2 of the n=0 layered determinant (r = a)
+# =====================================================================
+#
+# BC2: ``-(sigma_rr^{(m)}(a) + P^{(f)}(a)) = 0`` (cos-sector normal-
+# stress balance, row negated for visual parallel with the n=0
+# single-interface form). Coefficients follow the substep-F.1.a.3
+# stress derivation. With the Lame reduction
+#
+#       -lambda_m k_Pm^2 + 2 mu_m p_m^2 = mu_m (2 k_z^2 - k_Sm^2),
+#
+# and the I_n / K_n derivative identities from F.1.a.2, the
+# pre-rescale row is:
+#
+#       Row 2 (pre-rescale) =
+#           [ -I_0(F_f a),
+#             -mu_m [(2 k_z^2 - k_Sm^2) I_0(p_m a)
+#                    - 2 p_m I_1(p_m a) / a],
+#             -mu_m [(2 k_z^2 - k_Sm^2) K_0(p_m a)
+#                    + 2 p_m K_1(p_m a) / a],
+#             +2 i mu_m k_z [s_m I_0(s_m a) - I_1(s_m a) / a],
+#             -2 i mu_m k_z [s_m K_0(s_m a) + K_1(s_m a) / a],
+#              0,
+#              0 ]
+#
+# Sign-flip pattern between the I- and K-flavour columns (the
+# "d_r-induced" twist): the I_0 / K_0 coefficient carries the same
+# sign in both columns, while the I_1 / K_1 coefficient flips sign
+# (because ``I_0' = +I_1`` vs ``K_0' = -K_1``; same effect on the
+# tangential SV term ``s I_0 - I_1/a`` vs ``s K_0 + K_1/a``).
+#
+# Phase rescale (substep F.1.a.5): row 2 is no-``z``-derivative, no
+# row scaling. Column-by-(-i) on the C_I, C_K columns kills the
+# explicit ``i`` factors; the post-rescale row is real-valued in
+# the bound regime.
+
+
+def _layered_n0_row2_at_a(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+) -> np.ndarray:
+    r"""
+    Row 2 of the n=0 layered modal determinant evaluated at the
+    fluid-annulus interface ``r = a``.
+
+    The row encodes the negated normal-stress balance BC
+    ``-(sigma_rr^{(m)}(a) + P^{(f)}(a)) = 0`` in the cos-sector.
+    Returns the seven post-rescale coefficients in the column
+    order pinned by substep F.1.a.4: ``[A | B_I, B_K, C_I, C_K |
+    B, C]``.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    vp, vs, rho : float
+        Formation half-space P / S velocity and density. Carried
+        for signature uniformity; row 2 only consumes them
+        indirectly via the radial-wavenumber helper.
+    vf, rho_f : float
+        Fluid velocity (m/s) and density (kg/m^3).
+    a : float
+        Fluid-annulus interface radius (m).
+    layer : BoreholeLayer
+        The annular layer. ``layer.rho`` and ``layer.vs`` set
+        ``mu_m``; ``layer.vp``, ``layer.vs`` set ``k_Sm``,
+        ``p_m``, ``s_m``.
+
+    Returns
+    -------
+    ndarray, shape (7,) complex
+        Coefficients of (A, B_I, B_K, C_I, C_K, B, C) in row 2.
+        Real-valued in the bound regime.
+
+    See Also
+    --------
+    _modal_determinant_n0 : The single-interface n=0 form. At
+        layer=formation, ``row[0]``, ``row[2]``, ``row[4]`` of this
+        function equal ``M21``, ``M22``, ``M23`` of the single-
+        interface matrix bit-exactly.
+    """
+    del rho  # not used by row 2; kept for signature uniformity
+    F_f, p_m, s_m, _, _ = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=vp, vs=vs, vf=vf, layer=layer,
+    )
+    I0_Ff_a = float(special.iv(0, F_f * a))
+    I0_pm_a = float(special.iv(0, p_m * a))
+    I1_pm_a = float(special.iv(1, p_m * a))
+    K0_pm_a = float(special.kv(0, p_m * a))
+    K1_pm_a = float(special.kv(1, p_m * a))
+    I0_sm_a = float(special.iv(0, s_m * a))
+    I1_sm_a = float(special.iv(1, s_m * a))
+    K0_sm_a = float(special.kv(0, s_m * a))
+    K1_sm_a = float(special.kv(1, s_m * a))
+
+    mu_m = layer.rho * layer.vs * layer.vs
+    kSm2 = (omega / layer.vs) ** 2
+    two_kz2_minus_kSm2 = 2.0 * kz * kz - kSm2
+
+    row = np.zeros(7, dtype=complex)
+    # A column: fluid pressure -P^{(f)}(a) = -A I_0(F_f a).
+    row[0] = -I0_Ff_a
+    # B_I column: annulus P, regular branch. Sign on the I_1 term
+    # is opposite the K_1 sign (d_r-induced twist).
+    row[1] = -mu_m * (two_kz2_minus_kSm2 * I0_pm_a - 2.0 * p_m * I1_pm_a / a)
+    # B_K column: annulus P, singular branch. Mirrors the
+    # single-interface M22 with ``p -> p_m``, ``mu -> mu_m``,
+    # ``kS^2 -> kSm^2``.
+    row[2] = -mu_m * (two_kz2_minus_kSm2 * K0_pm_a + 2.0 * p_m * K1_pm_a / a)
+    # C_I column (post-rescale; col-by-(-i) cancels the +i).
+    row[3] = +2.0 * kz * mu_m * (s_m * I0_sm_a - I1_sm_a / a)
+    # C_K column (post-rescale).
+    row[4] = -2.0 * kz * mu_m * (s_m * K0_sm_a + K1_sm_a / a)
+    # Formation columns vanish at r = a.
+    row[5] = 0.0
+    row[6] = 0.0
+    return row
+
+
 def stoneley_dispersion_layered(
     freq: np.ndarray,
     *,

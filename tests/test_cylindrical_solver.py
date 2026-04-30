@@ -17,6 +17,7 @@ from fwap.cylindrical_solver import (
     _layered_n0_bessel_pack,
     _layered_n0_radial_wavenumbers,
     _layered_n0_row1_at_a,
+    _layered_n0_row2_at_a,
     _modal_determinant_n0,
     _modal_determinant_n1,
     flexural_dispersion,
@@ -2410,4 +2411,109 @@ def test_layered_row1_at_a_i_k_sign_flip():
     expected_ratio_C = +float(sp.iv(1, s_m * p["a"])) / float(sp.kv(1, s_m * p["a"]))
     assert row[1].real / row[2].real == pytest.approx(expected_ratio_B)
     assert row[3].real / row[4].real == pytest.approx(expected_ratio_C)
+
+
+# =====================================================================
+# Plan item F.1.b.2.b -- row 2 of the n=0 layered determinant (r = a)
+# =====================================================================
+
+
+def test_layered_row2_at_a_layer_equals_formation_per_element():
+    """At layer=formation, row 2's (A, B_K, C_K) entries match
+    M21, M22, M23 of :func:`_modal_determinant_n0` to floating-
+    point precision -- the primary correctness oracle for the row's
+    Lame-reduction bookkeeping."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _layered_n0_row2_at_a(
+        kz, omega, vp=vp, vs=vs, rho=rho,
+        vf=vf, rho_f=rho_f, a=a, layer=layer,
+    )
+
+    F = float(np.sqrt(kz * kz - (omega / vf) ** 2))
+    p = float(np.sqrt(kz * kz - (omega / vp) ** 2))
+    s = float(np.sqrt(kz * kz - (omega / vs) ** 2))
+    from scipy import special as sp
+
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    M21 = -float(sp.iv(0, F * a))
+    M22 = -mu * (
+        two_kz2_minus_kS2 * float(sp.kv(0, p * a))
+        + 2.0 * p * float(sp.kv(1, p * a)) / a
+    )
+    M23 = -2.0 * kz * mu * (
+        s * float(sp.kv(0, s * a)) + float(sp.kv(1, s * a)) / a
+    )
+
+    assert row[0].real == pytest.approx(M21)
+    assert row[2].real == pytest.approx(M22)
+    assert row[4].real == pytest.approx(M23)
+
+
+def test_layered_row2_at_a_formation_columns_are_zero():
+    """Sparsity: at ``r = a`` the formation columns (5, 6) are
+    zero."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n0_row2_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    assert row[5] == 0.0
+    assert row[6] == 0.0
+
+
+def test_layered_row2_at_a_is_real_in_bound_regime():
+    """Substep F.1.a.5 phase rescale: post-rescale row 2 entries
+    are purely real in the bound regime."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n0_row2_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e-14)
+
+
+def test_layered_row2_at_a_i_flavour_columns_match_derivation():
+    """The I-flavour annulus columns (B_I, C_I) have no single-
+    interface analog. Cross-check them against the closed-form
+    expressions read directly off the substep-F.1.a.3 derivation:
+
+        row[1] (B_I) =
+            -mu_m [(2 k_z^2 - k_Sm^2) I_0(p_m a) - 2 p_m I_1(p_m a) / a]
+        row[3] (C_I) =
+            +2 mu_m k_z [s_m I_0(s_m a) - I_1(s_m a) / a]
+    """
+    p, omega, kz = _row1_test_setup()
+    F_f, p_m, s_m, _, _ = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    from scipy import special as sp
+
+    mu_m = p["layer"].rho * p["layer"].vs ** 2
+    kSm2 = (omega / p["layer"].vs) ** 2
+    two_kz2_minus_kSm2 = 2.0 * kz * kz - kSm2
+    a = p["a"]
+
+    expected_BI = -mu_m * (
+        two_kz2_minus_kSm2 * float(sp.iv(0, p_m * a))
+        - 2.0 * p_m * float(sp.iv(1, p_m * a)) / a
+    )
+    expected_CI = +2.0 * mu_m * kz * (
+        s_m * float(sp.iv(0, s_m * a))
+        - float(sp.iv(1, s_m * a)) / a
+    )
+
+    row = _layered_n0_row2_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    assert row[1].real == pytest.approx(expected_BI)
+    assert row[3].real == pytest.approx(expected_CI)
 
