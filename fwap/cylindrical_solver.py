@@ -6119,6 +6119,149 @@ def _layered_n0_row6_at_b(
     return row
 
 
+# =====================================================================
+# Substep F.1.b.3.d -- row 7 of the n=0 layered determinant (r = b)
+# =====================================================================
+#
+# BC7: ``sigma_rz^{(m)}(b) - sigma_rz^{(s)}(b) = 0`` (cos-sector
+# axial-shear continuity at the annulus-formation interface).
+# Final row of the 7x7 layered determinant; closes substep F.1.b.3
+# and unlocks F.1.b.4 assembly.
+#
+# Coefficients via the F.1.a.3 derivation. The annulus side mirrors
+# row 3 at r=a but evaluated at r=b; the formation side reuses the
+# n=0 single-interface ``sigma_rz^{(s)}`` form, derived from
+# ``mu (d_z u_r^{(s)} + d_r u_z^{(s)})`` with the same ``k_z^2 +
+# s^2 = 2 k_z^2 - k_S^2`` collapse used in row 3:
+#
+#       sigma_rz^{(s)}(r) = mu * [ -2 i k_z B p K_1(p r)
+#                                  + (2 k_z^2 - k_S^2) C K_1(s r) ]
+#
+# Subtracting (annulus - formation):
+#
+#       Row 7 (pre-rescale) =
+#           [  0,                                          (A)
+#             +2 i k_z mu_m p_m I_1(p_m b),                (B_I)
+#             -2 i k_z mu_m p_m K_1(p_m b),                (B_K)
+#             +mu_m (2 k_z^2 - k_Sm^2) I_1(s_m b),         (C_I)
+#             +mu_m (2 k_z^2 - k_Sm^2) K_1(s_m b),         (C_K)
+#             +2 i k_z mu p K_1(p b),                      (B; subtracted)
+#             -mu (2 k_z^2 - k_S^2) K_1(s b) ]             (C; subtracted)
+#
+# Imaginary-power pattern: B-imag, C-real (the substep-F.1.a.5
+# ``z``-derivative-bearing pattern, like rows 3, 5). Phase rescale:
+# row 7 multiplied by ``i``; columns C_I, C_K, C multiplied by
+# ``-i``. Forgetting the row * i is the same easy-to-miss error
+# F.1.a.5 calls out for row 5; the bound-regime imaginary-part
+# test catches it.
+#
+# Substep-F.1.a.6 K-flavour cancellation at layer=formation:
+# ``mu_m -> mu, p_m -> p, s_m -> s, k_Sm -> k_S``. The annulus
+# B_K coefficient ``+2 k_z mu p K_1(p b)`` (post-rescale) and the
+# formation B coefficient ``-2 k_z mu p K_1(p b)`` (post-rescale)
+# cancel. Same for C_K vs C with the ``mu (2 k_z^2 - k_S^2) K_1``
+# pair.
+#
+# Layer=formation analog of row 3 at r=a: ``row7[2]`` and
+# ``row7[4]`` post-rescale match the n=0 ``M32`` and ``M33``
+# entries of :func:`_modal_determinant_n0` evaluated at r=b
+# (same Lame-form coefficients, different Bessel argument).
+
+
+def _layered_n0_row7_at_b(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+) -> np.ndarray:
+    r"""
+    Row 7 of the n=0 layered modal determinant evaluated at the
+    annulus-formation interface ``r = b = a + layer.thickness``.
+
+    Encodes the axial-shear continuity BC
+    ``sigma_rz^{(m)}(b) - sigma_rz^{(s)}(b) = 0`` in the cos
+    sector. Final row of the 7x7 layered determinant.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    vp, vs, rho : float
+        Formation half-space P / S velocities and density. All
+        used (mu = rho * vs^2; k_S = omega / vs; p, s set the
+        Bessel arguments on columns 5, 6).
+    vf, rho_f : float
+        Fluid velocity / density. Not used (fluid doesn't reach
+        r = b and carries no shear); carried for signature
+        uniformity.
+    a : float
+        Fluid-annulus interface radius (m); ``b = a + layer.thickness``.
+    layer : BoreholeLayer
+        The annular layer; sets ``mu_m``, ``k_Sm``, ``p_m``, ``s_m``.
+
+    Returns
+    -------
+    ndarray, shape (7,) complex
+        Coefficients of (A, B_I, B_K, C_I, C_K, B, C) in row 7.
+        Real-valued in the bound regime.
+
+    See Also
+    --------
+    _layered_n0_row3_at_a : Row 3 (sigma_rz = 0 at r=a). Same
+        ``z``-derivative-bearing imaginary-power pattern; row 7 is
+        the continuity counterpart at the second interface.
+    _layered_n0_row5_at_b : Row 5 (u_z continuity at r=b). Shares
+        the ``B-imag, C-real`` pre-rescale pattern.
+    """
+    del rho_f  # not used by row 7; kept for signature uniformity
+    F_f, p_m, s_m, p, s = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=vp, vs=vs, vf=vf, layer=layer,
+    )
+    del F_f  # row 7 doesn't touch the fluid column
+    b = a + layer.thickness
+    I1_pm_b = float(special.iv(1, p_m * b))
+    K1_pm_b = float(special.kv(1, p_m * b))
+    I1_sm_b = float(special.iv(1, s_m * b))
+    K1_sm_b = float(special.kv(1, s_m * b))
+    K1_p_b = float(special.kv(1, p * b))
+    K1_s_b = float(special.kv(1, s * b))
+
+    mu_m = layer.rho * layer.vs * layer.vs
+    kSm2 = (omega / layer.vs) ** 2
+    two_kz2_minus_kSm2 = 2.0 * kz * kz - kSm2
+
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    row = np.zeros(7, dtype=complex)
+    # A column: fluid carries no shear and doesn't reach r = b.
+    row[0] = 0.0
+    # B_I column (post-rescale; row*i flips +i*R to -R).
+    row[1] = -2.0 * kz * mu_m * p_m * I1_pm_b
+    # B_K column (post-rescale; row*i flips -i*R to +R).
+    row[2] = +2.0 * kz * mu_m * p_m * K1_pm_b
+    # C_I column (post-rescale; row*i AND col*-i, net factor 1).
+    row[3] = +mu_m * two_kz2_minus_kSm2 * I1_sm_b
+    # C_K column (post-rescale; same as C_I).
+    row[4] = +mu_m * two_kz2_minus_kSm2 * K1_sm_b
+    # B column (formation; subtracted, opposite sign of B_K at
+    # layer=formation; K-flavour cancellation automatic).
+    row[5] = -2.0 * kz * mu * p * K1_p_b
+    # C column (post-rescale; subtracted, opposite sign of C_K at
+    # layer=formation).
+    row[6] = -mu * two_kz2_minus_kS2 * K1_s_b
+    return row
+
+
 def stoneley_dispersion_layered(
     freq: np.ndarray,
     *,
