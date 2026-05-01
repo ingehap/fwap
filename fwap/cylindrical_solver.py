@@ -9195,6 +9195,137 @@ def _layered_n1_row10_at_b(
 
 
 # =====================================================================
+# Plan item G.b.1 -- mode-amplitude-to-state-vector matrix E(r)
+# =====================================================================
+#
+# 4x4 matrix mapping a uniform layer's wave amplitudes
+# ``c = (B_I, B_K, C_I, C_K)`` to the four-component state vector
+# ``v(r) = (u_r, u_z, sigma_rr, sigma_rz)`` at radius r. Direct
+# transcription of substep G.a.2 with the substep-F.1.a.5 phase
+# rescale (row * i for u_z and sigma_rz; col * -i for the C
+# columns) absorbed so every entry is real-valued in the bound
+# regime.
+#
+# The 16 entries below are the post-rescale forms; per-element
+# oracles in G.b.1 tests verify them against the layer-amplitude
+# columns of the existing F.1.b row builders.
+
+
+def _layer_e_matrix_n0(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    r: float,
+) -> np.ndarray:
+    r"""
+    4x4 mode-amplitude-to-state-vector matrix ``E(r)`` for a
+    uniform isotropic-elastic layer at azimuthal order n=0.
+
+    Maps the four wave amplitudes
+    ``c = (B_I, B_K, C_I, C_K)`` to the state vector
+    ``v(r) = (u_r, u_z, sigma_rr, sigma_rz)`` via ``v(r) = E(r) c``,
+    with the substep-F.1.a.5 phase rescale (row * i for
+    z-derivative-bearing rows; col * -i for the SV columns)
+    absorbed so every entry is real-valued in the bound regime.
+
+    The four columns correspond to the I- and K-flavours of the
+    P scalar potential ``phi = B_I I_0(p r) + B_K K_0(p r)`` and
+    the SV vector potential ``psi_theta = C_I I_1(s r) + C_K
+    K_1(s r)``; the four rows correspond to the four state-vector
+    components whose continuity is enforced at every radial
+    interface (substep G.a.1).
+
+    Parameters
+    ----------
+    kz, omega : float
+        Trial axial wavenumber (rad / m) and angular frequency
+        (rad / s).
+    vp, vs, rho : float
+        Layer P / S velocity (m/s) and density (kg/m^3). Must
+        satisfy ``vp > vs > 0`` and ``rho > 0``.
+    r : float
+        Radius at which to evaluate ``E(r)`` (m). Must be
+        positive.
+
+    Returns
+    -------
+    ndarray, shape (4, 4)
+        ``E(r)`` post-rescale. Real-valued in the bound regime;
+        ``NaN``-filled outside the bound regime (``kz`` below the
+        layer's bound floor ``omega / V_S``).
+
+    Notes
+    -----
+    Per-element oracles vs F.1.b in :mod:`tests.test_cylindrical_solver`:
+
+    * Row 0 (``u_r``): cols match
+      ``-_layered_n0_row1_at_a[1:5]`` (negation from the BC's
+      ``f - m`` subtraction).
+    * Row 1 (``u_z``): cols match the layer side of
+      ``_layered_n0_row5_at_b`` evaluated at ``r=b`` (positive
+      sign; row 5 BC is ``m - s``).
+    * Row 2 (``sigma_rr``): cols match
+      ``-_layered_n0_row2_at_a[1:5]`` (negation; row 2 BC is
+      ``-(sigma_rr_m + P_f) = 0``).
+    * Row 3 (``sigma_rz``): cols match
+      ``_layered_n0_row3_at_a[1:5]`` (positive sign; row 3 BC is
+      ``sigma_rz_m = 0``, no subtraction).
+
+    See Also
+    --------
+    _layer_propagator_n0 : G.b.2 follow-up using
+        ``E(r_outer) E(r_inner)^{-1}`` to map the state vector
+        across a layer.
+    """
+    p2 = kz * kz - (omega / vp) ** 2
+    s2 = kz * kz - (omega / vs) ** 2
+    if p2 <= 0.0 or s2 <= 0.0 or r <= 0.0:
+        return np.full((4, 4), np.nan)
+    p = float(np.sqrt(p2))
+    s = float(np.sqrt(s2))
+    pr = p * r
+    sr = s * r
+    I0_p, I1_p = _i0_i1(pr)
+    K0_p, K1_p = _k0_k1(pr)
+    I0_s, I1_s = _i0_i1(sr)
+    K0_s, K1_s = _k0_k1(sr)
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    E = np.zeros((4, 4))
+    # Row 0: u_r = d_r phi - i k_z psi_theta. Post-rescale (col-by-(-i)
+    # on the C columns kills the explicit -i k_z).
+    E[0, 0] = +p * I1_p
+    E[0, 1] = -p * K1_p
+    E[0, 2] = -kz * I1_s
+    E[0, 3] = -kz * K1_s
+    # Row 1: u_z = i k_z phi + (1/r) d_r(r psi_theta).
+    # Post-rescale: row*i flips +i*R to -R on B cols; row*i AND col*-i
+    # leaves +R unchanged on C cols.
+    E[1, 0] = -kz * I0_p
+    E[1, 1] = -kz * K0_p
+    E[1, 2] = +s * I0_s
+    E[1, 3] = -s * K0_s
+    # Row 2: sigma_rr = lambda div u + 2 mu d_r u_r. Post-rescale: no
+    # row scaling (sigma_rr is no-z-derivative). col*-i on C cols.
+    E[2, 0] = +mu * (two_kz2_minus_kS2 * I0_p - 2.0 * p * I1_p / r)
+    E[2, 1] = +mu * (two_kz2_minus_kS2 * K0_p + 2.0 * p * K1_p / r)
+    E[2, 2] = -2.0 * mu * kz * (s * I0_s - I1_s / r)
+    E[2, 3] = +2.0 * mu * kz * (s * K0_s + K1_s / r)
+    # Row 3: sigma_rz = mu (d_z u_r + d_r u_z). Post-rescale: row*i
+    # flips +/- i*R on B cols, leaves +R on C cols (row*i AND col*-i).
+    E[3, 0] = -2.0 * mu * kz * p * I1_p
+    E[3, 1] = +2.0 * mu * kz * p * K1_p
+    E[3, 2] = +mu * two_kz2_minus_kS2 * I1_s
+    E[3, 3] = +mu * two_kz2_minus_kS2 * K1_s
+    return E
+
+
+# =====================================================================
 # Plan item H.0 -- public-API foundation for VTI formation
 # =====================================================================
 #

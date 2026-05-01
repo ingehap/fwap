@@ -18,6 +18,7 @@ from fwap.cylindrical import (
 from fwap.cylindrical_solver import (
     BoreholeLayer,
     BoreholeMode,
+    _layer_e_matrix_n0,
     _validate_borehole_layers_stacked,
     _layered_n0_bessel_pack,
     _layered_n0_radial_wavenumbers,
@@ -7473,3 +7474,152 @@ def test_stoneley_dispersion_layered_zero_and_one_layer_paths_unchanged():
     assert np.isfinite(res_one.slowness[0])
     assert isinstance(res_one, BoreholeMode)
     assert res_one.azimuthal_order == 0
+
+
+# =====================================================================
+# Plan item G.b.1 -- mode-amplitude-to-state-vector matrix E(r)
+# =====================================================================
+#
+# Per-element oracle: at r=a, the layer-amplitude columns of
+# F.1.b row 1 / 2 / 3 (with explicit sign factors per the BC's
+# subtraction convention) match rows 0, 2, 3 of E(a). At r=b,
+# F.1.b row 5 layer cols match row 1 (u_z) of E(b). Together
+# these cover all four rows of E.
+
+
+def _typical_g_b1_layer_params():
+    """Representative non-isotropic-collapse layer + (kz, omega)
+    fixture for G.b.1 / G.b.2 tests. Sits in the slow-formation
+    bound regime so the propagator-matrix path is well-defined."""
+    return dict(
+        vp=3500.0, vs=1800.0, rho=2100.0,
+        kz=2.0 * np.pi * 5000.0 / 1500.0,  # bound: kz > omega/V_S
+        omega=2.0 * np.pi * 5000.0,
+    )
+
+
+def test_layer_e_matrix_n0_row0_matches_F1_row1_at_a_layer_cols():
+    """Row 0 of E(a) (u_r) matches the layer-amplitude columns
+    (1..5) of ``_layered_n0_row1_at_a`` with a sign flip: F.1's
+    BC1 is ``u_r^(f) - u_r^(m) = 0``, so the layer side is
+    negated in the row builder. This is the cleanest per-element
+    oracle for the u_r row of E(r)."""
+    p = _typical_g_b1_layer_params()
+    layer = BoreholeLayer(vp=p["vp"], vs=p["vs"], rho=p["rho"], thickness=0.005)
+    a = 0.1
+    # E(a) for the layer.
+    E = _layer_e_matrix_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=a,
+    )
+    # F.1.b row 1: signature uses (vp, vs, rho) for the formation
+    # half-space; the layer is passed via ``layer``. Row 1 doesn't
+    # touch the formation parameters except for signature uniformity.
+    row1 = _layered_n0_row1_at_a(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    # Layer cols 1..5 of row 1 = -E[0, :] (negation from f - m).
+    np.testing.assert_allclose(
+        row1[1:5].real, -E[0, :], rtol=1.0e-12,
+    )
+
+
+def test_layer_e_matrix_n0_row2_matches_F1_row2_at_a_layer_cols():
+    """Row 2 of E(a) (sigma_rr) matches the layer cols of
+    ``_layered_n0_row2_at_a`` with a sign flip: BC2 is
+    ``-(sigma_rr^(m) + P^(f)) = 0``, layer side negated."""
+    p = _typical_g_b1_layer_params()
+    layer = BoreholeLayer(vp=p["vp"], vs=p["vs"], rho=p["rho"], thickness=0.005)
+    a = 0.1
+    E = _layer_e_matrix_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=a,
+    )
+    row2 = _layered_n0_row2_at_a(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    np.testing.assert_allclose(
+        row2[1:5].real, -E[2, :], rtol=1.0e-12,
+    )
+
+
+def test_layer_e_matrix_n0_row3_matches_F1_row3_at_a_layer_cols():
+    """Row 3 of E(a) (sigma_rz) matches the layer cols of
+    ``_layered_n0_row3_at_a`` with NO sign flip: BC3 is
+    ``sigma_rz^(m) = 0`` (no subtraction with the fluid)."""
+    p = _typical_g_b1_layer_params()
+    layer = BoreholeLayer(vp=p["vp"], vs=p["vs"], rho=p["rho"], thickness=0.005)
+    a = 0.1
+    E = _layer_e_matrix_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=a,
+    )
+    row3 = _layered_n0_row3_at_a(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    np.testing.assert_allclose(
+        row3[1:5].real, E[3, :], rtol=1.0e-12,
+    )
+
+
+def test_layer_e_matrix_n0_row1_uz_matches_F1_row5_at_b_layer_cols():
+    """Row 1 of E(b) (u_z) matches the layer cols of
+    ``_layered_n0_row5_at_b`` with NO sign flip: BC5 is
+    ``u_z^(m)(b) - u_z^(s)(b) = 0`` and the layer cols carry the
+    layer's direct contribution (the formation cols carry the
+    subtracted contribution). Validates the u_z row of E,
+    which has no analog at r=a (the fluid doesn't impose u_z
+    continuity at the borehole wall)."""
+    p = _typical_g_b1_layer_params()
+    layer = BoreholeLayer(vp=p["vp"], vs=p["vs"], rho=p["rho"], thickness=0.005)
+    a = 0.1
+    b = a + layer.thickness
+    E = _layer_e_matrix_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=b,
+    )
+    row5 = _layered_n0_row5_at_b(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    np.testing.assert_allclose(
+        row5[1:5].real, E[1, :], rtol=1.0e-12,
+    )
+
+
+def test_layer_e_matrix_n0_returns_nan_below_bound_floor():
+    """Below the layer's bound floor (``kz < omega / V_S``), at
+    least one of ``p^2``, ``s^2`` becomes negative -- the Bessel
+    arguments would be imaginary. The helper returns NaN-filled
+    so downstream propagator / determinant evaluations propagate
+    NaN cleanly (brentq-safe convention, mirrors
+    ``_modal_determinant_n0`` and friends)."""
+    omega = 2.0 * np.pi * 5000.0
+    vp, vs, rho = 3500.0, 1800.0, 2100.0
+    # kz well below omega/V_S.
+    kz = omega / vs * 0.5
+    with np.errstate(invalid="ignore"):
+        E = _layer_e_matrix_n0(
+            kz=kz, omega=omega, vp=vp, vs=vs, rho=rho, r=0.1,
+        )
+    assert np.all(np.isnan(E))
+
+
+def test_layer_e_matrix_n0_determinant_nonzero_in_bound_regime():
+    """The G.b.2 propagator path requires inverting E(r). Confirm
+    that ``det(E(r))`` is well above floating-point noise for a
+    representative bound-regime ``(kz, omega, layer)``. The
+    quantitative budget is loose -- the absolute scale of
+    ``det(E)`` depends on the Bessel-pack magnitudes, which can
+    be very large or very small; we just want to rule out the
+    near-singular case that would defeat the inverse."""
+    p = _typical_g_b1_layer_params()
+    a = 0.1
+    E = _layer_e_matrix_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=a,
+    )
+    det = float(np.linalg.det(E))
+    # Just a finite, non-zero determinant. The propagator
+    # round-trip oracle in G.b.2 will catch any conditioning
+    # issue more sharply.
+    assert np.isfinite(det)
+    assert abs(det) > 0.0
