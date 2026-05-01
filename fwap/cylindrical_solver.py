@@ -214,6 +214,45 @@ def _validate_borehole_layers_stacked(
         raise ValueError("a must be positive")
 
 
+def _validate_flexural_layers_stacked(
+    layers: tuple[BoreholeLayer, ...],
+    a: float,
+    vs: float,
+) -> None:
+    """
+    Validate a stacked borehole-layer geometry for the flexural
+    multi-layer (cased-hole) dispersion API.
+
+    Adds the per-layer slow-formation constraint
+    ``layer.vs >= vs`` (every layer must be at least as fast in
+    shear as the formation half-space) on top of the geometry
+    checks in :func:`_validate_borehole_layers_stacked`. The
+    constraint is required for the n=1 dipole flexural mode to
+    remain bound in every annulus of the stack -- a softer
+    layer (``layer.vs < vs``) would let the SV-polarised
+    radiation leak into the annulus and the propagator-chain
+    bound-regime gate would fail.
+
+    Mirrors the slow-formation constraint that the existing F.2
+    single-layer ``flexural_dispersion_layered`` path
+    documents but does not enforce programmatically; G' makes
+    it a hard rejection at validation time.
+
+    Raises ``ValueError`` on the same conditions as
+    :func:`_validate_borehole_layers_stacked`, plus when any
+    ``layers[i].vs < vs``.
+    """
+    _validate_borehole_layers_stacked(layers, a)
+    for i, layer in enumerate(layers):
+        if layer.vs < vs:
+            raise ValueError(
+                f"layers[{i}]: layer.vs ({layer.vs}) < formation vs "
+                f"({vs}); the flexural cased-hole path requires "
+                "every layer to be at least as fast in shear as the "
+                "formation (slow-formation regime; see plan G'.0)."
+            )
+
+
 @dataclass
 class BoreholeMode:
     """
@@ -6878,11 +6917,12 @@ def flexural_dispersion_layered(
     if len(layers_tuple) > 1:
         raise NotImplementedError(
             "flexural_dispersion_layered with multi-layer stacks "
-            "(N >= 2) is a deferred follow-up to plan G (cased-hole "
-            "n=0 Stoneley) tracked as plan G' in "
-            "docs/plans/cylindrical_biot_G.md. The 6x6 per-layer "
-            "propagator block is sketched in G.f. Single-layer and "
-            "unlayered are supported."
+            "(N >= 2) is scheduled in plan items G'.c (stacked "
+            "modal determinant via the 6x6 Thomson-Haskell "
+            "propagator matrix) and G'.d (public-API hook + "
+            "multi-layer regression); see "
+            "docs/plans/cylindrical_biot_G_prime.md. Single-layer "
+            "and unlayered are supported."
         )
     if vp <= 0 or vs <= 0 or rho <= 0:
         raise ValueError("vp, vs, rho must all be positive")

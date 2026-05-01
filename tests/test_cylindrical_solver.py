@@ -22,6 +22,7 @@ from fwap.cylindrical_solver import (
     _layer_propagator_n0,
     _modal_determinant_n0_cased,
     _validate_borehole_layers_stacked,
+    _validate_flexural_layers_stacked,
     _layered_n0_bessel_pack,
     _layered_n0_radial_wavenumbers,
     _layered_n0_row1_at_a,
@@ -3492,14 +3493,13 @@ def test_flexural_dispersion_layered_fast_formation_layered_raises_not_implement
 
 def test_flexural_dispersion_layered_multilayer_raises_not_implemented():
     """Multi-layer stacks (``len(layers) > 1``) currently raise
-    ``NotImplementedError``; the n=1 cased-hole counterpart is
-    deferred to plan G' (follow-up to plan G), which extends the
-    G.b/G.c propagator scaffolding to 6x6 per-layer blocks.
-    Single-layer and unlayered are supported by F.2.d."""
+    ``NotImplementedError`` until plan items G'.c (stacked modal
+    determinant) and G'.d (public-API hook) land. Single-layer
+    and unlayered are supported by F.2.d."""
     f = np.array([2000.0, 4000.0])
-    layer1 = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
-    layer2 = BoreholeLayer(vp=3000.0, vs=1500.0, rho=1900.0, thickness=0.005)
-    with pytest.raises(NotImplementedError, match=r"plan G'"):
+    layer1 = BoreholeLayer(vp=3500.0, vs=2600.0, rho=2100.0, thickness=0.005)
+    layer2 = BoreholeLayer(vp=3000.0, vs=2550.0, rho=1900.0, thickness=0.005)
+    with pytest.raises(NotImplementedError, match=r"G'\.c"):
         flexural_dispersion_layered(
             f,
             vp=4500.0, vs=2500.0, rho=2400.0,
@@ -7395,10 +7395,11 @@ def test_validate_borehole_layers_stacked_rejects_non_positive_a():
         _validate_borehole_layers_stacked((casing, cement), a=-0.1)
 
 
-def test_flexural_dispersion_layered_two_layer_NIE_points_at_G_prime():
-    """Mirror at n=1: the multi-layer NIE message identifies the
-    deferred G' follow-up (cased-hole flexural with 6x6 propagator
-    blocks) rather than just naming "plan G"."""
+def test_flexural_dispersion_layered_two_layer_NIE_points_at_G_prime_c_d():
+    """Sharpened mirror at n=1: the multi-layer NIE message
+    identifies the specific G' sub-units (G'.c stacked modal
+    determinant, G'.d public-API hook) rather than just naming
+    "plan G'". G'.0 wording update."""
     f = np.array([5000.0])
     casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
     cement = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05)
@@ -7409,8 +7410,9 @@ def test_flexural_dispersion_layered_two_layer_NIE_points_at_G_prime():
             layers=(casing, cement),
         )
     msg = str(exc_info.value)
-    assert "G'" in msg
-    assert "cylindrical_biot_G.md" in msg
+    assert "G'.c" in msg
+    assert "G'.d" in msg
+    assert "cylindrical_biot_G_prime.md" in msg
 
 
 def test_stoneley_dispersion_layered_zero_and_one_layer_paths_unchanged():
@@ -8177,3 +8179,103 @@ def test_stoneley_dispersion_layered_stiffer_cement_speeds_up_stoneley():
     # Quantitative: at least 0.1% speedup.
     rel_speedup = (res_soft.slowness[0] - res_stiff.slowness[0]) / res_soft.slowness[0]
     assert rel_speedup > 0.001
+
+
+# =====================================================================
+# Plan item G'.0 -- public-API foundation for cased-hole flexural
+# =====================================================================
+#
+# G'.0 sharpens the multi-layer NIE in flexural_dispersion_layered
+# (verified by the test_flexural_dispersion_layered_two_layer_NIE_points_at_G_prime_c_d
+# and ..._multilayer_raises_not_implemented tests above, with their
+# match strings updated), and adds the per-layer slow-formation
+# validator _validate_flexural_layers_stacked. The propagator-
+# matrix path itself lands in G'.b / G'.c / G'.d.
+
+
+def test_validate_flexural_layers_stacked_accepts_typical_harder_layer_stack():
+    """A typical multi-layer stack with all layers harder than
+    the formation (``layer.vs >= vs``) passes validation. Mirrors
+    the slow-formation regime constraint that the F.2 single-layer
+    path documents but does not enforce programmatically."""
+    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
+    cement = BoreholeLayer(vp=2900.0, vs=2700.0, rho=1900.0, thickness=0.05)
+    # Formation V_S = 2500; both layers harder.
+    _validate_flexural_layers_stacked(
+        (casing, cement), a=0.1, vs=2500.0,
+    )
+
+
+def test_validate_flexural_layers_stacked_rejects_softer_layer():
+    """A stack with one layer slower than the formation in shear
+    is rejected with a clear error identifying the offending
+    index. Catches a soft-cement-bond-like configuration that
+    would otherwise drive the propagator path into the unbound
+    regime."""
+    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
+    cement_soft = BoreholeLayer(
+        vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05,
+    )
+    # Formation V_S = 2500; cement V_S = 1300 < 2500 -> reject.
+    with pytest.raises(ValueError, match=r"layers\[1\].*layer\.vs"):
+        _validate_flexural_layers_stacked(
+            (casing, cement_soft), a=0.1, vs=2500.0,
+        )
+
+
+def test_validate_flexural_layers_stacked_rejects_softer_inner_layer():
+    """Inner layer (index 0) softer than the formation is also
+    rejected, with the index identified in the error."""
+    casing_soft = BoreholeLayer(
+        vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.01,
+    )
+    cement = BoreholeLayer(vp=2900.0, vs=2700.0, rho=1900.0, thickness=0.05)
+    with pytest.raises(ValueError, match=r"layers\[0\].*layer\.vs"):
+        _validate_flexural_layers_stacked(
+            (casing_soft, cement), a=0.1, vs=2500.0,
+        )
+
+
+def test_validate_flexural_layers_stacked_inherits_geometry_checks():
+    """The flexural validator chains to
+    ``_validate_borehole_layers_stacked`` for geometry checks
+    (zero-thickness, non-positive ``a``, etc.). Pin one
+    geometry rejection here so the chain is explicit."""
+    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
+    cement = BoreholeLayer(vp=2900.0, vs=2700.0, rho=1900.0, thickness=0.05)
+    with pytest.raises(ValueError, match="a must be positive"):
+        _validate_flexural_layers_stacked(
+            (casing, cement), a=0.0, vs=2500.0,
+        )
+
+
+def test_flexural_dispersion_layered_zero_and_one_layer_paths_unchanged_after_G_prime_0():
+    """Regression: the two existing F.2 dispatch paths
+    (``len(layers) == 0`` and ``len(layers) == 1``) remain
+    functional after the G'.0 NIE message edit. Smoke only;
+    bit-equivalent regressions are covered elsewhere. Uses the
+    slow-formation fixture (V_S < V_f) since the F.2 single-
+    layer path requires it."""
+    f = np.array([5000.0])
+
+    # Empty-layer path: dispatches to flexural_dispersion.
+    res_empty = flexural_dispersion_layered(
+        f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
+        vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A, layers=(),
+    )
+    res_unlayered = flexural_dispersion(
+        f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
+        vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A,
+    )
+    np.testing.assert_array_equal(res_empty.slowness, res_unlayered.slowness)
+    assert res_empty.azimuthal_order == 1
+
+    # Single-layer F.2 hand-coded path. Layer harder than the
+    # slow formation (vs > SLOW_VS = 800).
+    layer = BoreholeLayer(vp=2500.0, vs=1100.0, rho=2100.0, thickness=0.005)
+    res_one = flexural_dispersion_layered(
+        f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
+        vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A, layers=(layer,),
+    )
+    assert isinstance(res_one, BoreholeMode)
+    assert res_one.azimuthal_order == 1
