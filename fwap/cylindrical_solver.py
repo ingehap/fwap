@@ -9150,20 +9150,32 @@ def flexural_dispersion_vti(
 # d_theta operations -- but the radial-wavenumber equation is the
 # same Christoffel-determinant condition in all cases.
 #
-# The Christoffel matrix in the (r, z) plane for a plane wave with
-# radial wavenumber alpha and axial wavenumber k_z, evaluated in a
-# VTI half-space:
+# Convention: ``alpha`` is the radial DECAY RATE used by modified
+# Bessel ``K_n(alpha r)`` for bound-mode (decaying-outward) field
+# representation, matching the isotropic ``p`` and ``s`` definitions
+# above. In propagating-plane-wave form, the horizontal wavenumber
+# is ``k_h = i alpha`` (purely imaginary).
 #
-#       | C11 alpha^2 + C44 k_z^2 - rho omega^2     (C13+C44) alpha k_z |
-#       |                                                                |
-#       | (C13+C44) alpha k_z                       C44 alpha^2 + C33 k_z^2 - rho omega^2 |
+# The Christoffel matrix in the (r, z) plane for a bound-mode plane
+# wave with horizontal-wavenumber substitution ``k_h -> i alpha``
+# (alpha real positive in the bound regime) and axial wavenumber
+# ``k_z``, evaluated in a VTI half-space:
+#
+#       | -C11 alpha^2 + C44 k_z^2 - rho omega^2    i (C13+C44) alpha k_z |
+#       |                                                                  |
+#       | i (C13+C44) alpha k_z                     -C44 alpha^2 + C33 k_z^2 - rho omega^2 |
 #
 # The qP / qSV dispersion follows from the secular equation
 # ``det(Christoffel) = 0``:
 #
-#       (C11 alpha^2 + C44 k_z^2 - rho omega^2) *
-#       (C44 alpha^2 + C33 k_z^2 - rho omega^2)
-#       - (C13 + C44)^2 alpha^2 k_z^2 = 0.
+#       (-C11 alpha^2 + C44 k_z^2 - rho omega^2) *
+#       (-C44 alpha^2 + C33 k_z^2 - rho omega^2)
+#       + (C13 + C44)^2 alpha^2 k_z^2 = 0.
+#
+# Note the SIGN on the off-diagonal contribution: ``(i alpha k_z)^2
+# = - alpha^2 k_z^2``, so the off-diagonal term enters with a
+# *positive* sign in the bound-mode convention (vs the negative sign
+# under the propagating-k_h convention).
 #
 # Expand and collect on alpha^2:
 #
@@ -9172,13 +9184,13 @@ def flexural_dispersion_vti(
 # with
 #
 #       A_eff = C11 * C44
-#       B_eff = [(C11 C33 + C44^2) - (C13 + C44)^2] k_z^2
-#               - (C11 + C44) rho omega^2
+#       B_eff = (C11 + C44) rho omega^2
+#               - [(C11 C33 + C44^2) - (C13 + C44)^2] k_z^2
 #       C_eff = C44 C33 k_z^4 - (C44 + C33) rho omega^2 k_z^2
 #               + (rho omega^2)^2
 #
 # The two roots alpha_qP^2 and alpha_qSV^2 are the squared radial
-# wavenumbers for the quasi-P and quasi-SV branches. In the bound
+# decay rates for the quasi-P and quasi-SV branches. In the bound
 # regime both roots are real positive.
 #
 # Discriminant and explicit roots:
@@ -9186,20 +9198,23 @@ def flexural_dispersion_vti(
 #       Delta = B_eff^2 - 4 A_eff C_eff
 #       alpha_{qP, qSV}^2 = (-B_eff +/- sqrt(Delta)) / (2 A_eff)
 #
-# Both A_eff > 0 and (under Thomsen-stable inputs) Delta >= 0; the
-# two roots are positive in the bound regime by the H.a.1 gate.
+# Both A_eff > 0 and (under Thomsen-stable inputs) Delta >= 0.
+# Vieta's formulas: alpha_qP^2 + alpha_qSV^2 = -B_eff / A_eff and
+# alpha_qP^2 * alpha_qSV^2 = C_eff / A_eff. In the bound regime both
+# (-B_eff / A_eff) and (C_eff / A_eff) are positive (by direct
+# calculation under the H.a.1 gate), so both roots are real positive.
 #
 # Isotropic-collapse identity (substep H.a.7 self-check):
 # with C11 = C33 = lambda + 2 mu, C44 = mu, C13 = lambda,
 #
 #       (C13 + C44)^2 = (lambda + mu)^2
 #       C11 C33 + C44^2 = (lambda + 2 mu)^2 + mu^2
-#       Difference = 2 mu (lambda + 2 mu) = 2 (lambda + 2 mu) mu
+#       (C11 C33 + C44^2) - (C13 + C44)^2 = 2 mu (lambda + 2 mu)
 #
-#       A_eff = (lambda + 2 mu) mu
-#       B_eff = 2 mu (lambda + 2 mu) k_z^2 - (lambda + 3 mu) rho omega^2
-#       C_eff factorises as
-#               (lambda + 2 mu) mu k_z^4 - ... = ...
+#       A_eff = mu (lambda + 2 mu)
+#       B_eff = (lambda + 3 mu) rho omega^2 - 2 mu (lambda + 2 mu) k_z^2
+#       C_eff = mu (lambda + 2 mu) k_z^4
+#               - (lambda + 3 mu) rho omega^2 k_z^2 + (rho omega^2)^2
 #
 # After the algebra (verifiable via Vieta's formulas) the two roots
 # reduce to
@@ -9207,8 +9222,12 @@ def flexural_dispersion_vti(
 #       alpha_qP^2  -> p^2 = k_z^2 - omega^2 / V_P^2
 #       alpha_qSV^2 -> s^2 = k_z^2 - omega^2 / V_S^2
 #
-# matching the isotropic radial-wavenumber definitions exactly. This
-# identity is the floating-point oracle for the H.b unit tests.
+# matching the isotropic radial-wavenumber definitions exactly.
+# Sum check: -B_eff / A_eff = 2 k_z^2 - omega^2 / V_P^2 - omega^2 /
+# V_S^2 = p^2 + s^2. Product check: C_eff / A_eff = (k_z^2 -
+# omega^2 / V_P^2)(k_z^2 - omega^2 / V_S^2) = p^2 s^2. Both Vieta
+# identities hold to floating-point. This is the oracle for H.b's
+# unit tests.
 #
 # References: Schmitt 1989 eqs. 17-18; Ellefsen, Cheng, Toksoz 1991
 # eq. 7; Tsvankin 2001 sect. 1.4.
@@ -9288,9 +9307,29 @@ def flexural_dispersion_vti(
 # At n=1, the SH amplitude D appears via:
 #       u_theta^{(SH)} contributes through the standard
 #       ``(curl psi_z)_r = (1/r) d_theta psi_z`` mechanism.
-#       alpha_SH^2 = k_z^2 - rho omega^2 / C66
-#       (simple "isotropic-in-C66" form -- no Christoffel coupling
-#        because SH decouples from qP/qSV at the symmetry axis).
+#
+#       SH dispersion in VTI (decoupled from qP / qSV at the
+#       symmetry axis): the equation of motion is
+#           rho omega^2 u_theta = C44 d_z^2 u_theta
+#                                 + C66 nabla_h^2 u_theta,
+#       which under the bound-mode substitution k_h -> i alpha_SH
+#       (decay-rate convention; matches the isotropic ``s`` form)
+#       yields
+#
+#           alpha_SH^2 = (C44 k_z^2 - rho omega^2) / C66.
+#
+#       Both C44 (vertical-shear coupling) and C66 (horizontal-
+#       shear coupling) appear -- the decay rate depends on the
+#       full SH stiffness pair, not on C66 alone. An earlier draft
+#       of this substep wrote ``alpha_SH^2 = k_z^2 - rho omega^2 /
+#       C66``, which collapses correctly at the isotropic limit
+#       (C44 = C66 = mu) but is wrong in genuine TI. The H.b unit
+#       tests catch this via the Christoffel-equation-identity
+#       check substituted back at the qP / qSV roots.
+#
+#       Isotropic-collapse identity: with C44 = C66 = mu,
+#           alpha_SH^2 -> (mu k_z^2 - rho omega^2) / mu
+#                      = k_z^2 - omega^2 / V_S^2 = s^2.
 
 # =====================================================================
 # Substep H.a.5 -- per-region stresses + C-matrix Lame replacement
