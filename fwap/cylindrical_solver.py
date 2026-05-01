@@ -8134,3 +8134,151 @@ def _layered_n1_row5_at_b(
     row[9] = -K1_s_b / b
     return row
 
+
+# =====================================================================
+# Substep F.2.b.5 -- row 7 of the n=1 layered determinant (r = b)
+# =====================================================================
+#
+# BC7: ``u_z^{(m)}(b) - u_z^{(s)}(b) = 0`` (cos-sector continuity
+# of axial displacement at the annulus-formation interface).
+# Z-derivative-bearing cos row; gets row * i + col-by-(-i) on C
+# cols per substep F.2.a.5. Distinctive sparsity at n=1: D
+# columns are identically zero because u_z does not couple to
+# psi_z under the curl decomposition (curl_z = (1/r) d_r(r
+# psi_theta), no psi_z contribution).
+#
+# Coefficients via substep F.2.a.2 u_z formulae:
+#
+#   u_z^{(m)}(r) = i k_z (B_I I_1(p_m r) + B_K K_1(p_m r)) cos(theta)
+#                  + C_I s_m I_0(s_m r) cos(theta)
+#                  - C_K s_m K_0(s_m r) cos(theta)
+#                  (from d_z phi^{(m)} + (1/r) d_r [r psi_theta^{(m)}];
+#                   D contributes nothing because curl_z drops psi_z)
+#
+#   u_z^{(s)}(r) = i k_z B K_1(p r) cos(theta) - C s K_0(s r) cos(theta)
+#
+# Pre-rescale (A 0 | B i*R | C R | D 0 per F.2.a.5):
+#
+#       Row 7 = [
+#           0,                                  # A (fluid r<a)
+#          +i k_z I_1(p_m b),                   # B_I
+#          +i k_z K_1(p_m b),                   # B_K
+#          +s_m I_0(s_m b),                     # C_I
+#          -s_m K_0(s_m b),                     # C_K
+#          -i k_z K_1(p b),                     # B (subtracted)
+#          +s K_0(s b),                         # C (subtracted)
+#           0, 0, 0,                            # D's (u_z has no D)
+#       ]
+#
+# Phase rescale (full z-bearing): row * i flips B i*R -> R and
+# C R -> i*R (then col-by-(-i) on C cols completes the rescale to
+# C R). Post-rescale row 7:
+#
+#       Row 7 = [
+#           0,
+#           -k_z I_1(p_m b),                    # B_I
+#           -k_z K_1(p_m b),                    # B_K
+#           +s_m I_0(s_m b),                    # C_I
+#           -s_m K_0(s_m b),                    # C_K
+#           +k_z K_1(p b),                      # B (subtracted)
+#           +s K_0(s b),                        # C (subtracted)
+#           0, 0, 0,                            # D's
+#       ]
+#
+# K-flavour cancellation pairs at layer=formation:
+#   row[2] (B_K) + row[5] (B) = -k_z K_1(p_m b) + k_z K_1(p b) = 0
+#   row[4] (C_K) + row[6] (C) = -s_m K_0(s_m b) + s K_0(s b) = 0
+#   row[8] (D_K) + row[9] (D) = 0 + 0 = 0 (trivially)
+#
+# Cross-row Bessel-index distinction: row 5 (u_r) uses degree-1
+# Bessel functions; row 7 (u_z) uses degree-1 on B and degree-0
+# on C/D. Same n=0 / n=1 distinction as F.1.b.3.b row 5 carries.
+
+
+def _layered_n1_row7_at_b(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+) -> np.ndarray:
+    r"""
+    Row 7 of the n=1 layered modal determinant evaluated at the
+    annulus-formation interface ``r = b = a + layer.thickness``.
+
+    Encodes the axial-displacement continuity BC
+    ``u_z^{(m)}(b) - u_z^{(s)}(b) = 0`` in the cos sector. Z-
+    derivative-bearing; gets the FULL F.2.a.5 rescale (row * i +
+    col-by-(-i) on C cols).
+
+    Distinctive feature: D columns (7, 8, 9) are identically zero
+    because u_z does not couple to psi_z under the curl
+    decomposition.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    vp, vs : float
+        Formation half-space P / S velocities (m/s); set the
+        formation radial wavenumbers ``p, s`` used by columns 5, 6.
+    rho : float
+        Formation density. Carried for signature uniformity;
+        not used (no stress terms).
+    vf, rho_f : float
+        Fluid velocity / density. Not used (fluid r<a doesn't reach r=b);
+        carried for signature uniformity.
+    a : float
+        Fluid-annulus interface radius (m); ``b = a + layer.thickness``.
+    layer : BoreholeLayer
+        The annular layer; sets ``p_m, s_m``.
+
+    Returns
+    -------
+    ndarray, shape (10,) complex
+        Coefficients of (A, B_I, B_K, C_I, C_K, B, C, D_I, D_K, D)
+        in row 7. Real-valued in the bound regime. D columns
+        identically zero.
+    """
+    del rho, rho_f  # not used by row 7; kept for signature uniformity
+    F_f, p_m, s_m, p, s = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=vp, vs=vs, vf=vf, layer=layer,
+    )
+    del F_f  # row 7 doesn't touch the fluid column
+    b = a + layer.thickness
+
+    I0_sm_b = float(special.iv(0, s_m * b))
+    I1_pm_b = float(special.iv(1, p_m * b))
+    K0_sm_b = float(special.kv(0, s_m * b))
+    K1_pm_b = float(special.kv(1, p_m * b))
+    K0_s_b = float(special.kv(0, s * b))
+    K1_p_b = float(special.kv(1, p * b))
+
+    row = np.zeros(10, dtype=complex)
+    # A column: fluid r<a; doesn't reach r=b.
+    row[0] = 0.0
+    # B_I column (post-rescale; row * i flips +i k_z I_1 to -k_z I_1).
+    row[1] = -kz * I1_pm_b
+    # B_K column (post-rescale).
+    row[2] = -kz * K1_pm_b
+    # C_I column (post-rescale; row * i AND col-by-(-i), net factor 1).
+    row[3] = +s_m * I0_sm_b
+    # C_K column (post-rescale; sign-flipped on the s K_0 term per F.1.a.2).
+    row[4] = -s_m * K0_sm_b
+    # B column (formation; subtracted, sign-flipped vs B_K via row * i on -i k_z K_1).
+    row[5] = +kz * K1_p_b
+    # C column (formation; subtracted, post-rescale).
+    row[6] = +s * K0_s_b
+    # D columns: u_z has no D contribution (curl_z drops psi_z).
+    row[7] = 0.0
+    row[8] = 0.0
+    row[9] = 0.0
+    return row
+
