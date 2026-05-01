@@ -5317,20 +5317,22 @@ def test_flexural_dispersion_vti_isotropic_collapse_bit_matches_unlayered():
     assert res_vti.azimuthal_order == 1
 
 
-def test_flexural_dispersion_vti_genuine_TI_raises_not_implemented():
-    """``flexural_dispersion_vti`` (n=1) still raises for genuinely
-    anisotropic stiffness tensors -- the n=1 modal determinant is
-    plan item H.d. ``stoneley_dispersion_vti`` (n=0) ships in
-    H.c.2 and now handles genuine TI; that test moved to the
-    integration tests below."""
+def test_flexural_dispersion_vti_fast_formation_genuine_TI_raises_not_implemented():
+    """``flexural_dispersion_vti`` for FAST-formation genuine-TI
+    (``V_Sv > V_f``) still raises ``NotImplementedError`` -- the
+    real-valued VTI modal determinant requires ``F_f^2 > 0``,
+    which fails for fast formations. The complex-determinant
+    follow-up is deferred (see plan H.d). Slow-formation genuine
+    TI ships in H.d.6 and is exercised in the integration tests
+    below."""
     vp, vs, rho = 4500.0, 2500.0, 2400.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
     f = np.array([5000.0])
     cij = _isotropic_stiffness_from_lame(vp, vs, rho)
-    # Thomsen-gamma: C44 != C66.
+    # Thomsen-gamma: C44 != C66. V_Sv = 2500 > V_f = 1500.
     cij_gam = dict(cij, c66=cij["c66"] * 1.10)
     assert cij_gam["c11"] > cij_gam["c66"]
-    with pytest.raises(NotImplementedError, match="H\\.d"):
+    with pytest.raises(NotImplementedError, match="fast-formation"):
         flexural_dispersion_vti(
             f, **cij_gam, rho=rho, vf=vf, rho_f=rho_f, a=a,
         )
@@ -7029,3 +7031,148 @@ def test_modal_determinant_n1_vti_returns_nan_outside_bound_regime():
             kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
         )
     assert np.isnan(det)
+
+
+# =====================================================================
+# Plan item H.d.6 -- flexural_dispersion_vti public-API hook
+# =====================================================================
+#
+# Replaces the H.0 ``NotImplementedError`` (now restricted to fast-
+# formation TI) with a brentq loop on ``_modal_determinant_n1_vti``
+# for slow-formation TI (V_Sv < V_f). Mirrors H.c.2 for n=0.
+
+
+def _typical_slow_vti_params():
+    """Slow-formation genuine-TI fixture for H.d.6 tests.
+
+    ``V_Sv = 1100 m/s < V_f = 1500 m/s`` so the real-valued VTI
+    modal determinant is well-defined (``F_f^2 > 0`` at every
+    flexural ``k_z``). Roughly Thomsen-style: epsilon ~ 0.1,
+    gamma ~ 0.1; ``c13`` chosen well within Thomsen-stability."""
+    return dict(
+        c11=1.27e10,  # V_Ph^2 * rho ~ (2400 m/s)^2 * 2200
+        c13=4.0e9,    # delta-coupled (c33 > c13 stability)
+        c33=1.06e10,  # V_Pv^2 * rho ~ (2200 m/s)^2 * 2200
+        c44=2.66e9,   # V_Sv^2 * rho ~ (1100 m/s)^2 * 2200  (Vsv < Vf)
+        c66=3.17e9,   # V_Sh^2 * rho ~ (1200 m/s)^2 * 2200  (gamma > 0)
+        rho=2200.0,
+    )
+
+
+def test_flexural_dispersion_vti_isotropic_via_genuine_TI_path_matches_isotropic():
+    """Floating-point oracle for the H.d chain. Force the
+    genuine-TI brentq path by passing a stiffness tensor that is
+    formally non-isotropic (``c13`` perturbed by 1 ULP) but
+    physically equivalent to isotropic, and verify the resulting
+    slowness curve matches the isotropic ``flexural_dispersion``
+    answer to ``rtol=1e-5``.
+
+    Slow-formation regime so the real-valued VTI determinant is
+    well-defined. More discriminating than the H.0 isotropic-
+    collapse test (which dispatches directly to
+    ``flexural_dispersion`` and cannot fail) because it exercises
+    the full ``_modal_determinant_n1_vti`` + brentq pipeline."""
+    vp, vs, rho = SLOW_VP, SLOW_VS, SLOW_RHO
+    vf, rho_f, a = SLOW_VF, SLOW_RHO_F, SLOW_A
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    # Force the genuine-TI path by tweaking c13 by 1 part in 1e-6.
+    cij_perturbed = dict(cij)
+    cij_perturbed["c13"] = cij["c13"] * (1.0 + 1.0e-6)
+    f = np.linspace(2000.0, 6000.0, 6)
+
+    res_iso = flexural_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    res_vti = flexural_dispersion_vti(
+        f, **cij_perturbed, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    np.testing.assert_allclose(
+        res_vti.slowness, res_iso.slowness,
+        rtol=1.0e-5, equal_nan=True,
+    )
+    # Confirm the perturbation actually defeated the isotropic
+    # dispatch (the test would pass trivially otherwise).
+    assert not _is_isotropic_stiffness(**{
+        k: cij_perturbed[k] for k in ("c11", "c13", "c33", "c44", "c66")
+    })
+
+
+def test_flexural_dispersion_vti_genuine_TI_runs_smoke():
+    """Smoke: a typical slow-formation genuine-TI fixture
+    produces a finite slowness curve above the geometric cutoff.
+
+    Cutoff for ``V_Sv ~ 1100`` and ``a = 0.1`` sits around
+    ``V_Sv / (2 pi a) ~ 1750 Hz``; tests sit safely above 3 kHz.
+    No analytic oracle here; just confirms the brentq + bracket
+    combination handles the TI case across a moderate band."""
+    cij = _typical_slow_vti_params()
+    rho = cij.pop("rho")
+    f = np.linspace(3000.0, 7000.0, 5)
+
+    res = flexural_dispersion_vti(
+        f, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert res.name == "flexural"
+    assert res.azimuthal_order == 1
+    assert res.slowness.shape == f.shape
+    assert np.all(np.isfinite(res.slowness))
+    # Slowness above the V_Sv floor (LF asymptote).
+    Vsv = float(np.sqrt(cij["c44"] / rho))
+    assert np.all(res.slowness > 1.0 / Vsv * (1.0 - 1.0e-3))
+
+
+def test_flexural_dispersion_vti_genuine_TI_determinant_vanishes_at_root():
+    """At each converged kz from ``flexural_dispersion_vti``, the
+    underlying VTI determinant must vanish (self-consistency).
+    Ratio against the off-root determinant value at kz_root *
+    1.01."""
+    cij = _typical_slow_vti_params()
+    rho = cij.pop("rho")
+    f = 5000.0
+    omega = 2.0 * np.pi * f
+
+    res = flexural_dispersion_vti(
+        np.array([f]), **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    kz_root = float(res.slowness[0]) * omega
+
+    det_at = _modal_determinant_n1_vti(
+        kz_root, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    det_off = _modal_determinant_n1_vti(
+        kz_root * 1.01, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert abs(det_at) < abs(det_off) * 1.0e-6
+
+
+def test_flexural_dispersion_vti_returns_borehole_mode_for_genuine_TI():
+    """BoreholeMode return-type contract on the slow-formation
+    genuine-TI path."""
+    cij = _typical_slow_vti_params()
+    rho = cij.pop("rho")
+    f = np.linspace(2000.0, 5000.0, 4)
+    res = flexural_dispersion_vti(
+        f, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert isinstance(res, BoreholeMode)
+    assert res.name == "flexural"
+    assert res.azimuthal_order == 1
+    np.testing.assert_array_equal(res.freq, f)
+
+
+def test_flexural_dispersion_vti_LF_approaches_V_Sv():
+    """Plan H.d sanity: at low frequency (just above the
+    geometric cutoff) the VTI flexural slowness should approach
+    ``1 / V_Sv`` (the Sinha-Norris-Chang LF asymptote for slow
+    TI). For the slow-TI fixture (V_Sv ~ 1100, a = 0.1) the
+    cutoff sits around 1750 Hz; this test runs at 3 kHz, well
+    above cutoff but low enough to be in the LF asymptotic
+    regime where slowness ~ 1/V_Sv to within a few percent."""
+    cij = _typical_slow_vti_params()
+    rho = cij.pop("rho")
+    Vsv = float(np.sqrt(cij["c44"] / rho))
+    res = flexural_dispersion_vti(
+        np.array([3000.0]), **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    # LF asymptote: slowness ~ 1/Vsv. Tolerance ~ 2% at f = 3 kHz.
+    assert res.slowness[0] == pytest.approx(1.0 / Vsv, rel=2.0e-2)

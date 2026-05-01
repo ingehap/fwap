@@ -9071,6 +9071,53 @@ def _stoneley_kz_bracket_vti(
     return kz_lo, kz_hi
 
 
+def _flexural_kz_bracket_vti(
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> tuple[float, float]:
+    """
+    Bracket the n=1 VTI flexural root in (k_z_lo, k_z_hi) for
+    the slow-formation regime.
+
+    The Sinha-Norris-Chang phenomenological model places the
+    flexural phase velocity in a band around ``V_Sv`` at low f,
+    descending to a TI-Rayleigh-like speed at high f. Slowness
+    sits between roughly ``1/V_Sv`` (LF asymptote) and
+    ``~1.1/V_Sv`` (HF Rayleigh-like).
+
+    Lower bound: just above ``omega / V_Sv`` -- the SH-decoupled
+    bound floor (``alpha_SH^2 = (C44 k_z^2 - rho omega^2) / C66``
+    requires ``k_z > omega / V_Sv``).
+
+    Upper bound: ``1.5 omega / V_Sv``, generous enough to cover
+    the HF Rayleigh-like asymptote. Caller may expand outward if
+    no sign change is found.
+
+    Notes
+    -----
+    Restricted to the slow-formation TI regime (``V_Sv < V_f``);
+    the caller is expected to dispatch fast-formation TI elsewhere
+    since the real-valued VTI determinant requires
+    ``k_z > omega / V_f`` (``F_f^2 > 0``), which is automatic only
+    when ``V_Sv < V_f``.
+    """
+    Vsv = float(np.sqrt(c44 / rho))
+    kz_lo = omega / Vsv * (1.0 + 1.0e-6)
+    kz_hi = omega / Vsv * 1.5
+    if kz_hi <= kz_lo:
+        kz_hi = kz_lo * 2.0
+    return kz_lo, kz_hi
+
+
 def flexural_dispersion_vti(
     freq: np.ndarray,
     *,
@@ -9090,9 +9137,19 @@ def flexural_dispersion_vti(
 
     Sister of :func:`stoneley_dispersion_vti` at azimuthal order 1.
     With an isotropic stiffness tensor this is bit-equivalent to
-    :func:`flexural_dispersion`; with a genuinely-anisotropic
-    tensor it raises ``NotImplementedError`` pointing at plan
-    item H.d (``docs/plans/cylindrical_biot_H.md``).
+    :func:`flexural_dispersion`. With a genuinely-anisotropic
+    tensor in the slow-formation regime (``V_Sv = sqrt(C44/rho)
+    < V_f``), runs the Schmitt 1989 VTI modal determinant
+    :func:`_modal_determinant_n1_vti` through brentq with the
+    Sinha-Norris-Chang-driven bracket
+    :func:`_flexural_kz_bracket_vti`.
+
+    Fast-formation TI (``V_Sv > V_f``, where ``F_f^2 < 0`` and the
+    fluid Bessels become oscillatory) requires a complex variant of
+    the VTI modal determinant; that is out of scope for plan H.d
+    and raises ``NotImplementedError``. The mirror of the
+    isotropic ``_flexural_dispersion_fast_formation`` complex path
+    is deferred to a follow-up plan item.
 
     Parameters and validation rules: identical to
     :func:`stoneley_dispersion_vti`.
@@ -9107,7 +9164,8 @@ def flexural_dispersion_vti(
     ValueError
         Same conditions as :func:`stoneley_dispersion_vti`.
     NotImplementedError
-        If the stiffness tensor is genuinely anisotropic.
+        If the stiffness tensor is genuinely anisotropic and
+        ``V_Sv > V_f`` (fast-formation TI).
     """
     _validate_vti_stiffness(c11, c13, c33, c44, c66, rho)
     if vf <= 0 or rho_f <= 0:
@@ -9123,13 +9181,76 @@ def flexural_dispersion_vti(
         return flexural_dispersion(
             f_arr, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
         )
-    raise NotImplementedError(
-        "flexural_dispersion_vti with a genuinely-anisotropic "
-        "stiffness tensor is not implemented yet; the Schmitt 1989 "
-        "VTI modal determinant is scheduled in plan item H.d "
-        "(see docs/plans/cylindrical_biot_H.md). The isotropic-"
-        "collapse case is supported via dispatch to "
-        "flexural_dispersion."
+    Vsv = float(np.sqrt(c44 / rho))
+    if Vsv > vf:
+        raise NotImplementedError(
+            "flexural_dispersion_vti for fast-formation TI "
+            f"(V_Sv = {Vsv:.0f} m/s > V_f = {vf:.0f} m/s) is not "
+            "implemented yet. The real-valued VTI modal determinant "
+            "requires F_f^2 = k_z^2 - (omega/V_f)^2 > 0, i.e. "
+            "V_Sv < V_f. The complex-determinant path mirroring the "
+            "isotropic _flexural_dispersion_fast_formation is "
+            "deferred (see plan item H.d follow-up in "
+            "docs/plans/cylindrical_biot_H.md). Slow-formation TI "
+            "(V_Sv < V_f) and the isotropic-collapse case are "
+            "supported."
+        )
+    # Genuine TI, slow formation: brentq loop on
+    # _modal_determinant_n1_vti per H.d.6.
+    slowness = np.full_like(f_arr, np.nan, dtype=float)
+    for i, f in enumerate(f_arr):
+        omega = 2.0 * np.pi * float(f)
+
+        def _det(kz_, omega=omega):
+            return _modal_determinant_n1_vti(
+                kz_, omega,
+                c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho,
+                vf=vf, rho_f=rho_f, a=a,
+            )
+
+        kz_lo, kz_hi = _flexural_kz_bracket_vti(
+            omega,
+            c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho,
+            vf=vf, rho_f=rho_f, a=a,
+        )
+        try:
+            d_lo = _det(kz_lo)
+            d_hi = _det(kz_hi)
+            n_expand = 0
+            while (
+                np.isfinite(d_lo)
+                and np.isfinite(d_hi)
+                and np.sign(d_lo) == np.sign(d_hi)
+                and n_expand < 8
+            ):
+                kz_hi *= 1.5
+                d_hi = _det(kz_hi)
+                n_expand += 1
+            if (not np.isfinite(d_lo)) or (not np.isfinite(d_hi)):
+                logger.debug(
+                    "flexural_dispersion_vti: det evaluation NaN "
+                    "at f=%.1f Hz (likely outside bound regime)", f,
+                )
+                continue
+            if np.sign(d_lo) == np.sign(d_hi):
+                logger.debug(
+                    "flexural_dispersion_vti: failed to bracket "
+                    "at f=%.1f Hz", f,
+                )
+                continue
+            kz_root = optimize.brentq(_det, kz_lo, kz_hi, xtol=1.0e-10)
+            slowness[i] = kz_root / omega
+        except (ValueError, RuntimeError) as exc:
+            logger.debug(
+                "flexural_dispersion_vti: brentq failed at "
+                "f=%.1f Hz: %s", f, exc,
+            )
+
+    return BoreholeMode(
+        name="flexural",
+        azimuthal_order=1,
+        freq=f_arr,
+        slowness=slowness,
     )
 
 
