@@ -19,6 +19,7 @@ from fwap.cylindrical_solver import (
     BoreholeLayer,
     BoreholeMode,
     _layer_e_matrix_n0,
+    _layer_e_matrix_n1,
     _layer_propagator_n0,
     _modal_determinant_n0_cased,
     _validate_borehole_layers_stacked,
@@ -8279,3 +8280,202 @@ def test_flexural_dispersion_layered_zero_and_one_layer_paths_unchanged_after_G_
     )
     assert isinstance(res_one, BoreholeMode)
     assert res_one.azimuthal_order == 1
+
+
+# =====================================================================
+# Plan item G'.b.1 -- 6x6 mode-amplitude-to-state-vector matrix at n=1
+# =====================================================================
+#
+# Per-element oracle: every row of E(r) post-rescale matches an
+# F.2.b/c row builder's layer-amplitude columns to ``rtol=1e-12``,
+# with explicit BC sign factors (rows at r=a from BC1-4 with
+# specific subtraction conventions; rows at r=b from BC5-10 all
+# m-s positive).
+
+
+def _typical_g_prime_b1_layer_params():
+    """Slow-formation harder-than-formation layer fixture for
+    G'.b.1 / G'.b.2 tests. ``layer.vs > formation.vs`` so the
+    flexural mode stays bound in the annulus."""
+    return dict(
+        vp=2500.0, vs=1100.0, rho=2100.0,
+        kz=2.0 * np.pi * 5000.0 / 800.0,  # bound: kz > omega/V_S
+        omega=2.0 * np.pi * 5000.0,
+    )
+
+
+def test_layer_e_matrix_n1_at_a_rows_match_F2_row1_to_row4_layer_cols():
+    """Per-element oracle at r=a: rows 0 (u_r), 3 (sigma_rr),
+    4 (sigma_rz), 5 (sigma_rtheta) of E(a) match the layer
+    cols (cols 1-4 for B/C and 7-8 for D in F.2's column packing
+    ``[A | B_I, B_K, C_I, C_K | B, C | D_I, D_K | D]``) of the
+    corresponding F.2 row builders, with BC sign factors:
+
+    * Row 1 (BC1: u_r^f - u_r^m = 0): layer cols negated.
+      ``-_layered_n1_row1_at_a[1:5, 7:9] == E[0, :]`` permuted.
+    * Row 2 (BC2: -(sigma_rr^m + P^f) = 0): layer cols negated.
+    * Row 3 (BC3: sigma_rtheta^m = 0): layer cols positive.
+    * Row 4 (BC4: sigma_rz^m = 0): layer cols positive.
+
+    F.2 col packing maps to E col packing as
+    ``[B_I, B_K, C_I, C_K, D_I, D_K] = F2[1, 2, 3, 4, 7, 8]``."""
+    p = _typical_g_prime_b1_layer_params()
+    layer = BoreholeLayer(vp=p["vp"], vs=p["vs"], rho=p["rho"], thickness=0.005)
+    a = 0.1
+    E = _layer_e_matrix_n1(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=a,
+    )
+
+    # Helper: extract layer cols (1, 2, 3, 4, 7, 8) from F.2 row.
+    def _layer_cols(row):
+        return np.array([row[1], row[2], row[3], row[4], row[7], row[8]]).real
+
+    # Row 0 (u_r) at a vs F.2 row 1 (BC1 negation).
+    row1 = _layered_n1_row1_at_a(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    np.testing.assert_allclose(_layer_cols(row1), -E[0, :], rtol=1.0e-12)
+
+    # Row 3 (sigma_rr) at a vs F.2 row 2 (BC2 negation).
+    row2 = _layered_n1_row2_at_a(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    np.testing.assert_allclose(_layer_cols(row2), -E[3, :], rtol=1.0e-12)
+
+    # Row 5 (sigma_rtheta) at a vs F.2 row 3 (BC3 no negation).
+    row3 = _layered_n1_row3_at_a(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    np.testing.assert_allclose(_layer_cols(row3), E[5, :], rtol=1.0e-12)
+
+    # Row 4 (sigma_rz) at a vs F.2 row 4 (BC4 no negation).
+    row4 = _layered_n1_row4_at_a(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    np.testing.assert_allclose(_layer_cols(row4), E[4, :], rtol=1.0e-12)
+
+
+def test_layer_e_matrix_n1_at_b_rows_match_F2_row5_to_row10_layer_cols():
+    """Per-element oracle at r=b: all six rows of E(b) match the
+    layer cols of F.2 rows 5-10 (BC5-10 are all m-s continuity
+    with positive layer-side sign). Exhaustive coverage of every
+    row of E."""
+    p = _typical_g_prime_b1_layer_params()
+    layer = BoreholeLayer(vp=p["vp"], vs=p["vs"], rho=p["rho"], thickness=0.005)
+    a = 0.1
+    b = a + layer.thickness
+    E = _layer_e_matrix_n1(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=b,
+    )
+
+    def _layer_cols(row):
+        return np.array([row[1], row[2], row[3], row[4], row[7], row[8]]).real
+
+    # Row 0 (u_r) at b vs F.2 row 5.
+    row5 = _layered_n1_row5_at_b(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    np.testing.assert_allclose(_layer_cols(row5), E[0, :], rtol=1.0e-12)
+
+    # Row 2 (u_theta) at b vs F.2 row 6.
+    row6 = _layered_n1_row6_at_b(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    np.testing.assert_allclose(_layer_cols(row6), E[2, :], rtol=1.0e-12)
+
+    # Row 1 (u_z) at b vs F.2 row 7.
+    row7 = _layered_n1_row7_at_b(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    np.testing.assert_allclose(_layer_cols(row7), E[1, :], rtol=1.0e-12)
+
+    # Row 3 (sigma_rr) at b vs F.2 row 8.
+    row8 = _layered_n1_row8_at_b(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    np.testing.assert_allclose(_layer_cols(row8), E[3, :], rtol=1.0e-12)
+
+    # Row 5 (sigma_rtheta) at b vs F.2 row 9.
+    row9 = _layered_n1_row9_at_b(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    np.testing.assert_allclose(_layer_cols(row9), E[5, :], rtol=1.0e-12)
+
+    # Row 4 (sigma_rz) at b vs F.2 row 10.
+    row10 = _layered_n1_row10_at_b(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    np.testing.assert_allclose(_layer_cols(row10), E[4, :], rtol=1.0e-12)
+
+
+def test_layer_e_matrix_n1_sparsity_pattern():
+    """Pin the known-zero entries of E(r) at n=1:
+
+    * Row 1 (``u_z``) cols 4, 5 (``D_I``, ``D_K``): SH potential
+      ``psi_z`` does not contribute to ``u_z``.
+    * Row 2 (``u_theta``) cols 2, 3 (``C_I``, ``C_K``): SV
+      potential ``psi_theta`` does not contribute to
+      ``u_theta``.
+
+    These zero entries are baked into E(r); confirms the F.2.a.6
+    erratum direction (the cos/sin sectors don't decouple wholly
+    at n=1, but specific (state-row, amplitude-col) pairs do)."""
+    p = _typical_g_prime_b1_layer_params()
+    E = _layer_e_matrix_n1(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=0.1,
+    )
+    # u_z row, D cols.
+    assert E[1, 4] == 0.0
+    assert E[1, 5] == 0.0
+    # u_theta row, C cols.
+    assert E[2, 2] == 0.0
+    assert E[2, 3] == 0.0
+
+
+def test_layer_e_matrix_n1_real_in_bound_regime():
+    """All 36 entries are finite real in the bound regime
+    post-rescale."""
+    p = _typical_g_prime_b1_layer_params()
+    E = _layer_e_matrix_n1(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=0.1,
+    )
+    assert np.all(np.isfinite(E))
+    assert E.dtype == np.float64
+
+
+def test_layer_e_matrix_n1_returns_nan_below_bound_floor():
+    """Below the layer's bound floor (``kz < omega / V_S``), at
+    least one of ``p^2``, ``s^2`` is negative -- the helper
+    returns NaN-filled so downstream propagator and determinant
+    evaluations propagate NaN cleanly."""
+    omega = 2.0 * np.pi * 5000.0
+    vp, vs, rho = 2500.0, 1100.0, 2100.0
+    kz = omega / vs * 0.5  # well below bound floor
+    with np.errstate(invalid="ignore"):
+        E = _layer_e_matrix_n1(
+            kz=kz, omega=omega, vp=vp, vs=vs, rho=rho, r=0.1,
+        )
+    assert np.all(np.isnan(E))
+
+
+def test_layer_e_matrix_n1_determinant_nonzero_in_bound_regime():
+    """The G'.b.2 propagator path requires inverting E(r). Just
+    a finiteness + non-zero check; the round-trip oracle in
+    G'.b.2 catches any sharper conditioning issue."""
+    p = _typical_g_prime_b1_layer_params()
+    E = _layer_e_matrix_n1(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=0.1,
+    )
+    det = float(np.linalg.det(E))
+    assert np.isfinite(det)
+    assert abs(det) > 0.0

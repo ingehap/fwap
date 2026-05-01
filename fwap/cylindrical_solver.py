@@ -9916,6 +9916,181 @@ def _modal_determinant_n0_cased(
 
 
 # =====================================================================
+# Plan item G'.b.1 -- mode-amplitude-to-state-vector matrix E(r) at n=1
+# =====================================================================
+#
+# 6x6 matrix mapping a uniform layer's wave amplitudes
+# ``c = (B_I, B_K, C_I, C_K, D_I, D_K)`` to the six-component
+# state vector ``v(r) = (u_r, u_z, u_theta, sigma_rr, sigma_rz,
+# sigma_r_theta)`` at azimuthal order n=1. Direct transcription
+# of substep G'.a.2 with the substep-F.2.a.5 phase rescale
+# absorbed.
+#
+# The 36 entries below are read off F.2's existing 10 row
+# builders (rows 1-4 at r=a + rows 5-10 at r=b) with explicit BC
+# sign factors per the F.2 substeps. Each entry has a per-element
+# oracle in the G'.b.1 tests.
+
+
+def _layer_e_matrix_n1(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    r: float,
+) -> np.ndarray:
+    r"""
+    6x6 mode-amplitude-to-state-vector matrix ``E(r)`` for a
+    uniform isotropic-elastic layer at azimuthal order n=1
+    (dipole flexural).
+
+    Maps the six wave amplitudes
+    ``c = (B_I, B_K, C_I, C_K, D_I, D_K)`` to the state vector
+    ``v(r) = (u_r, u_z, u_theta, sigma_rr, sigma_rz,
+    sigma_r_theta)`` via ``v(r) = E(r) c``, with the substep-
+    F.2.a.5 phase rescale (row * i for u_z and sigma_rz; col *
+    -i for the SV columns C_I, C_K) absorbed so every entry is
+    real-valued in the bound regime.
+
+    Six wave families: I/K flavours of the P scalar potential
+    ``phi = B_I I_1(p r) + B_K K_1(p r)``, the SV vector
+    potential theta-component ``psi_theta = C_I I_1(s r) + C_K
+    K_1(s r)``, and the SH vector potential z-component
+    ``psi_z = D_I I_1(s r) + D_K K_1(s r)``. Six state-vector
+    components corresponding to the six BC rows whose continuity
+    is enforced at every layer/layer interface (substep G'.a.1).
+
+    Sparsity pattern (pinned by G'.b.1 tests):
+
+    * Row 1 (``u_z``) cols 4, 5 (``D_I``, ``D_K``) are zero --
+      SH potential ``psi_z`` has no axial-displacement
+      contribution at n=1 (the curl-z component of psi_z theta-
+      hat does not enter ``u_z = (curl psi)_z + d_z phi``).
+    * Row 2 (``u_theta``) cols 2, 3 (``C_I``, ``C_K``) are zero
+      -- SV potential ``psi_theta`` does not contribute to
+      ``u_theta`` (only to ``u_r`` and ``u_z``).
+    * Row 4 (``sigma_rz``) cols 4, 5 (``D_I``, ``D_K``) are
+      non-zero (D contributes via ``-k_z mu D K_1 / r`` cross-
+      coupling) -- this is the F.2.a.6 erratum: cos / sin
+      sectors are NOT block-diagonal at n=1.
+
+    Parameters
+    ----------
+    kz, omega : float
+        Trial axial wavenumber (rad / m) and angular frequency
+        (rad / s).
+    vp, vs, rho : float
+        Layer P / S velocity (m/s) and density (kg/m^3). Must
+        satisfy ``vp > vs > 0`` and ``rho > 0``.
+    r : float
+        Radius at which to evaluate ``E(r)`` (m). Must be
+        positive.
+
+    Returns
+    -------
+    ndarray, shape (6, 6)
+        ``E(r)`` post-rescale. Real-valued in the bound regime;
+        ``NaN``-filled outside the bound regime (``kz`` below the
+        layer's bound floor ``omega / V_S``).
+
+    See Also
+    --------
+    _layer_e_matrix_n0 : The n=0 (Stoneley) sister, 4x4.
+    _layer_propagator_n1 : G'.b.2 follow-up using
+        ``E(r_outer) E(r_inner)^{-1}`` to map the state vector
+        across a layer at n=1.
+    """
+    p2 = kz * kz - (omega / vp) ** 2
+    s2 = kz * kz - (omega / vs) ** 2
+    if p2 <= 0.0 or s2 <= 0.0 or r <= 0.0:
+        return np.full((6, 6), np.nan)
+    p = float(np.sqrt(p2))
+    s = float(np.sqrt(s2))
+    pr = p * r
+    sr = s * r
+    I0_p, I1_p = _i0_i1(pr)
+    K0_p, K1_p = _k0_k1(pr)
+    I0_s, I1_s = _i0_i1(sr)
+    K0_s, K1_s = _k0_k1(sr)
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    E = np.zeros((6, 6))
+    # Row 0: u_r = d_r phi + (1/r) d_theta psi_z - d_z psi_theta.
+    # Post-rescale: col*(-i) on C cols cancels the -i k_z factor.
+    E[0, 0] = +p * I0_p - I1_p / r           # B_I
+    E[0, 1] = -p * K0_p - K1_p / r           # B_K
+    E[0, 2] = -kz * I1_s                      # C_I
+    E[0, 3] = -kz * K1_s                      # C_K
+    E[0, 4] = +I1_s / r                       # D_I
+    E[0, 5] = +K1_s / r                       # D_K
+    # Row 1: u_z = i k_z phi + (1/r) d_r(r psi_theta).
+    # Post-rescale: row*i on B cols flips +i k_z to -k_z; col*(-i)
+    # on C cols leaves +s I_0 / -s K_0.
+    E[1, 0] = -kz * I1_p                      # B_I
+    E[1, 1] = -kz * K1_p                      # B_K
+    E[1, 2] = +s * I0_s                       # C_I
+    E[1, 3] = -s * K0_s                       # C_K
+    E[1, 4] = 0.0                             # D_I (SH no u_z)
+    E[1, 5] = 0.0                             # D_K
+    # Row 2: u_theta = (1/r) d_theta phi - d_r psi_z. Sin sector;
+    # no row scaling (no z-derivative). C cols zero (SV no u_theta).
+    E[2, 0] = -I1_p / r                       # B_I
+    E[2, 1] = -K1_p / r                       # B_K
+    E[2, 2] = 0.0                             # C_I (SV no u_theta)
+    E[2, 3] = 0.0                             # C_K
+    E[2, 4] = -s * I0_s + I1_s / r            # D_I (sign flip on s I_0)
+    E[2, 5] = +s * K0_s + K1_s / r            # D_K
+    # Row 3: sigma_rr = lambda div u + 2 mu d_r u_r. No row scaling.
+    # col*(-i) on C cols.
+    E[3, 0] = +mu * (
+        two_kz2_minus_kS2 * I1_p
+        - 2.0 * p * I0_p / r
+        + 4.0 * I1_p / (r * r)
+    )                                          # B_I
+    E[3, 1] = +mu * (
+        two_kz2_minus_kS2 * K1_p
+        + 2.0 * p * K0_p / r
+        + 4.0 * K1_p / (r * r)
+    )                                          # B_K
+    E[3, 2] = -2.0 * kz * mu * (s * I0_s - I1_s / r)   # C_I
+    E[3, 3] = +2.0 * kz * mu * (s * K0_s + K1_s / r)   # C_K
+    E[3, 4] = +2.0 * mu * (s * I0_s / r - 2.0 * I1_s / (r * r))   # D_I
+    E[3, 5] = -2.0 * mu * (s * K0_s / r + 2.0 * K1_s / (r * r))   # D_K
+    # Row 4: sigma_rz = mu (d_z u_r + d_r u_z). Post-rescale: row*i
+    # on B cols (z-derivative-bearing); col*(-i) on C cols.
+    E[4, 0] = -2.0 * kz * mu * (p * I0_p - I1_p / r)   # B_I
+    E[4, 1] = +2.0 * kz * mu * (p * K0_p + K1_p / r)   # B_K
+    E[4, 2] = +mu * two_kz2_minus_kS2 * I1_s            # C_I
+    E[4, 3] = +mu * two_kz2_minus_kS2 * K1_s            # C_K
+    # D cols: SH cross-couples to sigma_rz via -k_z mu D K_1/r at n=1
+    # (F.2.a.6 erratum: cos/sin sectors are NOT block-diagonal).
+    E[4, 4] = -kz * mu * I1_s / r                       # D_I
+    E[4, 5] = -kz * mu * K1_s / r                       # D_K
+    # Row 5: sigma_r_theta = mu [d_r(u_theta) + (1/r) d_theta u_r
+    #                            - u_theta/r]. Sin sector; no row
+    # scaling.
+    E[5, 0] = +2.0 * mu * (-p * I0_p / r + 2.0 * I1_p / (r * r))   # B_I
+    E[5, 1] = +2.0 * mu * (+p * K0_p / r + 2.0 * K1_p / (r * r))   # B_K
+    E[5, 2] = +kz * mu * I1_s / r                                   # C_I
+    E[5, 3] = +kz * mu * K1_s / r                                   # C_K
+    E[5, 4] = -mu * (
+        s * s * I1_s
+        - 2.0 * s * I0_s / r
+        + 4.0 * I1_s / (r * r)
+    )                                                                # D_I
+    E[5, 5] = -mu * (
+        s * s * K1_s
+        + 2.0 * s * K0_s / r
+        + 4.0 * K1_s / (r * r)
+    )                                                                # D_K
+    return E
+
+
+# =====================================================================
 # Plan item H.0 -- public-API foundation for VTI formation
 # =====================================================================
 #
