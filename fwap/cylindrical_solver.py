@@ -8282,3 +8282,170 @@ def _layered_n1_row7_at_b(
     row[9] = 0.0
     return row
 
+
+# =====================================================================
+# Substep F.2.b.6 -- row 8 of the n=1 layered determinant (r = b)
+# =====================================================================
+#
+# BC8: ``sigma_rr^{(m)}(b) - sigma_rr^{(s)}(b) = 0`` (cos-sector
+# normal-stress continuity at the annulus-formation interface).
+# Lame-reduction row at the second interface; uses the unnegated
+# continuity convention (matching F.1.b.3.c's row 6 choice for
+# the n=0 layered analog -- vs row 2's negated ``-(sigma_rr + P)``
+# convention which was for visual parallel with the single-
+# interface form).
+#
+# The convention choice is internal: it flips the overall sign of
+# the row, which preserves the determinant root. The K-flavour
+# cancellation at layer=formation is verifiable in either
+# convention.
+#
+# Coefficients (post-rescale; A 0 | B R | C i*R -> R | D R per
+# F.2.a.5; no row scaling, only col-by-(-i) on C cols):
+#
+#       Row 8 = [
+#           0,                                                  # A (fluid r<a)
+#          +mu_m [(2 kz^2 - kSm^2) I_1(p_m b)
+#                 - 2 p_m I_0(p_m b)/b
+#                 + 4 I_1(p_m b)/b^2],                          # B_I
+#          +mu_m [(2 kz^2 - kSm^2) K_1(p_m b)
+#                 + 2 p_m K_0(p_m b)/b
+#                 + 4 K_1(p_m b)/b^2],                          # B_K
+#          -2 k_z mu_m (s_m I_0(s_m b) - I_1(s_m b)/b),         # C_I
+#          +2 k_z mu_m (s_m K_0(s_m b) + K_1(s_m b)/b),         # C_K
+#          -mu [(2 kz^2 - kS^2) K_1(p b)
+#               + 2 p K_0(p b)/b
+#               + 4 K_1(p b)/b^2],                              # B (subtracted)
+#          -2 k_z mu (s K_0(s b) + K_1(s b)/b),                  # C (subtracted)
+#          +2 mu_m (s_m I_0(s_m b)/b - 2 I_1(s_m b)/b^2),        # D_I
+#          -2 mu_m (s_m K_0(s_m b)/b + 2 K_1(s_m b)/b^2),        # D_K
+#          +2 mu (s K_0(s b)/b + 2 K_1(s b)/b^2),                # D (subtracted)
+#       ]
+#
+# Sign-flip pattern (F.1.a.2): in the I-flavour entries,
+# derivative-induced ``p_m X_0/b``, ``s_m X_0`` and ``s_m X_0/b``
+# terms flip sign vs K-flavour twins; direct ``X_1``, ``X_1/b``,
+# ``X_1/b^2`` terms keep sign.
+#
+# K-flavour cancellation at layer=formation: all three pairs
+# (B_K + B, C_K + C, D_K + D) cancel pair-wise. The convention
+# flip vs row 2 means row 8's annulus K-flavour entries equal
+# the NEGATION of row 2's M22-M24 form evaluated at r=b.
+
+
+def _layered_n1_row8_at_b(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+) -> np.ndarray:
+    r"""
+    Row 8 of the n=1 layered modal determinant evaluated at the
+    annulus-formation interface ``r = b = a + layer.thickness``.
+
+    Encodes the normal-stress continuity BC
+    ``sigma_rr^{(m)}(b) - sigma_rr^{(s)}(b) = 0`` in the cos
+    sector. Returns the ten post-rescale coefficients.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    vp, vs, rho : float
+        Formation half-space P / S velocities and density. All
+        used (mu = rho * vs^2 sets formation B/C/D coefficients).
+    vf, rho_f : float
+        Fluid velocity / density. Not used (fluid r<a doesn't reach
+        r=b); carried for signature uniformity.
+    a : float
+        Fluid-annulus interface radius (m); ``b = a + layer.thickness``.
+    layer : BoreholeLayer
+        The annular layer; sets ``mu_m, k_Sm, p_m, s_m``.
+
+    Returns
+    -------
+    ndarray, shape (10,) complex
+        Coefficients of (A, B_I, B_K, C_I, C_K, B, C, D_I, D_K, D)
+        in row 8. Real-valued in the bound regime.
+
+    See Also
+    --------
+    _layered_n1_row2_at_a : Same physical BC at r=a but using the
+        negated ``-(sigma_rr + P)`` convention. Row 8's annulus
+        K-flavour entries equal the NEGATION of row 2's M22-M24
+        form evaluated at r=b (convention difference).
+    _layered_n0_row6_at_b : The F.1 n=0 layered counterpart for
+        sigma_rr continuity. Same unnegated convention.
+    """
+    del rho_f  # not used by row 8; kept for signature uniformity
+    F_f, p_m, s_m, p, s = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=vp, vs=vs, vf=vf, layer=layer,
+    )
+    del F_f  # row 8 doesn't touch the fluid column
+    b = a + layer.thickness
+
+    I0_pm_b = float(special.iv(0, p_m * b))
+    I1_pm_b = float(special.iv(1, p_m * b))
+    K0_pm_b = float(special.kv(0, p_m * b))
+    K1_pm_b = float(special.kv(1, p_m * b))
+    I0_sm_b = float(special.iv(0, s_m * b))
+    I1_sm_b = float(special.iv(1, s_m * b))
+    K0_sm_b = float(special.kv(0, s_m * b))
+    K1_sm_b = float(special.kv(1, s_m * b))
+    K0_p_b = float(special.kv(0, p * b))
+    K1_p_b = float(special.kv(1, p * b))
+    K0_s_b = float(special.kv(0, s * b))
+    K1_s_b = float(special.kv(1, s * b))
+
+    mu_m = layer.rho * layer.vs * layer.vs
+    kSm2 = (omega / layer.vs) ** 2
+    two_kz2_minus_kSm2 = 2.0 * kz * kz - kSm2
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    row = np.zeros(10, dtype=complex)
+    # A column: fluid r<a doesn't reach r=b.
+    row[0] = 0.0
+    # B_I (sign-flipped d_r-induced ``2 p_m I_0/b`` term).
+    row[1] = +mu_m * (
+        two_kz2_minus_kSm2 * I1_pm_b
+        - 2.0 * p_m * I0_pm_b / b
+        + 4.0 * I1_pm_b / (b * b)
+    )
+    # B_K (annulus, positive sigma_rr form).
+    row[2] = +mu_m * (
+        two_kz2_minus_kSm2 * K1_pm_b
+        + 2.0 * p_m * K0_pm_b / b
+        + 4.0 * K1_pm_b / (b * b)
+    )
+    # C_I (post-rescale; col-by-(-i) cancels -i factor).
+    row[3] = -2.0 * kz * mu_m * (s_m * I0_sm_b - I1_sm_b / b)
+    # C_K (post-rescale).
+    row[4] = +2.0 * kz * mu_m * (s_m * K0_sm_b + K1_sm_b / b)
+    # B column (formation, subtracted; cancels B_K at layer=formation).
+    row[5] = -mu * (
+        two_kz2_minus_kS2 * K1_p_b
+        + 2.0 * p * K0_p_b / b
+        + 4.0 * K1_p_b / (b * b)
+    )
+    # C column (formation, subtracted; post-rescale).
+    row[6] = -2.0 * kz * mu * (s * K0_s_b + K1_s_b / b)
+    # D_I (sign-flipped d_r-induced ``s_m I_0/b`` term).
+    row[7] = +2.0 * mu_m * (s_m * I0_sm_b / b - 2.0 * I1_sm_b / (b * b))
+    # D_K (annulus, negative sigma_rr form because d_r [K_1/r] gives
+    # -s K_0/r - 2 K_1/r^2 with both negative; outer 2 mu_m gives
+    # leading minus).
+    row[8] = -2.0 * mu_m * (s_m * K0_sm_b / b + 2.0 * K1_sm_b / (b * b))
+    # D column (formation, subtracted; cancels D_K at layer=formation).
+    row[9] = +2.0 * mu * (s * K0_s_b / b + 2.0 * K1_s_b / (b * b))
+    return row
+
