@@ -7263,3 +7263,150 @@ def _layered_n1_row3_at_a(
     row[9] = 0.0
     return row
 
+
+# =====================================================================
+# Substep F.2.c.2 -- row 6 of the n=1 layered determinant (r = b)
+# =====================================================================
+#
+# BC6: ``u_theta^{(m)}(b) - u_theta^{(s)}(b) = 0`` (sin-sector
+# tangential-displacement continuity at the annulus-formation
+# interface). Genuinely new BC type at the layered case (no
+# single-interface analog: the fluid-solid interface at r=a
+# replaces u_theta continuity with sigma_rtheta = 0 -- inviscid
+# fluid imposes no tangential-shear constraint on the formation).
+#
+# Coefficients from substep F.2.a.2's u_theta formulae:
+#
+#   u_theta^{(m,K)} = -B_K K_1(p_m r)/r + D_K [s_m K_0(s_m r) + K_1(s_m r)/r]
+#   u_theta^{(m,I)} = -B_I I_1(p_m r)/r + D_I [-s_m I_0(s_m r) + I_1(s_m r)/r]
+#                                          (sign flip on +s I_0)
+#   u_theta^{(s)}    = -B   K_1(p r)/r   + D   [s   K_0(s r) + K_1(s r)/r]
+#
+# C does NOT appear in u_theta (substep F.2.a.2): the SV potential
+# psi_theta enters via -d_z(psi_theta) in u_r and via the SV part
+# of curl in u_z, but not directly in u_theta. C columns (3, 4, 6)
+# are therefore identically zero in row 6.
+#
+# Subtracting (annulus - formation):
+#
+#       Row 6 (pre-rescale, all real -- no z-derivative-bearing
+#       terms in u_theta) =
+#
+#           [  0,                                  (A; fluid r<a)
+#             -I_1(p_m b) / b,                     (B_I)
+#             -K_1(p_m b) / b,                     (B_K)
+#              0,                                  (C_I -- not in u_theta)
+#              0,                                  (C_K -- not in u_theta)
+#             +K_1(p b) / b,                       (B; subtracted)
+#              0,                                  (C -- not in u_theta)
+#             -s_m I_0(s_m b) + I_1(s_m b) / b,    (D_I; sign flip on s_m I_0)
+#             +s_m K_0(s_m b) + K_1(s_m b) / b,    (D_K)
+#             -s K_0(s b) - K_1(s b) / b ]        (D; subtracted)
+#
+# Imaginary-power pattern: all real (matches F.2.a.5 row-6 entry
+# ``A 0 | B R | C 0 | D R``). Phase rescale: row 6 is NOT
+# z-derivative-bearing (no row * i); the column-by-(-i) on C
+# columns is irrelevant since C entries are zero. Row 6 is real
+# both pre- and post-rescale.
+#
+# Substep-F.2.a.7 (a) K-flavour cancellation at layer=formation:
+# B_K + B = 0 (rows 2 and 5 cancel) and D_K + D = 0 (rows 8 and 9
+# cancel). The C columns are zero on both sides, so no C
+# cancellation to verify (C doesn't appear in u_theta at all).
+
+
+def _layered_n1_row6_at_b(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+) -> np.ndarray:
+    r"""
+    Row 6 of the n=1 layered modal determinant evaluated at the
+    annulus-formation interface ``r = b = a + layer.thickness``.
+
+    Encodes the tangential-displacement continuity BC
+    ``u_theta^{(m)}(b) - u_theta^{(s)}(b) = 0`` in the sin sector.
+    Genuinely new BC type: the single-interface n=1 form has no
+    u_theta continuity row (the fluid-solid interface replaces it
+    with sigma_rtheta = 0). Returns the ten post-rescale
+    coefficients in the column order pinned by substep F.2.a.4.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    vp, vs : float
+        Formation half-space P / S velocities (m/s); set the
+        formation radial wavenumbers ``p, s`` used by columns 5, 9.
+    rho : float
+        Formation density. Carried for signature uniformity;
+        not used by row 6 (no stress terms; ``mu`` doesn't appear).
+    vf, rho_f : float
+        Fluid velocity / density. Not used (fluid doesn't reach
+        r=b); carried for signature uniformity.
+    a : float
+        Fluid-annulus interface radius (m); ``b = a + layer.thickness``.
+    layer : BoreholeLayer
+        The annular layer.
+
+    Returns
+    -------
+    ndarray, shape (10,) complex
+        Coefficients of (A, B_I, B_K, C_I, C_K, B, C, D_I, D_K, D)
+        in row 6. Real-valued in the bound regime.
+
+    See Also
+    --------
+    _layered_n1_row3_at_a : The other sin-sector row at r=a; same
+        no-row-rescale pattern. Row 6 differs in (a) being a u_theta
+        BC (not sigma_rtheta), (b) having a zero C column entirely,
+        and (c) having non-zero formation columns (B, D at r=b).
+    """
+    del rho, rho_f  # not used by row 6; kept for signature uniformity
+    F_f, p_m, s_m, p, s = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=vp, vs=vs, vf=vf, layer=layer,
+    )
+    del F_f  # row 6 doesn't touch the fluid column
+    b = a + layer.thickness
+
+    I0_sm_b = float(special.iv(0, s_m * b))
+    I1_pm_b = float(special.iv(1, p_m * b))
+    I1_sm_b = float(special.iv(1, s_m * b))
+    K0_sm_b = float(special.kv(0, s_m * b))
+    K1_pm_b = float(special.kv(1, p_m * b))
+    K1_sm_b = float(special.kv(1, s_m * b))
+    K0_s_b = float(special.kv(0, s * b))
+    K1_p_b = float(special.kv(1, p * b))
+    K1_s_b = float(special.kv(1, s * b))
+
+    row = np.zeros(10, dtype=complex)
+    # A column: fluid r<a; doesn't reach r=b.
+    row[0] = 0.0
+    # B_I column (annulus P, regular branch).
+    row[1] = -I1_pm_b / b
+    # B_K column (annulus P, singular branch).
+    row[2] = -K1_pm_b / b
+    # C columns are zero throughout row 6 (C doesn't appear in u_theta).
+    row[3] = 0.0
+    row[4] = 0.0
+    # B column (formation P; sign-flipped vs B_K because subtracted).
+    row[5] = +K1_p_b / b
+    # C column (formation; zero by the same C-not-in-u_theta reason).
+    row[6] = 0.0
+    # D_I column (annulus SH; sign flip on the d_r-induced ``s_m I_0`` term).
+    row[7] = -s_m * I0_sm_b + I1_sm_b / b
+    # D_K column (annulus SH).
+    row[8] = +s_m * K0_sm_b + K1_sm_b / b
+    # D column (formation SH; subtracted).
+    row[9] = -s * K0_s_b - K1_s_b / b
+    return row
+

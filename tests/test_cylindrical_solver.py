@@ -24,6 +24,7 @@ from fwap.cylindrical_solver import (
     _layered_n0_row6_at_b,
     _layered_n0_row7_at_b,
     _layered_n1_row3_at_a,
+    _layered_n1_row6_at_b,
     _modal_determinant_n0,
     _modal_determinant_n0_layered,
     _modal_determinant_n1,
@@ -3683,4 +3684,130 @@ def test_layered_n1_row3_at_a_C_column_i_k_sign_flip():
         +float(sp.iv(1, s_m * p["a"])) / float(sp.kv(1, s_m * p["a"]))
     )
     assert row[3].real / row[4].real == pytest.approx(expected_ratio)
+
+
+# =====================================================================
+# Plan item F.2.c.2 -- row 6 of the n=1 layered determinant (r = b)
+# =====================================================================
+#
+# Genuinely new BC type at the layered case: u_theta continuity at
+# r=b has no single-interface analog (the fluid-solid interface at
+# r=a replaces it with sigma_rtheta = 0). C does NOT appear in
+# u_theta per substep F.2.a.2; row 6 has six non-zero entries
+# (B and D amplitudes only) and three explicit zero entries beyond
+# the standard A=0 sparsity.
+
+
+def test_layered_n1_row6_at_b_layer_equals_formation_K_flavour_cancels():
+    """Substep F.2.a.7 (a) self-check: at layer=formation the
+    K-flavour annulus and formation columns cancel pair-wise.
+
+        row6[2] (B_K) + row6[5] (B) == 0
+        row6[8] (D_K) + row6[9] (D) == 0
+
+    No C cancellation to verify since C is identically zero in u_theta.
+    """
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _layered_n1_row6_at_b(
+        kz, omega, vp=vp, vs=vs, rho=rho,
+        vf=vf, rho_f=rho_f, a=a, layer=layer,
+    )
+    assert row[2].real + row[5].real == pytest.approx(0.0, abs=1.0e-14)
+    assert row[8].real + row[9].real == pytest.approx(0.0, abs=1.0e-14)
+
+
+def test_layered_n1_row6_at_b_C_columns_are_identically_zero():
+    """Substep F.2.a.2: u_theta has B and D contributions, NOT C.
+    Columns 3 (C_I), 4 (C_K), 6 (formation C) are identically zero
+    in row 6 -- a stronger sparsity than the F.2.a.4 generic
+    pattern (which only requires A=0 and formation cols zero in
+    rows touching r=a). Row 6 distinguishes itself by also having
+    C=0 even though it touches r=b."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n1_row6_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    assert row[3] == 0.0  # C_I
+    assert row[4] == 0.0  # C_K
+    assert row[6] == 0.0  # formation C
+    assert row[0] == 0.0  # A (fluid r<a)
+    # Six remaining columns (1, 2, 5, 7, 8, 9) generically non-zero.
+    for i in (1, 2, 5, 7, 8, 9):
+        assert row[i] != 0.0
+
+
+def test_layered_n1_row6_at_b_is_real_in_bound_regime():
+    """Substep F.2.a.5: row 6 is NOT z-derivative-bearing (no
+    row * i scaling). C columns are zero so column-by-(-i) is
+    irrelevant. Pre- and post-rescale are both real-valued in the
+    bound regime."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n1_row6_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e-14)
+
+
+def test_layered_n1_row6_at_b_matches_closed_form_per_column():
+    """Per-column transcription check against substep F.2.a.2's
+    u_theta closed forms. The B and D coefficients carry the
+    F.1.a.2 sign-flip pattern: ``s I_0`` flips, ``K_1/r``-style
+    direct terms keep sign."""
+    p, omega, kz = _row1_test_setup()
+    F_f, p_m, s_m, p_form, s_form = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    a = p["a"]
+    b = a + p["layer"].thickness
+    from scipy import special as sp
+
+    row = _layered_n1_row6_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=a, layer=p["layer"],
+    )
+
+    expected_BI = -float(sp.iv(1, p_m * b)) / b
+    expected_BK = -float(sp.kv(1, p_m * b)) / b
+    expected_B = +float(sp.kv(1, p_form * b)) / b
+    expected_DI = -s_m * float(sp.iv(0, s_m * b)) + float(sp.iv(1, s_m * b)) / b
+    expected_DK = +s_m * float(sp.kv(0, s_m * b)) + float(sp.kv(1, s_m * b)) / b
+    expected_D = -s_form * float(sp.kv(0, s_form * b)) - float(sp.kv(1, s_form * b)) / b
+
+    assert row[1].real == pytest.approx(expected_BI)
+    assert row[2].real == pytest.approx(expected_BK)
+    assert row[5].real == pytest.approx(expected_B)
+    assert row[7].real == pytest.approx(expected_DI)
+    assert row[8].real == pytest.approx(expected_DK)
+    assert row[9].real == pytest.approx(expected_D)
+
+
+def test_layered_n1_row6_at_b_B_column_i_k_sign_flip():
+    """The B-amplitude entries are single-Bessel-term:
+    row6[B_I] = -I_1/b, row6[B_K] = -K_1/b. Their ratio is
+    ``+I_1(p_m b) / K_1(p_m b)`` -- KEEP-sign per the F.1.a.2
+    pattern (direct ``K_1/r`` term, no derivative-induced
+    Bessel-index shift)."""
+    p, omega, kz = _row1_test_setup()
+    F_f, p_m, _, _, _ = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    from scipy import special as sp
+
+    row = _layered_n1_row6_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    b = p["a"] + p["layer"].thickness
+
+    expected_ratio = (
+        +float(sp.iv(1, p_m * b)) / float(sp.kv(1, p_m * b))
+    )
+    assert row[1].real / row[2].real == pytest.approx(expected_ratio)
 
