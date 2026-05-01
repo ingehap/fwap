@@ -9418,6 +9418,157 @@ def _layer_propagator_n0(
 
 
 # =====================================================================
+# Plan item G.c -- stacked modal determinant
+# =====================================================================
+#
+# Assembles the 7x7 cased-hole modal determinant for an N-layer
+# stack via the propagator chain. Mirrors F.1's hand-coded
+# ``_modal_determinant_n0_layered`` (N=1) but folds the layer-
+# internal amplitudes through ``P_total = P_N ... P_2 P_1`` so
+# the final 7x7 form has the same column structure
+# ``[A | c_1 (4 layer-1 amps) | B_form_K, C_form_K]`` regardless
+# of N.
+#
+# Algorithm:
+#   1. Compute layer radii r_0 = a, r_j = r_{j-1} + thickness_j.
+#   2. Build per-layer propagators P_j via G.b.2 and compose
+#      P_total = P_N @ ... @ P_2 @ P_1.
+#   3. Build E_1(a) for the innermost layer.
+#   4. Compose v_at_b = (P_total @ E_1(a)): the 4x4 map from c_1
+#      to the state vector at the outermost interface r = b.
+#   5. Build E_form(b) for the formation half-space; pick its
+#      K-flavour columns (1, 3) for the 4x2 formation block.
+#   6. Assemble the 7x7 matrix following the F.1 layout:
+#      - Row 0: BC1 (u_r continuity at r=a, fluid - layer).
+#      - Row 1: BC2 (-(sigma_rr + P_f) = 0 at r=a).
+#      - Row 2: BC3 (sigma_rz = 0 at r=a).
+#      - Rows 3-6: BC4-7 (u_r, u_z, sigma_rr, sigma_rz continuity
+#        at r=b, layer - formation).
+#   7. Take det(M.real).
+#
+# Reduces to ``_modal_determinant_n0_layered`` at N=1 (sharing
+# the same brentq root in k_z, with a layer-1-amplitude scale
+# factor that's absorbed at the determinant level). The N=1
+# brentq-root match is the floating-point oracle for G.c.
+
+
+def _modal_determinant_n0_cased(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...],
+) -> float:
+    r"""
+    7x7 axisymmetric modal determinant for a borehole with N
+    annular layers between fluid and formation.
+
+    Generalises :func:`_modal_determinant_n0_layered` (N=1,
+    hand-coded F.1) to arbitrary ``N >= 1`` via the Thomson-
+    Haskell-style propagator chain
+    ``P_total = P_N ... P_2 P_1`` (substep G.a.3). The 7x7 final
+    form has column structure
+    ``[A | c_1 (4 innermost-layer amplitudes) | B_form_K, C_form_K]``
+    regardless of N; the propagator chain folds the layer-
+    internal amplitudes ``c_2, ..., c_N`` out via radial
+    continuity at every layer/layer interface (substep G.a.4).
+
+    Reduces to :func:`_modal_determinant_n0_layered` at N=1
+    (same brentq root in ``k_z``, up to an overall layer-1-
+    amplitude scale factor that cancels at the root). The
+    floating-point oracle for this routine is the multi-
+    frequency ``stoneley_dispersion_layered(layers=(layer,))``
+    regression in :func:`stoneley_dispersion_cased` (G.d).
+
+    Parameters
+    ----------
+    kz, omega, vp, vs, rho, vf, rho_f, a : float
+        Same as :func:`_modal_determinant_n0_layered`. ``vp``,
+        ``vs``, ``rho`` are the formation half-space (outermost
+        side); ``vf``, ``rho_f`` are the borehole fluid.
+    layers : tuple of BoreholeLayer
+        Annular layer stack ordered inside-out: ``layers[0]``
+        adjacent to fluid, ``layers[-1]`` adjacent to formation.
+        Must have at least one layer (``len(layers) >= 1``); the
+        unlayered case dispatches to :func:`_modal_determinant_n0`
+        in :func:`stoneley_dispersion_cased`.
+
+    Returns
+    -------
+    float
+        ``det(M)`` of the 7x7 cased-hole modal matrix, real-
+        valued in the bound regime. ``NaN`` outside the bound
+        regime (any layer or the formation has imaginary radial
+        wavenumber, or the propagator chain fails the bound-
+        regime gate).
+    """
+    F_f_sq = kz * kz - (omega / vf) ** 2
+    if F_f_sq <= 0.0:
+        return float("nan")
+    F_f = float(np.sqrt(F_f_sq))
+    # Layer radii: r_0 = a, r_j = r_{j-1} + thickness_j.
+    radii = [a]
+    for L in layers:
+        radii.append(radii[-1] + L.thickness)
+    b = radii[-1]
+    # Innermost-layer E_1(a).
+    L1 = layers[0]
+    E_1_a = _layer_e_matrix_n0(
+        kz=kz, omega=omega, vp=L1.vp, vs=L1.vs, rho=L1.rho, r=a,
+    )
+    if not np.all(np.isfinite(E_1_a)):
+        return float("nan")
+    # Per-layer propagator chain P_total = P_N ... P_2 P_1.
+    P_total = np.eye(4)
+    for j, L in enumerate(layers):
+        P_j = _layer_propagator_n0(
+            kz=kz, omega=omega, vp=L.vp, vs=L.vs, rho=L.rho,
+            r_inner=radii[j], r_outer=radii[j + 1],
+        )
+        if not np.all(np.isfinite(P_j)):
+            return float("nan")
+        P_total = P_j @ P_total
+    # Formation E_form(b); only K-flavour columns (1, 3) contribute
+    # because the half-space requires decay outward.
+    E_form_b = _layer_e_matrix_n0(
+        kz=kz, omega=omega, vp=vp, vs=vs, rho=rho, r=b,
+    )
+    if not np.all(np.isfinite(E_form_b)):
+        return float("nan")
+    # State vector at b from c_1: v_N(b) = P_total @ E_1(a) c_1.
+    v_at_b = P_total @ E_1_a
+    # Fluid Bessel pack at r = a.
+    I0_Ff_a = float(special.iv(0, F_f * a))
+    I1_Ff_a = float(special.iv(1, F_f * a))
+    # Assemble the 7x7 modal matrix. Column order:
+    # [A | B_I^1, B_K^1, C_I^1, C_K^1 | B_form_K, C_form_K]
+    M = np.zeros((7, 7))
+    # Row 0: BC1 u_r^(f)(a) - u_r^(layer)(a) = 0.
+    M[0, 0] = F_f * I1_Ff_a / (rho_f * omega ** 2)
+    M[0, 1:5] = -E_1_a[0, :]
+    # Formation cols vanish at r=a.
+    # Row 1: BC2 -(sigma_rr^(layer)(a) + P^(f)(a)) = 0.
+    M[1, 0] = -I0_Ff_a
+    M[1, 1:5] = -E_1_a[2, :]
+    # Row 2: BC3 sigma_rz^(layer)(a) = 0 (no fluid contribution).
+    M[2, 1:5] = +E_1_a[3, :]
+    # Rows 3-6: BC4-7 continuity at r=b, (layer - formation) for each
+    # of (u_r, u_z, sigma_rr, sigma_rz).
+    for i_state, i_M in zip(range(4), range(3, 7)):
+        M[i_M, 1:5] = +v_at_b[i_state, :]
+        # Formation K-flavour cols: B_K -> col 1, C_K -> col 3 of
+        # E_form. Subtracted in BC, so negative sign.
+        M[i_M, 5] = -E_form_b[i_state, 1]
+        M[i_M, 6] = -E_form_b[i_state, 3]
+    return float(np.linalg.det(M))
+
+
+# =====================================================================
 # Plan item H.0 -- public-API foundation for VTI formation
 # =====================================================================
 #
