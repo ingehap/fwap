@@ -10670,3 +10670,149 @@ def _modal_row3_at_a_n1_vti(
     )
     return row
 
+
+# =====================================================================
+# Substep H.d.4 -- row 4 of the n=1 VTI flexural determinant (r=a)
+# =====================================================================
+#
+# BC4: ``sigma_rz^{(s)}(a) = 0`` (cos sector, dipole order).
+# Z-derivative-bearing row; gets the FULL substep-H.a.6 rescale
+# (row * i + col-by-(-i) on C_qSV).
+#
+# **VTI sigma_rz formula**:
+#
+#       sigma_rz = 2 C44 epsilon_rz = C44 (d_z u_r + d_r u_z)
+#
+# Pure C44 shear -- no Lame replacement (C44 is the constitutive
+# shear modulus). Same form as H.c.1.c's n=0 row 3, plus the new
+# D_SH column at n=1.
+#
+# **P_qX combination reused from H.c.1.c**:
+#
+#       P_qX = C11 alpha_qX^2 + C13 k_z^2 + rho omega^2
+#
+# Reduces to ``2 (lambda + mu) k_z^2`` for qP at isotropic limit;
+# to ``(lambda + mu)(2 k_z^2 - k_S^2)`` for qSV.
+#
+# The P_qX combination naturally appears via the algebraic identity
+# ``i k_z + z_qX_polarization = i P_qX / [(C13+C44) k_z]`` (qP) or
+# ``k_z^2 - z_qSV alpha_qSV = P_qSV / (C13+C44)`` (qSV) -- the
+# (i k_z + z_X) sum collapses to a clean P_qX expression at the
+# wall.
+#
+# **D_SH at row 4**: D enters via ``d_z u_r`` from
+# ``(1/r) d_theta psi_z`` in u_r. ``d_r u_z`` from D is zero
+# (curl_z drops psi_z, so u_z has no D contribution). The
+# d_z u_r contribution gives ``+i k_z C44 D K_1(alpha_SH a)/a``
+# pre-rescale; row * i flips to ``-k_z C44 K_1/a`` post-rescale,
+# matching M44.
+#
+# **Row 4 entries (post-rescale)**:
+#
+#       row[0] = 0                                          # A (no shear)
+#       row[1] = +C44 P_qP / [(C13 + C44) k_z]
+#                * (alpha_qP K_0(alpha_qP a)
+#                   + K_1(alpha_qP a) / a)                  # B_qP -> M42
+#       row[2] = +C44 P_qSV / (C13 + C44)
+#                * K_1(alpha_qSV a)                         # C_qSV -> M43
+#       row[3] = -k_z C44 K_1(alpha_SH a) / a               # D_SH -> M44
+#
+# Note: the B_qP entry has the TWO-TERM ``alpha_qP K_0 + K_1/a``
+# combination at n=1 (vs the single ``K_1`` term at n=0 in
+# H.c.1.c row 3). Same Bessel-derivative pattern as row 1 (H.d.1)
+# reflecting the K_1-indexed qP scalar potential at n=1.
+
+
+def _modal_row4_at_a_n1_vti(
+    kz: float,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> np.ndarray:
+    r"""
+    Row 4 of the n=1 VTI flexural modal determinant evaluated at
+    the borehole wall ``r = a``.
+
+    Encodes the axial-shear-vanishing BC ``sigma_rz^{(s)}(a) = 0``
+    (cos sector, dipole order). Z-derivative-bearing; gets the
+    FULL substep-H.a.6 rescale (``row * i`` + ``col-by-(-i)`` on
+    C_qSV). Returns the four post-rescale coefficients in column
+    order ``[A | B_qP, C_qSV, D_SH]``.
+
+    Parameters
+    ----------
+    kz, omega : float
+        Axial wavenumber and angular frequency.
+    c11, c13, c33, c44, c66 : float
+        VTI stiffness tensor entries (Pa). All used:
+        ``c11, c13, c44`` set P_qX combinations on B_qP and C_qSV
+        columns; ``c44`` is the outer constitutive shear modulus
+        (the only C-matrix term in the D_SH column);
+        ``c66`` doesn't appear directly in the entries but
+        affects ``alpha_SH`` via the SH Christoffel branch.
+    rho : float
+        Formation density (kg/m^3).
+    vf, rho_f : float
+        Fluid velocity / density. Not used (fluid carries no
+        shear); carried for signature uniformity.
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    ndarray, shape (4,) complex
+        Coefficients of (A, B_qP, C_qSV, D_SH) in row 4. Real-
+        valued in the bound regime.
+
+    See Also
+    --------
+    _modal_determinant_n1 : Isotropic n=1 form. At isotropic-
+        collapse, ``row[0] = M41 = 0``, ``row[1] = M42``,
+        ``row[2] = M43``, ``row[3] = M44`` bit-exactly.
+    _modal_row3_at_a_vti : The n=0 sigma_rz counterpart. The n=1
+        form adds D_SH (cross-coupled via ``d_z u_r`` from
+        ``(1/r) d_theta psi_z``) and uses the two-term
+        ``alpha_qP K_0 + K_1/a`` combination on B_qP (vs single
+        K_1 at n=0).
+    """
+    del vf, rho_f  # not used by row 4 (fluid no shear)
+    alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti(
+        kz, omega, c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho,
+    )
+
+    K0_qP_a = float(special.kv(0, alpha_qP * a))
+    K1_qP_a = float(special.kv(1, alpha_qP * a))
+    K1_qSV_a = float(special.kv(1, alpha_qSV * a))
+    K1_SH_a = float(special.kv(1, alpha_SH * a))
+
+    rho_omega_sq = rho * omega * omega
+    p_qP = c11 * alpha_qP * alpha_qP + c13 * kz * kz + rho_omega_sq
+    p_qSV = c11 * alpha_qSV * alpha_qSV + c13 * kz * kz + rho_omega_sq
+
+    row = np.zeros(4, dtype=complex)
+    # A column: fluid carries no shear at the wall.
+    row[0] = 0.0
+    # B_qP column: C44 P_qP / [(C13+C44) kz] times the two-term
+    # alpha_qP K_0 + K_1/a combination. At isotropic alpha_qP -> p,
+    # P_qP -> 2(lambda+mu) kz^2, gives 2 mu kz (p K_0 + K_1/a) = M42.
+    row[1] = (
+        +c44 * p_qP / ((c13 + c44) * kz)
+        * (alpha_qP * K0_qP_a + K1_qP_a / a)
+    )
+    # C_qSV column post-rescale: C44 P_qSV / (C13 + C44) * K_1.
+    # At isotropic P_qSV / (C13+C44) -> (2 kz^2 - kS^2), gives
+    # mu (2 kz^2 - kS^2) K_1(sa) = M43.
+    row[2] = +c44 * p_qSV / (c13 + c44) * K1_qSV_a
+    # D_SH column post-rescale: -kz C44 K_1(alpha_SH a)/a.
+    # Matches M44 at alpha_SH -> s, C44 -> mu.
+    row[3] = -kz * c44 * K1_SH_a / a
+    return row
+

@@ -42,6 +42,7 @@ from fwap.cylindrical_solver import (
     _modal_row2_at_a_n1_vti,
     _modal_row2_at_a_vti,
     _modal_row3_at_a_n1_vti,
+    _modal_row4_at_a_n1_vti,
     _modal_row3_at_a_vti,
     _modal_determinant_n0_vti,
     _is_isotropic_stiffness,
@@ -6751,3 +6752,159 @@ def test_modal_row3_at_a_n1_vti_BqP_CqSV_scale_linearly_with_C66():
     aqp_b, aqsv_b, _ = _radial_wavenumbers_vti(kz, omega, **cij_b, rho=rho)
     assert aqp_a == aqp_b
     assert aqsv_a == aqsv_b
+
+
+# =====================================================================
+# Plan item H.d.4 -- row 4 of the n=1 VTI flexural determinant (r=a)
+# =====================================================================
+#
+# Z-derivative-bearing cos-sector row (sigma_rz = 0). Pure C44
+# shear; uses the P_qX combination from H.c.1.c. Adds the D_SH
+# column at n=1 (via d_z u_r from (1/r) d_theta psi_z).
+
+
+def test_modal_row4_at_a_n1_vti_isotropic_collapse_matches_M41_M42_M43_M44():
+    """Floating-point oracle for H.d.4: at isotropic stiffness,
+    row 4 matches M41, M42, M43, M44 of :func:`_modal_determinant_n1`
+    to floating-point precision."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _modal_row4_at_a_n1_vti(
+        kz, omega, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+
+    p = float(np.sqrt(kz * kz - (omega / vp) ** 2))
+    s = float(np.sqrt(kz * kz - (omega / vs) ** 2))
+    from scipy import special as sp
+
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    M41 = 0.0
+    M42 = 2.0 * kz * mu * (
+        p * float(sp.kv(0, p * a)) + float(sp.kv(1, p * a)) / a
+    )
+    M43 = mu * two_kz2_minus_kS2 * float(sp.kv(1, s * a))
+    M44 = -kz * mu * float(sp.kv(1, s * a)) / a
+
+    assert row[0].real == pytest.approx(M41)
+    assert row[1].real == pytest.approx(M42, rel=1.0e-12)
+    assert row[2].real == pytest.approx(M43, rel=1.0e-12)
+    assert row[3].real == pytest.approx(M44, rel=1.0e-12)
+
+
+def test_modal_row4_at_a_n1_vti_fluid_column_is_zero():
+    """Column A is identically zero (fluid carries no shear)."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    omega = 2.0 * np.pi * 5000.0
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    row = _modal_row4_at_a_n1_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert row[0] == 0.0
+    for i in (1, 2, 3):
+        assert row[i] != 0.0
+
+
+def test_modal_row4_at_a_n1_vti_is_real_in_bound_regime():
+    """Substep H.a.6: row 4 is z-derivative-bearing -- gets the
+    FULL rescale (row * i + col-by-(-i) on C_qSV). Both rescales
+    must be correctly applied for the post-rescale row to be
+    real-valued. Forgetting the row * i (the F.2.a.5-flagged
+    transcription error mode) leaves a non-zero imaginary part.
+    """
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    omega = 2.0 * np.pi * 5000.0
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    row = _modal_row4_at_a_n1_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e-14)
+
+
+def test_modal_row4_at_a_n1_vti_matches_closed_form_per_column():
+    """Per-column transcription check against the H.d.4 derivation
+    closed forms. Verifies the two-term ``alpha_qP K_0 + K_1/a``
+    combination on B_qP (vs the single K_1 term in H.c.1.c row 3
+    at n=0)."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    omega = 2.0 * np.pi * 5000.0
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+    a = 0.1
+
+    row = _modal_row4_at_a_n1_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=a,
+    )
+    alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti(
+        kz, omega, **cij, rho=rho,
+    )
+    rho_omega_sq = rho * omega ** 2
+    p_qP = cij["c11"] * alpha_qP ** 2 + cij["c13"] * kz ** 2 + rho_omega_sq
+    p_qSV = cij["c11"] * alpha_qSV ** 2 + cij["c13"] * kz ** 2 + rho_omega_sq
+    from scipy import special as sp
+
+    expected_BqP = (
+        +cij["c44"] * p_qP / ((cij["c13"] + cij["c44"]) * kz)
+        * (
+            alpha_qP * float(sp.kv(0, alpha_qP * a))
+            + float(sp.kv(1, alpha_qP * a)) / a
+        )
+    )
+    expected_CqSV = (
+        +cij["c44"] * p_qSV / (cij["c13"] + cij["c44"])
+        * float(sp.kv(1, alpha_qSV * a))
+    )
+    expected_DSH = -kz * cij["c44"] * float(sp.kv(1, alpha_SH * a)) / a
+
+    assert row[0] == 0.0
+    assert row[1].real == pytest.approx(expected_BqP, rel=1.0e-12)
+    assert row[2].real == pytest.approx(expected_CqSV, rel=1.0e-12)
+    assert row[3].real == pytest.approx(expected_DSH, rel=1.0e-12)
+
+
+def test_modal_row4_at_a_n1_vti_C66_independent_except_via_alpha_SH():
+    """B_qP and C_qSV entries are C66-INDEPENDENT (entries depend
+    only on C11, C13, C44 via P_qX and the Christoffel roots
+    alpha_qP, alpha_qSV -- which themselves don't see C66). The
+    D_SH column DOES depend on C66 (via alpha_SH only).
+
+    Verify by varying C66 and checking that B_qP and C_qSV are
+    unchanged while D_SH changes."""
+    cij_a = _typical_vti_params()
+    cij_b = dict(cij_a)
+    cij_b["c66"] = cij_a["c66"] * 1.50
+    rho = cij_a.pop("rho")
+    cij_b.pop("rho")
+    omega = 2.0 * np.pi * 5000.0
+    vsv = float(np.sqrt(cij_a["c44"] / rho))
+    vsh_a = float(np.sqrt(cij_a["c66"] / rho))
+    vsh_b = float(np.sqrt(cij_b["c66"] / rho))
+    kz = omega / min(vsv, vsh_a, vsh_b, 1500.0) * 1.5
+
+    row_a = _modal_row4_at_a_n1_vti(
+        kz, omega, **cij_a, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    row_b = _modal_row4_at_a_n1_vti(
+        kz, omega, **cij_b, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    # B_qP and C_qSV unchanged (C66-independent).
+    assert row_a[1].real == pytest.approx(row_b[1].real, rel=1.0e-12)
+    assert row_a[2].real == pytest.approx(row_b[2].real, rel=1.0e-12)
+    # D_SH differs (alpha_SH depends on C66).
+    assert row_a[3].real != row_b[3].real
