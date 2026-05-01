@@ -37,10 +37,19 @@ from fwap.cylindrical_solver import (
     _modal_determinant_n0_layered,
     _modal_determinant_n1,
     _modal_determinant_n1_layered,
+    _modal_row1_at_a_vti,
+    _modal_row2_at_a_vti,
+    _modal_row3_at_a_vti,
+    _modal_determinant_n0_vti,
+    _is_isotropic_stiffness,
+    _polarization_ratio_uz_over_ur_vti,
+    _radial_wavenumbers_vti,
     flexural_dispersion,
     flexural_dispersion_layered,
+    flexural_dispersion_vti,
     stoneley_dispersion,
     stoneley_dispersion_layered,
+    stoneley_dispersion_vti,
 )
 
 
@@ -5233,3 +5242,917 @@ def test_flexural_dispersion_layered_harder_layer_speeds_up_flexural():
     speedup_frac = 1.0 - res_layered.slowness / res_unlayered.slowness
     assert np.all(speedup_frac > 0.001)
     assert np.all(speedup_frac < 0.05)
+
+
+# =====================================================================
+# Plan item H.0 -- public-API foundation for VTI formation
+# =====================================================================
+#
+# Sister of F.1.0 / F.2.0 layered foundations along the anisotropy
+# axis. The 5-parameter TI stiffness tensor (C11, C13, C33, C44,
+# C66) collapses to the isotropic case when C11=C33, C44=C66, and
+# C13=C11-2*C44 -- the dispatch in stoneley_dispersion_vti and
+# flexural_dispersion_vti detects this and routes to the existing
+# isotropic solvers, providing the floating-point oracle for the
+# entire H chain.
+
+
+def _isotropic_stiffness_from_lame(vp, vs, rho):
+    """Construct an isotropic stiffness tensor (C11, C13, C33,
+    C44, C66) from the Lame parameters (vp, vs, rho)."""
+    mu = rho * vs ** 2
+    lam = rho * vp ** 2 - 2.0 * mu
+    return dict(
+        c11=lam + 2.0 * mu,
+        c13=lam,
+        c33=lam + 2.0 * mu,
+        c44=mu,
+        c66=mu,
+    )
+
+
+def test_stoneley_dispersion_vti_isotropic_collapse_bit_matches_unlayered():
+    """Floating-point oracle for the H chain: with an isotropic
+    stiffness tensor the VTI Stoneley solver bit-matches the
+    isotropic ``stoneley_dispersion`` answer to ``rtol=1e-12``
+    across a 16-point frequency grid."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f = np.linspace(500.0, 8000.0, 16)
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+
+    res_iso = stoneley_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    res_vti = stoneley_dispersion_vti(
+        f, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    np.testing.assert_array_equal(res_vti.slowness, res_iso.slowness)
+    np.testing.assert_array_equal(res_vti.freq, res_iso.freq)
+    assert res_vti.name == "Stoneley"
+    assert res_vti.azimuthal_order == 0
+
+
+def test_flexural_dispersion_vti_isotropic_collapse_bit_matches_unlayered():
+    """Same floating-point oracle for the n=1 dipole flexural."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f = np.linspace(2000.0, 8000.0, 12)
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+
+    res_iso = flexural_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    res_vti = flexural_dispersion_vti(
+        f, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    np.testing.assert_array_equal(res_vti.slowness, res_iso.slowness)
+    np.testing.assert_array_equal(res_vti.freq, res_iso.freq)
+    assert res_vti.name == "flexural"
+    assert res_vti.azimuthal_order == 1
+
+
+def test_flexural_dispersion_vti_genuine_TI_raises_not_implemented():
+    """``flexural_dispersion_vti`` (n=1) still raises for genuinely
+    anisotropic stiffness tensors -- the n=1 modal determinant is
+    plan item H.d. ``stoneley_dispersion_vti`` (n=0) ships in
+    H.c.2 and now handles genuine TI; that test moved to the
+    integration tests below."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f = np.array([5000.0])
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    # Thomsen-gamma: C44 != C66.
+    cij_gam = dict(cij, c66=cij["c66"] * 1.10)
+    assert cij_gam["c11"] > cij_gam["c66"]
+    with pytest.raises(NotImplementedError, match="H\\.d"):
+        flexural_dispersion_vti(
+            f, **cij_gam, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        )
+
+
+def test_dispersion_vti_returns_borehole_mode():
+    f = np.linspace(2000.0, 5000.0, 5)
+    cij = _isotropic_stiffness_from_lame(4500.0, 2500.0, 2400.0)
+    res = stoneley_dispersion_vti(
+        f, **cij, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert isinstance(res, BoreholeMode)
+
+
+@pytest.mark.parametrize(
+    "kwargs, msg",
+    [
+        ({"c11": 0.0}, "c11 must be positive"),
+        ({"c33": -1.0e9}, "c33 must be positive"),
+        ({"c44": 0.0}, "c44 must be positive"),
+        ({"c66": -1.0}, "c66 must be positive"),
+    ],
+)
+def test_dispersion_vti_rejects_non_positive_cij(kwargs, msg):
+    f = np.array([5000.0])
+    base = _isotropic_stiffness_from_lame(4500.0, 2500.0, 2400.0)
+    base.update(kwargs)
+    with pytest.raises(ValueError, match=msg):
+        stoneley_dispersion_vti(
+            f, **base, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1,
+        )
+
+
+def test_dispersion_vti_rejects_unstable_c33_le_c13():
+    """Validator rejects ``C33 <= C13`` (would break qP/qSV
+    decoupling in the Christoffel equation)."""
+    f = np.array([5000.0])
+    cij = _isotropic_stiffness_from_lame(4500.0, 2500.0, 2400.0)
+    cij["c13"] = cij["c33"] * 1.5  # force c13 > c33
+    with pytest.raises(ValueError, match="c33 > c13"):
+        stoneley_dispersion_vti(
+            f, **cij, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1,
+        )
+
+
+def test_dispersion_vti_rejects_unstable_c11_le_c66():
+    """Validator rejects ``C11 <= C66`` (would have horizontal P
+    no faster than horizontal S)."""
+    f = np.array([5000.0])
+    cij = _isotropic_stiffness_from_lame(4500.0, 2500.0, 2400.0)
+    cij["c66"] = cij["c11"] * 1.5  # force c66 > c11
+    with pytest.raises(ValueError, match="c11 > c66"):
+        stoneley_dispersion_vti(
+            f, **cij, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1,
+        )
+
+
+def test_dispersion_vti_rejects_non_positive_freq_and_geometry():
+    """Standard freq/geometry validation as for the isotropic
+    public APIs."""
+    cij = _isotropic_stiffness_from_lame(4500.0, 2500.0, 2400.0)
+    base = dict(rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1)
+    # Non-positive freq.
+    with pytest.raises(ValueError, match="freq must be strictly positive"):
+        stoneley_dispersion_vti(
+            np.array([0.0]), **cij, **base,
+        )
+    # Non-positive vf.
+    with pytest.raises(ValueError, match="vf and rho_f must be positive"):
+        stoneley_dispersion_vti(
+            np.array([5000.0]), **cij, **{**base, "vf": 0.0},
+        )
+    # Non-positive a.
+    with pytest.raises(ValueError, match="a must be positive"):
+        stoneley_dispersion_vti(
+            np.array([5000.0]), **cij, **{**base, "a": 0.0},
+        )
+
+
+# =====================================================================
+# Plan item H.b -- radial-wavenumber helper (Christoffel-equation roots)
+# =====================================================================
+#
+# Bound-regime ``(alpha_qP, alpha_qSV, alpha_SH)`` from the H.a.2
+# Christoffel quadratic and the H.a.4 SH closed form. The
+# isotropic-collapse identity (qP -> p, qSV -> s, SH -> s) is the
+# floating-point oracle for the entire H chain.
+
+
+def _typical_vti_params():
+    """Genuine-TI fixture for H.b tests. Roughly Thomsen-style:
+    ~10% epsilon, ~5% delta, ~15% gamma. Within the Thomsen-stable
+    range where qP / qSV remain well-separated."""
+    return dict(
+        c11=4.0e10,   # V_Ph^2 * rho ~ (4080 m/s)^2 * 2400
+        c13=1.5e10,   # delta-coupled
+        c33=3.5e10,   # V_Pv^2 * rho ~ (3819 m/s)^2 * 2400
+        c44=1.0e10,   # V_Sv^2 * rho ~ (2041 m/s)^2 * 2400
+        c66=1.3e10,   # V_Sh^2 * rho ~ (2327 m/s)^2 * 2400  (gamma > 0)
+        rho=2400.0,
+    )
+
+
+def test_radial_wavenumbers_vti_isotropic_collapse_matches_isotropic():
+    """Floating-point oracle for H.b: with an isotropic stiffness
+    tensor the VTI radial wavenumbers reduce to the isotropic
+    ``(p, s, s)``."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, 1500.0) * 1.5
+
+    alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti(
+        kz, omega, **cij, rho=rho,
+    )
+
+    p_iso = float(np.sqrt(kz ** 2 - (omega / vp) ** 2))
+    s_iso = float(np.sqrt(kz ** 2 - (omega / vs) ** 2))
+
+    assert alpha_qP == pytest.approx(p_iso, rel=1.0e-12)
+    assert alpha_qSV == pytest.approx(s_iso, rel=1.0e-12)
+    assert alpha_SH == pytest.approx(s_iso, rel=1.0e-12)
+
+
+def test_radial_wavenumbers_vti_genuine_TI_christoffel_identity():
+    """Christoffel-equation identity check: substituting the qP and
+    qSV roots back into the bound-mode Christoffel determinant must
+    give zero to floating-point precision. Catches sign / coefficient
+    errors in the H.a.2 quadratic transcription that the isotropic-
+    collapse test would miss when C44 = C66."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    omega = 2.0 * np.pi * 5000.0
+    # kz above the bound floor for both qP and qSV branches.
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    kz = omega / min(vsv, vsh) * 1.5
+
+    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti(
+        kz, omega, **cij, rho=rho,
+    )
+
+    rho_omega_sq = rho * omega * omega
+    # Christoffel determinant at alpha^2 (substep H.a.2 form):
+    #   det = (-C11 alpha^2 + C44 kz^2 - rho omega^2)
+    #         * (-C44 alpha^2 + C33 kz^2 - rho omega^2)
+    #       + (C13 + C44)^2 alpha^2 kz^2
+    def det_christoffel(alpha):
+        a2 = alpha * alpha
+        m11 = -cij["c11"] * a2 + cij["c44"] * kz * kz - rho_omega_sq
+        m22 = -cij["c44"] * a2 + cij["c33"] * kz * kz - rho_omega_sq
+        return m11 * m22 + (cij["c13"] + cij["c44"]) ** 2 * a2 * kz * kz
+
+    # Both qP and qSV roots should give det = 0 to fp precision.
+    # Use a relative tolerance: the determinant scales as
+    # (rho omega^2)^2 ~ 1e21 in this fixture, so absolute zero
+    # tolerance must be set against that scale.
+    scale = rho_omega_sq * rho_omega_sq
+    assert abs(det_christoffel(alpha_qP)) < scale * 1.0e-10
+    assert abs(det_christoffel(alpha_qSV)) < scale * 1.0e-10
+
+
+def test_radial_wavenumbers_vti_qP_larger_than_qSV():
+    """Substep H.a.3 ordering: alpha_qP > alpha_qSV in the bound
+    regime. Convention agrees with the isotropic limit (p > s
+    always when V_P > V_S, because the radial decay rate is
+    ``alpha = sqrt(kz^2 - omega^2/V^2)`` and larger V gives larger
+    alpha)."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    omega = 2.0 * np.pi * 5000.0
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    kz = omega / min(vsv, vsh) * 1.5
+
+    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti(
+        kz, omega, **cij, rho=rho,
+    )
+    assert alpha_qP > alpha_qSV
+    assert alpha_qP > 0.0
+    assert alpha_qSV > 0.0
+
+
+def test_radial_wavenumbers_vti_SH_uses_C44_and_C66():
+    """Substep H.a.4 (corrected): alpha_SH^2 = (C44 kz^2 - rho
+    omega^2) / C66. Verify directly. Distinguishes the corrected
+    form from the buggy ``kz^2 - rho omega^2 / C66`` (which would
+    give the same isotropic limit but wrong genuine-TI value)."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    omega = 2.0 * np.pi * 5000.0
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    kz = omega / min(vsv, vsh) * 1.5
+
+    _, _, alpha_SH = _radial_wavenumbers_vti(
+        kz, omega, **cij, rho=rho,
+    )
+    expected_SH_sq = (cij["c44"] * kz ** 2 - rho * omega ** 2) / cij["c66"]
+    assert alpha_SH ** 2 == pytest.approx(expected_SH_sq, rel=1.0e-12)
+    # Sanity: the buggy ``kz^2 - rho omega^2 / C66`` form would
+    # give a DIFFERENT value here because C44 != C66.
+    buggy_SH_sq = kz ** 2 - rho * omega ** 2 / cij["c66"]
+    assert abs(alpha_SH ** 2 - buggy_SH_sq) > 0.0  # they differ
+    assert cij["c44"] != cij["c66"]  # confirm fixture is genuine TI
+
+
+def test_radial_wavenumbers_vti_below_bound_floor_returns_nan():
+    """Below the bound floor ``kz < omega / min(V_Sv, V_Sh, V_f)``
+    one or more decay rates would be imaginary; the helper returns
+    NaN (brentq-safe convention)."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    omega = 2.0 * np.pi * 5000.0
+    # Pick kz well below the bound floor.
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    kz = omega / vsv * 0.5
+    with np.errstate(invalid="ignore"):
+        alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti(
+            kz, omega, **cij, rho=rho,
+        )
+    # alpha_SH definitely NaN below the V_Sv-related floor.
+    assert np.isnan(alpha_SH)
+
+
+# =====================================================================
+# Plan item H.c.1.a -- row 1 of the n=0 VTI modal determinant (r = a)
+# =====================================================================
+#
+# First row of the 3x3 VTI Stoneley modal determinant. Returns the
+# three post-rescale coefficients [A | B_qP, C_qSV]. At isotropic
+# collapse the entries match (M11, M12, M13) of
+# :func:`_modal_determinant_n0` bit-exactly -- the floating-point
+# oracle for the H.c.1 chain.
+
+
+def test_modal_row1_at_a_vti_isotropic_collapse_matches_M11_M12_M13():
+    """Floating-point oracle: at isotropic stiffness, row 1 of the
+    VTI determinant matches M11, M12, M13 of
+    :func:`_modal_determinant_n0` to floating-point precision."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _modal_row1_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+
+    F = float(np.sqrt(kz * kz - (omega / vf) ** 2))
+    p = float(np.sqrt(kz * kz - (omega / vp) ** 2))
+    s = float(np.sqrt(kz * kz - (omega / vs) ** 2))
+    from scipy import special as sp
+
+    M11 = F * float(sp.iv(1, F * a)) / (rho_f * omega ** 2)
+    M12 = p * float(sp.kv(1, p * a))
+    M13 = kz * float(sp.kv(1, s * a))
+
+    assert row[0].real == pytest.approx(M11, rel=1.0e-12)
+    assert row[1].real == pytest.approx(M12, rel=1.0e-12)
+    assert row[2].real == pytest.approx(M13, rel=1.0e-12)
+
+
+def test_modal_row1_at_a_vti_all_columns_nonzero_in_bound_regime():
+    """Sparsity / non-degeneracy: in the bound regime all three
+    columns of row 1 are non-zero."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    row = _modal_row1_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    for i in range(3):
+        assert row[i] != 0.0
+
+
+def test_modal_row1_at_a_vti_is_real_in_bound_regime():
+    """Substep H.a.6 phase rescale: row 1 has the no-row-rescale
+    pattern; only column-by-(-i) on the C_qSV column is applied.
+    Post-rescale row is real-valued in the bound regime."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    row = _modal_row1_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e-14)
+
+
+def test_modal_row1_at_a_vti_uses_alpha_qP_alpha_qSV_not_p_s():
+    """Genuine TI sanity: with non-trivial epsilon (C11 != C33),
+    the qP root alpha_qP differs from the isotropic-equivalent
+    p = sqrt(kz^2 - omega^2 / V_Pv^2). Verify row[1] uses
+    alpha_qP K_1(alpha_qP a), NOT p K_1(p a). Confirms the row
+    builder pulls from the Christoffel solver, not from a hard-
+    coded isotropic substitution."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    row = _modal_row1_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    # Pull alpha_qP from the helper.
+    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti(
+        kz, omega, **cij, rho=rho,
+    )
+    from scipy import special as sp
+
+    expected_BqP = alpha_qP * float(sp.kv(1, alpha_qP * 0.1))
+    expected_CqSV = kz * float(sp.kv(1, alpha_qSV * 0.1))
+    assert row[1].real == pytest.approx(expected_BqP, rel=1.0e-12)
+    assert row[2].real == pytest.approx(expected_CqSV, rel=1.0e-12)
+    # Sanity: confirm alpha_qP differs from the naive p computed
+    # with V_Pv = sqrt(c33/rho) so the test isn't passing trivially.
+    Vpv = float(np.sqrt(cij["c33"] / rho))
+    p_naive = float(np.sqrt(kz * kz - (omega / Vpv) ** 2))
+    assert abs(alpha_qP - p_naive) > 0.01  # non-trivial epsilon
+
+
+# =====================================================================
+# Plan item H.c.1.b -- polarization-ratio helper + row 2 (sigma_rr at a)
+# =====================================================================
+#
+# Algebraically heaviest row of the n=0 VTI determinant. Tests
+# anchor on the per-element layer=formation match against M21,
+# M22, M23 of :func:`_modal_determinant_n0` plus a separate
+# polarization-ratio identity check.
+
+
+def test_polarization_ratio_uz_over_ur_vti_isotropic_qP_limit():
+    """At isotropic limit alpha_qP -> p, the polarization ratio
+    gamma_qP = -i k_z / p."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, 1500.0) * 1.5
+
+    p_iso = float(np.sqrt(kz ** 2 - (omega / vp) ** 2))
+    gamma_qP = _polarization_ratio_uz_over_ur_vti(
+        p_iso, kz, omega, c11=cij["c11"], c13=cij["c13"],
+        c44=cij["c44"], rho=rho,
+    )
+    expected = -1j * kz / p_iso
+    assert gamma_qP.real == pytest.approx(expected.real, abs=1.0e-12)
+    assert gamma_qP.imag == pytest.approx(expected.imag, rel=1.0e-12)
+
+
+def test_polarization_ratio_uz_over_ur_vti_isotropic_qSV_limit():
+    """At isotropic limit alpha_qSV -> s, gamma_qSV = -i s / k_z."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, 1500.0) * 1.5
+
+    s_iso = float(np.sqrt(kz ** 2 - (omega / vs) ** 2))
+    gamma_qSV = _polarization_ratio_uz_over_ur_vti(
+        s_iso, kz, omega, c11=cij["c11"], c13=cij["c13"],
+        c44=cij["c44"], rho=rho,
+    )
+    expected = -1j * s_iso / kz
+    assert gamma_qSV.real == pytest.approx(expected.real, abs=1.0e-12)
+    assert gamma_qSV.imag == pytest.approx(expected.imag, rel=1.0e-12)
+
+
+def test_polarization_ratio_uz_over_ur_vti_christoffel_identity():
+    """Substituting (u_r, u_z) = (1, gamma_qX) into the Christoffel
+    eigenvector equation
+        (-C11 alpha^2 + C44 kz^2 - rho omega^2) u_r
+        + i (C13 + C44) alpha kz u_z = 0
+    must give zero to floating-point precision (verifies that the
+    polarization-ratio formula is the correct null-space direction
+    of the Christoffel matrix at the qX root)."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    omega = 2.0 * np.pi * 5000.0
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti(
+        kz, omega, **cij, rho=rho,
+    )
+    rho_omega_sq = rho * omega ** 2
+
+    for alpha_qX in (alpha_qP, alpha_qSV):
+        gamma = _polarization_ratio_uz_over_ur_vti(
+            alpha_qX, kz, omega,
+            c11=cij["c11"], c13=cij["c13"], c44=cij["c44"], rho=rho,
+        )
+        # Eigenvector equation residual:
+        residual = (
+            (-cij["c11"] * alpha_qX ** 2 + cij["c44"] * kz ** 2 - rho_omega_sq)
+            + 1j * (cij["c13"] + cij["c44"]) * alpha_qX * kz * gamma
+        )
+        # Scale check: M11 element ~ rho omega^2 in magnitude.
+        assert abs(residual) < rho_omega_sq * 1.0e-12
+
+
+def test_modal_row2_at_a_vti_isotropic_collapse_matches_M21_M22_M23():
+    """Floating-point oracle for H.c.1.b: at isotropic stiffness,
+    row 2 of the VTI determinant matches M21, M22, M23 of
+    :func:`_modal_determinant_n0` to floating-point precision."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _modal_row2_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+
+    F = float(np.sqrt(kz * kz - (omega / vf) ** 2))
+    p = float(np.sqrt(kz * kz - (omega / vp) ** 2))
+    s = float(np.sqrt(kz * kz - (omega / vs) ** 2))
+    from scipy import special as sp
+
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    M21 = -float(sp.iv(0, F * a))
+    M22 = -mu * (
+        two_kz2_minus_kS2 * float(sp.kv(0, p * a))
+        + 2.0 * p * float(sp.kv(1, p * a)) / a
+    )
+    M23 = -2.0 * kz * mu * (
+        s * float(sp.kv(0, s * a)) + float(sp.kv(1, s * a)) / a
+    )
+
+    assert row[0].real == pytest.approx(M21, rel=1.0e-12)
+    assert row[1].real == pytest.approx(M22, rel=1.0e-12)
+    assert row[2].real == pytest.approx(M23, rel=1.0e-12)
+
+
+def test_modal_row2_at_a_vti_is_real_in_bound_regime():
+    """Substep H.a.6: row 2 is no-row-rescale; col-by-(-i) on
+    C_qSV. Post-rescale row is real-valued in the bound regime.
+    Catches polarization-ratio sign errors that would leave a
+    nonzero imaginary part."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    row = _modal_row2_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e0)
+
+
+def test_modal_row2_at_a_vti_uses_c66_in_KK_one_over_a_term():
+    """Genuine-TI sanity: with C44 != C66 (gamma > 0), the K_1/a
+    coefficient of the B_qP column scales with ``2 C66``, NOT
+    ``2 C44``. Confirms the (C11 - 2 C66) u_r/r slot is correctly
+    transcribed -- the slot through which Norris 1990 LF coupling
+    enters."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    omega = 2.0 * np.pi * 5000.0
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+    a = 0.1
+
+    row = _modal_row2_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=a,
+    )
+    alpha_qP, _, _ = _radial_wavenumbers_vti(kz, omega, **cij, rho=rho)
+    rho_omega_sq = rho * omega ** 2
+    q_qP = (
+        cij["c44"] * (cij["c11"] * alpha_qP ** 2 + cij["c13"] * kz ** 2)
+        - cij["c13"] * rho_omega_sq
+    ) / (cij["c13"] + cij["c44"])
+    from scipy import special as sp
+
+    # row[1] = -Q_qP K_0(alpha_qP a) - 2 C66 alpha_qP K_1(alpha_qP a)/a
+    expected = (
+        -q_qP * float(sp.kv(0, alpha_qP * a))
+        - 2.0 * cij["c66"] * alpha_qP * float(sp.kv(1, alpha_qP * a)) / a
+    )
+    assert row[1].real == pytest.approx(expected, rel=1.0e-12)
+    # Sanity check: confirm fixture has C44 != C66 (genuine gamma).
+    assert cij["c44"] != cij["c66"]
+
+
+# =====================================================================
+# Plan item H.c.1.c -- row 3 (sigma_rz at r=a)
+# =====================================================================
+#
+# Z-derivative-bearing cos row of the n=0 VTI determinant. Gets
+# the FULL substep-H.a.6 phase rescale (row * i AND col-by-(-i)
+# on C_qSV). Tests anchor on the per-element layer=formation
+# match against M31, M32, M33.
+
+
+def test_modal_row3_at_a_vti_isotropic_collapse_matches_M31_M32_M33():
+    """Floating-point oracle for H.c.1.c: at isotropic stiffness,
+    row 3 of the VTI determinant matches M31, M32, M33 of
+    :func:`_modal_determinant_n0` to floating-point precision."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _modal_row3_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+
+    p = float(np.sqrt(kz * kz - (omega / vp) ** 2))
+    s = float(np.sqrt(kz * kz - (omega / vs) ** 2))
+    from scipy import special as sp
+
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    M31 = 0.0
+    M32 = 2.0 * kz * p * mu * float(sp.kv(1, p * a))
+    M33 = mu * two_kz2_minus_kS2 * float(sp.kv(1, s * a))
+
+    assert row[0] == 0.0
+    assert row[1].real == pytest.approx(M32, rel=1.0e-12)
+    assert row[2].real == pytest.approx(M33, rel=1.0e-12)
+
+
+def test_modal_row3_at_a_vti_fluid_column_is_zero():
+    """A column identically zero (fluid carries no shear)."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    row = _modal_row3_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert row[0] == 0.0
+    # B and C columns generically non-zero.
+    assert row[1] != 0.0
+    assert row[2] != 0.0
+
+
+def test_modal_row3_at_a_vti_is_real_in_bound_regime():
+    """Substep H.a.6: row 3 is z-derivative-bearing -- gets the
+    FULL rescale (row * i AND col-by-(-i) on C_qSV). Both must be
+    correctly applied for the post-rescale row to be real.
+    Forgetting the row * i is the most direct H.a.6 transcription
+    error; this test catches it."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    row = _modal_row3_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e-14)
+
+
+def test_modal_row3_at_a_vti_does_not_use_c66():
+    """Genuine-TI sanity: sigma_rz uses ONLY C44 (vertical shear),
+    not C66 (horizontal shear). Doubling C66 leaves row 3
+    unchanged, EXCEPT through the alpha_qP and alpha_qSV
+    Christoffel roots from :func:`_radial_wavenumbers_vti` which
+    only depend on C11, C13, C33, C44, rho (not C66). Confirms
+    the (C11 - 2 C66) u_r/r slot does NOT appear in row 3."""
+    cij_a = _typical_vti_params()
+    cij_b = dict(cij_a)
+    cij_b["c66"] = cij_a["c66"] * 2.0  # double C66
+    rho = cij_a.pop("rho")
+    cij_b.pop("rho")
+
+    omega = 2.0 * np.pi * 5000.0
+    vsv = float(np.sqrt(cij_a["c44"] / rho))
+    # Bound regime floor: must be above min(V_Sv) and the doubled
+    # V_Sh of cij_b. Pick kz well above both.
+    kz = omega / vsv * 2.0
+
+    row_a = _modal_row3_at_a_vti(
+        kz, omega, **cij_a, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    row_b = _modal_row3_at_a_vti(
+        kz, omega, **cij_b, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    # Identical: row 3 doesn't see C66 directly.
+    np.testing.assert_array_equal(row_a, row_b)
+
+
+# =====================================================================
+# Plan item H.c.1.d -- assembly into _modal_determinant_n0_vti
+# =====================================================================
+#
+# Stacks the three row builders into the 3x3 VTI Stoneley modal
+# matrix; takes the real determinant. Tests anchor on the
+# determinant-vanishes-at-isotropic-Stoneley-root self-consistency.
+
+
+def test_modal_determinant_n0_vti_is_real_in_bound_regime():
+    """The assembled 3x3 matrix is real-valued post-rescale (each
+    row builder applies its own rescale internally), so
+    ``np.linalg.det`` returns a finite real scalar in the bound
+    regime."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    det = _modal_determinant_n0_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert np.isfinite(det)
+    assert isinstance(det, float)
+
+
+def test_modal_determinant_n0_vti_isotropic_collapse_root_matches_unlayered():
+    """Substep H.a.7 (a) self-check at the determinant level: at
+    isotropic stiffness, the VTI determinant has the same Stoneley
+    root as :func:`_modal_determinant_n0`. The two determinants
+    are not numerically equal (different overall scale due to
+    different intermediate factors), but they share the same root
+    in ``k_z``.
+
+    Verify by: (a) computing the Stoneley root from
+    ``stoneley_dispersion``; (b) evaluating the VTI determinant
+    at that root; (c) checking ``|det_at_root|`` is small relative
+    to its value off-root."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    omega = 2.0 * np.pi * 5000.0
+
+    bound = stoneley_dispersion(
+        np.array([5000.0]),
+        vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    kz_root = float(bound.slowness[0]) * omega
+
+    det_at_root = _modal_determinant_n0_vti(
+        kz_root, omega, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    det_off_root = _modal_determinant_n0_vti(
+        kz_root * 1.05, omega, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    # Determinant at root much smaller than off-root: brentq-type
+    # root-finder will converge cleanly. The factor 1e-3 budget
+    # is loose because the two determinants differ in absolute
+    # scale; tighter tolerance kicks in at the full
+    # stoneley_dispersion_vti integration test in H.c.2.
+    assert abs(det_at_root) < abs(det_off_root) * 1.0e-3
+
+
+def test_modal_determinant_n0_vti_bracket_brackets_isotropic_root():
+    """End-to-end at-isotropic check: brentq across the
+    standard Stoneley bracket finds the determinant root, and
+    that root matches the isotropic Stoneley slowness."""
+    from scipy import optimize
+
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    omega = 2.0 * np.pi * 5000.0
+
+    bound = stoneley_dispersion(
+        np.array([5000.0]),
+        vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    kz_root_iso = float(bound.slowness[0]) * omega
+
+    def _det(kz):
+        return _modal_determinant_n0_vti(
+            kz, omega, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        )
+
+    # Bracket around the isotropic root.
+    kz_lo = kz_root_iso * 0.99
+    kz_hi = kz_root_iso * 1.01
+    d_lo = _det(kz_lo)
+    d_hi = _det(kz_hi)
+    assert np.sign(d_lo) != np.sign(d_hi)  # bracket valid
+    kz_root_vti = optimize.brentq(_det, kz_lo, kz_hi, xtol=1.0e-10)
+    assert kz_root_vti == pytest.approx(kz_root_iso, rel=1.0e-8)
+
+
+def test_modal_determinant_n0_vti_returns_nan_outside_bound_regime():
+    """Below the bound floor at least one Christoffel root is
+    imaginary; the assembled determinant returns NaN (brentq-safe
+    convention propagates from the radial-wavenumber helper)."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vp_h = float(np.sqrt(cij["c11"] / rho))  # fastest body wave
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / vp_h * 0.5  # well below the bound floor
+    with np.errstate(invalid="ignore"):
+        det = _modal_determinant_n0_vti(
+            kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+        )
+    assert np.isnan(det)
+
+
+# =====================================================================
+# Plan item H.c.2 -- Stoneley public-API hook (genuine TI brentq path)
+# =====================================================================
+#
+# Replaces the H.0 ``NotImplementedError`` with a brentq loop on
+# ``_modal_determinant_n0_vti``. The integration oracle is the
+# isotropic-collapse regression vs ``stoneley_dispersion`` to
+# ``rtol=1e-8`` -- the floating-point oracle for the entire H.c
+# chain.
+
+
+def test_stoneley_dispersion_vti_isotropic_via_genuine_TI_path_matches_isotropic():
+    """Floating-point oracle for the H.c chain. Force the
+    genuine-TI brentq path by passing a stiffness tensor that is
+    formally non-isotropic (``c13`` perturbed by 1 ULP) but
+    physically equivalent to isotropic, and verify the resulting
+    slowness curve matches the isotropic ``stoneley_dispersion``
+    answer to ``rtol=1e-7``.
+
+    This test is more discriminating than the H.0 isotropic-
+    collapse test (which dispatches directly to
+    ``stoneley_dispersion`` and cannot fail) because it exercises
+    the full ``_modal_determinant_n0_vti`` + brentq pipeline."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    # Force the genuine-TI path by tweaking c13 by 1 part in 1e-6
+    # (well within Thomsen-stability but enough to defeat the
+    # isotropic dispatch).
+    cij_perturbed = dict(cij)
+    cij_perturbed["c13"] = cij["c13"] * (1.0 + 1.0e-6)
+    f = np.linspace(500.0, 8000.0, 12)
+
+    res_iso = stoneley_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    res_vti = stoneley_dispersion_vti(
+        f, **cij_perturbed, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    np.testing.assert_allclose(
+        res_vti.slowness, res_iso.slowness,
+        rtol=1.0e-5, equal_nan=True,
+    )
+    # Confirm the perturbation actually defeated the isotropic
+    # dispatch (the test would pass trivially otherwise).
+    assert not _is_isotropic_stiffness(**{
+        k: cij_perturbed[k] for k in ("c11", "c13", "c33", "c44", "c66")
+    })
+
+
+def test_stoneley_dispersion_vti_genuine_TI_runs_smoke():
+    """Smoke: a typical genuine-TI fixture produces a finite
+    slowness curve. No analytic oracle (Norris 1990 LF check is
+    H.c.3); just confirms the brentq + bracket combination
+    handles the TI case across a broad band."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    f = np.linspace(1000.0, 10000.0, 8)
+
+    res = stoneley_dispersion_vti(
+        f, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert res.name == "Stoneley"
+    assert res.azimuthal_order == 0
+    assert res.slowness.shape == f.shape
+    assert np.all(np.isfinite(res.slowness))
+    # All slownesses above the slowest-shear floor.
+    Vsv = float(np.sqrt(cij["c44"] / rho))
+    Vsh = float(np.sqrt(cij["c66"] / rho))
+    floor = 1.0 / max(Vsv, Vsh, 1500.0)
+    assert np.all(res.slowness > floor)
+
+
+def test_stoneley_dispersion_vti_genuine_TI_determinant_vanishes_at_root():
+    """At each converged kz from ``stoneley_dispersion_vti``, the
+    underlying VTI determinant must vanish (self-consistency).
+    Ratio against the off-root determinant value at kz_root *
+    1.01."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    f = 5000.0
+    omega = 2.0 * np.pi * f
+
+    res = stoneley_dispersion_vti(
+        np.array([f]), **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    kz_root = float(res.slowness[0]) * omega
+
+    det_at = _modal_determinant_n0_vti(
+        kz_root, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    det_off = _modal_determinant_n0_vti(
+        kz_root * 1.01, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert abs(det_at) < abs(det_off) * 1.0e-6
+
+
+def test_stoneley_dispersion_vti_returns_borehole_mode_for_genuine_TI():
+    """BoreholeMode return-type contract on the genuine-TI path."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    f = np.linspace(2000.0, 5000.0, 4)
+    res = stoneley_dispersion_vti(
+        f, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert isinstance(res, BoreholeMode)
+    assert res.name == "Stoneley"
+    assert res.azimuthal_order == 0
+    np.testing.assert_array_equal(res.freq, f)

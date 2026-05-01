@@ -259,10 +259,12 @@ from fwap.cylindrical_solver import (
     BranchSegment,
     flexural_dispersion,
     flexural_dispersion_layered,
+    flexural_dispersion_vti,
     quadrupole_dispersion,
     segments_from_kz_curve,
     stoneley_dispersion,
     stoneley_dispersion_layered,
+    stoneley_dispersion_vti,
 )
 from fwap.cylindrical_solver import (
     pseudo_rayleigh_dispersion as pseudo_rayleigh_modal_dispersion,
@@ -423,8 +425,10 @@ __all__ = [
     "BranchSegment",
     "stoneley_dispersion",
     "stoneley_dispersion_layered",
+    "stoneley_dispersion_vti",
     "flexural_dispersion",
     "flexural_dispersion_layered",
+    "flexural_dispersion_vti",
     "pseudo_rayleigh_modal_dispersion",
     "quadrupole_dispersion",
     "segments_from_kz_curve",
