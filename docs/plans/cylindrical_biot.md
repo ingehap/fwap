@@ -7,6 +7,9 @@ leaky-mode finish of `fwap.cylindrical_solver`, D-E add the n=2
 azimuthal order, F-G add radial layering, H adds anisotropy, and I
 is a cross-cutting validation deliverable.
 
+**Status snapshot.** A, B, C, D, E, F, H — ✅ DONE. Remaining: G
+(cased-hole multi-layer) and I (validation notebook).
+
 ## Existing scaffolding to reuse
 
 `fwap.cylindrical_solver` already ships, as private helpers:
@@ -27,12 +30,21 @@ The bound-mode public APIs `stoneley_dispersion` (n=0) and
 `BoreholeMode` return type already has an `attenuation_per_meter`
 field for leaky-mode use.
 
-That means subthemes A-C are a public-API + branch-tracking job on
-top of existing private helpers, *not* a from-scratch solver.
+That means subthemes A-C were a public-API + branch-tracking job
+on top of existing private helpers, *not* a from-scratch solver.
+All three have shipped (see status entries below); this section
+is retained for historical context.
 
 ---
 
-## A. Pseudo-Rayleigh leaky-mode dispersion (n=0)
+## A. Pseudo-Rayleigh leaky-mode dispersion (n=0) — ✅ DONE
+
+**Status.** Shipped in `d79bd69`. Public
+`pseudo_rayleigh_dispersion` exported from `fwap`. Cutoff
+regression and Paillet & Cheng 1991 fig 4.5 match validated in
+`tests/test_cylindrical_solver.py`.
+
+
 
 **Why tractable.** All four pieces of the n=0 complex pipeline
 exist as private helpers. The work is wiring a public function and
@@ -70,7 +82,16 @@ fwap.cylindrical_solver.pseudo_rayleigh_dispersion(
 
 ---
 
-## B. Leaky flexural mode (n=1) in fast formations
+## B. Leaky flexural mode (n=1) in fast formations — ✅ DONE
+
+**Status.** Shipped in `6e76fae`. `_modal_determinant_n1_complex`
+plus auto-dispatch in `flexural_dispersion`: when `V_S > V_f` the
+public API routes to `_flexural_dispersion_fast_formation`, which
+brentq's `Im(_modal_determinant_n1_complex)` along the real-`k_z`
+axis. Slow-formation regression bit-identical to the existing
+bound-mode answer.
+
+
 
 **Why tractable.** Mirror of subtheme A but at azimuthal order 1.
 The real-valued `_modal_determinant_n1` exists; the work is
@@ -103,7 +124,13 @@ marcher and seed strategy).
 
 ---
 
-## C. Cutoff handling + branch tracker
+## C. Cutoff handling + branch tracker — ✅ DONE
+
+**Status.** Shipped in `b3334c2`. `BranchSegment` dataclass plus
+`_march_complex_dispersion_validated` route the marcher through
+cutoff and branch-flip events without operator intervention.
+
+
 
 **Why tractable.** The marcher today fails silently at cutoffs
 (the "cannot continue without a fresh seed" branch in
@@ -136,7 +163,13 @@ public API exists).
 
 ---
 
-## D. Quadrupole bound-mode dispersion (n=2)
+## D. Quadrupole bound-mode dispersion (n=2) — ✅ DONE
+
+**Status.** Shipped in `c383f50`. `_modal_determinant_n2` plus
+public `quadrupole_dispersion` exported from `fwap`. Tang &
+Cheng 2004 fig 3.7 LWD-slow-formation regression validated.
+
+
 
 **Why tractable.** Same Helmholtz-decomposition machinery as n=0
 and n=1, only the matrix entries change. Tang & Cheng 2004
@@ -168,7 +201,15 @@ demo. Two days.
 
 ---
 
-## E. Quadrupole leaky-mode (n=2, fast formations)
+## E. Quadrupole leaky-mode (n=2, fast formations) — ✅ DONE
+
+**Status.** Shipped in `338684f`. `_modal_determinant_n2_complex`
+plus auto-regime dispatch in `quadrupole_dispersion`. Fast-
+formation Tang & Cheng 2004 fig 3.10 regression validated;
+slow-formation bit-equivalence with the n=2 bound solver
+preserved.
+
+
 
 **Why tractable.** Same upgrade as B applied to D: lift the n=2
 real determinant to complex with leaky flags, reuse
@@ -378,10 +419,15 @@ incrementally per reference figure.
 
 ## Suggested order
 
-The shortest viable path to a public leaky-mode product is
-A → C → B (about a week). The shortest path to LWD-grade
-processing is A → C → B → D → E (about two weeks). Layered and
-anisotropic work (F, G, H) are independent of the leaky-mode
-chain and can run in parallel; I (validation notebook) lands
-incrementally as each of the underlying solvers becomes
-available.
+The shortest viable path to a public leaky-mode product was
+A → C → B (about a week, shipped). The shortest path to LWD-
+grade processing was A → C → B → D → E (about two weeks,
+shipped). Layered and anisotropic work (F, H) shipped
+independently of the leaky-mode chain. Remaining items:
+
+- **G** — cased-hole multi-layer (propagator-matrix). Depends
+  on F (done). Largest remaining scope; highest engineering
+  payoff for cased-hole logging.
+- **I** — validation notebook against published dispersion
+  figures. Standalone deliverable; one figure per landed
+  solver. Smallest, most demo-friendly remaining item.
