@@ -8,7 +8,7 @@ unclear, open an issue asking for clarification.
 ```bash
 git clone https://github.com/ingehap/B_Mari_Full-Waveform-Acoustic-Data-Processing
 cd B_Mari_Full-Waveform-Acoustic-Data-Processing
-pip install -e ".[dev,io,segy,docs]"
+pip install -e ".[dev,docs]"
 pre-commit install          # optional but recommended
 pytest                      # main test suite (excludes benchmarks)
 pytest tests/test_bench.py  # perf benches, separately
