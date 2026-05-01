@@ -8973,8 +8973,17 @@ def _layered_n1_row10_at_b(
 # Row 4 (sigma_rz):
 #       [ +2 i mu k_z p I_1(p r),
 #         -2 i mu k_z p K_1(p r),
-#         -mu (2 k_z^2 - k_S^2) I_1(s r),
-#         -mu (2 k_z^2 - k_S^2) K_1(s r) ]
+#         +mu (2 k_z^2 - k_S^2) I_1(s r),
+#         +mu (2 k_z^2 - k_S^2) K_1(s r) ]
+#
+# (Erratum: an earlier draft of this block had ``-mu (2 k_z^2 -
+# k_S^2)`` for the C_I / C_K columns. The correct sign is ``+``,
+# matching ``_layered_n0_row3_at_a`` post-rescale and the
+# direct ``sigma_rz = mu (d_z u_r + d_r u_z)`` derivation:
+# ``d_z u_r contribution from psi_theta = +k_z^2 psi_theta``
+# and ``d_r u_z contribution from psi_theta = +s^2 psi_theta``,
+# summing to ``+(k_z^2 + s^2) psi_theta = +(2 k_z^2 - k_S^2) psi_theta``
+# after the ``s^2 = k_z^2 - k_S^2`` reduction.)
 #
 # (The signs above pre-rescale; absorb the row * i / col * -i
 # rescale at the assembly step in G.c so each row is real-valued
