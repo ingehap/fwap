@@ -47,17 +47,16 @@ class AttenuationResult:
     diagnostic : dict
         Fitted parameters and intermediate quantities useful for QC.
     """
+
     q: float
     q_sigma: float
     method: AttenuationMethod
     diagnostic: dict[str, np.ndarray] = field(default_factory=dict)
 
 
-def _windowed_spectrum(data: np.ndarray,
-                       dt: float,
-                       t_start: np.ndarray,
-                       window_length: float
-                       ) -> tuple[np.ndarray, np.ndarray]:
+def _windowed_spectrum(
+    data: np.ndarray, dt: float, t_start: np.ndarray, window_length: float
+) -> tuple[np.ndarray, np.ndarray]:
     """Extract a tapered window starting at ``t_start[i]`` on trace i."""
     n_rec, n_samp = data.shape
     L = max(2, int(round(window_length / dt)))
@@ -66,21 +65,21 @@ def _windowed_spectrum(data: np.ndarray,
     taper = np.hanning(L)
     chunks = np.empty((n_rec, L))
     for i in range(n_rec):
-        chunks[i] = data[i, i0[i]:i0[i] + L] * taper
+        chunks[i] = data[i, i0[i] : i0[i] + L] * taper
     spec = np.fft.rfft(chunks, axis=1)
     freqs = np.fft.rfftfreq(L, d=dt)
     return spec, freqs
 
 
-def centroid_frequency_shift_Q(data: np.ndarray,
-                               dt: float,
-                               offsets: np.ndarray,
-                               slowness: float,
-                               window_length: float = 5.0e-4,
-                               f_range: tuple[float, float]
-                               = (2000.0, 30000.0),
-                               pick_intercept: float = 0.0
-                               ) -> AttenuationResult:
+def centroid_frequency_shift_Q(
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    slowness: float,
+    window_length: float = 5.0e-4,
+    f_range: tuple[float, float] = (2000.0, 30000.0),
+    pick_intercept: float = 0.0,
+) -> AttenuationResult:
     """
     Attenuation (``Q``) from centroid-frequency shift along the array.
 
@@ -126,22 +125,27 @@ def centroid_frequency_shift_Q(data: np.ndarray,
     power = (np.abs(spec[:, band])) ** 2
     total = power.sum(axis=1) + 1e-30
     fc = (power * f_band).sum(axis=1) / total
-    fvar = ((power * f_band**2).sum(axis=1) / total) - fc ** 2
-    fvar = np.clip(fvar, 1.0, None)   # clamp against degenerate windows
+    fvar = ((power * f_band**2).sum(axis=1) / total) - fc**2
+    fvar = np.clip(fvar, 1.0, None)  # clamp against degenerate windows
     sigma_f2 = float(np.mean(fvar))
 
     # Weighted LS fit fc = a*t + b with weights = total power.
+    # Apply sqrt(w) to A and fc so lstsq minimises sum_i w_i * resid_i**2
+    # (the canonical WLS objective). Multiplying by w directly would
+    # weight by w_i**2 instead.
     w = total / total.max()
+    sqrt_w = np.sqrt(w)
     A = np.stack([t_travel, np.ones_like(t_travel)], axis=1)
-    W = np.diag(w)
-    m, *_ = np.linalg.lstsq(W @ A, W @ fc, rcond=None)
+    A_w = A * sqrt_w[:, None]
+    fc_w = sqrt_w * fc
+    m, *_ = np.linalg.lstsq(A_w, fc_w, rcond=None)
     slope, intercept = m
 
-    # Standard error of the slope.
+    # Standard error of the slope. cov = sigma_res2 * (A^T W A)^(-1);
+    # A_w.T @ A_w == A^T diag(w) A by construction.
     resid = fc - (slope * t_travel + intercept)
     dof = max(1, t_travel.size - 2)
-    sigma_res2 = np.sum(w * resid ** 2) / dof
-    A_w = W @ A
+    sigma_res2 = np.sum(w * resid**2) / dof
     cov = sigma_res2 * np.linalg.pinv(A_w.T @ A_w)
     slope_sigma = float(np.sqrt(max(cov[0, 0], 0.0)))
 
@@ -153,22 +157,29 @@ def centroid_frequency_shift_Q(data: np.ndarray,
         q_sigma = np.pi * sigma_f2 * slope_sigma / slope**2
 
     return AttenuationResult(
-        q=float(q), q_sigma=float(q_sigma), method="centroid",
-        diagnostic=dict(t=t_travel, fc=fc, sigma_f2=np.array(sigma_f2),
-                        slope=np.array(slope),
-                        intercept=np.array(intercept)),
+        q=float(q),
+        q_sigma=float(q_sigma),
+        method="centroid",
+        diagnostic=dict(
+            t=t_travel,
+            fc=fc,
+            sigma_f2=np.array(sigma_f2),
+            slope=np.array(slope),
+            intercept=np.array(intercept),
+        ),
     )
 
 
-def spectral_ratio_Q(data: np.ndarray,
-                     dt: float,
-                     offsets: np.ndarray,
-                     slowness: float,
-                     window_length: float = 5.0e-4,
-                     f_range: tuple[float, float] = (3000.0, 20000.0),
-                     reference: int = 0,
-                     pick_intercept: float = 0.0
-                     ) -> AttenuationResult:
+def spectral_ratio_Q(
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    slowness: float,
+    window_length: float = 5.0e-4,
+    f_range: tuple[float, float] = (3000.0, 20000.0),
+    reference: int = 0,
+    pick_intercept: float = 0.0,
+) -> AttenuationResult:
     """
     Attenuation from the classical spectral-ratio (log-slope) method.
 
@@ -226,8 +237,9 @@ def spectral_ratio_Q(data: np.ndarray,
     eps = 1e-12
     mask = (ref_amp > eps) & np.all(amp > eps, axis=0)
     if not mask.any():
-        return AttenuationResult(q=float("nan"), q_sigma=float("nan"),
-                                 method="spectral_ratio", diagnostic={})
+        return AttenuationResult(
+            q=float("nan"), q_sigma=float("nan"), method="spectral_ratio", diagnostic={}
+        )
     f_used = f_band[mask]
 
     # Build the stacked system: for each receiver i != reference,
@@ -250,13 +262,17 @@ def spectral_ratio_Q(data: np.ndarray,
     A = np.vstack(blocks)
     y = np.concatenate(y_all)
     w = np.concatenate(w_all)
-    W = np.diag(w / w.max())
-    m, *_ = np.linalg.lstsq(W @ A, W @ y, rcond=None)
+    # Apply sqrt(w) so lstsq minimises sum_i w_i_norm * resid_i**2;
+    # multiplying by w directly would weight by w**2.
+    w_norm = w / w.max()
+    sqrt_w = np.sqrt(w_norm)
+    A_w = A * sqrt_w[:, None]
+    y_w = sqrt_w * y
+    m, *_ = np.linalg.lstsq(A_w, y_w, rcond=None)
     inv_q = m[0]
     resid = y - A @ m
     dof = max(1, y.size - m.size)
-    sigma_res2 = np.sum((w / w.max()) * resid ** 2) / dof
-    A_w = W @ A
+    sigma_res2 = np.sum(w_norm * resid**2) / dof
     cov = sigma_res2 * np.linalg.pinv(A_w.T @ A_w)
     inv_q_sigma = float(np.sqrt(max(cov[0, 0], 0.0)))
 
@@ -265,11 +281,11 @@ def spectral_ratio_Q(data: np.ndarray,
         q_sigma = float("inf")
     else:
         q = 1.0 / inv_q
-        q_sigma = inv_q_sigma / inv_q ** 2
+        q_sigma = inv_q_sigma / inv_q**2
 
     return AttenuationResult(
-        q=float(q), q_sigma=float(q_sigma), method="spectral_ratio",
+        q=float(q),
+        q_sigma=float(q_sigma),
+        method="spectral_ratio",
         diagnostic=dict(freqs=f_used, inv_q=np.array(inv_q)),
     )
-
-

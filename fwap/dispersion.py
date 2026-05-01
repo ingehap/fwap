@@ -38,14 +38,16 @@ from scipy.signal import butter, sosfiltfilt
 
 from fwap._common import logger
 from fwap.coherence import STCResult, stc
+from fwap.synthetic import pseudo_rayleigh_dispersion
 
 
-def _batched_wls_phase_slope(phase_block: np.ndarray,
-                             amp_block: np.ndarray,
-                             x: np.ndarray,
-                             f_out: np.ndarray,
-                             amp_norm: np.ndarray
-                             ) -> tuple[np.ndarray, np.ndarray]:
+def _batched_wls_phase_slope(
+    phase_block: np.ndarray,
+    amp_block: np.ndarray,
+    x: np.ndarray,
+    f_out: np.ndarray,
+    amp_norm: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Solve a weighted least-squares ``phi = slope * x + b`` at every
     frequency in one vectorised pass and return (slowness, quality).
@@ -83,7 +85,7 @@ def _batched_wls_phase_slope(phase_block: np.ndarray,
     slow = np.zeros(n_f, dtype=float)
     qual = np.zeros(n_f, dtype=float)
 
-    col_max = amp_block.max(axis=0)                    # (n_f,)
+    col_max = amp_block.max(axis=0)  # (n_f,)
     valid = col_max > 1e-12
     if not valid.any():
         return slow, qual
@@ -93,38 +95,36 @@ def _batched_wls_phase_slope(phase_block: np.ndarray,
     w[:, valid] = amp_block[:, valid] / col_max[valid]
 
     # Weighted sums along the receiver axis -- closed-form WLS.
-    S_w   = w.sum(axis=0)                              # (n_f,)
-    S_wx  = (w * x[:, None]).sum(axis=0)
+    S_w = w.sum(axis=0)  # (n_f,)
+    S_wx = (w * x[:, None]).sum(axis=0)
     S_wxx = (w * (x[:, None] ** 2)).sum(axis=0)
-    S_wy  = (w * phase_block).sum(axis=0)
+    S_wy = (w * phase_block).sum(axis=0)
     S_wxy = (w * x[:, None] * phase_block).sum(axis=0)
-    denom = S_w * S_wxx - S_wx ** 2
+    denom = S_w * S_wxx - S_wx**2
     safe = valid & (np.abs(denom) > 1e-30)
     slope = np.zeros(n_f, dtype=float)
     intercept = np.zeros(n_f, dtype=float)
-    slope[safe] = (S_w[safe] * S_wxy[safe] - S_wx[safe] * S_wy[safe]) \
-                  / denom[safe]
+    slope[safe] = (S_w[safe] * S_wxy[safe] - S_wx[safe] * S_wy[safe]) / denom[safe]
     intercept[safe] = (S_wy[safe] - slope[safe] * S_wx[safe]) / S_w[safe]
 
     # Residual RMSE per frequency.
     fit = slope[None, :] * x[:, None] + intercept[None, :]
     resid = phase_block - fit
-    num = (w * resid ** 2).sum(axis=0)
+    num = (w * resid**2).sum(axis=0)
     den = np.where(S_w > 0, S_w, 1.0)
     rmse = np.sqrt(np.clip(num / den, 0.0, None))
-    q_fit = np.exp(-(rmse / np.pi) ** 2)
+    q_fit = np.exp(-((rmse / np.pi) ** 2))
 
     with np.errstate(divide="ignore", invalid="ignore"):
-        slow = np.where(safe & (f_out > 0),
-                        -slope / (2.0 * np.pi * f_out),
-                        np.nan)
+        slow = np.where(safe & (f_out > 0), -slope / (2.0 * np.pi * f_out), np.nan)
     slow = np.where(valid & ~np.isfinite(slow) & (f_out > 0), 0.0, slow)
     qual = np.where(valid, q_fit * amp_norm, 0.0)
     return slow, qual
 
 
-def bandpass(data: np.ndarray, dt: float,
-             f_lo: float, f_hi: float, order: int = 4) -> np.ndarray:
+def bandpass(
+    data: np.ndarray, dt: float, f_lo: float, f_hi: float, order: int = 4
+) -> np.ndarray:
     """
     Zero-phase Butterworth band-pass along the time axis.
 
@@ -149,18 +149,20 @@ def bandpass(data: np.ndarray, dt: float,
     """
     fs = 1.0 / dt
     nyq = 0.5 * fs
-    low  = max(f_lo / nyq, 1.0e-6)
+    low = max(f_lo / nyq, 1.0e-6)
     high = min(f_hi / nyq, 0.999)
     sos = butter(order, [low, high], btype="bandpass", output="sos")
     return sosfiltfilt(sos, data, axis=-1)
 
 
-def narrow_band_stc(data: np.ndarray,
-                    dt: float,
-                    offsets: np.ndarray,
-                    f_lo: float = 1500.0,
-                    f_hi: float = 4000.0,
-                    **stc_kwargs) -> STCResult:
+def narrow_band_stc(
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    f_lo: float = 1500.0,
+    f_hi: float = 4000.0,
+    **stc_kwargs,
+) -> STCResult:
     """
     Band-pass the gather, then run STC -> lower-bias shear slowness.
 
@@ -186,8 +188,7 @@ def narrow_band_stc(data: np.ndarray,
     -------
     STCResult
     """
-    return stc(bandpass(data, dt, f_lo, f_hi), dt=dt, offsets=offsets,
-               **stc_kwargs)
+    return stc(bandpass(data, dt, f_lo, f_hi), dt=dt, offsets=offsets, **stc_kwargs)
 
 
 @dataclass
@@ -209,17 +210,19 @@ class DispersionCurve:
         Consumers of this curve (:func:`shear_slowness_from_dispersion`
         and plotting code) should mask or weight by this value.
     """
+
     freq: np.ndarray
     slowness: np.ndarray
     quality: np.ndarray
 
 
-def phase_slowness_from_f_k(data: np.ndarray,
-                            dt: float,
-                            offsets: np.ndarray,
-                            f_range: tuple[float, float] = (500.0, 8000.0),
-                            method: PhaseSlownessMethod = "frequency_unwrap",
-                            ) -> DispersionCurve:
+def phase_slowness_from_f_k(
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    f_range: tuple[float, float] = (500.0, 8000.0),
+    method: PhaseSlownessMethod = "frequency_unwrap",
+) -> DispersionCurve:
     """
     Estimate phase slowness vs frequency by weighted LS phase-vs-offset.
 
@@ -277,42 +280,40 @@ def phase_slowness_from_f_k(data: np.ndarray,
             unwrapped = raw.copy()
             if strong.any():
                 ks = np.where(strong)[0]
-                unwrapped[ks[0]:ks[-1] + 1] = np.unwrap(
-                    raw[ks[0]:ks[-1] + 1])
+                unwrapped[ks[0] : ks[-1] + 1] = np.unwrap(raw[ks[0] : ks[-1] + 1])
             phase_rel[i] = unwrapped
         phase_block = phase_rel[:, band]
         amp_block = amp[:, band]
         amp_mean = amp_block.mean(axis=0)
-        amp_norm = (amp_mean / (amp_mean.max() + 1e-30)) \
-            if amp_mean.size else amp_mean
+        amp_norm = (amp_mean / (amp_mean.max() + 1e-30)) if amp_mean.size else amp_mean
         slow, qual = _batched_wls_phase_slope(
-            phase_block, amp_block, x, f_out, amp_norm)
+            phase_block, amp_block, x, f_out, amp_norm
+        )
 
     elif method == "spatial_unwrap":
         amp_all = np.abs(spec)
         spec_band = spec[:, band]
         amp_block = amp_all[:, band]
         amp_mean = amp_block.mean(axis=0)
-        amp_norm = (amp_mean / (amp_mean.max() + 1e-30)) \
-            if amp_mean.size else amp_mean
+        amp_norm = (amp_mean / (amp_mean.max() + 1e-30)) if amp_mean.size else amp_mean
         # Unwrap each frequency column along the receiver axis in one
         # vectorised call instead of a Python loop over frequencies.
         phase_block = np.unwrap(np.angle(spec_band), axis=0)
         slow, qual = _batched_wls_phase_slope(
-            phase_block, amp_block, x, f_out, amp_norm)
+            phase_block, amp_block, x, f_out, amp_norm
+        )
     else:
-        raise ValueError("method must be 'frequency_unwrap' or "
-                         "'spatial_unwrap'")
+        raise ValueError("method must be 'frequency_unwrap' or 'spatial_unwrap'")
 
     return DispersionCurve(freq=f_out, slowness=slow, quality=qual)
 
 
-def phase_slowness_matrix_pencil(data: np.ndarray,
-                                 dt: float,
-                                 offsets: np.ndarray,
-                                 f_range: tuple[float, float]
-                                 = (500.0, 8000.0),
-                                 ) -> DispersionCurve:
+def phase_slowness_matrix_pencil(
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    f_range: tuple[float, float] = (500.0, 8000.0),
+) -> DispersionCurve:
     """
     Single-mode phase slowness via a matrix-pencil / ESPRIT-style
     estimator at each frequency.
@@ -335,8 +336,7 @@ def phase_slowness_matrix_pencil(data: np.ndarray,
     dx_samples = np.diff(offsets)
     dx = float(dx_samples.mean())
     if not np.allclose(dx_samples, dx, rtol=1e-3):
-        raise ValueError("matrix-pencil estimator requires uniform "
-                         "receiver spacing")
+        raise ValueError("matrix-pencil estimator requires uniform receiver spacing")
 
     spec = np.fft.rfft(data, axis=1)
     freqs = np.fft.rfftfreq(n_samp, d=dt)
@@ -345,10 +345,9 @@ def phase_slowness_matrix_pencil(data: np.ndarray,
     slow = np.zeros_like(f_out)
     qual = np.zeros_like(f_out)
 
-    spec_band = spec[:, band]                          # (n_rec, n_f)
+    spec_band = spec[:, band]  # (n_rec, n_f)
     amp_mean = np.abs(spec_band).mean(axis=0)
-    amp_norm = (amp_mean / (amp_mean.max() + 1e-30)) \
-        if amp_mean.size else amp_mean
+    amp_norm = (amp_mean / (amp_mean.max() + 1e-30)) if amp_mean.size else amp_mean
 
     # Pencil ratio at every frequency in one pass.
     # For each column col of spec_band:
@@ -357,10 +356,10 @@ def phase_slowness_matrix_pencil(data: np.ndarray,
     # and z_j = num_j / den_j encodes exp(-2 pi i f s dx) for a single
     # +s mode. The frequency-dimension loop was one Python-level call
     # per bin; here we stack them all as a (n_rec-1, n_f) inner product.
-    x0 = spec_band[:-1, :]                             # (n_rec-1, n_f)
+    x0 = spec_band[:-1, :]  # (n_rec-1, n_f)
     x1 = spec_band[1:, :]
-    num = np.sum(np.conj(x0) * x1, axis=0)             # (n_f,)
-    den = np.sum(np.conj(x0) * x0, axis=0)             # (n_f,)
+    num = np.sum(np.conj(x0) * x1, axis=0)  # (n_f,)
+    den = np.sum(np.conj(x0) * x0, axis=0)  # (n_f,)
     safe = np.abs(den) >= 1e-15
     z = np.zeros_like(num)
     z[safe] = num[safe] / den[safe]
@@ -379,10 +378,12 @@ def phase_slowness_matrix_pencil(data: np.ndarray,
     return DispersionCurve(freq=f_out, slowness=slow, quality=qual)
 
 
-def shear_slowness_from_dispersion(curve: DispersionCurve,
-                                   f_lo: float = 500.0,
-                                   f_hi: float = 2500.0,
-                                   quality_threshold: float = 0.8) -> float:
+def shear_slowness_from_dispersion(
+    curve: DispersionCurve,
+    f_lo: float = 500.0,
+    f_hi: float = 2500.0,
+    quality_threshold: float = 0.8,
+) -> float:
     """
     Quality-weighted mean of ``s(f)`` in the low-frequency asymptote
     band (Kimball, 1998, eq. 14).
@@ -392,18 +393,22 @@ def shear_slowness_from_dispersion(curve: DispersionCurve,
     finite points in the same band and emits a ``logging.warning`` so
     the caller can see that their quality gate was dropped.
     """
-    mask = ((curve.freq >= f_lo) & (curve.freq <= f_hi) &
-            (curve.quality >= quality_threshold) &
-            np.isfinite(curve.slowness))
+    mask = (
+        (curve.freq >= f_lo)
+        & (curve.freq <= f_hi)
+        & (curve.quality >= quality_threshold)
+        & np.isfinite(curve.slowness)
+    )
     if not mask.any():
         logger.warning(
             "shear_slowness_from_dispersion: no points pass "
             "quality_threshold=%g in band [%g, %g] Hz; falling back to "
             "finite points only.",
-            quality_threshold, f_lo, f_hi,
+            quality_threshold,
+            f_lo,
+            f_hi,
         )
-        mask = ((curve.freq >= f_lo) & (curve.freq <= f_hi) &
-                np.isfinite(curve.slowness))
+        mask = (curve.freq >= f_lo) & (curve.freq <= f_hi) & np.isfinite(curve.slowness)
         if not mask.any():
             return float("nan")
     w = np.clip(curve.quality[mask], 1e-3, 1.0)
@@ -411,18 +416,18 @@ def shear_slowness_from_dispersion(curve: DispersionCurve,
     return float(np.sum(w * s) / np.sum(w))
 
 
-def dispersive_stc(data: np.ndarray,
-                   dt: float,
-                   offsets: np.ndarray,
-                   dispersion_family: Callable[
-                       [float], Callable[[np.ndarray], np.ndarray]],
-                   shear_slowness_range: tuple[float, float]
-                   = (150e-6, 600e-6),
-                   n_slowness: int = 91,
-                   f_range: tuple[float, float] = (500.0, 6000.0),
-                   window_length: float = 1.5e-3,
-                   time_step: int = 4,
-                   min_energy_fraction: float = 1.0e-8) -> STCResult:
+def dispersive_stc(
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    dispersion_family: Callable[[float], Callable[[np.ndarray], np.ndarray]],
+    shear_slowness_range: tuple[float, float] = (150e-6, 600e-6),
+    n_slowness: int = 91,
+    f_range: tuple[float, float] = (500.0, 6000.0),
+    window_length: float = 1.5e-3,
+    time_step: int = 4,
+    min_energy_fraction: float = 1.0e-8,
+) -> STCResult:
     """
     Dispersive STC in the spirit of Kimball (1998).
 
@@ -468,7 +473,7 @@ def dispersive_stc(data: np.ndarray,
     time = t_idx * dt
     n_t = t_idx.size
 
-    gather_rms2 = float(np.mean(data ** 2) + 1e-30)
+    gather_rms2 = float(np.mean(data**2) + 1e-30)
     den_floor = min_energy_fraction * n_rec * L * gather_rms2
 
     rel_off = offsets - offsets[0]
@@ -484,22 +489,23 @@ def dispersive_stc(data: np.ndarray,
     # We factor out the ``freqs[j] * rel_off[i]`` grid and multiply in
     # s_phase(freqs) at each trial.
     freq_off = 2.0 * np.pi * freqs[None, :] * rel_off[:, None]  # (n_rec, n_f)
-    band_mask = band[None, :]                                    # (1, n_f)
+    band_mask = band[None, :]  # (1, n_f)
     # freqs[0] == 0 is always masked out of the band, but guard anyway.
     band_pos = band & (freqs > 0)
 
     for k, s_shear in enumerate(s_shear_axis):
         s_phase_fn = dispersion_family(s_shear)
-        tau_of_f = np.zeros_like(freqs)
-        tau_of_f[band_pos] = s_phase_fn(freqs[band_pos])
+        s_of_f = np.zeros_like(freqs)
+        s_of_f[band_pos] = s_phase_fn(freqs[band_pos])
         # shifted_spec = spec * exp(+2*pi*i * freq_off * s_phase), with
         # out-of-band bins zeroed (double as leakage guard).
-        phase = np.exp(1j * freq_off * tau_of_f[None, :])
+        phase = np.exp(1j * freq_off * s_of_f[None, :])
         shifted_spec = np.where(band_mask, spec * phase, 0.0)
         shifted = np.fft.irfft(shifted_spec, n=n_samp, axis=1)
 
         windows = np.lib.stride_tricks.sliding_window_view(
-            shifted, window_shape=L, axis=-1)
+            shifted, window_shape=L, axis=-1
+        )
         if time_step != 1:
             windows = windows[:, ::time_step]
         windows = windows[:, :n_t]
@@ -515,8 +521,421 @@ def dispersive_stc(data: np.ndarray,
         amp_k[mask] = np.sqrt(num[mask] / L) / n_rec
         amp[k] = amp_k
 
-    return STCResult(slowness=s_shear_axis, time=time,
-                     coherence=rho, window_length=window_length,
-                     amplitude=amp)
+    return STCResult(
+        slowness=s_shear_axis,
+        time=time,
+        coherence=rho,
+        window_length=window_length,
+        amplitude=amp,
+    )
 
 
+def dispersive_pseudo_rayleigh_stc(
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    *,
+    v_fluid: float = 1500.0,
+    a_borehole: float = 0.1,
+    shear_slowness_range: tuple[float, float] = (130e-6, 500e-6),
+    n_slowness: int = 91,
+    f_range: tuple[float, float] = (3000.0, 12000.0),
+    window_length: float = 1.0e-3,
+    time_step: int = 4,
+    min_energy_fraction: float = 1.0e-8,
+) -> STCResult:
+    r"""
+    Dispersive STC for the pseudo-Rayleigh / guided trapped mode.
+
+    Direct analogue of :func:`dispersive_stc` applied to the
+    pseudo-Rayleigh dispersion law of
+    :func:`fwap.synthetic.pseudo_rayleigh_dispersion`. For each trial
+    formation shear slowness ``s_shear``, the expected phase slowness
+
+    .. math::
+
+        s_\mathrm{phase}(f; s_\mathrm{shear}) \;=\;
+        s_\mathrm{shear} \;+\; (s_\mathrm{fluid} - s_\mathrm{shear})\,
+        \frac{(f / f_c)^2}{1 + (f / f_c)^2},
+
+    with :math:`s_\mathrm{fluid} = 1/V_\mathrm{fluid}` and
+    :math:`f_c = V_s / (2\pi a)`, is used to back-project every
+    frequency bin before the windowed semblance. A true pseudo-Rayleigh
+    arrival collapses to zero relative delay at the correct
+    ``s_shear``, removing the high-frequency bias that plagues plain
+    STC for guided modes -- the same trick :func:`dispersive_stc`
+    uses for the dipole flexural mode.
+
+    The output ``slowness`` axis holds the **formation shear**
+    slowness (i.e., the low-frequency cutoff of the pseudo-Rayleigh
+    branch, equal to :math:`1/V_s`), not the per-frequency phase
+    slowness. Pick the maximum-coherence row of the surface to recover
+    formation Vs from a pseudo-Rayleigh-dominated gather.
+
+    Existence constraint
+    --------------------
+    Pseudo-Rayleigh exists only in **fast formations**
+    (:math:`V_s > V_\mathrm{fluid}`). The trial shear-slowness range
+    is therefore required to satisfy
+    ``shear_slowness_range[1] < 1 / v_fluid``; the wrapper raises
+    ``ValueError`` for ranges that would step into the slow-formation
+    regime where the dispersion law is undefined.
+
+    Parameters
+    ----------
+    data : ndarray, shape (n_rec, n_samples)
+        Real-valued multichannel gather.
+    dt : float
+        Sampling interval (s).
+    offsets : ndarray, shape (n_rec,)
+        Source-to-receiver offsets (m).
+    v_fluid : float, default 1500.0
+        Borehole-fluid acoustic velocity (m/s). Sets the high-
+        frequency asymptote of the pseudo-Rayleigh phase slowness.
+    a_borehole : float, default 0.1
+        Borehole radius (m). Sets the cutoff frequency
+        :math:`f_c = V_s / (2 \pi a)` of the dispersion law.
+    shear_slowness_range : (float, float), default (130 us/m, 500 us/m)
+        Lower and upper trial formation shear slowness (s/m). Must
+        be strictly positive, ordered, and bounded above by
+        ``1 / v_fluid``.
+    n_slowness : int, default 91
+        Number of trial shear-slowness points.
+    f_range : (float, float), default (3000, 12000) Hz
+        Inclusive frequency band over which the dispersion correction
+        is applied. The pseudo-Rayleigh branch only exists above its
+        low-frequency cutoff :math:`f_c`; for typical sonic geometry
+        (a = 0.1 m, Vs ~ 2-5 km/s) :math:`f_c` falls in the 3-8 kHz
+        band, motivating the higher-frequency default relative to
+        :func:`dispersive_stc` (which targets the low-frequency
+        flexural mode).
+    window_length : float, default 1e-3
+        STC time-window length (s). Pseudo-Rayleigh wavetrains are
+        typically more impulsive than the flexural mode, so a 1 ms
+        window suffices to bracket the dominant lobe at the default
+        frequency band.
+    time_step : int, default 4
+        Stride of window starts in samples.
+    min_energy_fraction : float, default 1e-8
+        Energy floor relative to gather RMS; below this the
+        coherence cell is reported as ``NaN``.
+
+    Returns
+    -------
+    STCResult
+        ``slowness`` is the formation shear-slowness axis; a true
+        pseudo-Rayleigh arrival peaks at the correct :math:`1/V_s`
+        on this axis (the whole point of the transform). All other
+        fields follow :class:`fwap.coherence.STCResult` conventions.
+
+    Raises
+    ------
+    ValueError
+        If ``shear_slowness_range[1] >= 1 / v_fluid`` (the trial
+        range would leave the pseudo-Rayleigh existence domain),
+        if the range is mis-ordered, or if any bound is non-positive.
+
+    See Also
+    --------
+    fwap.dispersion.dispersive_stc :
+        The dipole-flexural-mode equivalent. The two routines share
+        the same back-projection / semblance machinery; only the
+        per-mode dispersion law differs.
+    fwap.synthetic.pseudo_rayleigh_dispersion :
+        The phenomenological dispersion law used here.
+    """
+    if shear_slowness_range[0] <= 0.0:
+        raise ValueError("shear_slowness_range[0] must be positive")
+    if shear_slowness_range[0] >= shear_slowness_range[1]:
+        raise ValueError(
+            "require shear_slowness_range[0] < shear_slowness_range[1]; got "
+            f"{shear_slowness_range}"
+        )
+    s_fluid = 1.0 / v_fluid
+    if shear_slowness_range[1] >= s_fluid:
+        raise ValueError(
+            f"shear_slowness_range[1] must be < 1/v_fluid "
+            f"({s_fluid:.3e} s/m); pseudo-Rayleigh only exists in fast "
+            f"formations (vs > v_fluid). Got "
+            f"{shear_slowness_range[1]:.3e} s/m."
+        )
+
+    def _family(s_shear: float) -> Callable[[np.ndarray], np.ndarray]:
+        return pseudo_rayleigh_dispersion(
+            vs=1.0 / s_shear,
+            v_fluid=v_fluid,
+            a_borehole=a_borehole,
+        )
+
+    return dispersive_stc(
+        data,
+        dt=dt,
+        offsets=offsets,
+        dispersion_family=_family,
+        shear_slowness_range=shear_slowness_range,
+        n_slowness=n_slowness,
+        f_range=f_range,
+        window_length=window_length,
+        time_step=time_step,
+        min_energy_fraction=min_energy_fraction,
+    )
+
+
+# ---------------------------------------------------------------------
+# Stress-vs-intrinsic anisotropy from fast/slow flexural dispersion
+# (Sinha & Kostek 1996; Tang & Cheng 2004 sect. 5.3)
+# ---------------------------------------------------------------------
+
+
+@dataclass
+class FlexuralDispersionDiagnosis:
+    r"""
+    Output of :func:`classify_flexural_anisotropy`.
+
+    Attributes
+    ----------
+    classification : str
+        One of ``"isotropic"``, ``"intrinsic"``, ``"stress_induced"``,
+        ``"ambiguous"``.
+    delta_low : float
+        Mean :math:`s_b(f) - s_a(f)` over the low-frequency band
+        (s/m). ``NaN`` if no quality-passing samples land in the
+        band.
+    delta_high : float
+        Same over the high-frequency band.
+    crossover_frequency : float or None
+        Frequency (Hz) of the **first** zero-crossing of
+        :math:`s_b(f) - s_a(f)` inside the bracket
+        ``[f_low_band[0], f_high_band[1]]``. ``None`` when no
+        crossover is detected (intrinsic / isotropic / ambiguous
+        cases) or when no sign flip is observed inside the bracket.
+    reasons : tuple of str
+        Human-readable description of how the classification was
+        reached. Useful for QC / display.
+    """
+
+    classification: str
+    delta_low: float
+    delta_high: float
+    crossover_frequency: float | None
+    reasons: tuple[str, ...]
+
+
+def classify_flexural_anisotropy(
+    curve_a: DispersionCurve,
+    curve_b: DispersionCurve,
+    *,
+    quality_threshold: float = 0.5,
+    min_anisotropy: float = 5.0e-6,
+    f_low_band: tuple[float, float] = (1000.0, 2500.0),
+    f_high_band: tuple[float, float] = (4000.0, 8000.0),
+) -> FlexuralDispersionDiagnosis:
+    r"""
+    Discriminate stress-induced vs intrinsic flexural anisotropy
+    from two dispersion curves.
+
+    Following Sinha & Kostek (1996, *Geophysics* 61(6), 1899-1907) and
+    Tang & Cheng (2004, sect. 5.3), the two cross-dipole flexural
+    dispersion curves of a stress-anisotropic formation **cross over**
+    in frequency: the low-frequency flexural mode samples ~1-2
+    wavelengths radially into the formation -- primarily the far-field
+    rock fabric -- while the high-frequency mode samples ~0.1-0.5
+    wavelengths radially -- primarily the near-wellbore stress
+    concentration. When the bulk fabric is isotropic but the borehole
+    is loaded by an anisotropic far-field stress, the two regions see
+    *different* anisotropy, so :math:`\Delta s(f) = s_b(f) - s_a(f)`
+    changes sign between the bands. Intrinsic anisotropy (aligned
+    fractures, layered shale fabric) shows no such crossover -- the
+    same direction is slow at every frequency.
+
+    Classification logic
+    --------------------
+    Compute :math:`\Delta s_\mathrm{low}` and :math:`\Delta s_\mathrm{high}`
+    as the means of :math:`\Delta s(f)` over ``f_low_band`` and
+    ``f_high_band`` respectively, restricted to bins where both
+    curves have ``quality >= quality_threshold`` and a finite
+    slowness. Then:
+
+    - both bands :math:`< \mathrm{min\_anisotropy}` in magnitude
+      :math:`\rightarrow` ``"isotropic"``;
+    - both bands above threshold with the **same** sign
+      :math:`\rightarrow` ``"intrinsic"``;
+    - both bands above threshold with **opposite** signs
+      :math:`\rightarrow` ``"stress_induced"`` (and the crossover
+      frequency is reported);
+    - any other combination (one band missing, only one band
+      anisotropic) :math:`\rightarrow` ``"ambiguous"``.
+
+    Parameters
+    ----------
+    curve_a, curve_b : DispersionCurve
+        The two flexural dispersion curves -- typically obtained by
+        running :func:`phase_slowness_from_f_k` on the two rotated
+        cross-dipole components (XX' and YY' in the Alford-rotated
+        frame). The two curves must share the same ``freq`` axis to
+        within a small relative tolerance.
+    quality_threshold : float, default 0.5
+        Per-bin quality floor on each curve; bins below this on
+        either curve are excluded from the band averages.
+    min_anisotropy : float, default 5e-6 s/m
+        Magnitude of :math:`\Delta s` below which a band is treated
+        as isotropic. The default ~5 us/m corresponds to ~1.5 us/ft.
+    f_low_band : (float, float), default (1000, 2500) Hz
+        Low-frequency averaging band (samples deep into the
+        formation).
+    f_high_band : (float, float), default (4000, 8000) Hz
+        High-frequency averaging band (samples near the borehole
+        wall).
+
+    Returns
+    -------
+    FlexuralDispersionDiagnosis
+        Classification plus the diagnostic numbers used to reach it.
+
+    Raises
+    ------
+    ValueError
+        If the two curves have mismatched ``freq`` axes, or the
+        bands are mis-ordered / overlap.
+
+    See Also
+    --------
+    phase_slowness_from_f_k :
+        Produces the input dispersion curves from raw cross-dipole
+        sonic data.
+    fwap.anisotropy.alford_rotation :
+        Cross-dipole rotation that defines the fast / slow
+        components from the raw XX/XY/YX/YY tensor.
+
+    References
+    ----------
+    * Sinha, B. K., & Kostek, S. (1996). Stress-induced azimuthal
+      anisotropy in borehole flexural waves. *Geophysics* 61(6),
+      1899-1907.
+    * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
+      Acoustic Methods.* Elsevier, Section 5.3 (stress-induced vs
+      intrinsic anisotropy discrimination).
+    """
+    if f_low_band[0] >= f_low_band[1]:
+        raise ValueError("f_low_band must be (lo, hi) with lo < hi")
+    if f_high_band[0] >= f_high_band[1]:
+        raise ValueError("f_high_band must be (lo, hi) with lo < hi")
+    if f_low_band[1] >= f_high_band[0]:
+        raise ValueError(
+            "f_low_band and f_high_band must not overlap or touch; got "
+            f"low={f_low_band}, high={f_high_band}"
+        )
+    if curve_a.freq.shape != curve_b.freq.shape:
+        raise ValueError("dispersion curves must share the same freq axis")
+    if curve_a.freq.size > 0 and not np.allclose(
+        curve_a.freq, curve_b.freq, rtol=1.0e-6, atol=0.0
+    ):
+        raise ValueError("dispersion curves must share the same freq axis")
+
+    f = curve_a.freq
+    delta = curve_b.slowness - curve_a.slowness
+    valid = (
+        np.isfinite(curve_a.slowness)
+        & np.isfinite(curve_b.slowness)
+        & (curve_a.quality >= quality_threshold)
+        & (curve_b.quality >= quality_threshold)
+    )
+
+    def _band_mean(lo: float, hi: float) -> float:
+        m = valid & (f >= lo) & (f <= hi)
+        if not m.any():
+            return float("nan")
+        return float(delta[m].mean())
+
+    delta_low = _band_mean(*f_low_band)
+    delta_high = _band_mean(*f_high_band)
+
+    reasons: list[str] = []
+
+    if not (np.isfinite(delta_low) and np.isfinite(delta_high)):
+        if not np.isfinite(delta_low):
+            reasons.append(f"low-f band {f_low_band} has no quality-passing samples")
+        if not np.isfinite(delta_high):
+            reasons.append(f"high-f band {f_high_band} has no quality-passing samples")
+        return FlexuralDispersionDiagnosis(
+            classification="ambiguous",
+            delta_low=delta_low,
+            delta_high=delta_high,
+            crossover_frequency=None,
+            reasons=tuple(reasons),
+        )
+
+    is_low_aniso = abs(delta_low) > min_anisotropy
+    is_high_aniso = abs(delta_high) > min_anisotropy
+
+    if not is_low_aniso and not is_high_aniso:
+        return FlexuralDispersionDiagnosis(
+            classification="isotropic",
+            delta_low=delta_low,
+            delta_high=delta_high,
+            crossover_frequency=None,
+            reasons=(
+                f"|delta_s| below {min_anisotropy:.1e} s/m in both bands "
+                f"(low={delta_low:.2e}, high={delta_high:.2e})",
+            ),
+        )
+
+    if not (is_low_aniso and is_high_aniso):
+        which = "high" if is_low_aniso else "low"
+        return FlexuralDispersionDiagnosis(
+            classification="ambiguous",
+            delta_low=delta_low,
+            delta_high=delta_high,
+            crossover_frequency=None,
+            reasons=(
+                f"{which}-f band below min_anisotropy "
+                f"(low={delta_low:.2e}, high={delta_high:.2e})",
+            ),
+        )
+
+    if delta_low * delta_high > 0:
+        return FlexuralDispersionDiagnosis(
+            classification="intrinsic",
+            delta_low=delta_low,
+            delta_high=delta_high,
+            crossover_frequency=None,
+            reasons=(
+                f"delta_s has same sign in both bands "
+                f"(low={delta_low:.2e}, high={delta_high:.2e}); "
+                f"no dispersion crossover",
+            ),
+        )
+
+    # Opposite signs => stress-induced; locate the first crossover by
+    # linear interpolation between the first pair of valid samples
+    # whose delta_s differs in sign. Restrict the search to the
+    # bracket spanning the two band means, [f_low_band[0],
+    # f_high_band[1]] -- the meaningful crossover sits between them,
+    # and a sign flip at frequencies outside that bracket would be a
+    # spurious noise zero-crossing rather than the band-to-band
+    # transition the classification is reporting.
+    bracket = valid & (f >= f_low_band[0]) & (f <= f_high_band[1])
+    f_valid = f[bracket]
+    delta_valid = delta[bracket]
+    crossover_freq: float | None = None
+    if f_valid.size >= 2:
+        sign_changes = np.where(np.diff(np.sign(delta_valid)) != 0)[0]
+        if sign_changes.size > 0:
+            i = int(sign_changes[0])
+            f1, f2 = float(f_valid[i]), float(f_valid[i + 1])
+            d1, d2 = float(delta_valid[i]), float(delta_valid[i + 1])
+            if d2 != d1:
+                crossover_freq = f1 - d1 * (f2 - f1) / (d2 - d1)
+            else:
+                crossover_freq = 0.5 * (f1 + f2)
+
+    return FlexuralDispersionDiagnosis(
+        classification="stress_induced",
+        delta_low=delta_low,
+        delta_high=delta_high,
+        crossover_frequency=crossover_freq,
+        reasons=(
+            f"delta_s sign flips between bands "
+            f"(low={delta_low:.2e}, high={delta_high:.2e})",
+        ),
+    )

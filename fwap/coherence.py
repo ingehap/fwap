@@ -59,6 +59,7 @@ class STCResult:
         amplitude (e.g. the dispersion-corrected STC of
         :func:`fwap.dispersion.dispersive_stc`).
     """
+
     slowness: np.ndarray
     time: np.ndarray
     coherence: np.ndarray
@@ -104,16 +105,16 @@ def semblance(window: np.ndarray) -> float:
     return float(num / den)
 
 
-
-
-def stc(data: np.ndarray,
-        dt: float,
-        offsets: np.ndarray,
-        slowness_range: tuple[float, float] = (50e-6, 500e-6),
-        n_slowness: int = 181,
-        window_length: float = 4.0e-4,
-        time_step: int = 1,
-        min_energy_fraction: float = 1.0e-8) -> STCResult:
+def stc(
+    data: np.ndarray,
+    dt: float,
+    offsets: np.ndarray,
+    slowness_range: tuple[float, float] = (50e-6, 500e-6),
+    n_slowness: int = 181,
+    window_length: float = 4.0e-4,
+    time_step: int = 1,
+    min_energy_fraction: float = 1.0e-8,
+) -> STCResult:
     """
     Slowness-time coherence map (Kimball & Marzetta, 1984).
 
@@ -163,7 +164,7 @@ def stc(data: np.ndarray,
     f = np.fft.rfftfreq(n_samp, d=dt)
 
     # Threshold on denominator based on gather RMS
-    gather_rms2 = float(np.mean(data ** 2) + 1e-30)
+    gather_rms2 = float(np.mean(data**2) + 1e-30)
     den_floor = min_energy_fraction * n_rec * L * gather_rms2
 
     rel_off = offsets - offsets[0]
@@ -177,18 +178,18 @@ def stc(data: np.ndarray,
 
     for k, s in enumerate(slowness):
         tau = rel_off * s
-        shifted = np.fft.irfft(_phase_shift(spec, f, tau),
-                               n=n_samp, axis=1)
+        shifted = np.fft.irfft(_phase_shift(spec, f, tau), n=n_samp, axis=1)
 
         # windows[i, j, :] is trace i starting at sample t_idx[j], length L
         windows = np.lib.stride_tricks.sliding_window_view(
-            shifted, window_shape=L, axis=-1)
+            shifted, window_shape=L, axis=-1
+        )
         if time_step != 1:
             windows = windows[:, ::time_step]
         windows = windows[:, :n_t]
 
-        stack = windows.sum(axis=0)                       # (n_t, L)
-        num = (stack * stack).sum(axis=-1)                # (n_t,)
+        stack = windows.sum(axis=0)  # (n_t, L)
+        num = (stack * stack).sum(axis=-1)  # (n_t,)
         den = n_rec * (windows * windows).sum(axis=(0, -1))  # (n_t,)
         mask = den > den_floor
         rho_k = np.full(n_t, np.nan, dtype=float)
@@ -198,14 +199,21 @@ def stc(data: np.ndarray,
         amp_k[mask] = np.sqrt(num[mask] / L) / n_rec
         amp[k] = amp_k
 
-    return STCResult(slowness=slowness, time=time, coherence=rho,
-                     window_length=window_length, amplitude=amp)
+    return STCResult(
+        slowness=slowness,
+        time=time,
+        coherence=rho,
+        window_length=window_length,
+        amplitude=amp,
+    )
 
 
-def find_peaks(result: STCResult,
-               threshold: float = 0.5,
-               min_separation_s: float = 1.0e-4,
-               min_separation_slow: float = 1.5e-5) -> np.ndarray:
+def find_peaks(
+    result: STCResult,
+    threshold: float = 0.5,
+    min_separation_s: float = 1.0e-4,
+    min_separation_slow: float = 1.5e-5,
+) -> np.ndarray:
     """
     Local-maxima picker on an STC coherence surface.
 
@@ -245,5 +253,3 @@ def find_peaks(result: STCResult,
     peaks = np.column_stack(cols)
     order = np.argsort(-peaks[:, 2])
     return peaks[order]
-
-

@@ -18,7 +18,10 @@ book.
    fwap.anisotropy
    fwap.attenuation
    fwap.rockphysics
+   fwap.geomechanics
    fwap.cylindrical
+   fwap.cylindrical_solver
+   fwap.lwd
    fwap.synthetic
    fwap.io
    fwap.plotting

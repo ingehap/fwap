@@ -26,9 +26,11 @@ implementation of the four chapter algorithms, plus two extensions
 | Part 2 | Wave separation in acoustic well logging            | [`fwap.wavesep`](fwap/wavesep.py) |
 | Part 3 | Intercept-time inversion + dipole-flexural processing | [`fwap.tomography`](fwap/tomography.py), [`fwap.dispersion`](fwap/dispersion.py) |
 | Part 4 | Dip measurement based on acoustic data               | [`fwap.dip`](fwap/dip.py) |
-| (extension) | Cross-dipole Alford rotation                    | [`fwap.anisotropy`](fwap/anisotropy.py) |
+| (extension) | Cross-dipole Alford rotation + Thomsen γ        | [`fwap.anisotropy`](fwap/anisotropy.py) |
 | (extension) | Q from array sonic                              | [`fwap.attenuation`](fwap/attenuation.py) |
-| (extension) | Elastic moduli from Vp, Vs, rho                 | [`fwap.rockphysics`](fwap/rockphysics.py) |
+| (extension) | Elastic moduli from Vp, Vs, rho + Stoneley indicators / Hornby aperture | [`fwap.rockphysics`](fwap/rockphysics.py) |
+| (extension) | Geomechanics indices (BI / fracability / UCS / closure stress) | [`fwap.geomechanics`](fwap/geomechanics.py) |
+| (extension) | LWD collar rejection + quadrupole stack         | [`fwap.lwd`](fwap/lwd.py) |
 | (extension) | LAS read / write                                | [`fwap.io.read_las` / `write_las`](fwap/io.py) |
 | (extension) | DLIS read / write                               | [`fwap.io.read_dlis` / `write_dlis`](fwap/io.py) |
 | (extension) | SEG-Y waveform read                             | [`fwap.io.read_segy`](fwap/io.py) |
@@ -70,6 +72,7 @@ fwap dipole       # Part 3: dipole flexural dispersion
 fwap dip          # Part 4: dip / azimuth from azimuthal array
 fwap alford       # Extension: cross-dipole Alford rotation
 fwap attenuation  # Extension: Q by centroid shift and spectral ratio
+fwap lwd          # Extension: LWD collar rejection + quadrupole stack
 fwap las          # Extension: LAS I/O round-trip
 fwap dlis         # Extension: DLIS I/O round-trip
 fwap segy         # Extension: SEG-Y I/O round-trip

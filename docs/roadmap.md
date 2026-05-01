@@ -61,18 +61,121 @@ is now in the package:
   `fwap dlis` are wired into the demo registry alongside the
   existing chapter demos.
 
+A second sweep (after the docx pair `Paillet1991.docx` and
+`Tang2004.docx` were added to `ideas/`) closed the gaps Tang & Cheng
+(2004) flag as the post-1994 borehole-acoustic processing literature:
+
+- **Picker → log-curve bridge**: `track_to_log_curves(track) ->
+  (depths, curves)` converts a per-depth pick track from
+  `track_modes` / `viterbi_pick` / `viterbi_pick_joint` into the
+  fixed-length `{mnemonic: ndarray}` dict the LAS / DLIS writers
+  consume directly. Slowness is converted to us/ft (the LAS unit
+  table convention); missing picks become NaN by default with an
+  optional numeric sentinel.
+- **Geomechanics layer (`fwap.geomechanics`)**: Rickman 2008
+  brittleness / fracability index, Eaton 1969 uniaxial-strain
+  closure stress, Lacy 1997 (Chang 2006 form) sandstone UCS,
+  Bratli–Risnes 1981 sand-stability flag, density-log overburden
+  integration, and a one-call `geomechanics_indices(moduli, ...)`
+  bundle returning a `GeomechanicsIndices` dataclass with all four
+  indices (closure stress optional, conditional on a supplied
+  overburden).
+- **Dispersive pseudo-Rayleigh STC**:
+  `dispersive_pseudo_rayleigh_stc` is the pseudo-Rayleigh analogue
+  of `dispersive_stc`; same back-projection machinery, only the
+  per-mode dispersion law differs. Enforces the fast-formation
+  existence constraint (`shear_slowness_range[1] < 1 / v_fluid`).
+- **Stoneley amplitude fracture indicator**:
+  `stoneley_amplitude_fracture_indicator(A_obs, A_ref)` =
+  `1 - A_obs / A_ref` — companion to the existing
+  `stoneley_permeability_indicator`. Detects the same fractures /
+  permeable zones via energy loss rather than via the
+  poroelastic-delay slowness shift; the two have complementary
+  noise characteristics.
+- **Hornby et al. (1989) Stoneley reflection-coefficient fracture-
+  aperture inversion**: `stoneley_reflection_coefficient(...)`
+  builds `|R|`; `hornby_fracture_aperture(R, frequency_hz,
+  V_T, ...)` inverts the low-frequency closed form
+  `|R| = ω L₀ / sqrt(V_T² + ω² L₀²)` for the fracture aperture
+  `L₀` (m). Quantitative complement to the two slowness- and
+  amplitude-based indicators.
+- **Thomsen-gamma from combined dipole + Stoneley
+  (`fwap.anisotropy`)**: `thomsen_gamma(c44, c66)`,
+  `stoneley_horizontal_shear_modulus(s_ST, rho_fluid, v_fluid)`
+  (White 1983 / Norris 1990 tube-wave inversion), and a one-call
+  `thomsen_gamma_from_logs(s_dipole, s_stoneley, rho, ...)`
+  returning a `ThomsenGammaResult` with C44, C66, gamma per depth.
+- **Slow-formation Vs from low-frequency Stoneley
+  (`fwap.rockphysics`)**: `vs_from_stoneley_slow_formation(...)` is
+  the primary sonic-only V_S estimator for the case where the
+  formation has no S head wave on a monopole gather and
+  pseudo-Rayleigh does not exist (V_S < V_fluid; Paillet & Cheng
+  1991 Ch. 3).
+- **Stress-vs-intrinsic anisotropy classifier
+  (`fwap.dispersion`)**: `classify_flexural_anisotropy(curve_a,
+  curve_b)` labels a cross-dipole record as `"isotropic"`,
+  `"intrinsic"`, `"stress_induced"`, or `"ambiguous"` based on
+  whether the slowness difference Δs(f) crosses zero between a
+  low-f band and a high-f band — the Sinha & Kostek 1996
+  diagnostic that distinguishes far-field rock fabric from
+  borehole-wall stress concentration.
+- **LWD phenomenological layer (`fwap.lwd`)**: `lwd_collar_mode`,
+  `synthesize_lwd_gather`, and `notch_slowness_band` (subtract-
+  the-in-band route, preserves out-of-grid signals) deliver the
+  monopole-side collar-rejection workflow; `QuadrupoleRingGather`,
+  `synthesize_quadrupole_lwd_gather`, `quadrupole_stack` and
+  `lwd_quadrupole_priors` deliver the m=2 source / receiver
+  geometry that Tang & Cheng 2004 sect. 2.5 frame as the practical
+  solution to LWD collar contamination. `fwap lwd` runs the
+  worked-example demo. **Not** a layered cylindrical-Biot solver
+  (still flagged as Open item A below).
+
 ## Open items
 
 ### A. Full cylindrical-Biot dispersion solver
 
-**Status**: fwap currently ships a phenomenological flexural
-dispersion (`fwap.synthetic.dipole_flexural_dispersion`) and a
-Rayleigh-speed-asymptote improvement
-(`fwap.cylindrical.flexural_dispersion_physical`). Neither solves the
-full 3×3 modal determinant. A production sonic-processing package
-needs the Schmitt / Paillet–Cheng / Tang solver.
+**Status (updated)**: the **bound-mode** halves of the Schmitt /
+Paillet–Cheng solver are now both shipped:
 
-**What to build**:
+- n=0 monopole Stoneley solver: `fwap.stoneley_dispersion` (3×3
+  modal determinant in the bound regime; `_modal_determinant_n0`).
+- n=1 dipole flexural solver: `fwap.flexural_dispersion` (4×4
+  modal determinant in the bound regime; `_modal_determinant_n1`).
+  Closed in the [Unreleased] cycle. Slow-formation only
+  (`V_S < V_f`); produces slowness ~ `1/V_S` just above the
+  geometric cutoff and ~ `1/V_R + Scholte offset` at high f.
+
+The phenomenological models stay shipped
+(`fwap.synthetic.dipole_flexural_dispersion`,
+`fwap.cylindrical.flexural_dispersion_physical`) for callers that
+need a closed-form smoothed-step dispersion curve without solving
+the determinant per frequency.
+
+**What's still open** in the cylindrical-Biot family:
+
+**What to build (remaining work, leaky-mode regime)**:
+
+Both bound-mode solvers ship; what remains is the leaky-mode
+extension. The bound-mode solver uses real-valued ``k_z >
+omega/V_alpha`` for every wave speed ``V_alpha``, so all radial
+wavenumbers F, p, s are real and positive. Leaky modes
+(pseudo-Rayleigh, fast-formation flexural, leaky-quadrupole)
+sit at complex ``k_z`` with at least one of F, p, s having
+non-zero imaginary part. Their solver needs:
+
+1. Outgoing Hankel-function (rather than decaying Bessel) BCs for
+   the radiating component(s);
+2. Complex-``k_z`` root-finding via Mueller iteration (real-axis
+   ``brentq`` no longer applies);
+3. Branch tracking across the leaky cutoff at the corresponding
+   wave-speed boundary.
+
+The same scaffolding (modal-determinant assembly, dispersion-
+curve marching, BoreholeMode return type) extends straight from
+the bound-mode solver.
+
+For reference, the original from-scratch problem statement is
+preserved below.
 
 Root-find the zeros of the modal determinant ``M_n(ω, k) = 0`` in
 complex phase-slowness (axial wavenumber ``k`` for mode order ``n``),
@@ -171,12 +274,29 @@ interest) before attempting dipole flexural.
   of perturbation theory to acoustic logging. *J. Geophys. Res.*
   96(B1), 537-549 (starting-guess strategy for the dipole root-finder).
 
-### B. Quantitative Stoneley permeability
+### B. Quantitative Stoneley permeability (Tang–Cheng–Toksöz 1991)
 
-**Status**: fwap ships `stoneley_permeability_indicator` which
-returns the fractional Stoneley slowness shift; the docstring is
-explicit that this is a dimensionless indicator that needs
-calibration to convert to SI permeability.
+**Status**: closed in the [Unreleased] cycle. fwap now ships four
+complementary Stoneley permeability / fracture inversions:
+
+- `stoneley_permeability_indicator` -- dimensionless fractional
+  slowness shift vs a tight reference (rank-ordering only).
+- `stoneley_amplitude_fracture_indicator` -- fractional amplitude
+  deficit (transmission-loss form; complementary noise
+  characteristics).
+- `hornby_fracture_aperture` -- reflected-wave-coefficient
+  inversion for fracture aperture in metres (rigid-frame, single-
+  fracture limit).
+- **`stoneley_permeability_tang_cheng`** *(new)* -- absolute matrix
+  permeability in m^2 from the Tang-Cheng-Toksoz (1991) simplified
+  Biot-Rosenbaum closed form. Real-valued inversion of the
+  slowness shift; out-of-model cases (`alpha_ST <= 0` clipped to
+  `kappa = 0`; `alpha_ST >= K_f / (2 K_phi)` returns NaN with a
+  pointer to `hornby_fracture_aperture` for the open-fracture
+  case). Validated by round-trip recovery on a Tang & Cheng 2004
+  fig 5.3 synthetic (1-2 darcy bed in tight limestone). 11 tests.
+
+The original problem statement is preserved below for reference.
 
 **What to build**:
 
@@ -258,33 +378,25 @@ reference open.
 
 ### C. Fully-joint Viterbi extensions
 
-`fwap.picker.viterbi_pick_joint` already does joint 3-mode Viterbi
-across depths, ``viterbi_posterior_marginals`` runs the
-forward-backward pass for per-mode posterior marginals, and the
-``soft_time_order`` keyword on both turns the strict ordering
-constraint into a soft penalty -- so the only remaining sub-item
-from the original 0.4.0 roadmap is:
+**Status**: closed in the [Unreleased] cycle. Both sub-items from
+the original 0.4.0 roadmap are now shipped:
 
-1. **Variable candidate budget**: current implementation caps valid
-   triples per depth at ``max_triples_per_depth`` (default 2000) and
-   raises on overflow. A smarter top-K pruning per mode (keep the K
-   most coherent candidates per mode before triple enumeration)
-   would handle pathological peak-heavy STC surfaces gracefully
-   without raising.
+1. **Variable candidate budget** (done): the trellis builder
+   automatically tightens per-mode top-K when the raw tuple count
+   ``prod(n_i + 1)`` would exceed ``max_triples_per_depth``,
+   preferring high-coherence candidates within each mode. Replaces
+   the earlier hard-fail-on-overflow with graceful degradation.
+   Helper ``_auto_fallback_k`` computes the largest K that fits
+   the budget; ``logger.debug`` records the per-depth fallback for
+   diagnostic visibility.
 
-A natural follow-on now that the picker supports four default modes
-(P / S / pseudo-Rayleigh / Stoneley) is:
-
-2. **4-mode joint Viterbi**: currently both `viterbi_pick_joint`
-   and `viterbi_posterior_marginals` are hardcoded to the (P, S,
-   Stoneley) triple and subset `DEFAULT_PRIORS` accordingly; full
-   4-mode picking still falls back to the per-mode sequential
-   `viterbi_pick`. Extending the trellis to quadruples squares its
-   width but is otherwise mechanical.
-
-**Scope**: each is a few-hours patch. Lower leverage than the
-algorithms above because the current picker already handles the
-hard-to-handle cases.
+2. **4-mode joint Viterbi** (done): ``viterbi_pick_joint`` and
+   ``viterbi_posterior_marginals`` are now N-mode generic.
+   Default priors changed from the (P, S, Stoneley) subset to the
+   full ``DEFAULT_PRIORS`` (4 modes); explicit subsets via
+   ``priors=`` are supported for users who prefer the prior
+   3-mode behaviour. The wider 4-mode trellis is kept tractable
+   by the variable-candidate-budget machinery from sub-item 1.
 
 ### D. Conda-forge recipe
 
@@ -296,12 +408,14 @@ release is live. Reversible, low-risk; one afternoon's work.
 
 ### E. `ruff format` sweep
 
-Run `ruff format .` once across the tree as a standalone formatting
-commit. Reformats ~34 files. Not enabled in pre-commit today because
-the existing hand-formatted style is consistent but differs from
-ruff-format's defaults (trailing semicolons, specific indent
-conventions). After the sweep, add `ruff-format` to the pre-commit
-hook list so drift is prevented automatically.
+**Status**: closed in the [Unreleased] cycle. Tree-wide ``ruff format``
+sweep applied (42 files reformatted, behaviour-preserving). New
+``.pre-commit-config.yaml`` registers the ``ruff-format`` hook so
+drift is prevented automatically once contributors run
+``pre-commit install``. ``ruff check`` is not yet hooked because the
+tree carries pre-existing lint debt (B023, B007, I001 across various
+modules and tests); a follow-up cleanup PR will clear that debt and
+add ``ruff-check`` to the pre-commit list.
 
 ### F. Real-data test fixtures
 

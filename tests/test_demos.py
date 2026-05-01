@@ -194,8 +194,26 @@ def test_demo_alford(tmp_path, caplog):
     assert m is not None, "alford axis missing"
     angle_deg = float(m.group(1))
     err = abs(angle_deg - 30.0)
-    err = min(err, 180.0 - err)   # fold +/-90 equivalence
+    err = min(err, 180.0 - err)  # fold +/-90 equivalence
     assert err < 2.0, f"alford angle {angle_deg:.2f} deg, expected 30 deg"
+
+
+def test_demo_lwd(tmp_path, caplog):
+    """demo_lwd writes both LWD figures and recovers formation modes.
+
+    Two figures: monopole-side (collar rejection) and quadrupole-
+    side (m=2 stack). The monopole side recovers P/S/Stoneley to
+    within 10 us/ft of truth (Vp=4500, Vs=2500, Vst=1400) after
+    notching the collar band; the quadrupole side picks
+    FormationShear at Vs=2300 m/s.
+    """
+    lines = _run_demo(demos.demo_lwd, tmp_path, caplog)
+    assert (tmp_path / "demo_lwd_monopole.png").exists()
+    assert (tmp_path / "demo_lwd_quadrupole.png").exists()
+    # Monopole side: log line per recovered mode.
+    assert any("After collar-band notch" in line for line in lines)
+    # Quadrupole side: log lines for the m=2 picker outputs.
+    assert any("Quadrupole stack" in line for line in lines)
 
 
 def test_demo_segy_roundtrip(tmp_path, caplog):
@@ -221,7 +239,8 @@ def test_demo_dlis_roundtrip(tmp_path, caplog):
     # DLIS stores raw IEEE float64, so every curve's drift should be
     # exactly zero (no fixed-decimal quantisation like LAS).
     drift_lines = [
-        line for line in lines
+        line
+        for line in lines
         if re.search(r"^\s+[A-Z]+\s+\d", line) and "round-trip" not in line
     ]
     assert drift_lines, "no per-curve drift lines logged"
@@ -233,8 +252,7 @@ def test_demo_dlis_roundtrip(tmp_path, caplog):
             except ValueError:
                 continue
             assert drift == 0.0, (
-                f"DLIS round-trip should be bit-exact; got {drift} on "
-                f"line: {line!r}"
+                f"DLIS round-trip should be bit-exact; got {drift} on line: {line!r}"
             )
 
 
@@ -251,7 +269,8 @@ def test_demo_las_roundtrip(tmp_path, caplog):
     # modulus values are ~1e10 Pa. An absolute 1e-3 cap is conservative
     # for the unit-bearing curves and strictly tiny for the moduli.
     drift_lines = [
-        line for line in lines
+        line
+        for line in lines
         if re.search(r"^\s+[A-Z]+\s+\d", line) and "round-trip" not in line
     ]
     for line in drift_lines:
