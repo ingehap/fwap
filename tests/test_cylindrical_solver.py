@@ -37,6 +37,7 @@ from fwap.cylindrical_solver import (
     _modal_determinant_n0_layered,
     _modal_determinant_n1,
     _modal_determinant_n1_layered,
+    _radial_wavenumbers_vti,
     flexural_dispersion,
     flexural_dispersion_layered,
     flexural_dispersion_vti,
@@ -5410,3 +5411,149 @@ def test_dispersion_vti_rejects_non_positive_freq_and_geometry():
         stoneley_dispersion_vti(
             np.array([5000.0]), **cij, **{**base, "a": 0.0},
         )
+
+
+# =====================================================================
+# Plan item H.b -- radial-wavenumber helper (Christoffel-equation roots)
+# =====================================================================
+#
+# Bound-regime ``(alpha_qP, alpha_qSV, alpha_SH)`` from the H.a.2
+# Christoffel quadratic and the H.a.4 SH closed form. The
+# isotropic-collapse identity (qP -> p, qSV -> s, SH -> s) is the
+# floating-point oracle for the entire H chain.
+
+
+def _typical_vti_params():
+    """Genuine-TI fixture for H.b tests. Roughly Thomsen-style:
+    ~10% epsilon, ~5% delta, ~15% gamma. Within the Thomsen-stable
+    range where qP / qSV remain well-separated."""
+    return dict(
+        c11=4.0e10,   # V_Ph^2 * rho ~ (4080 m/s)^2 * 2400
+        c13=1.5e10,   # delta-coupled
+        c33=3.5e10,   # V_Pv^2 * rho ~ (3819 m/s)^2 * 2400
+        c44=1.0e10,   # V_Sv^2 * rho ~ (2041 m/s)^2 * 2400
+        c66=1.3e10,   # V_Sh^2 * rho ~ (2327 m/s)^2 * 2400  (gamma > 0)
+        rho=2400.0,
+    )
+
+
+def test_radial_wavenumbers_vti_isotropic_collapse_matches_isotropic():
+    """Floating-point oracle for H.b: with an isotropic stiffness
+    tensor the VTI radial wavenumbers reduce to the isotropic
+    ``(p, s, s)``."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, 1500.0) * 1.5
+
+    alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti(
+        kz, omega, **cij, rho=rho,
+    )
+
+    p_iso = float(np.sqrt(kz ** 2 - (omega / vp) ** 2))
+    s_iso = float(np.sqrt(kz ** 2 - (omega / vs) ** 2))
+
+    assert alpha_qP == pytest.approx(p_iso, rel=1.0e-12)
+    assert alpha_qSV == pytest.approx(s_iso, rel=1.0e-12)
+    assert alpha_SH == pytest.approx(s_iso, rel=1.0e-12)
+
+
+def test_radial_wavenumbers_vti_genuine_TI_christoffel_identity():
+    """Christoffel-equation identity check: substituting the qP and
+    qSV roots back into the bound-mode Christoffel determinant must
+    give zero to floating-point precision. Catches sign / coefficient
+    errors in the H.a.2 quadratic transcription that the isotropic-
+    collapse test would miss when C44 = C66."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    omega = 2.0 * np.pi * 5000.0
+    # kz above the bound floor for both qP and qSV branches.
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    kz = omega / min(vsv, vsh) * 1.5
+
+    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti(
+        kz, omega, **cij, rho=rho,
+    )
+
+    rho_omega_sq = rho * omega * omega
+    # Christoffel determinant at alpha^2 (substep H.a.2 form):
+    #   det = (-C11 alpha^2 + C44 kz^2 - rho omega^2)
+    #         * (-C44 alpha^2 + C33 kz^2 - rho omega^2)
+    #       + (C13 + C44)^2 alpha^2 kz^2
+    def det_christoffel(alpha):
+        a2 = alpha * alpha
+        m11 = -cij["c11"] * a2 + cij["c44"] * kz * kz - rho_omega_sq
+        m22 = -cij["c44"] * a2 + cij["c33"] * kz * kz - rho_omega_sq
+        return m11 * m22 + (cij["c13"] + cij["c44"]) ** 2 * a2 * kz * kz
+
+    # Both qP and qSV roots should give det = 0 to fp precision.
+    # Use a relative tolerance: the determinant scales as
+    # (rho omega^2)^2 ~ 1e21 in this fixture, so absolute zero
+    # tolerance must be set against that scale.
+    scale = rho_omega_sq * rho_omega_sq
+    assert abs(det_christoffel(alpha_qP)) < scale * 1.0e-10
+    assert abs(det_christoffel(alpha_qSV)) < scale * 1.0e-10
+
+
+def test_radial_wavenumbers_vti_qP_larger_than_qSV():
+    """Substep H.a.3 ordering: alpha_qP > alpha_qSV in the bound
+    regime. Convention agrees with the isotropic limit (p > s
+    always when V_P > V_S, because the radial decay rate is
+    ``alpha = sqrt(kz^2 - omega^2/V^2)`` and larger V gives larger
+    alpha)."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    omega = 2.0 * np.pi * 5000.0
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    kz = omega / min(vsv, vsh) * 1.5
+
+    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti(
+        kz, omega, **cij, rho=rho,
+    )
+    assert alpha_qP > alpha_qSV
+    assert alpha_qP > 0.0
+    assert alpha_qSV > 0.0
+
+
+def test_radial_wavenumbers_vti_SH_uses_C44_and_C66():
+    """Substep H.a.4 (corrected): alpha_SH^2 = (C44 kz^2 - rho
+    omega^2) / C66. Verify directly. Distinguishes the corrected
+    form from the buggy ``kz^2 - rho omega^2 / C66`` (which would
+    give the same isotropic limit but wrong genuine-TI value)."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    omega = 2.0 * np.pi * 5000.0
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    kz = omega / min(vsv, vsh) * 1.5
+
+    _, _, alpha_SH = _radial_wavenumbers_vti(
+        kz, omega, **cij, rho=rho,
+    )
+    expected_SH_sq = (cij["c44"] * kz ** 2 - rho * omega ** 2) / cij["c66"]
+    assert alpha_SH ** 2 == pytest.approx(expected_SH_sq, rel=1.0e-12)
+    # Sanity: the buggy ``kz^2 - rho omega^2 / C66`` form would
+    # give a DIFFERENT value here because C44 != C66.
+    buggy_SH_sq = kz ** 2 - rho * omega ** 2 / cij["c66"]
+    assert abs(alpha_SH ** 2 - buggy_SH_sq) > 0.0  # they differ
+    assert cij["c44"] != cij["c66"]  # confirm fixture is genuine TI
+
+
+def test_radial_wavenumbers_vti_below_bound_floor_returns_nan():
+    """Below the bound floor ``kz < omega / min(V_Sv, V_Sh, V_f)``
+    one or more decay rates would be imaginary; the helper returns
+    NaN (brentq-safe convention)."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    omega = 2.0 * np.pi * 5000.0
+    # Pick kz well below the bound floor.
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    kz = omega / vsv * 0.5
+    with np.errstate(invalid="ignore"):
+        alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti(
+            kz, omega, **cij, rho=rho,
+        )
+    # alpha_SH definitely NaN below the V_Sv-related floor.
+    assert np.isnan(alpha_SH)
