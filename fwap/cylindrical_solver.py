@@ -10533,3 +10533,140 @@ def _modal_row2_at_a_n1_vti(
     )
     return row
 
+
+# =====================================================================
+# Substep H.d.3 -- row 3 of the n=1 VTI flexural determinant (r=a)
+# =====================================================================
+#
+# BC3: ``sigma_rtheta^{(s)}(a) = 0`` (sin sector, dipole order).
+# Tangential-shear vanishing at the borehole wall. Unique sector
+# pattern: sin-sector BC (vs cos for rows 1, 2, 4); fluid carries
+# no shear so column A = 0.
+#
+# **VTI sigma_rtheta formula**:
+#
+#       sigma_rtheta = 2 C66 epsilon_rtheta
+#                    = C66 ((1/r) d_theta u_r + d_r u_theta - u_theta/r)
+#
+# Pure C66 shear stress -- no Lame replacement, no Q_qX, no
+# polarization-ratio factor (the polarization ratio determines
+# u_z, but row 3 doesn't see u_z). This makes row 3 the simplest
+# C-matrix-coupled row in H.d.
+#
+# **C66 enters every non-zero entry directly**:
+#
+#   B_qP: scales with 2 C66
+#   C_qSV: scales with C66 (post-rescale ``k_z C66 K_1/a``)
+#   D_SH: scales with -C66; outer prefactor times the SH shear
+#         combination ``alpha_SH^2 K_1 + 2 alpha_SH K_0/a + 4 K_1/a^2``
+#
+# The ``alpha_SH^2 K_1`` direct term in D_SH is unique to row 3
+# (no other row in the n=1 matrix has this term). Comes from
+# ``d_r u_theta`` involving ``d_r [alpha_SH K_0(alpha_SH r)] =
+# -alpha_SH^2 K_1``.
+#
+# Cross-sector mechanism: B and C contribute via cos -> sin
+# d_theta conversion in (1/r) d_theta u_r; D contributes
+# directly (psi_z is naturally sin sector).
+#
+# **Row 3 entries (post-rescale)**:
+#
+#       row[0] = 0                                          # A (no shear)
+#       row[1] = +2 C66 (alpha_qP K_0(alpha_qP a)/a
+#                        + 2 K_1(alpha_qP a)/a^2)            # B_qP -> M32
+#       row[2] = +k_z C66 K_1(alpha_qSV a) / a               # C_qSV -> M33
+#       row[3] = -C66 (alpha_SH^2 K_1(alpha_SH a)
+#                      + 2 alpha_SH K_0(alpha_SH a)/a
+#                      + 4 K_1(alpha_SH a)/a^2)              # D_SH -> M34
+#
+# Phase rescale: row 3 is NOT z-derivative-bearing (no row * i).
+# Column C_qSV by ``-i`` cancels the ``+i k_z`` factor in the
+# pre-rescale C entry.
+
+
+def _modal_row3_at_a_n1_vti(
+    kz: float,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> np.ndarray:
+    r"""
+    Row 3 of the n=1 VTI flexural modal determinant evaluated at
+    the borehole wall ``r = a``.
+
+    Encodes the tangential-shear-vanishing BC
+    ``sigma_rtheta^{(s)}(a) = 0`` (sin sector, dipole order).
+    Returns the four post-rescale coefficients in column order
+    ``[A | B_qP, C_qSV, D_SH]``. A column is identically zero
+    because the fluid carries no shear; the other three columns
+    all scale linearly with C66 (pure shear stress, no Lame
+    replacement).
+
+    Parameters
+    ----------
+    kz, omega : float
+        Axial wavenumber and angular frequency.
+    c11, c13, c33, c44, c66 : float
+        VTI stiffness tensor entries (Pa). Only ``c66`` enters
+        the matrix entries directly (as the outer factor on every
+        non-zero column); ``c11, c13, c33, c44`` enter indirectly
+        via the Christoffel roots.
+    rho : float
+        Formation density (kg/m^3).
+    vf, rho_f : float
+        Fluid velocity and density. Not used (fluid carries no
+        shear); carried for signature uniformity.
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    ndarray, shape (4,) complex
+        Coefficients of (A, B_qP, C_qSV, D_SH) in row 3. Real-
+        valued in the bound regime.
+
+    See Also
+    --------
+    _modal_determinant_n1 : Isotropic n=1 form. At isotropic-
+        collapse, ``row[0] = M31 = 0``, ``row[1] = M32``,
+        ``row[2] = M33``, ``row[3] = M34`` bit-exactly.
+    """
+    del vf, rho_f  # not used by row 3 (fluid no shear)
+    alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti(
+        kz, omega, c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho,
+    )
+
+    K0_qP_a = float(special.kv(0, alpha_qP * a))
+    K1_qP_a = float(special.kv(1, alpha_qP * a))
+    K1_qSV_a = float(special.kv(1, alpha_qSV * a))
+    K0_SH_a = float(special.kv(0, alpha_SH * a))
+    K1_SH_a = float(special.kv(1, alpha_SH * a))
+
+    row = np.zeros(4, dtype=complex)
+    # A column: fluid carries no shear at the wall.
+    row[0] = 0.0
+    # B_qP column: 2 C66 (alpha_qP K_0/a + 2 K_1/a^2). At isotropic
+    # alpha_qP -> p, C66 -> mu, gives M32.
+    row[1] = +2.0 * c66 * (alpha_qP * K0_qP_a / a + 2.0 * K1_qP_a / (a * a))
+    # C_qSV column post-rescale: +k_z C66 K_1/a. Matches M33 at
+    # alpha_qSV -> s, C66 -> mu.
+    row[2] = +kz * c66 * K1_qSV_a / a
+    # D_SH column: -C66 (alpha_SH^2 K_1 + 2 alpha_SH K_0/a +
+    # 4 K_1/a^2). The alpha_SH^2 K_1 direct term is unique to
+    # row 3 -- comes from d_r [alpha_SH K_0(alpha_SH r)] =
+    # -alpha_SH^2 K_1. Matches M34 at alpha_SH -> s.
+    row[3] = -c66 * (
+        alpha_SH * alpha_SH * K1_SH_a
+        + 2.0 * alpha_SH * K0_SH_a / a
+        + 4.0 * K1_SH_a / (a * a)
+    )
+    return row
+
