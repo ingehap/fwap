@@ -10,7 +10,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from fwap.cylindrical import flexural_dispersion_physical, rayleigh_speed
+from fwap.cylindrical import (
+    flexural_dispersion_physical,
+    flexural_dispersion_vti_physical,
+    rayleigh_speed,
+)
 from fwap.cylindrical_solver import (
     BoreholeLayer,
     BoreholeMode,
@@ -7176,3 +7180,172 @@ def test_flexural_dispersion_vti_LF_approaches_V_Sv():
     )
     # LF asymptote: slowness ~ 1/Vsv. Tolerance ~ 2% at f = 3 kHz.
     assert res.slowness[0] == pytest.approx(1.0 / Vsv, rel=2.0e-2)
+
+
+# =====================================================================
+# Plan item H.e -- validation hardening on top of H.d.6
+# =====================================================================
+#
+# Hardening tests for the assembled VTI solvers. Each tests an
+# asymptotic / self-consistency property that the isotropic-collapse
+# regression alone doesn't pin down. Mirrors F.2.e for the layered
+# solver, plus a weak-anisotropy regression against the
+# phenomenological model from ``fwap.cylindrical``
+# (``flexural_dispersion_vti_physical``) -- the only TI-specific
+# external oracle we have for the n=1 dipole.
+
+
+def test_modal_determinant_n0_vti_vanishes_at_converged_root_multi_freq():
+    """Self-consistency: at the converged ``k_z`` from
+    ``stoneley_dispersion_vti`` at every frequency in a multi-
+    point grid, the underlying VTI determinant is many orders of
+    magnitude smaller than its value at ``k_z * 1.01``. Sharper
+    than the single-frequency check from H.c.2 because it
+    catches regressions where the brentq pipeline converges to
+    something other than the true root for some frequencies."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    f = np.geomspace(1000.0, 10000.0, 6)
+
+    res = stoneley_dispersion_vti(
+        f, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert np.all(np.isfinite(res.slowness))
+    for i, fi in enumerate(f):
+        omega = 2.0 * np.pi * float(fi)
+        kz_root = float(res.slowness[i]) * omega
+        det_at = _modal_determinant_n0_vti(
+            kz_root, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+        )
+        det_off = _modal_determinant_n0_vti(
+            kz_root * 1.01, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+        )
+        # Ratio at every frequency: det at root << det 1% off.
+        assert abs(det_at) < abs(det_off) * 1.0e-6, (
+            f"f={fi:.1f}: |det_at|={abs(det_at):.3e} not << "
+            f"|det_off|={abs(det_off):.3e}"
+        )
+
+
+def test_modal_determinant_n1_vti_vanishes_at_converged_root_multi_freq():
+    """Mirror of the n=0 multi-frequency self-consistency at n=1.
+    Slow-formation TI fixture so the real-valued VTI determinant
+    is well-defined across the full frequency band."""
+    cij = _typical_slow_vti_params()
+    rho = cij.pop("rho")
+    # Above the geometric cutoff (~1750 Hz for V_Sv=1100, a=0.1).
+    f = np.geomspace(3000.0, 12000.0, 6)
+
+    res = flexural_dispersion_vti(
+        f, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert np.all(np.isfinite(res.slowness))
+    for i, fi in enumerate(f):
+        omega = 2.0 * np.pi * float(fi)
+        kz_root = float(res.slowness[i]) * omega
+        det_at = _modal_determinant_n1_vti(
+            kz_root, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+        )
+        det_off = _modal_determinant_n1_vti(
+            kz_root * 1.01, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+        )
+        assert abs(det_at) < abs(det_off) * 1.0e-6, (
+            f"f={fi:.1f}: |det_at|={abs(det_at):.3e} not << "
+            f"|det_off|={abs(det_off):.3e}"
+        )
+
+
+def test_stoneley_dispersion_vti_multi_frequency_smoothness():
+    """Stoneley slowness varies smoothly with frequency: across a
+    geomspaced band the slowness curve is finite at every point,
+    sits above the Norris LF floor, and below the rigid-formation
+    fluid-only ceiling. No strict monotonicity check (the Stoneley
+    is gently dispersive; sign of the derivative depends on
+    parameters), just smoothness."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    f = np.geomspace(500.0, 12000.0, 16)
+
+    res = stoneley_dispersion_vti(
+        f, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert np.all(np.isfinite(res.slowness))
+    # All slownesses above the fluid-only slowness 1/V_f and
+    # below the Norris LF cap (a sanity fence, not a tight oracle).
+    s_fluid = 1.0 / 1500.0
+    s_norris = float(np.sqrt(1.0 / 1500.0 ** 2 + 1000.0 / cij["c66"]))
+    assert np.all(res.slowness > s_fluid)
+    assert np.all(res.slowness < s_norris * 1.10)
+    # Smoothness: relative step-to-step change capped at 5 %
+    # (geomspaced grid, so adjacent frequencies are ~ 60 % apart
+    # but slowness is gently dispersive).
+    rel_steps = np.abs(np.diff(res.slowness)) / res.slowness[:-1]
+    assert np.all(rel_steps < 0.05)
+
+
+def test_flexural_dispersion_vti_multi_frequency_monotonicity():
+    """Slow-formation flexural slowness increases monotonically
+    with frequency: cutoff at ``1/V_Sv`` (low f), HF asymptote at
+    a Rayleigh-like speed slightly faster than ``V_Sv`` -- so
+    slowness rises from ``~1/V_Sv`` toward ``~1/V_R > 1/V_Sv``.
+    Mirrors F.2.e's layered counterpart."""
+    cij = _typical_slow_vti_params()
+    rho = cij.pop("rho")
+    f = np.geomspace(3000.0, 15000.0, 12)
+
+    res = flexural_dispersion_vti(
+        f, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert np.all(np.isfinite(res.slowness))
+    # Tiny negative tolerance for asymptotic-flatness rounding noise.
+    diffs = np.diff(res.slowness)
+    assert np.all(diffs > -1.0e-9)
+
+
+def test_flexural_dispersion_vti_weak_anisotropy_matches_phenomenological():
+    """Plan H.e weak-anisotropy oracle: with small ``gamma`` (TI
+    close to isotropic), the full Schmitt 1989 modal determinant
+    slowness should qualitatively track the Sinha-Norris-Chang
+    phenomenological asymptote
+    :func:`flexural_dispersion_vti_physical` across the dipole-
+    sonic band (~ 1-6 kHz, equivalent to ~ 1-3 cutoff multiples
+    for this fixture).
+
+    Tolerance follows the precedent of the isotropic
+    ``test_flexural_dispersion_qualitative_match_with_phenomenological``
+    (10 %). The phenomenological model is a smoothed-step
+    interpolation between the LF ``1/V_Sv`` and HF
+    ``1/V_R(V_P, V_Sh)`` asymptotes -- both physically correct
+    in their own limits; the few-percent quantitative offset
+    arises from Scholte / fluid-loading effects the modal solver
+    captures but the phenomenological does not."""
+    rho = 2200.0
+    vsv = 1100.0
+    vsh = 1110.0  # gamma ~ 0.009 (very weak TI)
+    vp = 2200.0
+    cij = dict(
+        c11=rho * vp ** 2,         # set epsilon = 0 (c11 = c33)
+        c33=rho * vp ** 2,
+        c44=rho * vsv ** 2,
+        c66=rho * vsh ** 2,        # gamma > 0 only
+    )
+    # c13 = c11 - 2 c44 (delta-coupled isotropic value).
+    cij["c13"] = cij["c11"] - 2.0 * cij["c44"]
+    a = 0.1
+    vf, rho_f = 1500.0, 1000.0
+
+    # Dipole-sonic band: 1.5-3.5 cutoff multiples (~ 2.6 - 6.1 kHz
+    # for this fixture). Stays comfortably above the geometric
+    # cutoff where the bracket would otherwise touch the floor.
+    fc = vsv / (2.0 * np.pi * a)
+    f = np.linspace(fc * 1.5, fc * 3.5, 8)
+
+    res_modal = flexural_dispersion_vti(
+        f, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    s_phenom = flexural_dispersion_vti_physical(
+        vp=vp, vsv=vsv, vsh=vsh, a_borehole=a,
+    )(f)
+    assert np.all(np.isfinite(res_modal.slowness))
+    rel_diff = np.abs(res_modal.slowness - s_phenom) / s_phenom
+    assert np.all(rel_diff < 0.10)
