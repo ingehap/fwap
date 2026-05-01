@@ -4862,6 +4862,113 @@ def quadrupole_dispersion(
     )
 
 
+def quadrupole_dispersion_layered(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...] = (),
+) -> BoreholeMode:
+    r"""
+    Quadrupole-wave (n = 2) phase slowness vs frequency for a
+    borehole with optional cased-hole annular layers between the
+    fluid and the formation half-space.
+
+    Sister of :func:`stoneley_dispersion_layered` (n=0) and
+    :func:`flexural_dispersion_layered` (n=1) at azimuthal order
+    2. With ``layers=()`` (no extra layers) this is bit-equivalent
+    to :func:`quadrupole_dispersion`. With one or more
+    :class:`BoreholeLayer` instances, the multi-layer cased-hole
+    propagator-matrix path is dispatched to the n=2 stacked modal
+    determinant (G''.c / G''.d follow-ups; not yet shipped).
+
+    Parameters
+    ----------
+    freq : ndarray
+        Frequency grid (Hz). Must be strictly positive.
+    vp, vs, rho : float
+        Formation half-space P-wave velocity (m/s), S-wave
+        velocity (m/s), and bulk density (kg/m^3). Must satisfy
+        ``vp > vs > 0`` and ``rho > 0``.
+    vf, rho_f : float
+        Borehole-fluid velocity (m/s) and density (kg/m^3).
+    a : float
+        Borehole (fluid-side) radius (m).
+    layers : tuple of BoreholeLayer, default ()
+        Annular elastic layers between the fluid (``r < a``) and
+        the formation half-space, ordered radially outward
+        (``layers[0]`` adjacent to fluid; ``layers[-1]`` adjacent
+        to formation). ``()`` dispatches to
+        :func:`quadrupole_dispersion`. Multi-layer dispatch is
+        plan items G''.c (stacked modal determinant) and G''.d
+        (public-API hook); see
+        ``docs/plans/cylindrical_biot_G_pp.md``.
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "quadrupole"``, ``azimuthal_order = 2``.
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive, ``vp <= vs``, ``freq``
+        contains a non-positive entry, any layer is malformed,
+        or any layer fails the slow-formation constraint
+        ``layer.vs >= vs`` (multi-layer only).
+    NotImplementedError
+        If ``len(layers) >= 1`` (G''.c / G''.d not yet shipped),
+        or if the formation is fast (``V_S > V_f``) with a
+        non-empty layer (fast-formation cased-hole quadrupole is
+        a deferred follow-up).
+    """
+    layers_tuple = tuple(layers)
+    _validate_borehole_layers(layers_tuple)
+    if not layers_tuple:
+        return quadrupole_dispersion(
+            freq, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        )
+    if vp <= 0 or vs <= 0 or rho <= 0:
+        raise ValueError("vp, vs, rho must all be positive")
+    if vf <= 0 or rho_f <= 0:
+        raise ValueError("vf and rho_f must be positive")
+    if a <= 0:
+        raise ValueError("a must be positive")
+    if vp <= vs:
+        raise ValueError("require vp > vs")
+    f_arr = np.asarray(freq, dtype=float)
+    if np.any(f_arr <= 0):
+        raise ValueError("freq must be strictly positive")
+    if vs > vf:
+        raise NotImplementedError(
+            "quadrupole_dispersion_layered with fast formation "
+            "(V_S > V_f) and a non-empty layer is not supported "
+            "yet; the fast-formation cased-hole quadrupole "
+            "(complex-determinant variant) is a deferred follow-"
+            "up to plan G''. Slow-formation cased-hole quadrupole "
+            "(in scope for plan G'') will arrive in G''.d when "
+            "shipped."
+        )
+    # Slow-formation per-layer constraint enforced upstream; reuse
+    # the n=1 helper since the constraint ``layer.vs >= vs`` is
+    # the same at n=2 (Sinha-Norris-Chang-style soft-formation
+    # bound-mode regime).
+    _validate_flexural_layers_stacked(layers_tuple, a, vs)
+    raise NotImplementedError(
+        "quadrupole_dispersion_layered with non-empty layers is "
+        "scheduled in plan items G''.c (stacked modal determinant "
+        "via the 6x6 Thomson-Haskell propagator matrix at n=2) "
+        "and G''.d (public-API hook + multi-layer regression); "
+        "see docs/plans/cylindrical_biot_G_pp.md. Unlayered "
+        "(``layers=()``) is supported via dispatch to "
+        "``quadrupole_dispersion``."
+    )
+
+
 # ---------------------------------------------------------------------
 # Plan item F -- single-extra-layer (mudcake / altered zone) extension
 # ---------------------------------------------------------------------

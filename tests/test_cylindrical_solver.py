@@ -9014,3 +9014,140 @@ def test_flexural_dispersion_layered_cement_stiffness_sensitivity():
     assert rel_diff > 0.01
     # Empirical direction: stiffer cement -> smaller slowness.
     assert res_stiff.slowness[0] < res_soft.slowness[0]
+
+
+# =====================================================================
+# Plan item G''.0 -- public-API foundation for cased-hole quadrupole
+# =====================================================================
+#
+# Introduces ``quadrupole_dispersion_layered`` from scratch: with
+# ``layers=()`` it dispatches to ``quadrupole_dispersion``; with
+# any non-empty layer stack it raises NotImplementedError pointing
+# at G''.c / G''.d (the propagator-matrix scaffolding that ships
+# in subsequent sub-units). Validation rules cover the slow-
+# formation per-layer constraint and a fast-formation NIE for
+# the deferred complex-determinant follow-up.
+
+
+def test_quadrupole_dispersion_layered_layers_empty_dispatches_to_unlayered():
+    """``layers=()`` -> bit-equivalent to
+    ``quadrupole_dispersion``. Floating-point regression oracle
+    for plan G''."""
+    from fwap.cylindrical_solver import (
+        quadrupole_dispersion, quadrupole_dispersion_layered,
+    )
+    f = np.linspace(8000.0, 25000.0, 5)
+    # LWD-quadrupole-relevant slow formation.
+    vp, vs, rho = 2200.0, 800.0, 2200.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    res_unl = quadrupole_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    res_lyr = quadrupole_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a, layers=(),
+    )
+    np.testing.assert_array_equal(res_lyr.slowness, res_unl.slowness)
+    np.testing.assert_array_equal(res_lyr.freq, res_unl.freq)
+    assert res_lyr.name == "quadrupole"
+    assert res_lyr.azimuthal_order == 2
+
+
+def test_quadrupole_dispersion_layered_single_layer_raises_pointing_at_G_pp_c_d():
+    """``len(layers) >= 1`` raises ``NotImplementedError`` with a
+    message naming G''.c (stacked modal determinant) and G''.d
+    (public-API hook), plus the sub-plan doc reference. Sharpens
+    until the multi-layer brentq path lands."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+    layer = BoreholeLayer(vp=2500.0, vs=1100.0, rho=2100.0, thickness=0.005)
+    with pytest.raises(NotImplementedError) as exc_info:
+        quadrupole_dispersion_layered(
+            np.array([10000.0]),
+            vp=2200.0, vs=800.0, rho=2200.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+            layers=(layer,),
+        )
+    msg = str(exc_info.value)
+    assert "G''.c" in msg
+    assert "G''.d" in msg
+    assert "cylindrical_biot_G_pp.md" in msg
+
+
+def test_quadrupole_dispersion_layered_returns_borehole_mode_for_unlayered():
+    """``BoreholeMode`` return-type contract on the unlayered
+    dispatch. Type and azimuthal_order are pinned for every
+    public path; the actual slowness numerics are covered by
+    the existing ``quadrupole_dispersion`` tests."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+    f = np.linspace(8000.0, 15000.0, 3)
+    res = quadrupole_dispersion_layered(
+        f, vp=2200.0, vs=800.0, rho=2200.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert isinstance(res, BoreholeMode)
+    assert res.name == "quadrupole"
+    assert res.azimuthal_order == 2
+    np.testing.assert_array_equal(res.freq, f)
+
+
+def test_quadrupole_dispersion_layered_rejects_softer_layer():
+    """The per-layer slow-formation constraint
+    ``layer.vs >= vs`` is enforced via the G'.0
+    ``_validate_flexural_layers_stacked`` helper (the constraint
+    is the same at n=1 and n=2). A softer layer triggers
+    ``ValueError`` with the offending index."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+    soft_layer = BoreholeLayer(
+        vp=1500.0, vs=600.0, rho=1700.0, thickness=0.05,
+    )  # vs = 600 < formation vs = 800 -> reject
+    with pytest.raises(ValueError, match=r"layer\.vs"):
+        quadrupole_dispersion_layered(
+            np.array([10000.0]),
+            vp=2200.0, vs=800.0, rho=2200.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+            layers=(soft_layer,),
+        )
+
+
+def test_quadrupole_dispersion_layered_fast_formation_with_layer_raises():
+    """Fast-formation cased-hole quadrupole (``V_S > V_f`` with
+    a non-empty layer) is a deferred follow-up. Single-interface
+    fast-formation ``quadrupole_dispersion`` is supported via
+    auto-dispatch; the layered version requires the complex-
+    determinant path which is out of scope for plan G''."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+    layer = BoreholeLayer(vp=4000.0, vs=3300.0, rho=2500.0, thickness=0.005)
+    # Fast formation: V_S = 3100 > V_f = 1500.
+    with pytest.raises(NotImplementedError, match="fast formation"):
+        quadrupole_dispersion_layered(
+            np.array([10000.0]),
+            vp=5500.0, vs=3100.0, rho=2500.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+            layers=(layer,),
+        )
+
+
+def test_quadrupole_dispersion_layered_rejects_invalid_inputs():
+    """Standard input validation: positivity, ``vp > vs``, and
+    strictly-positive frequencies."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+    base = dict(
+        vp=2200.0, vs=800.0, rho=2200.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    layer = BoreholeLayer(vp=2500.0, vs=1100.0, rho=2100.0, thickness=0.005)
+    f = np.array([10000.0])
+    # Non-positive vp.
+    with pytest.raises(ValueError, match="vp, vs, rho must all be positive"):
+        quadrupole_dispersion_layered(
+            f, **{**base, "vp": 0.0}, layers=(layer,),
+        )
+    # vp <= vs.
+    with pytest.raises(ValueError, match=r"vp > vs"):
+        quadrupole_dispersion_layered(
+            f, **{**base, "vp": 700.0}, layers=(layer,),
+        )
+    # Non-positive freq.
+    with pytest.raises(ValueError, match="freq must be strictly positive"):
+        quadrupole_dispersion_layered(
+            np.array([0.0]), **base, layers=(layer,),
+        )
