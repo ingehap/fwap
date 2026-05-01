@@ -24,6 +24,7 @@ from fwap.cylindrical_solver import (
     _layered_n0_row6_at_b,
     _layered_n0_row7_at_b,
     _layered_n1_row1_at_a,
+    _layered_n1_row10_at_b,
     _layered_n1_row2_at_a,
     _layered_n1_row3_at_a,
     _layered_n1_row4_at_a,
@@ -4811,3 +4812,139 @@ def test_layered_n1_row8_at_b_annulus_K_matches_negated_row2_M22_M23_M24_at_b():
     assert row8[2].real == pytest.approx(-M22_at_b)
     assert row8[4].real == pytest.approx(-M23_at_b)
     assert row8[8].real == pytest.approx(-M24_at_b)
+
+
+# =====================================================================
+# Plan item F.2.b.7 -- row 10 of the n=1 layered determinant (r = b)
+# =====================================================================
+#
+# Final row of the 10x10 layered determinant; closes substep F.2.b.
+# Z-derivative-bearing cos row at the second interface; analogous
+# to row 4 at r=a with non-zero formation cols.
+
+
+def test_layered_n1_row10_at_b_K_flavour_cancels_at_layer_equals_formation():
+    """All three K-flavour pairs cancel at layer=formation."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _layered_n1_row10_at_b(
+        kz, omega, vp=vp, vs=vs, rho=rho,
+        vf=vf, rho_f=rho_f, a=a, layer=layer,
+    )
+    assert row[2].real + row[5].real == pytest.approx(0.0, abs=1.0e-14)
+    assert row[4].real + row[6].real == pytest.approx(0.0, abs=1.0e-14)
+    assert row[8].real + row[9].real == pytest.approx(0.0, abs=1.0e-14)
+
+
+def test_layered_n1_row10_at_b_fluid_column_is_zero():
+    """Sparsity: A column zero (fluid no shear AND fluid r<a);
+    remaining nine columns generically non-zero."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n1_row10_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    assert row[0] == 0.0
+    for i in range(1, 10):
+        assert row[i] != 0.0
+
+
+def test_layered_n1_row10_at_b_is_real_in_bound_regime():
+    """Substep F.2.a.5: row 10 is z-derivative-bearing -- gets the
+    FULL rescale (row * i + col-by-(-i) on C cols)."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n1_row10_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e-14)
+
+
+def test_layered_n1_row10_at_b_matches_closed_form_per_column():
+    """Per-column transcription check against substep F.2.a.3's
+    sigma_rz decomposition at r=b for all nine non-zero entries."""
+    p, omega, kz = _row1_test_setup()
+    F_f, p_m, s_m, p_form, s_form = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    a = p["a"]
+    b = a + p["layer"].thickness
+    from scipy import special as sp
+
+    row = _layered_n1_row10_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=a, layer=p["layer"],
+    )
+
+    mu_m = p["layer"].rho * p["layer"].vs ** 2
+    kSm2 = (omega / p["layer"].vs) ** 2
+    two_kz2_minus_kSm2 = 2.0 * kz * kz - kSm2
+    mu = p["rho"] * p["vs"] ** 2
+    kS2 = (omega / p["vs"]) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    expected_BI = -2.0 * kz * mu_m * (
+        p_m * float(sp.iv(0, p_m * b)) - float(sp.iv(1, p_m * b)) / b
+    )
+    expected_BK = +2.0 * kz * mu_m * (
+        p_m * float(sp.kv(0, p_m * b)) + float(sp.kv(1, p_m * b)) / b
+    )
+    expected_CI = +mu_m * two_kz2_minus_kSm2 * float(sp.iv(1, s_m * b))
+    expected_CK = +mu_m * two_kz2_minus_kSm2 * float(sp.kv(1, s_m * b))
+    expected_B = -2.0 * kz * mu * (
+        p_form * float(sp.kv(0, p_form * b)) + float(sp.kv(1, p_form * b)) / b
+    )
+    expected_C = -mu * two_kz2_minus_kS2 * float(sp.kv(1, s_form * b))
+    expected_DI = -kz * mu_m * float(sp.iv(1, s_m * b)) / b
+    expected_DK = -kz * mu_m * float(sp.kv(1, s_m * b)) / b
+    expected_D = +kz * mu * float(sp.kv(1, s_form * b)) / b
+
+    assert row[1].real == pytest.approx(expected_BI)
+    assert row[2].real == pytest.approx(expected_BK)
+    assert row[3].real == pytest.approx(expected_CI)
+    assert row[4].real == pytest.approx(expected_CK)
+    assert row[5].real == pytest.approx(expected_B)
+    assert row[6].real == pytest.approx(expected_C)
+    assert row[7].real == pytest.approx(expected_DI)
+    assert row[8].real == pytest.approx(expected_DK)
+    assert row[9].real == pytest.approx(expected_D)
+
+
+def test_layered_n1_row10_at_b_annulus_K_matches_row4_M42_M43_M44_at_b():
+    """Cross-row identity: at layer=formation, row 10's annulus
+    K-flavour entries (B_K, C_K, D_K) match row 4's M42, M43, M44-
+    equivalent forms evaluated at r=b instead of r=a (same
+    underlying sigma_rz formula at both interfaces)."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+    b = a + layer.thickness
+
+    row10 = _layered_n1_row10_at_b(
+        kz, omega, vp=vp, vs=vs, rho=rho,
+        vf=vf, rho_f=rho_f, a=a, layer=layer,
+    )
+
+    p = float(np.sqrt(kz * kz - (omega / vp) ** 2))
+    s = float(np.sqrt(kz * kz - (omega / vs) ** 2))
+    from scipy import special as sp
+
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    M42_at_b = +2.0 * kz * mu * (
+        p * float(sp.kv(0, p * b)) + float(sp.kv(1, p * b)) / b
+    )
+    M43_at_b = +mu * two_kz2_minus_kS2 * float(sp.kv(1, s * b))
+    M44_at_b = -kz * mu * float(sp.kv(1, s * b)) / b
+
+    assert row10[2].real == pytest.approx(M42_at_b)
+    assert row10[4].real == pytest.approx(M43_at_b)
+    assert row10[8].real == pytest.approx(M44_at_b)
