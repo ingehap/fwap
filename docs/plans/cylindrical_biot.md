@@ -193,35 +193,71 @@ matrix).
 
 ---
 
-## F. Single-extra-layer extension (mudcake or altered zone)
+## F. Single-extra-layer extension (mudcake or altered zone) — ✅ DONE
+
+**Status.** Shipped across PRs #43, #45, #48, #49 (and the F.3
+docs PR landing this update). Detailed sub-plans:
+[`cylindrical_biot_F.md`](cylindrical_biot_F.md) for F.1 (n=0
+layered Stoneley) and
+[`cylindrical_biot_F_2.md`](cylindrical_biot_F_2.md) for F.2 (n=1
+layered flexural).
 
 **Why tractable.** Adds one annular region between fluid and
-formation (`fluid → mudcake → formation`). The boundary-condition
-count doubles (six BCs instead of three for n=0; eight for n=1)
-but the elastodynamic structure is unchanged.
+formation (`fluid → mudcake → formation`). At n=0 the
+elastodynamic structure stays single-block (7x7 modal matrix
+combining 3 r=a BCs + 4 r=b BCs and 1+4+2 amplitudes). At n=1 the
+matrix is dense 10x10 -- the d_θ operations cross-couple every
+amplitude family into BCs of either azimuthal sector (cf. F.2.a
+errata: an earlier draft incorrectly claimed cos/sin block
+decoupling).
 
-**What to build.**
+**What was built.**
 
-1. `_modal_determinant_n0_layered(kz, omega, layers, fluid_radius,
-   layer_radii)` where `layers` is a sequence of
-   `(vp, vs, rho, thickness)` tuples (length 2: mudcake, then
-   formation half-space).
-2. Public `stoneley_dispersion_layered(..., layers=...)` and the
-   n=1 counterpart.
-3. Continuity-of-displacement and stress at each interface; one
-   transfer-matrix step per layer.
+1. `_modal_determinant_n0_layered` -- 7x7 layered Stoneley
+   determinant (PR #45; F.1.a math scaffolding + F.1.b.{1,2,3,4}
+   per-row builders + assembly).
+2. `_modal_determinant_n1_layered` -- 10x10 layered flexural
+   determinant (PR #48; F.2.a + F.2.b.{1-7} cos-sector + F.2.c.{1-3}
+   sin-sector + F.2.d assembly).
+3. Public `stoneley_dispersion_layered(..., layers=...)` and
+   `flexural_dispersion_layered(..., layers=...)`. Both reuse the
+   `BoreholeLayer` dataclass for parameter packaging. Single-
+   element layer stacks supported; multi-layer raises
+   `NotImplementedError` pointing at plan item G.
+4. Slow-formation regime constraint for n=1 (`layer.vs >= vs`)
+   documented; fast-formation layered flexural is future work.
 
-**Validation.**
+**Validation actually achieved.**
 
-- Single-layer-equals-no-layer regression: a "mudcake" with
-  identical properties to the formation reproduces the
-  unlayered `stoneley_dispersion` answer to floating-point
-  precision.
-- Schmitt 1988 fig 6 (altered zone with reduced V_S) shows the
-  characteristic flexural slow-down at low frequency.
+- Layer=formation regression for both n=0 and n=1 to `rtol=1e-8`
+  across the test frequency grids -- the floating-point oracle
+  for the entire row-builder chain.
+- Thickness → 0 limit verified (n=0 and n=1 both recover the
+  unlayered answer continuously).
+- Thickness → ∞ limit verified for n=0 (slowness approaches
+  unlayered with layer-as-formation). Not tractable for n=1 in
+  the bound regime; documented as omission in F.2.e.
+- Determinant vanishes at converged root for any non-trivial
+  layer (`|det_at_root| < |det_off_root| × 1e-6`).
+- Multi-frequency monotonicity smoke across 100 Hz - 20 kHz
+  (n=0) and 3-15 kHz (n=1).
+- Headline physics: softer mudcake slows Stoneley by ~0.6-0.8 %
+  (n=0); harder layer speeds up flexural by ~1-1.3 % (n=1) at
+  typical frequencies.
+- ~115 plan-F-specific tests (51 for F.1, 67 for F.2 incl.
+  hardening) on top of the 86 pre-existing.
 
-**Scope.** ~250 lines + 8 tests. Three days. Care needed in the
-matrix-block bookkeeping; the physics is identical.
+**Scope (actual).** ~3500 lines of solver code + ~3000 lines of
+tests, distributed across ~25 mergeable commits in PRs #43, #45,
+#48, #49. Significantly larger than the original ~250-line / 8-test
+estimate, primarily because (a) the n=1 layered determinant is
+genuinely 10x10 dense (not block-diagonal as initially hoped --
+F.2.a.6 erratum), and (b) per-row builders with isolated tests
+gave ~115 tests instead of ~8.
+
+**Schmitt 1988 fig 6 quantitative match.** Deferred to plan
+item I (validation notebook), where the digitised reference
+data lives.
 
 **Depends on.** Independent of A-E (bound-mode only;
 generalisation in radius, not in `kz`).
