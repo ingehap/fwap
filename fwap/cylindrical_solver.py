@@ -6528,3 +6528,585 @@ def stoneley_dispersion_layered(
         slowness=slowness,
     )
 
+
+# =====================================================================
+# Plan item F.2.0 -- public-API foundation for layered flexural
+# =====================================================================
+#
+# Sister of :func:`stoneley_dispersion_layered` at azimuthal order 1.
+# Lands the public-API surface and the layer=formation regression
+# oracle ahead of the 10x10 layered modal-determinant work scheduled
+# in plan item F.2 (``docs/plans/cylindrical_biot_F_2.md``).
+#
+# Scope of this foundation:
+#
+#   * :func:`flexural_dispersion_layered` is the public n=1 entry
+#     point. With ``layers=()`` it dispatches bit-equivalently to
+#     :func:`flexural_dispersion`; with non-empty layers it raises
+#     ``NotImplementedError`` referencing the F.2 plan.
+#   * Reuses :class:`BoreholeLayer` and
+#     :func:`_validate_borehole_layers` from the F.1 foundation
+#     (PR #43); no new data structures required.
+#
+# What this lets downstream F.2 work assume:
+#
+#   * The public-API surface (parameter names, validation rules,
+#     return type) is fixed. The follow-up implementing
+#     ``_modal_determinant_n1_layered`` and the per-row builders
+#     (substeps F.2.b and F.2.c) only needs to swap the dispatch
+#     branch below.
+#   * The layer=formation regression test in
+#     ``tests/test_cylindrical_solver.py`` is already passing with
+#     ``layers=()`` and stays as the floating-point oracle for the
+#     non-trivial case.
+
+
+def flexural_dispersion_layered(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...] = (),
+) -> BoreholeMode:
+    r"""
+    Flexural-wave (n=1) phase slowness vs frequency for a borehole
+    with optional mudcake / altered-zone annular layers between the
+    fluid and the formation half-space.
+
+    With ``layers=()`` (no extra layers) this is bit-equivalent to
+    :func:`flexural_dispersion`. With one or more
+    :class:`BoreholeLayer` entries this is the public entry point
+    for plan item F.2 in ``docs/plans/cylindrical_biot_F_2.md``;
+    the underlying 10x10 layered modal determinant is scheduled
+    as the next steps of that plan and currently raises
+    ``NotImplementedError``.
+
+    Parameters
+    ----------
+    freq : ndarray
+        Frequency grid (Hz). Must be strictly positive.
+    vp, vs, rho : float
+        Formation half-space P-wave velocity (m/s), S-wave
+        velocity (m/s), and bulk density (kg/m^3). Must satisfy
+        ``vp > vs > 0`` and ``rho > 0``.
+    vf, rho_f : float
+        Borehole-fluid velocity (m/s) and density (kg/m^3).
+    a : float
+        Borehole (fluid-side) radius (m).
+    layers : tuple of BoreholeLayer, default ()
+        Annular elastic layers between the fluid (``r < a``) and
+        the formation half-space, ordered radially outward. The
+        empty tuple is the degenerate single-interface case and
+        dispatches to :func:`flexural_dispersion`.
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "flexural"``, ``azimuthal_order = 1``, with
+        ``freq`` echoed and ``slowness[i]`` the phase slowness at
+        each frequency. ``NaN`` at any frequency where the bracket
+        failed (typically below the geometric cutoff for slow
+        formations, or in the wrong physical regime).
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive, ``vp <= vs``, ``freq``
+        contains a non-positive entry, or any layer in ``layers``
+        is malformed.
+    NotImplementedError
+        If ``layers`` is non-empty. The non-degenerate path is
+        blocked on the layered modal-determinant implementation
+        (plan item F.2; see
+        ``docs/plans/cylindrical_biot_F_2.md``).
+    """
+    layers_tuple = tuple(layers)
+    _validate_borehole_layers(layers_tuple)
+    if not layers_tuple:
+        return flexural_dispersion(
+            freq, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        )
+    raise NotImplementedError(
+        "flexural_dispersion_layered with non-empty layers is not "
+        "implemented yet; the 10x10 layered modal determinant is "
+        "scheduled in plan item F.2 in "
+        "docs/plans/cylindrical_biot_F_2.md."
+    )
+
+
+# =====================================================================
+# Substep F.2.a -- math scaffolding for the n=1 layered determinant
+# =====================================================================
+#
+# Sister of F.1.a at azimuthal order 1. Inherits all conventions and
+# derivations from the existing n=1 single-interface derivation
+# (substeps 1.1 through 1.6.e at lines ~401-2356) plus the F.1.a
+# substep blocks; extends with the I-flavour annulus terms and the
+# cos / sin sector decomposition.
+#
+# Key structural addition vs F.1.a: three new field components
+# (the SH potential ``psi_z`` and the sin-azimuthal-sector
+# u_theta / sigma_rtheta BCs) extend the matrix from 7x7 to
+# 10x10. The cos and sin azimuthal sectors do NOT decouple --
+# d_theta operations in u_r, sigma_rtheta, sigma_rz cross-couple
+# every amplitude family into BCs of either azimuthal sector
+# (see substeps F.2.a.4 and F.2.a.6 for the dense-matrix
+# structure and the erratum that withdrew an earlier mistaken
+# block-diagonal claim).
+
+# =====================================================================
+# Substep F.2.a.1 -- sign conventions, regime gate, field ansatz
+# =====================================================================
+#
+# Conventions inherited from substep F.1.a.1 (n=0 layered) and the
+# existing n=1 single-interface block (substep 1.1 at line ~410):
+#
+#   * Time dependence ``e^{-i omega t}``.
+#   * Axial dependence ``e^{i k_z z}``.
+#   * Bound regime: every radial wavenumber is real positive.
+#
+# Same five radial wavenumbers as F.1.a.1:
+#
+#       F_f = sqrt(k_z^2 - (omega / V_f)^2)         > 0    (fluid)
+#       p_m = sqrt(k_z^2 - (omega / V_P_m)^2)       > 0    (annulus P)
+#       s_m = sqrt(k_z^2 - (omega / V_S_m)^2)       > 0    (annulus S)
+#       p   = sqrt(k_z^2 - (omega / V_P)^2)         > 0    (formation P)
+#       s   = sqrt(k_z^2 - (omega / V_S)^2)         > 0    (formation S)
+#
+# Bound-regime gate: ``k_z > omega / min(V_S, V_S_m, V_f)``.
+#
+# New at n=1: cos / sin azimuthal sector partition. The four
+# scalar potentials (P, SV-theta, SH-z) and the fluid pressure
+# distribute as:
+#
+#   Cos sector:  P^{(f)}, phi^{(m,s)}, psi_theta^{(m,s)}
+#   Sin sector:  psi_z^{(m,s)}
+#
+# Rationale (substep 1.1 of the existing n=1 block, full derivation
+# there): the curl identity ``(curl psi)_r = (1/r) d_theta(psi_z)
+# - d_z(psi_theta)`` lands on cos(theta) iff ``psi_z`` carries
+# sin(theta) and ``psi_theta`` carries cos(theta); the same
+# constraint independently fixes u_z and the sectors close
+# without cross-talk.
+#
+# Field representation, bound regime, layered case (10 amplitudes
+# total in column order):
+#
+#   Cos sector (7 amplitudes):
+#       Fluid:        P^{(f)} = A I_1(F_f r) cos(theta)
+#       Annulus P:    phi^{(m)} = (B_I I_1(p_m r) + B_K K_1(p_m r))
+#                                 * cos(theta)
+#       Annulus SV:   psi_theta^{(m)} = (C_I I_1(s_m r) + C_K K_1(s_m r))
+#                                       * cos(theta)
+#       Formation P:  phi^{(s)} = B K_1(p r) cos(theta)
+#       Formation SV: psi_theta^{(s)} = C K_1(s r) cos(theta)
+#
+#   Sin sector (3 amplitudes):
+#       Annulus SH:   psi_z^{(m)} = (D_I I_1(s_m r) + D_K K_1(s_m r))
+#                                   * sin(theta)
+#       Formation SH: psi_z^{(s)} = D K_1(s r) sin(theta)
+#
+# Column order for the 10x10 matrix:
+#
+#       [ A | B_I, B_K, C_I, C_K | B, C | D_I, D_K | D ]
+#         |---------- annulus + fluid ----------||formation|
+#
+# The bars group amplitudes by region (fluid + annulus 7 cols,
+# formation 3 cols). The amplitudes' natural azimuthal-factor
+# labels (cos for A, B, C; sin for D) describe the underlying
+# potential structure but DO NOT translate to a block-diagonal
+# matrix partition: every BC row at n=1 generically couples to
+# all amplitude families through the d_theta-induced cross-terms
+# (substep F.2.a.4 sparsity diagram + F.2.a.6 erratum).
+
+# =====================================================================
+# Substep F.2.a.2 -- displacements per region (cos and sin sectors)
+# =====================================================================
+#
+# Bessel-derivative identities reused from F.1.a.2 (sign-flipped
+# I-twin of the K-flavour identities the existing n=1 block uses):
+#
+#       I_0'(x) = +I_1(x)             K_0'(x) = -K_1(x)
+#       I_1'(x) = I_0(x) - I_1(x)/x   K_1'(x) = -K_0(x) - K_1(x)/x
+#       (1/r) d_r [r I_1(alpha r)] = +alpha * I_0(alpha r)
+#       (1/r) d_r [r K_1(alpha r)] = -alpha * K_0(alpha r)
+#
+# K-flavour displacements (annulus and formation share the same
+# functional form; substep 1.2 of the existing n=1 block has the
+# full per-component derivation. The annulus result is obtained
+# by ``B -> B_K, C -> C_K, D -> D_K, p -> p_m, s -> s_m``):
+#
+#   Cos sector (u_r and u_z; D contributes to u_r via the curl
+#   identity):
+#
+#     u_r^{(s,K)}     = -B  p   K_0(p r)
+#                       - B  K_1(p r) / r
+#                       + D  K_1(s r) / r
+#                       - i k_z C  K_1(s r)        (cos)
+#
+#     u_z^{(s,K)}     = i k_z B  K_1(p r)
+#                       - C  s   K_0(s r)          (cos)
+#
+#   Sin sector (u_theta only; B and D contribute):
+#
+#     u_theta^{(s,K)} = -B  K_1(p r) / r
+#                       + D  s   K_0(s r)
+#                       + D  K_1(s r) / r          (sin)
+#
+# I-flavour displacements (annulus only; sign-flipped on the
+# Bessel-derivative-induced terms per the F.1.a.2 pattern):
+#
+#   Cos sector:
+#
+#     u_r^{(m,I)}     = +B_I p_m I_0(p_m r)
+#                       - B_I I_1(p_m r) / r
+#                       + D_I I_1(s_m r) / r
+#                       - i k_z C_I I_1(s_m r)     (cos)
+#
+#     u_z^{(m,I)}     = i k_z B_I I_1(p_m r)
+#                       + C_I s_m I_0(s_m r)       (cos)
+#
+#   Sin sector:
+#
+#     u_theta^{(m,I)} = -B_I I_1(p_m r) / r
+#                       + D_I s_m I_0(s_m r)
+#                       + D_I I_1(s_m r) / r       (sin)
+#
+# Sign-flip pattern between K and I flavours (carried over from
+# F.1.a.2 mutatis mutandis):
+#
+#   * The "p I_0" / "p K_0" coefficient in u_r flips sign:
+#     +B_I p_m I_0(p_m r) vs -B_K p_m K_0(p_m r).
+#   * The "I_1 / r" / "K_1 / r" coefficient KEEPS sign:
+#     -B_I I_1(p_m r) / r vs -B_K K_1(p_m r) / r.
+#   * The "s I_0" / "s K_0" coefficient in u_z and u_theta flips
+#     sign: +C_I s_m I_0 vs -C_K s_m K_0; +D_I s_m I_0 vs
+#     -D_K s_m K_0.
+#
+# Same pattern as F.1.a.2: the d_r-induced derivatives twin (one
+# Bessel index up vs down) get sign-flipped; the no-derivative
+# direct ``F / r`` terms keep sign.
+#
+# Fluid displacements (cos and sin sectors, regular at axis):
+#
+#     u_r^{(f)}     = (A / (rho_f omega^2)) [F_f I_0(F_f r)
+#                                              - I_1(F_f r) / r] cos(theta)
+#     u_theta^{(f)} = -(A / (rho_f omega^2 r)) I_1(F_f r) sin(theta)
+#     u_z^{(f)}     = (i k_z A / (rho_f omega^2)) I_1(F_f r) cos(theta)
+#
+# (Direct from substep 1.2 of the existing n=1 block; the layered
+# fluid is identical to the single-interface fluid since the
+# fluid lives at ``r < a`` regardless of what's beyond.)
+
+# =====================================================================
+# Substep F.2.a.3 -- stresses per region (cos and sin sectors)
+# =====================================================================
+#
+# Hooke's law reused from F.1.a.3 / substep 1.3.a of the existing
+# n=1 block. The Lame reduction
+#
+#       -lambda_R k_PR^2 + 2 mu_R p_R^2 = mu_R (2 k_z^2 - k_SR^2)
+#
+# carries through region by region (R in {annulus_m, formation_s}).
+#
+# Three stress quantities appear in the n=1 BCs (vs two at n=0):
+#
+#   sigma_rr        (cos sector; appears in BC2, BC8)
+#   sigma_rtheta    (sin sector; appears in BC3, BC9 -- NEW at n>=1)
+#   sigma_rz        (cos sector; appears in BC4, BC10)
+#
+# K-flavour stresses (annulus / formation, with the formation form
+# obtained by ``X_K -> -X`` rename and parameter substitution; the
+# full r=a forms with the row-4-by-i / column-C-by-(-i) rescale
+# absorbed are in the docstring of :func:`_modal_determinant_n1`
+# as the M21-M44 entries). At general radius r:
+#
+#   sigma_rr (cos sector) -- coefficients of (B, C, D) for the K-flavour:
+#
+#       B:  mu (2 k_z^2 - k_S^2) K_1(p r)
+#           + 2 mu p K_0(p r) / r        (... Lame-reduced)
+#           + 4 mu K_1(p r) / r^2
+#
+#       C:  -2 i k_z mu [s K_0(s r) + K_1(s r) / r]
+#
+#       D:  +2 mu [s K_0(s r) / r + 2 K_1(s r) / r^2]
+#
+#   sigma_rtheta (sin sector) -- coefficients:
+#
+#       B:  -2 mu [p K_0(p r) / r + 2 K_1(p r) / r^2]
+#
+#       C:  -mu k_z K_1(s r) / r
+#
+#       D:  mu [s^2 K_1(s r) + 2 s K_0(s r) / r + 4 K_1(s r) / r^2]
+#
+#   sigma_rz (cos sector) -- coefficients:
+#
+#       B:  -2 i k_z mu [p K_0(p r) + K_1(p r) / r]
+#
+#       C:  i mu (2 k_z^2 - k_S^2) K_1(s r)        ... (the i comes
+#           from the substep-1.5 row-4-by-i convention; in the
+#           pre-rescale form, this is ``mu (2 k_z^2 - k_S^2) K_1``
+#           multiplied by i.)
+#
+#       D:  -i k_z mu K_1(s r) / r
+#
+# I-flavour stresses (annulus only): same algebraic form as the
+# K-flavour with the substep-F.1.a.2 sign-flip pattern applied to
+# every "Bessel-index-up" term. The B_I sigma_rr coefficient, for
+# example, is:
+#
+#       B_I:  mu_m (2 k_z^2 - k_Sm^2) I_1(p_m r)
+#             - 2 mu_m p_m I_0(p_m r) / r        (sign flip on I_0/r vs +K_0/r)
+#             + 4 mu_m I_1(p_m r) / r^2          (KEEP sign on I_1/r^2)
+#
+# The full per-row entries are not tabulated here; they will be
+# read off and transcribed in the per-row builders (F.2.b.1.b for
+# row 2, F.2.b.2.c for row 8, F.2.c.1 for row 3, etc.). The
+# substep-F.1.a.6 self-check at layer=formation collapses the
+# annulus K-flavour columns to the formation columns (with sign
+# flip) and is the primary correctness oracle.
+
+# =====================================================================
+# Substep F.2.a.4 -- 10x10 boundary-condition row layout
+# =====================================================================
+#
+# Rows are the ten boundary conditions; columns are the ten
+# amplitudes in the column order
+# ``[A | B_I, B_K, C_I, C_K | B, C | D_I, D_K | D]``.
+#
+#   Row 1   u_r^{(f)} - u_r^{(m)} = 0           at r = a   (cos)
+#   Row 2   sigma_rr^{(m)} + P^{(f)} = 0        at r = a   (cos)
+#   Row 3   sigma_rtheta^{(m)} = 0              at r = a   (sin)
+#   Row 4   sigma_rz^{(m)} = 0                  at r = a   (cos)
+#   Row 5   u_r^{(m)} - u_r^{(s)} = 0           at r = b   (cos)
+#   Row 6   u_theta^{(m)} - u_theta^{(s)} = 0   at r = b   (sin)
+#   Row 7   u_z^{(m)} - u_z^{(s)} = 0           at r = b   (cos)
+#   Row 8   sigma_rr^{(m)} - sigma_rr^{(s)} = 0 at r = b   (cos)
+#   Row 9   sigma_rtheta^{(m)}
+#               - sigma_rtheta^{(s)} = 0        at r = b   (sin)
+#   Row 10  sigma_rz^{(m)}
+#               - sigma_rz^{(s)} = 0            at r = b   (cos)
+#
+# Sparsity pattern (X = generically non-zero, . = identically
+# zero by interface localization or BC physics):
+#
+#               A  B_I B_K C_I C_K  B   C  | D_I D_K  D
+#       Row  1[ X   X   X   X   X   .   .  |  X   X   . ]  cos, r=a
+#       Row  2[ X   X   X   X   X   .   .  |  X   X   . ]  cos, r=a
+#       Row  3[ .   X   X   X   X   .   .  |  X   X   . ]  sin, r=a
+#       Row  4[ .   X   X   X   X   .   .  |  X   X   . ]  cos, r=a
+#       Row  5[ .   X   X   X   X   X   X  |  X   X   X ]  cos, r=b
+#       Row  6[ .   X   X   .   .   X   .  |  X   X   X ]  sin, r=b
+#       Row  7[ .   X   X   X   X   X   X  |  .   .   . ]  cos, r=b
+#       Row  8[ .   X   X   X   X   X   X  |  X   X   X ]  cos, r=b
+#       Row  9[ .   X   X   X   X   X   X  |  X   X   X ]  sin, r=b
+#       Row 10[ .   X   X   X   X   X   X  |  X   X   X ]  cos, r=b
+#
+# **Erratum vs the original substep block** (replaced 2024-12; see
+# also the now-obsolete F.2.a.6 below): an earlier draft of this
+# diagram claimed cos and sin sectors decouple into a 7x7-cos-block-
+# plus-3x3-sin-block direct sum. That was wrong. At n=1, the d_theta
+# operations couple every amplitude family into BCs of EITHER
+# azimuthal sector:
+#
+#   * The (1/r) d_theta(psi_z) term in u_r couples the SH amplitudes
+#     (D_I, D_K, D -- ``sin``-factor potentials) into the cos-sector
+#     u_r and sigma_rr BCs (rows 1, 2, 5, 8). Concretely visible in
+#     the existing single-interface ``_modal_determinant_n1`` as
+#     ``M14 = -K_1(s a) / a`` (D column non-zero in cos-sector u_r
+#     row).
+#
+#   * The (1/r) d_theta u_r term in sigma_rtheta couples the cos-
+#     sector P / SV amplitudes (B, C and their I-flavour twins)
+#     into the sin-sector sigma_rtheta BCs (rows 3, 9). Visible as
+#     ``M32, M33 != 0`` (B and C columns non-zero in sin-sector
+#     sigma_rtheta row at r=a).
+#
+# Result: the 10x10 layered determinant is a fully-populated dense
+# matrix, with sparsity only from interface localization (column A
+# only in rows touching r=a; columns B, C, D only in rows touching
+# r=b) and BC-specific zeros (column A is zero in row 3 because
+# fluid carries no shear; the C-flavour columns are zero in rows 6
+# and the formation B / C / D columns are zero in row 7's BC
+# physics for u_z continuity per substep F.2.a.2's u_theta and u_z
+# decompositions).
+#
+# Two additional zero patterns visible in the diagram:
+#
+#   * Column 0 (A) is zero in rows 3, 4, 5-10: the fluid lives at
+#     ``r < a`` and carries no shear (so it is also absent from
+#     the r=a sigma_rtheta and sigma_rz rows even though they touch
+#     r=a).
+#   * Columns 5, 6, 9 (formation) are zero in rows 1-4: the
+#     formation half-space lives at ``r > b`` and contributes
+#     nothing at r=a.
+#
+# (These two are the "pure interface localization" zeros; the row 6
+# / row 7 partial zeros are BC-physics zeros that the per-row
+# builders in F.2.b / F.2.c will surface explicitly in their
+# closed-form transcriptions.)
+
+# =====================================================================
+# Substep F.2.a.5 -- phase rescaling for a real-valued matrix
+# =====================================================================
+#
+# Same per-row imaginary-power pattern analysis as F.1.a.5; the
+# additional sin sector follows the same logic.
+#
+# Pre-rescale phase pattern of each row, with all 10 columns
+# laid out (A | B_I B_K B | C_I C_K C | D_I D_K D); ``R`` denotes
+# a generically real entry, ``i*R`` a generically imaginary one,
+# ``.`` an identically zero entry per the F.2.a.4 sparsity.
+#
+#   Cos rows (``z``-bearing where noted):
+#
+#     Row 1  (u_r at r=a)        : A R | B R     | C i*R   | D R
+#     Row 2  (sigma_rr at r=a)   : A R | B R     | C i*R   | D R
+#     Row 4  (sigma_rz at r=a)   : A 0 | B i*R   | C R     | D i*R   <- z-bearing
+#     Row 5  (u_r at r=b)        : A 0 | B R     | C i*R   | D R
+#     Row 7  (u_z at r=b)        : A 0 | B i*R   | C R     | D 0     <- z-bearing
+#     Row 8  (sigma_rr at r=b)   : A 0 | B R     | C i*R   | D R
+#     Row 10 (sigma_rz at r=b)   : A 0 | B i*R   | C R     | D i*R   <- z-bearing
+#
+#   Sin rows:
+#
+#     Row 3  (sigma_rtheta at a) : A 0 | B R     | C i*R   | D R
+#     Row 6  (u_theta at r=b)    : A 0 | B R     | C 0     | D R
+#     Row 9  (sigma_rtheta at b) : A 0 | B R     | C i*R   | D R
+#
+# (The C-columns enter the sin-sector sigma_rtheta rows via the
+# ``(1/r) d_theta u_r`` mechanism, with the ``i k_z`` factor on
+# the C amplitude in u_r preserved by the d_theta. The D-columns
+# enter the cos-sector u_r / sigma_rr rows via the ``(1/r)
+# d_theta(psi_z)`` mechanism, with no ``i k_z`` factor since
+# psi_z carries no ``d_z``. Row 7 has ``D 0`` because u_z does
+# not couple to psi_z under the curl: ``(curl psi)_z = (1/r)
+# d_r(r psi_theta)``, no psi_z contribution.)
+#
+# A real matrix is recovered by:
+#
+#   * Multiplying the three ``z``-bearing rows (4, 7, 10) by ``i``
+#     -- B columns become real, D columns become real, C columns
+#     pick up an extra ``i`` factor.
+#   * Multiplying the C columns (3, 4, 6) by ``-i`` -- the C
+#     entries on rows 1, 2, 5, 8 (i.e., ``i*R``) become real;
+#     the C entries on rows 4, 7, 10 (which were ``R`` pre-rescale
+#     and became ``i*R`` after row*i) become real (net factor
+#     ``i * (-i) = 1``); the C entries on sin rows 3, 9 (``i*R``)
+#     also become real.
+#
+# Net effect on det(M_10):
+#
+#       det(M_10_rescaled) = (i^3) * ((-i)^3) * det(M_10)
+#                          = (-i) * (i) * det(M_10)
+#                          = +1 * det(M_10)
+#
+# So the rescaling is determinant-preserving, the same property
+# F.1.a.5 relied on. Note row 6 has ``C 0`` (u_theta does not
+# couple to the C amplitude per the substep-F.2.a.2 derivation),
+# so the col-by-(-i) on column C is irrelevant in that row but
+# still applied uniformly across the matrix.
+
+# =====================================================================
+# Substep F.2.a.6 -- assembly structure (block-diagonal claim
+#                    WITHDRAWN; layered determinant is dense)
+# =====================================================================
+#
+# **Erratum (replaces the original F.2.a.6 substep block, which
+# claimed ``det(M_10) = det(M_7^cos) * det(M_3^sin)``)**.
+#
+# The original block-diagonal claim was wrong. The cos / sin
+# azimuthal sectors at n=1 do NOT decouple into independent
+# sub-blocks. The d_theta operations in u_r, sigma_rtheta, and
+# sigma_rz cross-couple amplitude families across BC azimuthal
+# sectors:
+#
+#   * (1/r) d_theta(psi_z) in u_r (cos BC): the SH amplitudes
+#     (D_I, D_K, D -- ``sin``-factor potentials) appear in the
+#     cos-sector u_r rows (rows 1, 5) with non-zero coefficients.
+#     Concretely visible in :func:`_modal_determinant_n1` as
+#     ``M14 = -K_1(s a) / a`` (D column non-zero in cos row 1).
+#
+#   * (1/r) d_theta u_r in sigma_rtheta (sin BC): the cos-sector
+#     P / SV amplitudes (B, C and their I-flavour twins) appear
+#     in the sin-sector sigma_rtheta rows (rows 3, 9). Visible as
+#     ``M32, M33 != 0`` in the existing single-interface form.
+#
+# So the layered 10x10 modal determinant is a fully-populated
+# dense matrix (modulo interface-localization sparsity per F.2.a.4)
+# and admits no cos/sin block factorisation. The F.2.d assembly
+# computes ``np.linalg.det`` directly on the assembled 10x10.
+#
+# Implications for the F.2.b and F.2.c row builders:
+#
+#   * Each row builder (cos or sin sector) returns a shape-(10,)
+#     complex array covering all 10 amplitude columns -- not
+#     shape-(7,) or shape-(3,) as the original (incorrect) plan
+#     called for. The interface- and BC-localization zeros from
+#     F.2.a.4 are surfaced as explicit ``0.0`` entries in the
+#     row builder, with each zero documented next to its physical
+#     reason.
+#
+#   * The "cross-row K-flavour cancellation at layer=formation"
+#     oracle from F.1.b.3 generalises straightforwardly: at
+#     layer=formation each of the seven shared K columns
+#     (B_K + B, C_K + C, D_K + D) cancels in every r=b row
+#     (rows 5-10) where the corresponding column pair is non-
+#     zero. The full K-cancellation invariant is row-by-row
+#     and a strong correctness test even without the (now-
+#     withdrawn) block factorisation.
+#
+# Why the block-diagonal claim was tempting: at azimuthal order n,
+# Kurkjian & Chang (1986) decompose the field into a single n-mode
+# system (``decoupling`` from neighbouring n's, hence eq. 4-9's
+# (n+1)x(n+1) modal matrix). The n=1 single-interface form is
+# 4x4. The "cos / sin sector" labels in substep 1.1 of the
+# pre-existing module describe which AZIMUTHAL FACTOR each BC
+# carries, NOT a partition of amplitudes into independent
+# sub-systems. After stripping the azimuthal factor, all four
+# n=1 amplitudes generically appear in every BC row -- the
+# decoupling is between azimuthal orders n, not within n=1.
+#
+# This substep block is preserved (rather than deleted) so the
+# git history of this file documents the misconception and the
+# fix; readers tracing the F.2 derivation will not silently
+# re-invent the bad claim.
+
+# =====================================================================
+# Substep F.2.a.7 -- self-check protocol (degenerate-limit collapses)
+# =====================================================================
+#
+# Three structural identities the layered n=1 determinant must
+# satisfy by construction; landed as tests in F.2.e:
+#
+# (a) Layer = formation. With the annulus material identical to the
+#     formation, the layered determinant must vanish at the same
+#     k_z as :func:`_modal_determinant_n1` at every frequency.
+#     Tested via end-to-end ``flexural_dispersion_layered`` vs
+#     ``flexural_dispersion`` with ``rtol=1e-8``. Same as F.1's
+#     primary oracle.
+#
+# (b) Thickness -> 0. The rows at r=b approach the rows at r=a in
+#     the limit ``b -> a``; the converged k_z must approach the
+#     single-interface value continuously.
+#
+# (c) Real-valued post-rescale assembly. At every (k_z, omega) in
+#     the bound regime, the assembled 10x10 matrix (with the
+#     substep-F.2.a.5 row / column rescaling applied) must have
+#     identically zero imaginary part to floating-point precision.
+#     Verified at every per-row test in F.2.b / F.2.c via the
+#     ``row.imag == 0`` invariant; verified at the assembly level
+#     in F.2.d via the determinant's imaginary part. (The original
+#     "block-diagonal evaluation" framing in this slot was
+#     withdrawn together with substep F.2.a.6's block-diagonal
+#     claim; see that block for the erratum.)
+#
+# References for the layered n=1 derivation: same as the n=1
+# single-interface set (Schmitt 1988, Kurkjian & Chang 1986,
+# Paillet & Cheng 1991 ch. 4) plus Tang & Cheng 2004 sect. 7.1
+# for the layered generalisation that feeds plan item G.
+
