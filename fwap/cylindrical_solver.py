@@ -11,10 +11,24 @@ stress conditions at the borehole wall.
 Scope (this module)
 -------------------
 * Isotropic-elastic formation, single-interface and single-extra-
-  annular-layer geometries. The VTI extension lives on the
-  roadmap as a follow-up (Schmitt 1989 elastic part); the
-  numerical scaffolding here will be reused. Multi-layer (cased-
-  hole / propagator-matrix) extension is plan item G.
+  annular-layer geometries; **VTI formation** (transversely
+  isotropic, vertical symmetry axis) for the n=0 (Stoneley) and
+  n=1 (flexural, slow formation) bound modes via the Schmitt 1989
+  modal determinant. Multi-layer (cased-hole / propagator-matrix)
+  extension is plan item G; fast-formation TI flexural via the
+  complex-determinant variant is a deferred follow-up to plan H.
+* **VTI public APIs**: :func:`stoneley_dispersion_vti` (n=0; any
+  formation) and :func:`flexural_dispersion_vti` (n=1; slow-
+  formation TI, ``V_Sv < V_f``). Five-parameter stiffness tensor
+  (C11, C13, C33, C44, C66) plus density. With an isotropic
+  tensor both routines bit-match the unlayered isotropic
+  counterparts. The Norris 1990 LF closed-form
+  ``S_ST^2 = 1/V_f^2 + rho_f / C66`` (TI-specific oracle) anchors
+  the n=0 validation; the Sinha-Norris-Chang LF asymptote
+  ``slowness -> 1/V_Sv`` and the
+  :func:`fwap.cylindrical.flexural_dispersion_vti_physical`
+  weak-anisotropy regression anchor the n=1 case. See plan H in
+  ``docs/plans/cylindrical_biot.md`` for the full breakdown.
 * **Bound-mode + n=0 leaky regimes**: the bound-mode public APIs
   (:func:`stoneley_dispersion`, :func:`flexural_dispersion`)
   cover the regime ``k_z > omega / V_S`` (all radial wavenumbers

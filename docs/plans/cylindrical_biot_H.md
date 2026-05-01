@@ -8,13 +8,16 @@ isotropic scaffolding in `fwap.cylindrical_solver`.
 
 ## Status of plan H overall
 
-- ⏳ H.0 — public-API foundation
-- ⏳ H.a — math scaffolding (substep blocks, comments only)
-- ⏳ H.b — radial-wavenumber helper (Christoffel-equation roots)
-- ⏳ H.c — n=0 (Stoneley) VTI modal determinant + public API
-- ⏳ H.d — n=1 (flexural) VTI modal determinant + public API
-- ⏳ H.e — validation hardening
-- ⏳ H.f — cross-cutting docs
+- ✅ H.0 — public-API foundation
+- ✅ H.a — math scaffolding (substep blocks, comments only)
+- ✅ H.b — radial-wavenumber helper (Christoffel-equation roots)
+- ✅ H.c — n=0 (Stoneley) VTI modal determinant + public API
+- ✅ H.d — n=1 (flexural) VTI modal determinant + public API
+   (slow-formation; fast-formation TI deferred — needs the
+   complex-determinant mirror of
+   `_flexural_dispersion_fast_formation`)
+- ✅ H.e — validation hardening
+- ✅ H.f — cross-cutting docs
 
 Plan H is independent of plans F (layered) and G (multi-layer
 cased-hole); F's per-row builder pattern transfers conceptually
@@ -163,7 +166,27 @@ anisotropy regression vs the phenomenological model from
 
 - Mark item H done in `docs/plans/cylindrical_biot.md`.
 - Update module docstring scope.
-- PR pointers in this plan doc.
+- Commit pointers below.
+
+### Landing commits (branch `claude/plan-cylindrical-biot-f-JgjGH`)
+
+- `bfc3b2f` — H.0  public-API foundation + H plan doc
+- `63ebca5` — H.a  math scaffolding (substep blocks)
+- `748f776` — H.a  errata (sign / α_SH formula)
+- `7816a09` — H.b  radial-wavenumber helper
+- `c882325` — H.c.1.a  row 1 of n=0 VTI determinant
+- `b824d77` — H.c.1.b  polarization-ratio helper + row 2
+- `b086e97` — H.c.1.c  row 3 (σ_rz at r=a)
+- `e035555` — H.c.1.d  assemble `_modal_determinant_n0_vti`
+- `fe39fef` — H.c.2  wire `stoneley_dispersion_vti` end-to-end
+- `cc52d6a` — H.c.3  Norris 1990 LF closed-form oracle
+- `376a5ec` — H.d.1  row 1 of n=1 VTI flexural determinant
+- `398e331` — H.d.2  row 2 (σ_rr balance)
+- `20f7995` — H.d.3  row 3 (σ_rθ pure-C66 shear)
+- `e44b4d9` — H.d.4  row 4 (σ_rz with P_qX combination)
+- `6e73dbd` — H.d.5  assemble `_modal_determinant_n1_vti`
+- `36c5fc3` — H.d.6  wire `flexural_dispersion_vti` (slow-TI)
+- `9f9fe39` — H.e   hardening tests (multi-freq + weak-aniso)
 
 ## Total scope
 

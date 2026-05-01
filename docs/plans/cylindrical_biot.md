@@ -297,7 +297,7 @@ optionally D (n=2 matrix, for through-tubing flexural).
 
 ---
 
-## H. VTI formation (transversely isotropic, vertical symmetry axis)
+## H. VTI formation (transversely isotropic, vertical symmetry axis) — ✅ DONE
 
 **Why tractable.** The five-parameter TI stiffness tensor (C11,
 C13, C33, C44, C66) drops in cleanly: the borehole wall normal is
