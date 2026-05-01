@@ -9662,6 +9662,260 @@ def _modal_determinant_n0_cased(
 
 
 # =====================================================================
+# Substep G'.a -- math scaffolding for the cased-hole multi-layer
+#                 propagator-matrix determinant (n=1 flexural)
+# =====================================================================
+#
+# Sister of substep G.a at azimuthal order n=1. Generalises F.2's
+# single-extra-layer 10x10 hand-coded form to N stacked annular
+# layers via a 6x6 propagator matrix in cylindrical geometry
+# (the n=1 analogue of G.a's 4x4 propagator). Comments-only block;
+# the helpers themselves land in plan items G'.b (per-layer
+# propagator), G'.c (assembly), and G'.d (public-API hook). See
+# ``docs/plans/cylindrical_biot_G_prime.md`` for the full sub-plan.
+#
+# Sign / Bessel / phase conventions are the same as F.2.a (which
+# this scaffolding extends), unchanged from the isotropic
+# single-layer flexural solver upstream.
+#
+# Per-region scalar / vector potentials at azimuthal order n=1:
+# in each elastic layer (or formation half-space)
+#   phi          = [B_I I_1(p r) + B_K K_1(p r)]      cos(theta)
+#   psi_theta    = [C_I I_1(s r) + C_K K_1(s r)]      cos(theta)
+#   psi_z        = [D_I I_1(s r) + D_K K_1(s r)]      sin(theta)
+# with three wave families (P scalar, SV vector theta-comp, SH
+# vector z-comp) and two flavours each (I, K). Six amplitudes per
+# layer, vs four at n=0 -- the SH polarisation ``psi_z`` is
+# genuinely coupled at n=1 via the d_theta operations and cannot
+# be dropped (this is the F.2.a.6 erratum: cos / sin sectors at
+# n=1 are NOT block-diagonal). The fluid keeps the I-flavour
+# only (regular at axis) and the formation half-space keeps the
+# K-flavour only (decay outward), unchanged from F.2.
+#
+# The N=0 limit reduces to the unlayered ``_modal_determinant_n1``;
+# the N=1 limit reduces to ``_modal_determinant_n1_layered`` with
+# no overall scale factor (P_1 @ E_1(a) = E_1(b) at N=1; same
+# brentq root). Both limits anchor the floating-point regression
+# oracles in G'.c.
+#
+# -----
+# Substep G'.a.1 -- State vector at the dipole order n=1
+# -----
+#
+# Within any uniform elastic layer (or the formation half-space),
+# the radial-dependent part of the displacement / stress field at
+# n=1 reduces to a 6-component state vector ``v(r)``:
+#
+#       v(r) = ( u_r(r),  u_z(r),  u_theta(r),
+#                sigma_rr(r),  sigma_rz(r),  sigma_r_theta(r) )^T
+#
+# Six components (vs four at n=0) because at n>=1 the d_theta
+# operations make ``u_theta`` and ``sigma_r_theta`` non-trivial.
+# The cos / sin azimuthal factors have been stripped per substep
+# F.2.a.4 (cos for u_r, u_z, sigma_rr, sigma_rz; sin for u_theta,
+# sigma_r_theta), so the state vector entries are functions of r
+# only.
+#
+# At the layer/layer (or annulus/formation) boundary r = b_j, the
+# n=1 boundary conditions are full state-vector continuity:
+# ``v(b_j^-) = v(b_j^+)``, six identities per interface.
+#
+# At the fluid-solid interface r = a, only FOUR of the six state-
+# vector components are constrained:
+#   BC1  ``u_r^(f) = u_r^(m)``               (cos sector)
+#   BC2  ``-(sigma_rr^(m) + P^(f)) = 0``     (cos sector)
+#   BC3  ``sigma_r_theta^(m) = 0``           (sin sector)
+#   BC4  ``sigma_rz^(m) = 0``                (cos sector)
+# The fluid imposes no constraint on ``u_z`` (inviscid: no axial
+# drag) or ``u_theta`` (inviscid: no azimuthal drag). Two of the
+# six state-vector rows at r = a are unused; the corresponding
+# fluid amplitude ``A`` only enters BC1 and BC2.
+#
+# -----
+# Substep G'.a.2 -- Mode-amplitude to state-vector matrix E(r) (6x6)
+# -----
+#
+# Within a single uniform layer (or the formation half-space),
+# ``v(r)`` is a linear combination of the six wave amplitudes
+# ``c = (B_I, B_K, C_I, C_K, D_I, D_K)^T``:
+#
+#       v(r) = E(r) c
+#
+# The 6x6 matrix ``E(r)`` is obtained by transcribing substep
+# F.2.a.2 (displacements) and F.2.a.3 (stresses) at radius r,
+# with each column corresponding to one wave amplitude:
+#
+#                | (B_I-col)  (B_K-col)  (C_I-col)  (C_K-col)  (D_I-col)  (D_K-col) |
+#       E(r) =   |    u_r entries from each amplitude                          |
+#                |    u_z entries (column D_I, D_K vanish for u_z)             |
+#                |    u_theta entries (column C_I, C_K vanish for u_theta)     |
+#                |    sigma_rr entries (D_I, D_K contribute via 2 mu * d_theta)|
+#                |    sigma_rz entries (D_I, D_K vanish for sigma_rz)          |
+#                |    sigma_r_theta entries                                    |
+#
+# Sparsity pattern (zero entries pinned by G'.b.1 tests):
+#   * D_I, D_K cols of u_z and sigma_rz: zero (SH has no z-coupling
+#     at n=1 cos sector).
+#   * C_I, C_K cols of u_theta and sigma_r_theta: zero in the cos-
+#     sector convention, but the F.2.a.6 erratum is that the d_theta
+#     cross-coupling makes some entries non-zero in the assembled
+#     determinant. CAVEAT: the column conventions here use the
+#     state-vector form (separate cos / sin sectors stripped), so
+#     the C-cols of u_theta / sigma_r_theta may be non-zero --
+#     pin during G'.b.1 implementation against F.2.b/c row builders.
+#
+# Phase rescale (F.2.a.5): row-by-i for z-derivative-bearing rows
+# (u_z and sigma_rz); col-by-(-i) for the SV columns (C_I, C_K) and
+# possibly the SH columns (D_I, D_K) -- pin during the per-element
+# oracle test. The post-rescale E(r) is real-valued in the bound
+# regime.
+#
+# Reference for the per-row entries: F.2's existing row builders
+# at r=a (rows 1, 2, 3, 4) and r=b (rows 5, 6, 7, 8, 9, 10) cover
+# all six state-vector components (six rows total at r=b). The
+# G'.b.1 per-element oracle reads each row off F.2's row builders
+# with explicit BC sign factors:
+#   * Rows 1, 2, 5, 6, 7, 8 are cos-sector (u_r, sigma_rr, u_r,
+#     u_theta, u_z, sigma_rr).
+#   * Rows 3, 4, 9, 10 are sin/cos sigma rows (sigma_r_theta,
+#     sigma_rz, sigma_r_theta, sigma_rz).
+# The state vector rows (u_r, u_z, u_theta, sigma_rr, sigma_rz,
+# sigma_r_theta) map to F.2 row builders as listed above.
+#
+# -----
+# Substep G'.a.3 -- Layer propagator P_j(r_outer | r_inner)  (6x6)
+# -----
+#
+# Within layer j with mode amplitudes c_j (constant across the
+# annulus), the 6-vector at the inner and outer radii are
+#       v_j(r_inner_j) = E_j(r_inner_j) c_j
+#       v_j(r_outer_j) = E_j(r_outer_j) c_j
+# so the 6-vector at the outer radius is related to the 6-vector
+# at the inner radius by the propagator
+#
+#       P_j(r_outer_j | r_inner_j) = E_j(r_outer_j) E_j(r_inner_j)^{-1}
+#
+# i.e. ``v_j(r_outer_j) = P_j v_j(r_inner_j)``.
+#
+# Continuity of the 6-vector across each layer/layer interface
+# (substep G'.a.1) lets the per-layer propagators be composed
+# directly:
+#
+#       v(r_N_outer) = P_N P_{N-1} ... P_2 P_1  v(r_0_inner)
+#
+# Same algebraic structure as G.a.3 with the dimension change
+# 4 -> 6.
+#
+# -----
+# Substep G'.a.4 -- Boundary conditions and 10x10 modal determinant
+# -----
+#
+# Three sets of BCs assemble the dispersion relation:
+#
+# (i) Fluid side at r = a (4 BCs).  The fluid holds 1 amplitude
+# ``A`` from the regular-at-axis form. Four of the six state-
+# vector rows at r = a are picked: u_r, sigma_rr, sigma_r_theta,
+# sigma_rz. The u_z and u_theta rows at r = a are unused.
+#
+# (ii) Formation half-space at r = b (6 BCs).  Three K-flavour
+# amplitudes (B_form_K, C_form_K, D_form_K). All six state-vector
+# rows at r = b are picked (full continuity).
+#
+# (iii) Layer/layer continuity at r = b_j for j=1..N-1: handled
+# implicitly by the propagator chain P_total = P_N ... P_1.
+#
+# Assembled 10x10 modal determinant. Stack the BCs into a square
+# system. Unknowns are
+#       (A, B_form_K, C_form_K, D_form_K)^T            (4 amps)
+#   plus the 6 innermost-layer amplitudes (eliminated via
+#   ``v_1(a) = E_1(a) c_1``):
+# Effective unknowns: ``(A, c_1 [6], B_form_K, C_form_K, D_form_K)``
+# = 1 + 6 + 3 = 10. Effective equations: 4 BCs at r=a + 6 BCs at
+# r=b = 10. Square 10x10 system.
+#
+# Concretely:
+#
+#       M = [[ B_fluid_at_a (4 BC rows; layer cols use E_1(a)
+#              [4 of 6 state rows];
+#              fluid col carries A's contribution to BC1 / BC2;
+#              formation cols are zero at r=a),
+#            ],
+#            [ B_outer_at_b (6 BC rows; layer cols use
+#              v_at_b = P_total @ E_1(a) [all 6 state rows];
+#              formation cols use E_form(b) K-flavour cols, negated)
+#            ]]
+#
+# Net 10 x 10. At N=1, P_1 = E_1(b) E_1(a)^{-1}, so
+# P_total @ E_1(a) = E_1(b), and the assembly drops to F.2's
+# hand-coded ``_modal_determinant_n1_layered`` form. This is the
+# floating-point oracle for G'.c (substep G'.a.6).
+#
+# -----
+# Substep G'.a.5 -- Numerical conditioning (kz * thickness)
+# -----
+#
+# Same disparate-magnitude story as G.a.5. The 6x6 E(r) has
+# displacement rows (u_r, u_z, u_theta) of magnitude ~ O(I_n) and
+# stress rows (sigma_rr, sigma_rz, sigma_r_theta) of magnitude
+# ~ O(mu * I_n) ~ 1e10 * O(1). The condition number of E is
+# dominated by this disparity, giving cond(E) ~ mu ~ 1e10.
+#
+# Implication for the round-trip / composition oracles in G'.b.2:
+# raw matrix-equality tests P @ P^{-1} ~ eye(6) hit the same
+# spurious off-diagonal residuals (~1e-6) as G.b.2. Mitigation:
+# state-vector form, ``P(a|b) P(b|a) v ~ v`` for a physical state
+# vector ``v`` (displacements ~ O(1), stresses ~ O(mu)). The
+# exact same lesson called out in the G.b.2 commit
+# (123e634); G'.b.2 inherits the pattern.
+#
+# Layer-thickness / frequency conditioning: same as G.a.5.
+# Typical cased-hole geometries (h ~ 5 cm, sonic band 1-15 kHz)
+# give cond(E) ~ 400 from the Bessel-magnitude ratio, still well
+# within double precision. Knopoff / Kennett delta-matrix
+# alternatives deferred (out of scope).
+#
+# -----
+# Substep G'.a.6 -- Single-layer collapse identity (G'.b -> F.2)
+# -----
+#
+# When ``len(layers) == 1`` the propagator path's modal determinant
+# matches F.2's hand-coded ``_modal_determinant_n1_layered`` to
+# floating-point precision (no overall scale factor; same brentq
+# root in k_z). Direct mirror of G.a.6: at N=1, P_1 = E_1(b)
+# E_1(a)^{-1} so P_1 @ E_1(a) = E_1(b), the F.2 form.
+#
+# Same scaling identity holds at ``len(layers) == 0`` (collapse
+# to ``_modal_determinant_n1`` via the formation-half-space-only
+# assembly, with the borehole-wall interface at r=a now between
+# fluid and formation directly).
+#
+# -----
+# Substep G'.a.7 -- Self-check protocol
+# -----
+#
+# Each implementation step lands with one or more of the
+# following oracles (test names mirror G.a.7 / F.1.a.6 / H.a.7):
+#
+# (a) Identity propagator: r_outer = r_inner -> P = eye(6) to
+#     floating-point precision. Tests E(r)^{-1} E(r) round-trip.
+# (b) Composition: P(r3 | r1) = P(r3 | r2) @ P(r2 | r1) for any
+#     intermediate r2. Tests the propagator group law.
+# (c) State-vector continuity: pick c, verify that
+#     v(r2) = P(r2 | r1) v(r1) matches E(r2) c directly.
+# (d) Zero-layer collapse (G'.c): the propagator-matrix
+#     determinant matches ``_modal_determinant_n1`` (within an
+#     overall k_z-independent scale).
+# (e) Single-layer collapse (G'.c): matches
+#     ``_modal_determinant_n1_layered`` (same overall-scale
+#     identity).
+# (f) Order-matters at N=2 (G'.c / G'.d): swapping (L_a, L_b) ->
+#     (L_b, L_a) gives a different slowness curve.
+# (g) Cement-bond physics for flexural (G'.e): stiffer cement
+#     gives a flexural slowness closer to the formation V_S; soft
+#     cement gives slowness closer to the casing-extensional speed.
+
+
+# =====================================================================
 # Plan item H.0 -- public-API foundation for VTI formation
 # =====================================================================
 #
