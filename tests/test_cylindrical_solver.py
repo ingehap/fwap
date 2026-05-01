@@ -23,11 +23,12 @@ from fwap.cylindrical_solver import (
     _layered_n0_row5_at_b,
     _layered_n0_row6_at_b,
     _layered_n0_row7_at_b,
+    _layered_n1_row3_at_a,
     _modal_determinant_n0,
     _modal_determinant_n0_layered,
-    flexural_dispersion_layered,
     _modal_determinant_n1,
     flexural_dispersion,
+    flexural_dispersion_layered,
     stoneley_dispersion,
     stoneley_dispersion_layered,
 )
@@ -3518,4 +3519,168 @@ def test_flexural_dispersion_layered_accepts_list_for_layers():
         vf=1500.0, rho_f=1000.0, a=0.1, layers=[],
     )
     np.testing.assert_array_equal(res_tuple.slowness, res_list.slowness)
+
+
+# =====================================================================
+# Plan item F.2.c.1 -- row 3 of the n=1 layered determinant (r = a)
+# =====================================================================
+#
+# First sin-sector row of the F.2 chain. Encodes
+# ``sigma_rtheta^{(m)}(a) = 0``. The 10x10 layered determinant is
+# dense (per the F.2.a.6 erratum) so this row builder returns
+# shape-(10,) covering all amplitude columns. Primary correctness
+# oracle: per-element layer=formation match against M31, M32, M33,
+# M34 of :func:`_modal_determinant_n1` (the existing n=1
+# single-interface form).
+
+
+def test_layered_n1_row3_at_a_layer_equals_formation_per_element():
+    """Substep F.2.a.7 (a) self-check at the row level: at
+    layer=formation the K-flavour annulus columns of row 3 match
+    M31, M32, M33, M34 of :func:`_modal_determinant_n1` to
+    floating-point precision.
+
+    Specifically:
+        row[0] (A)   = M31 = 0     (fluid no shear)
+        row[2] (B_K) = M32         (K-flavor B coefficient at r=a)
+        row[4] (C_K) = M33         (K-flavor C coefficient at r=a)
+        row[8] (D_K) = M34         (K-flavor D coefficient at r=a)
+    """
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _layered_n1_row3_at_a(
+        kz, omega, vp=vp, vs=vs, rho=rho,
+        vf=vf, rho_f=rho_f, a=a, layer=layer,
+    )
+
+    # Reconstruct the M31-M34 entries directly from the n=1
+    # single-interface formula (see _modal_determinant_n1
+    # docstring lines for row 3).
+    p = float(np.sqrt(kz * kz - (omega / vp) ** 2))
+    s = float(np.sqrt(kz * kz - (omega / vs) ** 2))
+    from scipy import special as sp
+
+    mu = rho * vs * vs
+
+    M31 = 0.0
+    M32 = 2.0 * mu * (
+        p * float(sp.kv(0, p * a)) / a
+        + 2.0 * float(sp.kv(1, p * a)) / (a * a)
+    )
+    M33 = kz * mu * float(sp.kv(1, s * a)) / a
+    M34 = -mu * (
+        s * s * float(sp.kv(1, s * a))
+        + 2.0 * s * float(sp.kv(0, s * a)) / a
+        + 4.0 * float(sp.kv(1, s * a)) / (a * a)
+    )
+
+    assert row[0].real == pytest.approx(M31)
+    assert row[2].real == pytest.approx(M32)
+    assert row[4].real == pytest.approx(M33)
+    assert row[8].real == pytest.approx(M34)
+
+
+def test_layered_n1_row3_at_a_sparsity():
+    """Sparsity per the corrected F.2.a.4: A column is zero (fluid
+    no shear); formation columns (5 = B, 6 = C, 9 = D) are zero
+    because the formation half-space lives at ``r > b`` and doesn't
+    reach r = a."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n1_row3_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    assert row[0] == 0.0  # A
+    assert row[5] == 0.0  # formation B
+    assert row[6] == 0.0  # formation C
+    assert row[9] == 0.0  # formation D
+    # The remaining six columns (1, 2, 3, 4, 7, 8) are generically
+    # non-zero in the bound regime.
+    for i in (1, 2, 3, 4, 7, 8):
+        assert row[i] != 0.0
+
+
+def test_layered_n1_row3_at_a_is_real_in_bound_regime():
+    """Substep F.2.a.5: row 3 has the no-row-rescale pattern;
+    only the column-by-(-i) on C_I, C_K is applied. Post-rescale
+    row is real-valued in the bound regime."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n1_row3_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e-14)
+
+
+def test_layered_n1_row3_at_a_matches_closed_form_per_column():
+    """Per-column transcription check against substeps F.2.a.2 /
+    F.2.a.3 closed forms (with the F.1.a.2 sign-flip pattern
+    applied to the I-flavour annulus terms)."""
+    p, omega, kz = _row1_test_setup()
+    F_f, p_m, s_m, _, _ = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    a = p["a"]
+    from scipy import special as sp
+
+    row = _layered_n1_row3_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=a, layer=p["layer"],
+    )
+
+    mu_m = p["layer"].rho * p["layer"].vs ** 2
+
+    expected_BI = 2.0 * mu_m * (
+        -p_m * float(sp.iv(0, p_m * a)) / a
+        + 2.0 * float(sp.iv(1, p_m * a)) / (a * a)
+    )
+    expected_BK = 2.0 * mu_m * (
+        +p_m * float(sp.kv(0, p_m * a)) / a
+        + 2.0 * float(sp.kv(1, p_m * a)) / (a * a)
+    )
+    expected_CI = +kz * mu_m * float(sp.iv(1, s_m * a)) / a
+    expected_CK = +kz * mu_m * float(sp.kv(1, s_m * a)) / a
+    expected_DI = -mu_m * (
+        s_m * s_m * float(sp.iv(1, s_m * a))
+        - 2.0 * s_m * float(sp.iv(0, s_m * a)) / a
+        + 4.0 * float(sp.iv(1, s_m * a)) / (a * a)
+    )
+    expected_DK = -mu_m * (
+        s_m * s_m * float(sp.kv(1, s_m * a))
+        + 2.0 * s_m * float(sp.kv(0, s_m * a)) / a
+        + 4.0 * float(sp.kv(1, s_m * a)) / (a * a)
+    )
+
+    assert row[1].real == pytest.approx(expected_BI)
+    assert row[2].real == pytest.approx(expected_BK)
+    assert row[3].real == pytest.approx(expected_CI)
+    assert row[4].real == pytest.approx(expected_CK)
+    assert row[7].real == pytest.approx(expected_DI)
+    assert row[8].real == pytest.approx(expected_DK)
+
+
+def test_layered_n1_row3_at_a_C_column_i_k_sign_flip():
+    """The C-amplitude entries are single-Bessel-term, so the I-K
+    ratio collapses to a clean ``+I_1(s_m a) / K_1(s_m a)`` (no
+    sign flip; same Bessel-index, KEEP-sign per the F.1.a.2
+    pattern). Direct verifiable algebraic identity."""
+    p, omega, kz = _row1_test_setup()
+    F_f, p_m, s_m, _, _ = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    from scipy import special as sp
+
+    row = _layered_n1_row3_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+
+    expected_ratio = (
+        +float(sp.iv(1, s_m * p["a"])) / float(sp.kv(1, s_m * p["a"]))
+    )
+    assert row[3].real / row[4].real == pytest.approx(expected_ratio)
 

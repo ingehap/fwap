@@ -7110,3 +7110,156 @@ def flexural_dispersion_layered(
 # Paillet & Cheng 1991 ch. 4) plus Tang & Cheng 2004 sect. 7.1
 # for the layered generalisation that feeds plan item G.
 
+
+# =====================================================================
+# Substep F.2.c.1 -- row 3 of the n=1 layered determinant (r = a)
+# =====================================================================
+#
+# BC3: ``sigma_rtheta^{(m)}(a) = 0`` (sin-sector tangential-shear
+# vanishing at the fluid-annulus interface; fluid carries no shear).
+# First sin-sector row of the F.2 chain. Shape-(10,) array per the
+# corrected substep F.2.a.6 (the layered 10x10 is dense; rows are
+# NOT block-decomposed by azimuthal sector).
+#
+# Coefficients derived from the substep F.2.a.2 displacement
+# decompositions and substep F.2.a.3 stress formulae. Each amplitude
+# contributes through both ``(1/r) d_theta u_r`` and ``d_r u_theta -
+# u_theta / r`` channels of the sigma_rtheta = mu (eps_rtheta + ...)
+# combination; the full per-amplitude derivation lives in the n=1
+# single-interface substep block (lines ~736+) for the K-flavour and
+# is mirrored here with the F.1.a.2 sign-flip pattern for the
+# I-flavour.
+#
+# Pre-rescale coefficients, by amplitude:
+#
+#   A:    0                                       (fluid no shear)
+#   B_I:  +2 mu_m (-p_m I_0(p_m a)/a + 2 I_1(p_m a)/a^2)
+#         (sign flip on the d_r-induced ``p_m I_0/a`` term vs B_K)
+#   B_K:  +2 mu_m (+p_m K_0(p_m a)/a + 2 K_1(p_m a)/a^2)
+#         (matches M32 of :func:`_modal_determinant_n1` at
+#         layer=formation with ``p_m -> p, mu_m -> mu``)
+#   C_I:  +i k_z mu_m I_1(s_m a) / a
+#   C_K:  +i k_z mu_m K_1(s_m a) / a
+#         (matches M33's pre-rescale form)
+#   B:    0  (formation, r > b -- doesn't reach r = a)
+#   C:    0  (formation, r > b)
+#   D_I:  -mu_m (s_m^2 I_1(s_m a) - 2 s_m I_0(s_m a)/a + 4 I_1(s_m a)/a^2)
+#         (sign flip on the d_r-induced ``s_m I_0/a`` term vs D_K)
+#   D_K:  -mu_m (s_m^2 K_1(s_m a) + 2 s_m K_0(s_m a)/a + 4 K_1(s_m a)/a^2)
+#         (matches M34 at layer=formation)
+#   D:    0  (formation, r > b)
+#
+# Imaginary-power pattern: B columns real, C columns imaginary
+# (i*R; the i k_z factor enters via the ``(1/r) d_theta u_r``
+# channel applied to the ``-i k_z C K_1(s r)`` C-amplitude
+# contribution to u_r), D columns real. Matches the substep-F.2.a.5
+# row-3 pattern entry ``A 0 | B R | C i*R | D R``.
+#
+# Phase rescale: row 3 is NOT z-derivative-bearing in the substep-
+# F.2.a.5 sense (no row * i scaling). Only the column-by-(-i) on
+# C_I, C_K, C is applied; that lands the C entries in real form
+# post-rescale.
+
+
+def _layered_n1_row3_at_a(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+) -> np.ndarray:
+    r"""
+    Row 3 of the n=1 layered modal determinant evaluated at the
+    fluid-annulus interface ``r = a``.
+
+    Encodes the tangential-shear vanishing BC
+    ``sigma_rtheta^{(m)}(a) = 0`` in the sin sector. Returns the
+    ten post-rescale coefficients in the column order pinned by
+    substep F.2.a.4: ``[A | B_I, B_K, C_I, C_K | B, C |
+    D_I, D_K | D]``.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    vp, vs : float
+        Formation half-space P / S velocities (m/s). Carried for
+        signature uniformity; not used by row 3 (formation
+        columns are zero at r=a).
+    rho : float
+        Formation density (kg/m^3). Same as above; not used.
+    vf, rho_f : float
+        Fluid velocity / density. Not used (fluid carries no shear);
+        carried for signature uniformity.
+    a : float
+        Fluid-annulus interface radius (m).
+    layer : BoreholeLayer
+        The annular layer; sets ``mu_m``, ``p_m``, ``s_m``.
+
+    Returns
+    -------
+    ndarray, shape (10,) complex
+        Coefficients of (A, B_I, B_K, C_I, C_K, B, C, D_I, D_K, D)
+        in row 3. Real-valued in the bound regime.
+
+    See Also
+    --------
+    _modal_determinant_n1 : The n=1 single-interface form. At
+        layer=formation, ``row[2]`` (annulus B_K) matches ``M32``
+        bit-exactly; ``row[4]`` (C_K) matches ``M33``; ``row[8]``
+        (D_K) matches ``M34``; ``row[0]`` matches ``M31 = 0``.
+    """
+    del vp, vs, rho, rho_f  # not used by row 3 (formation cols zero)
+    F_f, p_m, s_m, _, _ = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=layer.vp, vs=layer.vs, vf=vf, layer=layer,
+    )
+    del F_f  # row 3 doesn't touch the fluid column
+
+    I0_pm_a = float(special.iv(0, p_m * a))
+    I1_pm_a = float(special.iv(1, p_m * a))
+    K0_pm_a = float(special.kv(0, p_m * a))
+    K1_pm_a = float(special.kv(1, p_m * a))
+    I0_sm_a = float(special.iv(0, s_m * a))
+    I1_sm_a = float(special.iv(1, s_m * a))
+    K0_sm_a = float(special.kv(0, s_m * a))
+    K1_sm_a = float(special.kv(1, s_m * a))
+
+    mu_m = layer.rho * layer.vs * layer.vs
+
+    row = np.zeros(10, dtype=complex)
+    # A column: fluid carries no shear.
+    row[0] = 0.0
+    # B_I column (sign-flipped d_r-induced term).
+    row[1] = 2.0 * mu_m * (-p_m * I0_pm_a / a + 2.0 * I1_pm_a / (a * a))
+    # B_K column (matches M32 at layer=formation).
+    row[2] = 2.0 * mu_m * (+p_m * K0_pm_a / a + 2.0 * K1_pm_a / (a * a))
+    # C_I column (post-rescale; col-by-(-i) cancels the +i factor).
+    row[3] = +kz * mu_m * I1_sm_a / a
+    # C_K column (matches M33 at layer=formation).
+    row[4] = +kz * mu_m * K1_sm_a / a
+    # Formation columns (B, C, D) vanish at r = a.
+    row[5] = 0.0
+    row[6] = 0.0
+    # D_I column (sign-flipped d_r-induced ``s_m I_0/a`` term).
+    row[7] = -mu_m * (
+        s_m * s_m * I1_sm_a
+        - 2.0 * s_m * I0_sm_a / a
+        + 4.0 * I1_sm_a / (a * a)
+    )
+    # D_K column (matches M34 at layer=formation).
+    row[8] = -mu_m * (
+        s_m * s_m * K1_sm_a
+        + 2.0 * s_m * K0_sm_a / a
+        + 4.0 * K1_sm_a / (a * a)
+    )
+    # D column (formation): zero at r = a.
+    row[9] = 0.0
+    return row
+
