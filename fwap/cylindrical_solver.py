@@ -9053,3 +9053,375 @@ def flexural_dispersion_vti(
         "flexural_dispersion."
     )
 
+
+# =====================================================================
+# Substep H.a -- math scaffolding for the VTI modal determinant
+# =====================================================================
+#
+# Sister of F.2.a along the anisotropy axis. Inherits all conventions
+# from the module docstring and from the existing isotropic n=0 / n=1
+# derivations (substeps in :func:`_modal_determinant_n0` and
+# :func:`_modal_determinant_n1`); extends with TI-specific machinery:
+# the Christoffel-equation roots for radial wavenumbers, the
+# C-matrix replacement of the Lame reduction, and the qP / qSV root-
+# selection convention.
+#
+# The substep blocks below land the maths only; the radial-wavenumber
+# helper (substep H.b), the modal-determinant builders (H.c, H.d),
+# and the public-API wiring (already in H.0) follow in dependent
+# commits per ``docs/plans/cylindrical_biot_H.md``.
+
+# =====================================================================
+# Substep H.a.1 -- sign conventions, TI stiffness tensor, regime gate
+# =====================================================================
+#
+# Conventions inherited from the module docstring:
+#
+#   * Time dependence ``e^{-i omega t}``.
+#   * Axial dependence ``e^{i k_z z}``.
+#   * Azimuthal dependence ``e^{i n theta}`` (n = 0 axisymmetric,
+#     n = 1 dipole).
+#   * Bound regime: every radial wavenumber is real positive.
+#
+# TI stiffness tensor (5 independent entries + density):
+#
+#       C11 = rho V_Ph^2     (horizontal P)
+#       C13                  (Thomsen-delta-coupled)
+#       C33 = rho V_Pv^2     (vertical P)
+#       C44 = rho V_Sv^2     (vertical S)
+#       C66 = rho V_Sh^2     (horizontal S)
+#
+# Vertical symmetry axis aligned with ``z`` (the borehole axis); the
+# borehole-wall normal lies in the horizontal ``(r, theta)`` plane,
+# so the modal determinant decouples by azimuthal order n exactly as
+# in the isotropic case.
+#
+# Thomsen parameters (derivable from the C-matrix; not exposed at
+# the public-API level):
+#
+#       gamma   = (C66 - C44) / (2 C44)        (SH anisotropy)
+#       epsilon = (C11 - C33) / (2 C33)        (P anisotropy in (r,z))
+#       delta   encoded in C13 via
+#       C13 = sqrt((C33 - C44)(C33 - C44 + 2 delta C33)) - C44
+#
+# Bound-regime gate for the layered-mode dispersion:
+#
+#       k_z > omega / min(V_Sv, V_Sh, V_f)
+#
+# Both shear speeds appear because the qSV branch's natural radial
+# wavenumber is set by ``V_Sv`` while the SH branch (relevant at
+# n >= 1) is set by ``V_Sh``. In typical VTI shales V_Sh > V_Sv (gamma
+# > 0) so V_Sv is the binding constraint, but the gate is written
+# symmetrically.
+#
+# Field representation (bound regime):
+#
+#   Fluid (r < a):
+#       P^{(f)}        = A * I_n(F_f r)              (n=0 or n=1)
+#
+#   Formation (r > a) -- four scalar potentials:
+#       qP scalar:     phi^{(qP)}   = B * K_n(alpha_qP r)
+#       qSV theta:     psi^{(qSV)}  = C * K_n(alpha_qSV r)
+#       SH z:          psi_z^{(SH)} = D * K_n(alpha_SH r)
+#                                     (n >= 1 only)
+#       (azimuthal factors cos(n theta) or sin(n theta) per substep
+#       1.1 of the n=1 single-interface block)
+#
+# Five amplitudes total at n=1 (A, B, C, D + the additional
+# polarization-vector-mediated coupling between qP and qSV); three
+# at n=0 (A, B, C; SH decoupled).
+#
+# References:
+#   * Schmitt, D. P. (1989). Acoustic multipole logging in
+#     transversely isotropic poroelastic formations. *J. Acoust.
+#     Soc. Am.* 86(6), 2397-2421. Sect. II for the four-potential
+#     decomposition.
+#   * Tsvankin, I. (2001). *Seismic Signatures and Analysis of
+#     Reflection Data in Anisotropic Media.* Pergamon, ch. 1.
+
+# =====================================================================
+# Substep H.a.2 -- Christoffel equation: quadratic in alpha^2
+# =====================================================================
+#
+# Restrict to the cos / sin sector at azimuthal order n. The qP and
+# qSV polarizations live in the (r, z) plane; SH is the theta
+# polarization. For n = 0 axisymmetric, only qP and qSV participate
+# (SH decoupled by axisymmetry). For n = 1, all three couple via
+# d_theta operations -- but the radial-wavenumber equation is the
+# same Christoffel-determinant condition in all cases.
+#
+# The Christoffel matrix in the (r, z) plane for a plane wave with
+# radial wavenumber alpha and axial wavenumber k_z, evaluated in a
+# VTI half-space:
+#
+#       | C11 alpha^2 + C44 k_z^2 - rho omega^2     (C13+C44) alpha k_z |
+#       |                                                                |
+#       | (C13+C44) alpha k_z                       C44 alpha^2 + C33 k_z^2 - rho omega^2 |
+#
+# The qP / qSV dispersion follows from the secular equation
+# ``det(Christoffel) = 0``:
+#
+#       (C11 alpha^2 + C44 k_z^2 - rho omega^2) *
+#       (C44 alpha^2 + C33 k_z^2 - rho omega^2)
+#       - (C13 + C44)^2 alpha^2 k_z^2 = 0.
+#
+# Expand and collect on alpha^2:
+#
+#       A_eff alpha^4 + B_eff(k_z, omega) alpha^2 + C_eff(k_z, omega) = 0
+#
+# with
+#
+#       A_eff = C11 * C44
+#       B_eff = [(C11 C33 + C44^2) - (C13 + C44)^2] k_z^2
+#               - (C11 + C44) rho omega^2
+#       C_eff = C44 C33 k_z^4 - (C44 + C33) rho omega^2 k_z^2
+#               + (rho omega^2)^2
+#
+# The two roots alpha_qP^2 and alpha_qSV^2 are the squared radial
+# wavenumbers for the quasi-P and quasi-SV branches. In the bound
+# regime both roots are real positive.
+#
+# Discriminant and explicit roots:
+#
+#       Delta = B_eff^2 - 4 A_eff C_eff
+#       alpha_{qP, qSV}^2 = (-B_eff +/- sqrt(Delta)) / (2 A_eff)
+#
+# Both A_eff > 0 and (under Thomsen-stable inputs) Delta >= 0; the
+# two roots are positive in the bound regime by the H.a.1 gate.
+#
+# Isotropic-collapse identity (substep H.a.7 self-check):
+# with C11 = C33 = lambda + 2 mu, C44 = mu, C13 = lambda,
+#
+#       (C13 + C44)^2 = (lambda + mu)^2
+#       C11 C33 + C44^2 = (lambda + 2 mu)^2 + mu^2
+#       Difference = 2 mu (lambda + 2 mu) = 2 (lambda + 2 mu) mu
+#
+#       A_eff = (lambda + 2 mu) mu
+#       B_eff = 2 mu (lambda + 2 mu) k_z^2 - (lambda + 3 mu) rho omega^2
+#       C_eff factorises as
+#               (lambda + 2 mu) mu k_z^4 - ... = ...
+#
+# After the algebra (verifiable via Vieta's formulas) the two roots
+# reduce to
+#
+#       alpha_qP^2  -> p^2 = k_z^2 - omega^2 / V_P^2
+#       alpha_qSV^2 -> s^2 = k_z^2 - omega^2 / V_S^2
+#
+# matching the isotropic radial-wavenumber definitions exactly. This
+# identity is the floating-point oracle for the H.b unit tests.
+#
+# References: Schmitt 1989 eqs. 17-18; Ellefsen, Cheng, Toksoz 1991
+# eq. 7; Tsvankin 2001 sect. 1.4.
+
+# =====================================================================
+# Substep H.a.3 -- qP / qSV root-selection convention
+# =====================================================================
+#
+# The Christoffel quadratic gives two roots; their physical labels
+# (qP vs qSV) need an unambiguous selection rule. Convention:
+#
+#   * **qP** is the SMALLER root in the bound regime (smaller
+#     radial decay constant, faster wave). At isotropic limit
+#     alpha_qP^2 -> p^2 = k_z^2 - omega^2 / V_P^2 (< s^2 since
+#     V_P > V_S in any stable formation).
+#
+#   * **qSV** is the LARGER root. At isotropic limit
+#     alpha_qSV^2 -> s^2 = k_z^2 - omega^2 / V_S^2 (> p^2).
+#
+# Implementation: take the two roots from the quadratic, pick
+# alpha_qP^2 = min(root_1, root_2) and alpha_qSV^2 = max. The
+# convention agrees with the isotropic limit by inspection (since
+# p^2 < s^2 always in the bound regime when V_P > V_S).
+#
+# Edge case: if the two roots are equal (alpha_qP = alpha_qSV), the
+# Christoffel matrix has a degenerate eigenspace and the modal
+# matrix becomes singular. This corresponds to a "shear-bispherical"
+# point in the dispersion locus -- not relevant in physically
+# stable bound-mode regimes, but the H.b helper raises a clear
+# error if encountered.
+#
+# Polarization vectors (Christoffel eigenvectors corresponding to
+# the two roots) determine the displacement-amplitude coupling for
+# the modal-matrix entries; pinned in substep H.a.4 below.
+
+# =====================================================================
+# Substep H.a.4 -- per-region displacements (qP, qSV, SH polarizations)
+# =====================================================================
+#
+# For each Christoffel root alpha_qX (X in {qP, qSV}), the
+# corresponding polarization vector ``(u_r, u_z)`` is the null
+# eigenvector of the (now-singular) Christoffel matrix:
+#
+#       (C11 alpha_qX^2 + C44 k_z^2 - rho omega^2) u_r
+#       + (C13 + C44) alpha_qX k_z u_z = 0
+#
+# Solving for the polarization ratio (with the convention u_r = 1):
+#
+#       u_z / u_r = - [C11 alpha_qX^2 + C44 k_z^2 - rho omega^2]
+#                   / [(C13 + C44) alpha_qX k_z]                   (qX-spec)
+#
+# In the isotropic limit this reduces to
+#
+#       (u_r, u_z)_qP  -> (p, i k_z)         (longitudinal: aligned
+#                                              with wavefront normal)
+#       (u_r, u_z)_qSV -> (-i k_z, s)        (transverse: perpendicular
+#                                              to wavefront normal)
+#
+# matching the isotropic potential-decomposition derivation in the
+# n=0 / n=1 substep blocks above.
+#
+# Per-region displacements (cos sector unless noted; sin for the SH
+# contribution at n=1):
+#
+#   Fluid u_r^{(f)}, u_z^{(f)}: identical to the isotropic case
+#   (fluid is isotropic regardless of formation anisotropy).
+#
+#   Formation u_r^{(s)}, u_z^{(s)} from qP and qSV:
+#       u_r^{(qP)}  = -B_qP * (alpha_qP K_n'(alpha_qP r))     (cos)
+#       u_z^{(qP)}  = +i k_z B_qP * (u_z/u_r)_qP * K_n        (cos)
+#       u_r^{(qSV)} = -i k_z C_qSV K_{n+1}(alpha_qSV r)       (cos)
+#       u_z^{(qSV)} = -C_qSV alpha_qSV K_n(alpha_qSV r)       (cos)
+#
+# (with the polarization ratios pinned in H.a.3 -- the explicit form
+# matches the isotropic n=0 / n=1 blocks at the isotropic limit).
+#
+# At n=1, the SH amplitude D appears via:
+#       u_theta^{(SH)} contributes through the standard
+#       ``(curl psi_z)_r = (1/r) d_theta psi_z`` mechanism.
+#       alpha_SH^2 = k_z^2 - rho omega^2 / C66
+#       (simple "isotropic-in-C66" form -- no Christoffel coupling
+#        because SH decouples from qP/qSV at the symmetry axis).
+
+# =====================================================================
+# Substep H.a.5 -- per-region stresses + C-matrix Lame replacement
+# =====================================================================
+#
+# Hooke's law in the VTI half-space (in the (r, z) plane, n = 0 / 1):
+#
+#       sigma_rr = C11 eps_rr + C13 eps_zz + (theta-derivative terms)
+#       sigma_rz = 2 C44 eps_rz
+#       sigma_rtheta = 2 C66 eps_rtheta             (n >= 1; SH-driven)
+#       sigma_zz = C13 eps_rr + C33 eps_zz + ...
+#
+# vs the isotropic forms which use lambda, mu (single shear modulus
+# everywhere); the VTI form has C13 instead of lambda in sigma_rr,
+# C33 in sigma_zz, C44 in sigma_rz, C66 in sigma_rtheta.
+#
+# The Lame reduction
+#
+#       -lambda k_P^2 + 2 mu p^2 = mu (2 k_z^2 - k_S^2)
+#
+# from the isotropic n=0 / n=1 blocks does NOT carry over directly.
+# Instead, for the qP-amplitude contribution to sigma_rr at the
+# borehole wall, the analogous combination is (Schmitt 1989 eq. 21):
+#
+#       [C11 alpha_qP^2 + C13 i k_z (u_z/u_r)_qP - C13 rho omega^2 / C33]
+#       * (Bessel terms)
+#
+# i.e., the C-matrix combination depends on the qP polarization
+# ratio, which itself depends on alpha_qP from the Christoffel
+# equation. In the isotropic limit this collapses to the Lame
+# reduction; in the genuine TI case it doesn't simplify further.
+#
+# Same structural change for the qSV column. The sigma_rtheta entries
+# at n >= 1 use C66 directly (no Lame combination needed):
+#
+#       sigma_rtheta from D_SH = C66 * (D_SH polarization terms)
+#
+# This is the slot through which gamma (= (C66 - C44) / (2 C44))
+# enters the dispersion via the D-amplitude. In the layered
+# extension (plan G), this slot is also where the Norris 1990
+# closed-form Stoneley LF limit ``S_ST^2 = 1/V_f^2 + rho_f / C66``
+# originates: at low frequency the n=0 Stoneley wave samples C66
+# (not C44) of the formation through the wall coupling.
+#
+# Detailed entries deferred to the per-row builders in H.c (n=0)
+# and H.d (n=1); the substep block here pins the symbolic form
+# and the isotropic-collapse identity (every C-matrix combination
+# reduces to the corresponding Lame combination).
+
+# =====================================================================
+# Substep H.a.6 -- modal-determinant row layout + phase rescaling
+# =====================================================================
+#
+# **n = 0 axisymmetric (Stoneley)**: 3x3 modal determinant. Same
+# row layout as :func:`_modal_determinant_n0`:
+#
+#       Row 1   u_r^{(f)} - u_r^{(s)} = 0     (cos sector)
+#       Row 2   sigma_rr^{(s)} + P^{(f)} = 0  (cos)
+#       Row 3   sigma_rz^{(s)} = 0            (cos; rescaled by i)
+#
+# Columns: ``[A | B_qP, C_qSV]``. SH is decoupled by axisymmetry
+# at n = 0 (no D column).
+#
+# Phase rescaling: row 3 multiplied by ``i``; column C_qSV
+# multiplied by ``-i``. Net factor i * (-i) = 1; same convention as
+# isotropic n=0.
+#
+# **n = 1 dipole (flexural)**: 4x4 modal determinant. Same row
+# layout as :func:`_modal_determinant_n1`:
+#
+#       Row 1   u_r^{(f)} - u_r^{(s)} = 0       (cos)
+#       Row 2   -(sigma_rr^{(s)} + P^{(f)}) = 0  (cos)
+#       Row 3   sigma_rtheta^{(s)} = 0           (sin)
+#       Row 4   sigma_rz^{(s)} = 0               (cos; rescaled by i)
+#
+# Columns: ``[A | B_qP, C_qSV, D_SH]``. SH appears via the
+# ``(1/r) d_theta psi_z`` mechanism from F.2.a / the n=1 substep
+# blocks (this cross-couples sin-sector D into cos-sector u_r BC).
+#
+# Phase rescaling: same row-4-by-i / column-C_qSV-by-(-i) as the
+# isotropic n=1 form. Net factor +1.
+#
+# At n = 0 the layered VTI extension would be a 7x7 (mirroring
+# F.1's layered Stoneley); at n = 1 it would be 10x10 (mirroring
+# F.2). Both are out of scope for plan H -- the layered + VTI
+# combination is a follow-up beyond plan items F, G, H.
+
+# =====================================================================
+# Substep H.a.7 -- isotropic-collapse self-check protocol
+# =====================================================================
+#
+# Three structural identities the VTI determinant must satisfy by
+# construction, tested at successive levels of the H chain:
+#
+# (a) **Isotropic-collapse at the radial-wavenumber level.**
+#     With C11 = C33 = lambda + 2 mu, C44 = C66 = mu, C13 = lambda,
+#     the two Christoffel-equation roots reduce to
+#       alpha_qP^2  = k_z^2 - omega^2 / V_P^2
+#       alpha_qSV^2 = k_z^2 - omega^2 / V_S^2
+#     to floating-point precision. Tested at the H.b unit-test
+#     level via the radial-wavenumber helper.
+#
+# (b) **Isotropic-collapse at the modal-matrix level.**
+#     Every entry M_ij^vti reduces to the corresponding isotropic
+#     M_ij entry to floating-point precision under the same
+#     C-matrix substitution. Tested at the H.c (n=0) and H.d (n=1)
+#     per-row-builder level. Direct mirror of the F.1 / F.2
+#     layer=formation regression -- the floating-point oracle for
+#     the matrix algebra.
+#
+# (c) **Norris 1990 closed-form Stoneley LF limit.**
+#     At low frequency the n=0 Stoneley slowness in a VTI formation
+#     approaches
+#       S_ST^2 = 1 / V_f^2 + rho_f / C66
+#     (Norris 1990 eq. 6). The TI-specific oracle: depends on C66,
+#     not C44. Tested at the H.c integration level. Strong
+#     validation of the SH-decoupling claim in substep H.a.4 (the
+#     C66 dependence enters only through the sigma_rtheta slot at
+#     n >= 1, but at n = 0 the wall-displacement matching couples
+#     C66 into the Stoneley wave through the radial-shear stress
+#     condition).
+#
+# Reference for (c): Norris, A. N. (1990). The speed of a tube
+# wave. *J. Acoust. Soc. Am.* 87(1), 414-417. Eq. 6 derives the
+# closed form for the TI tube-wave speed at long wavelength.
+#
+# References for the broader VTI cylindrical-mode framework:
+#   * Schmitt 1989 (the canonical paper for VTI multipole logging).
+#   * Ellefsen, Cheng & Toksoz (1991). Effects of anisotropy on
+#     the shear-wave logging in a TI formation. *J. Acoust. Soc.
+#     Am.* 89(5), 2197-2210. Weak-anisotropy expansions.
+#   * Sinha, Norris, Chang (1994). Borehole flexural modes in
+#     anisotropic formations. *Geophysics* 59(7), 1037-1052.
+
