@@ -8812,3 +8812,244 @@ def _layered_n1_row10_at_b(
     row[9] = +kz * mu * K1_s_b / b
     return row
 
+
+# =====================================================================
+# Plan item H.0 -- public-API foundation for VTI formation
+# =====================================================================
+#
+# Sister of the F.1.0 / F.2.0 layered foundations, but along the
+# anisotropy axis instead of the radial-layer axis. Lands the public
+# API surface and the **isotropic-collapse oracle** ahead of the
+# Schmitt 1989 modal-determinant work scheduled in plan items H.b /
+# H.c / H.d (``docs/plans/cylindrical_biot_H.md``).
+#
+# Parameterisation: the full 5-parameter TI stiffness tensor
+# ``(C11, C13, C33, C44, C66)`` plus density ``rho``. Thomsen
+# parameters are derivable but not exposed at the API level (gamma
+# = (C66 - C44) / (2 C44), epsilon = (C11 - C33) / (2 C33), delta
+# encoded in C13).
+#
+# Isotropic-collapse condition:
+#
+#       C11 == C33   AND   C44 == C66   AND   C13 == C11 - 2 C44
+#
+# When this holds, the C-tensor degenerates to the isotropic Lame
+# parameters ``(lambda = C13, mu = C44)`` and the VTI dispersion
+# matches the isotropic dispersion bit-exactly. The dispatch in
+# the public APIs detects this case and routes to the existing
+# isotropic solvers; this is the floating-point oracle for the
+# entire H chain.
+
+
+def _validate_vti_stiffness(
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+) -> None:
+    """
+    Validate a VTI stiffness tensor + density.
+
+    Raises ``ValueError`` if any coefficient is non-positive or
+    if the tensor violates basic Thomsen-stability conditions
+    (C33 > C13 for qP/qSV decoupling; C11 > C66 to keep
+    horizontal P faster than horizontal S).
+    """
+    if rho <= 0:
+        raise ValueError("rho must be positive")
+    for name, value in (
+        ("c11", c11), ("c13", c13), ("c33", c33),
+        ("c44", c44), ("c66", c66),
+    ):
+        if value <= 0:
+            raise ValueError(f"{name} must be positive (got {value!r})")
+    if c33 <= c13:
+        raise ValueError(
+            f"require c33 > c13 (got c33={c33!r}, c13={c13!r}); "
+            "ensures qP/qSV decoupling in the Christoffel equation."
+        )
+    if c11 <= c66:
+        raise ValueError(
+            f"require c11 > c66 (got c11={c11!r}, c66={c66!r}); "
+            "ensures horizontal P faster than horizontal S."
+        )
+
+
+def _is_isotropic_stiffness(
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    *,
+    rtol: float = 1.0e-12,
+) -> bool:
+    """
+    Detect the degenerate isotropic case for a VTI stiffness tensor.
+
+    Returns ``True`` when ``C11 == C33``, ``C44 == C66``, and
+    ``C13 == C11 - 2 * C44`` to within ``rtol``. The three
+    conditions together are necessary and sufficient for the
+    five-parameter TI tensor to reduce to the isotropic two-
+    parameter Lame form ``(lambda = C13, mu = C44)``.
+
+    The relative tolerance accommodates floating-point round-off
+    in cases where the user constructs an isotropic tensor via
+    ``c13 = c11 - 2 * c44`` from ``(c11, c44)`` directly: the
+    arithmetic is exact in IEEE 754 for representable inputs, but
+    user-facing scripts may pass values that have been multiplied
+    or divided through and pick up a few ULPs of error.
+    """
+    scale = max(abs(c11), abs(c33), abs(c44), abs(c66), abs(c13), 1.0)
+    if abs(c11 - c33) > rtol * scale:
+        return False
+    if abs(c44 - c66) > rtol * scale:
+        return False
+    if abs(c13 - (c11 - 2.0 * c44)) > rtol * scale:
+        return False
+    return True
+
+
+def stoneley_dispersion_vti(
+    freq: np.ndarray,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> BoreholeMode:
+    r"""
+    Stoneley-wave (n=0) phase slowness vs frequency for a borehole
+    in a VTI formation (transversely isotropic, vertical symmetry
+    axis).
+
+    Foundation surface for plan item H. With an isotropic stiffness
+    tensor (``C11 = C33``, ``C44 = C66``, ``C13 = C11 - 2 * C44``)
+    this is bit-equivalent to :func:`stoneley_dispersion` with
+    ``vp = sqrt(C33 / rho), vs = sqrt(C44 / rho)``. With a
+    genuinely-anisotropic tensor, the public API currently raises
+    ``NotImplementedError`` pointing at the Schmitt 1989 modal-
+    determinant work scheduled in plan items H.b / H.c
+    (``docs/plans/cylindrical_biot_H.md``).
+
+    Parameters
+    ----------
+    freq : ndarray
+        Frequency grid (Hz). Must be strictly positive.
+    c11, c13, c33, c44, c66 : float
+        VTI stiffness tensor entries (Pa). All must be positive
+        and satisfy ``C33 > C13`` and ``C11 > C66``.
+    rho : float
+        Formation density (kg/m^3). Must be positive.
+    vf, rho_f : float
+        Borehole-fluid velocity (m/s) and density (kg/m^3).
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "Stoneley"``, ``azimuthal_order = 0``.
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive, the stiffness tensor
+        violates Thomsen-stability, or ``freq`` contains a
+        non-positive entry.
+    NotImplementedError
+        If the stiffness tensor is genuinely anisotropic. The
+        VTI modal determinant is plan items H.b / H.c.
+    """
+    _validate_vti_stiffness(c11, c13, c33, c44, c66, rho)
+    if vf <= 0 or rho_f <= 0:
+        raise ValueError("vf and rho_f must be positive")
+    if a <= 0:
+        raise ValueError("a must be positive")
+    f_arr = np.asarray(freq, dtype=float)
+    if np.any(f_arr <= 0):
+        raise ValueError("freq must be strictly positive")
+    if _is_isotropic_stiffness(c11, c13, c33, c44, c66):
+        vp = float(np.sqrt(c33 / rho))
+        vs = float(np.sqrt(c44 / rho))
+        return stoneley_dispersion(
+            f_arr, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        )
+    raise NotImplementedError(
+        "stoneley_dispersion_vti with a genuinely-anisotropic "
+        "stiffness tensor is not implemented yet; the Schmitt 1989 "
+        "VTI modal determinant is scheduled in plan items H.b / H.c "
+        "(see docs/plans/cylindrical_biot_H.md). The isotropic-"
+        "collapse case (C11=C33, C44=C66, C13=C11-2*C44) is "
+        "supported via dispatch to stoneley_dispersion."
+    )
+
+
+def flexural_dispersion_vti(
+    freq: np.ndarray,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> BoreholeMode:
+    r"""
+    Flexural-wave (n=1) phase slowness vs frequency for a borehole
+    in a VTI formation.
+
+    Sister of :func:`stoneley_dispersion_vti` at azimuthal order 1.
+    With an isotropic stiffness tensor this is bit-equivalent to
+    :func:`flexural_dispersion`; with a genuinely-anisotropic
+    tensor it raises ``NotImplementedError`` pointing at plan
+    item H.d (``docs/plans/cylindrical_biot_H.md``).
+
+    Parameters and validation rules: identical to
+    :func:`stoneley_dispersion_vti`.
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "flexural"``, ``azimuthal_order = 1``.
+
+    Raises
+    ------
+    ValueError
+        Same conditions as :func:`stoneley_dispersion_vti`.
+    NotImplementedError
+        If the stiffness tensor is genuinely anisotropic.
+    """
+    _validate_vti_stiffness(c11, c13, c33, c44, c66, rho)
+    if vf <= 0 or rho_f <= 0:
+        raise ValueError("vf and rho_f must be positive")
+    if a <= 0:
+        raise ValueError("a must be positive")
+    f_arr = np.asarray(freq, dtype=float)
+    if np.any(f_arr <= 0):
+        raise ValueError("freq must be strictly positive")
+    if _is_isotropic_stiffness(c11, c13, c33, c44, c66):
+        vp = float(np.sqrt(c33 / rho))
+        vs = float(np.sqrt(c44 / rho))
+        return flexural_dispersion(
+            f_arr, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        )
+    raise NotImplementedError(
+        "flexural_dispersion_vti with a genuinely-anisotropic "
+        "stiffness tensor is not implemented yet; the Schmitt 1989 "
+        "VTI modal determinant is scheduled in plan item H.d "
+        "(see docs/plans/cylindrical_biot_H.md). The isotropic-"
+        "collapse case is supported via dispatch to "
+        "flexural_dispersion."
+    )
+

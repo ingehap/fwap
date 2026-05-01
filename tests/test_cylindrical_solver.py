@@ -39,8 +39,10 @@ from fwap.cylindrical_solver import (
     _modal_determinant_n1_layered,
     flexural_dispersion,
     flexural_dispersion_layered,
+    flexural_dispersion_vti,
     stoneley_dispersion,
     stoneley_dispersion_layered,
+    stoneley_dispersion_vti,
 )
 
 
@@ -5233,3 +5235,178 @@ def test_flexural_dispersion_layered_harder_layer_speeds_up_flexural():
     speedup_frac = 1.0 - res_layered.slowness / res_unlayered.slowness
     assert np.all(speedup_frac > 0.001)
     assert np.all(speedup_frac < 0.05)
+
+
+# =====================================================================
+# Plan item H.0 -- public-API foundation for VTI formation
+# =====================================================================
+#
+# Sister of F.1.0 / F.2.0 layered foundations along the anisotropy
+# axis. The 5-parameter TI stiffness tensor (C11, C13, C33, C44,
+# C66) collapses to the isotropic case when C11=C33, C44=C66, and
+# C13=C11-2*C44 -- the dispatch in stoneley_dispersion_vti and
+# flexural_dispersion_vti detects this and routes to the existing
+# isotropic solvers, providing the floating-point oracle for the
+# entire H chain.
+
+
+def _isotropic_stiffness_from_lame(vp, vs, rho):
+    """Construct an isotropic stiffness tensor (C11, C13, C33,
+    C44, C66) from the Lame parameters (vp, vs, rho)."""
+    mu = rho * vs ** 2
+    lam = rho * vp ** 2 - 2.0 * mu
+    return dict(
+        c11=lam + 2.0 * mu,
+        c13=lam,
+        c33=lam + 2.0 * mu,
+        c44=mu,
+        c66=mu,
+    )
+
+
+def test_stoneley_dispersion_vti_isotropic_collapse_bit_matches_unlayered():
+    """Floating-point oracle for the H chain: with an isotropic
+    stiffness tensor the VTI Stoneley solver bit-matches the
+    isotropic ``stoneley_dispersion`` answer to ``rtol=1e-12``
+    across a 16-point frequency grid."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f = np.linspace(500.0, 8000.0, 16)
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+
+    res_iso = stoneley_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    res_vti = stoneley_dispersion_vti(
+        f, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    np.testing.assert_array_equal(res_vti.slowness, res_iso.slowness)
+    np.testing.assert_array_equal(res_vti.freq, res_iso.freq)
+    assert res_vti.name == "Stoneley"
+    assert res_vti.azimuthal_order == 0
+
+
+def test_flexural_dispersion_vti_isotropic_collapse_bit_matches_unlayered():
+    """Same floating-point oracle for the n=1 dipole flexural."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f = np.linspace(2000.0, 8000.0, 12)
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+
+    res_iso = flexural_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    res_vti = flexural_dispersion_vti(
+        f, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    np.testing.assert_array_equal(res_vti.slowness, res_iso.slowness)
+    np.testing.assert_array_equal(res_vti.freq, res_iso.freq)
+    assert res_vti.name == "flexural"
+    assert res_vti.azimuthal_order == 1
+
+
+def test_dispersion_vti_genuine_TI_raises_not_implemented():
+    """Genuinely-anisotropic stiffness tensors raise
+    NotImplementedError pointing at plan items H.b / H.c / H.d.
+    Cover the three independent ways the tensor can be anisotropic:
+    Thomsen-epsilon (C11 != C33), Thomsen-gamma (C44 != C66), and
+    Thomsen-delta (C13 != C11 - 2*C44)."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f = np.array([5000.0])
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+
+    # Thomsen-epsilon: C11 != C33.
+    cij_eps = dict(cij, c11=cij["c11"] * 1.05)
+    with pytest.raises(NotImplementedError, match="H\\.b / H\\.c"):
+        stoneley_dispersion_vti(
+            f, **cij_eps, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        )
+    # Thomsen-gamma: C44 != C66.
+    cij_gam = dict(cij, c66=cij["c66"] * 1.10)
+    # Need to keep c11 > c66 (validation): set c66 large but still < c11.
+    assert cij_gam["c11"] > cij_gam["c66"]
+    with pytest.raises(NotImplementedError, match="H\\.d"):
+        flexural_dispersion_vti(
+            f, **cij_gam, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        )
+    # Thomsen-delta: C13 != C11 - 2*C44.
+    cij_del = dict(cij, c13=cij["c13"] * 0.90)
+    with pytest.raises(NotImplementedError, match="H\\.b / H\\.c"):
+        stoneley_dispersion_vti(
+            f, **cij_del, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        )
+
+
+def test_dispersion_vti_returns_borehole_mode():
+    f = np.linspace(2000.0, 5000.0, 5)
+    cij = _isotropic_stiffness_from_lame(4500.0, 2500.0, 2400.0)
+    res = stoneley_dispersion_vti(
+        f, **cij, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert isinstance(res, BoreholeMode)
+
+
+@pytest.mark.parametrize(
+    "kwargs, msg",
+    [
+        ({"c11": 0.0}, "c11 must be positive"),
+        ({"c33": -1.0e9}, "c33 must be positive"),
+        ({"c44": 0.0}, "c44 must be positive"),
+        ({"c66": -1.0}, "c66 must be positive"),
+    ],
+)
+def test_dispersion_vti_rejects_non_positive_cij(kwargs, msg):
+    f = np.array([5000.0])
+    base = _isotropic_stiffness_from_lame(4500.0, 2500.0, 2400.0)
+    base.update(kwargs)
+    with pytest.raises(ValueError, match=msg):
+        stoneley_dispersion_vti(
+            f, **base, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1,
+        )
+
+
+def test_dispersion_vti_rejects_unstable_c33_le_c13():
+    """Validator rejects ``C33 <= C13`` (would break qP/qSV
+    decoupling in the Christoffel equation)."""
+    f = np.array([5000.0])
+    cij = _isotropic_stiffness_from_lame(4500.0, 2500.0, 2400.0)
+    cij["c13"] = cij["c33"] * 1.5  # force c13 > c33
+    with pytest.raises(ValueError, match="c33 > c13"):
+        stoneley_dispersion_vti(
+            f, **cij, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1,
+        )
+
+
+def test_dispersion_vti_rejects_unstable_c11_le_c66():
+    """Validator rejects ``C11 <= C66`` (would have horizontal P
+    no faster than horizontal S)."""
+    f = np.array([5000.0])
+    cij = _isotropic_stiffness_from_lame(4500.0, 2500.0, 2400.0)
+    cij["c66"] = cij["c11"] * 1.5  # force c66 > c11
+    with pytest.raises(ValueError, match="c11 > c66"):
+        stoneley_dispersion_vti(
+            f, **cij, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1,
+        )
+
+
+def test_dispersion_vti_rejects_non_positive_freq_and_geometry():
+    """Standard freq/geometry validation as for the isotropic
+    public APIs."""
+    cij = _isotropic_stiffness_from_lame(4500.0, 2500.0, 2400.0)
+    base = dict(rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1)
+    # Non-positive freq.
+    with pytest.raises(ValueError, match="freq must be strictly positive"):
+        stoneley_dispersion_vti(
+            np.array([0.0]), **cij, **base,
+        )
+    # Non-positive vf.
+    with pytest.raises(ValueError, match="vf and rho_f must be positive"):
+        stoneley_dispersion_vti(
+            np.array([5000.0]), **cij, **{**base, "vf": 0.0},
+        )
+    # Non-positive a.
+    with pytest.raises(ValueError, match="a must be positive"):
+        stoneley_dispersion_vti(
+            np.array([5000.0]), **cij, **{**base, "a": 0.0},
+        )
