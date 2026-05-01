@@ -8869,3 +8869,148 @@ def test_flexural_dispersion_layered_N2_rejects_softer_layer():
             vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
             layers=(g["casing"], soft_cement),
         )
+
+
+# =====================================================================
+# Plan item G'.e -- validation hardening for the cased-hole flexural
+# =====================================================================
+#
+# Mirror of G.e for the propagator-matrix flexural path.
+
+
+def test_modal_determinant_n1_cased_vanishes_at_converged_root_multi_freq():
+    """Self-consistency at every brentq-converged ``k_z`` from
+    ``flexural_dispersion_layered`` (cased-hole, two-layer): the
+    propagator-matrix determinant is at least 6 orders of
+    magnitude smaller than its value at ``kz * 1.005``. Multi-
+    frequency sharper than G'.d's single-frequency oracles."""
+    g = _typical_g_prime_d_cased_geometry()
+    f = np.linspace(4000.0, 12000.0, 6)
+    res = flexural_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"]),
+    )
+    finite = np.isfinite(res.slowness)
+    assert finite.any()
+    for i, fi in enumerate(f):
+        if not finite[i]:
+            continue
+        omega = 2.0 * np.pi * float(fi)
+        kz_root = float(res.slowness[i]) * omega
+        det_at = _modal_determinant_n1_cased(
+            kz_root, omega, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+            vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+            layers=(g["casing"], g["cement"]),
+        )
+        det_off = _modal_determinant_n1_cased(
+            kz_root * 1.005, omega, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+            vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+            layers=(g["casing"], g["cement"]),
+        )
+        assert abs(det_at) < abs(det_off) * 1.0e-6, (
+            f"f={fi:.1f}: |det_at|={abs(det_at):.3e} not << "
+            f"|det_off|={abs(det_off):.3e}"
+        )
+
+
+def test_flexural_dispersion_layered_thin_inner_layer_collapses_to_outer_only():
+    """Two-layer-collapse oracle: with a vanishingly-thin INNER
+    layer that has the outer layer's parameters, the G'.d two-
+    layer slowness should match the F.2 single-layer answer with
+    just the outer layer.
+
+    Uses a harder outer layer (vs > V_f) so the F.2 single-layer
+    flexural root is clearly bound."""
+    vp_form, vs_form, rho_form = 2200.0, 800.0, 2200.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    outer = BoreholeLayer(vp=2900.0, vs=2700.0, rho=2400.0, thickness=0.05)
+    inner_trivial = BoreholeLayer(
+        vp=outer.vp, vs=outer.vs, rho=outer.rho, thickness=1.0e-5,
+    )
+    f = np.array([5000.0])
+    res_one = flexural_dispersion_layered(
+        f, vp=vp_form, vs=vs_form, rho=rho_form,
+        vf=vf, rho_f=rho_f, a=a, layers=(outer,),
+    )
+    res_two = flexural_dispersion_layered(
+        f, vp=vp_form, vs=vs_form, rho=rho_form,
+        vf=vf, rho_f=rho_f, a=a, layers=(inner_trivial, outer),
+    )
+    assert np.isfinite(res_one.slowness[0])
+    assert np.isfinite(res_two.slowness[0])
+    assert res_two.slowness[0] == pytest.approx(
+        res_one.slowness[0], rel=1.0e-3,
+    )
+
+
+def test_flexural_dispersion_layered_two_formation_layers_collapse_to_unlayered():
+    """Master-plan G' validation bullet: with both annular
+    layers carrying formation properties (``layer.vs == vs``),
+    the multi-layer flexural slowness matches the unlayered
+    ``flexural_dispersion`` answer.
+
+    Strongest pinning of the G'.d brentq pipeline against the
+    pre-G' unlayered baseline."""
+    vp_form, vs_form, rho_form = 2200.0, 800.0, 2200.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f = np.linspace(3000.0, 8000.0, 5)
+    L1 = BoreholeLayer(
+        vp=vp_form, vs=vs_form, rho=rho_form, thickness=0.01,
+    )
+    L2 = BoreholeLayer(
+        vp=vp_form, vs=vs_form, rho=rho_form, thickness=0.05,
+    )
+    res_unlayered = flexural_dispersion(
+        f, vp=vp_form, vs=vs_form, rho=rho_form,
+        vf=vf, rho_f=rho_f, a=a,
+    )
+    res_cased = flexural_dispersion_layered(
+        f, vp=vp_form, vs=vs_form, rho=rho_form,
+        vf=vf, rho_f=rho_f, a=a, layers=(L1, L2),
+    )
+    np.testing.assert_allclose(
+        res_cased.slowness, res_unlayered.slowness,
+        rtol=1.0e-6, equal_nan=True,
+    )
+
+
+def test_flexural_dispersion_layered_cement_stiffness_sensitivity():
+    """Cement-bond physics for the dipole sonic: stiffer vs
+    softer cement produce distinct flexural slowness curves.
+    Direct test of the qualitative cement-stiffness sensitivity
+    that the cased-hole propagator captures and the unlayered
+    ``flexural_dispersion`` does not.
+
+    Empirical direction (from the typical cased-hole fixture at
+    5 kHz): stiffer cement -> SMALLER slowness (faster wave).
+    Same direction as the Stoneley cement-bond signature
+    (commit 9df7a78). Pinned here as a regression target; the
+    quantitative tolerance is loose because the direction depends
+    on which mode the brentq-expansion-loop converges to."""
+    g = _typical_g_prime_d_cased_geometry()
+    f = np.array([5000.0])
+    casing = g["casing"]
+    cement_stiff = BoreholeLayer(
+        vp=2500.0, vs=2000.0, rho=2000.0, thickness=g["cement"].thickness,
+    )
+    cement_soft = BoreholeLayer(
+        vp=1900.0, vs=1100.0, rho=1700.0, thickness=g["cement"].thickness,
+    )
+    res_stiff = flexural_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(casing, cement_stiff),
+    )
+    res_soft = flexural_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(casing, cement_soft),
+    )
+    assert np.isfinite(res_stiff.slowness[0])
+    assert np.isfinite(res_soft.slowness[0])
+    # Distinct curves: at least 1% relative difference.
+    rel_diff = abs(res_stiff.slowness[0] - res_soft.slowness[0]) / res_soft.slowness[0]
+    assert rel_diff > 0.01
+    # Empirical direction: stiffer cement -> smaller slowness.
+    assert res_stiff.slowness[0] < res_soft.slowness[0]
