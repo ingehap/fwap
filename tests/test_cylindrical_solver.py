@@ -18,6 +18,7 @@ from fwap.cylindrical import (
 from fwap.cylindrical_solver import (
     BoreholeLayer,
     BoreholeMode,
+    _validate_borehole_layers_stacked,
     _layered_n0_bessel_pack,
     _layered_n0_radial_wavenumbers,
     _layered_n0_row1_at_a,
@@ -2093,13 +2094,14 @@ def test_stoneley_dispersion_layered_empty_layers_returns_borehole_mode():
 
 
 def test_stoneley_dispersion_layered_multilayer_raises_not_implemented():
-    """Multi-layer stacks (``len(layers) > 1``) are plan item G --
-    the cased-hole propagator-matrix extension. Single-layer and
+    """Multi-layer stacks (``len(layers) > 1``) currently raise
+    ``NotImplementedError`` until plan items G.c (stacked modal
+    determinant) and G.d (public-API hook) land. Single-layer and
     unlayered are supported by F.1.b.4."""
     f = np.array([1000.0, 2000.0])
     layer1 = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
     layer2 = BoreholeLayer(vp=3000.0, vs=1500.0, rho=1900.0, thickness=0.005)
-    with pytest.raises(NotImplementedError, match="plan item G"):
+    with pytest.raises(NotImplementedError, match=r"G\.c"):
         stoneley_dispersion_layered(
             f,
             vp=4500.0, vs=2500.0, rho=2400.0,
@@ -3502,13 +3504,15 @@ def test_flexural_dispersion_layered_fast_formation_layered_raises_not_implement
 
 
 def test_flexural_dispersion_layered_multilayer_raises_not_implemented():
-    """Multi-layer stacks (``len(layers) > 1``) are plan item G --
-    the cased-hole propagator-matrix extension. Single-layer and
-    unlayered are supported by F.2.d."""
+    """Multi-layer stacks (``len(layers) > 1``) currently raise
+    ``NotImplementedError``; the n=1 cased-hole counterpart is
+    deferred to plan G' (follow-up to plan G), which extends the
+    G.b/G.c propagator scaffolding to 6x6 per-layer blocks.
+    Single-layer and unlayered are supported by F.2.d."""
     f = np.array([2000.0, 4000.0])
     layer1 = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
     layer2 = BoreholeLayer(vp=3000.0, vs=1500.0, rho=1900.0, thickness=0.005)
-    with pytest.raises(NotImplementedError, match="plan item G"):
+    with pytest.raises(NotImplementedError, match=r"plan G'"):
         flexural_dispersion_layered(
             f,
             vp=4500.0, vs=2500.0, rho=2400.0,
@@ -7349,3 +7353,123 @@ def test_flexural_dispersion_vti_weak_anisotropy_matches_phenomenological():
     assert np.all(np.isfinite(res_modal.slowness))
     rel_diff = np.abs(res_modal.slowness - s_phenom) / s_phenom
     assert np.all(rel_diff < 0.10)
+
+
+# =====================================================================
+# Plan item G.0 -- public-API foundation for cased-hole multi-layer
+# =====================================================================
+#
+# G.0 widens the multi-layer dispatch in stoneley_dispersion_layered
+# / flexural_dispersion_layered with: (a) a sharper NotImplementedError
+# message that points at the G.c / G.d / G' follow-ups (verified by
+# the existing multilayer_raises_not_implemented tests above, with
+# their match strings updated), and (b) a new helper
+# _validate_borehole_layers_stacked that wraps F's per-layer
+# validation with the borehole-radius check. The propagator-matrix
+# path itself lands in G.b / G.c / G.d.
+
+
+def test_validate_borehole_layers_stacked_accepts_typical_two_layer_stack():
+    """A casing + cement geometry passes the stacked validator
+    without raising. Same ``BoreholeLayer`` validation rules as
+    F's per-layer validator, plus ``a > 0``."""
+    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
+    cement = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05)
+    # Should not raise.
+    _validate_borehole_layers_stacked((casing, cement), a=0.1)
+
+
+def test_validate_borehole_layers_stacked_accepts_empty_stack():
+    """Empty stack ``()`` is the degenerate "no extra layers" case
+    and validates trivially as long as ``a > 0``."""
+    _validate_borehole_layers_stacked((), a=0.1)
+
+
+def test_validate_borehole_layers_stacked_rejects_zero_thickness_in_multi_stack():
+    """A zero-thickness layer in a multi-layer stack is rejected
+    by the per-layer validation (delegated to
+    ``_validate_borehole_layers``). The error message identifies
+    the offending index."""
+    bad = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.0)
+    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
+    with pytest.raises(ValueError, match=r"layers\[1\].*thickness must be positive"):
+        _validate_borehole_layers_stacked((casing, bad), a=0.1)
+
+
+def test_validate_borehole_layers_stacked_rejects_non_positive_a():
+    """Non-positive borehole radius is rejected with a clear
+    error. Catches it earlier than the public-API dispatch, which
+    is useful when G.c starts using the helper."""
+    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
+    cement = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05)
+    with pytest.raises(ValueError, match="a must be positive"):
+        _validate_borehole_layers_stacked((casing, cement), a=0.0)
+    with pytest.raises(ValueError, match="a must be positive"):
+        _validate_borehole_layers_stacked((casing, cement), a=-0.1)
+
+
+def test_stoneley_dispersion_layered_two_layer_NIE_points_at_G_c_G_d():
+    """The G.0 dispatch sharpens the multi-layer NIE message to
+    name plan items G.c (stacked modal determinant) and G.d
+    (public-API hook). Verifies the user-facing pointer is
+    actionable rather than just naming "plan G"."""
+    f = np.array([5000.0])
+    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
+    cement = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05)
+    with pytest.raises(NotImplementedError) as exc_info:
+        stoneley_dispersion_layered(
+            f, vp=4500.0, vs=2500.0, rho=2400.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+            layers=(casing, cement),
+        )
+    msg = str(exc_info.value)
+    assert "G.c" in msg
+    assert "G.d" in msg
+    assert "cylindrical_biot_G.md" in msg
+
+
+def test_flexural_dispersion_layered_two_layer_NIE_points_at_G_prime():
+    """Mirror at n=1: the multi-layer NIE message identifies the
+    deferred G' follow-up (cased-hole flexural with 6x6 propagator
+    blocks) rather than just naming "plan G"."""
+    f = np.array([5000.0])
+    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
+    cement = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05)
+    with pytest.raises(NotImplementedError) as exc_info:
+        flexural_dispersion_layered(
+            f, vp=4500.0, vs=2500.0, rho=2400.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+            layers=(casing, cement),
+        )
+    msg = str(exc_info.value)
+    assert "G'" in msg
+    assert "cylindrical_biot_G.md" in msg
+
+
+def test_stoneley_dispersion_layered_zero_and_one_layer_paths_unchanged():
+    """G.0 must not perturb the two existing collapse paths
+    (``len(layers) == 0`` and ``len(layers) == 1``). Regression:
+    each produces the same slowness curve at a representative
+    frequency."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f = np.array([5000.0])
+
+    # Empty-layer path: dispatches to stoneley_dispersion.
+    res_empty = stoneley_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a, layers=(),
+    )
+    res_unlayered = stoneley_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    np.testing.assert_array_equal(res_empty.slowness, res_unlayered.slowness)
+
+    # Single-layer path: F.1 hand-coded determinant. Just smoke;
+    # bit-equivalent regressions are exercised elsewhere.
+    layer = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
+    res_one = stoneley_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a, layers=(layer,),
+    )
+    assert np.isfinite(res_one.slowness[0])
+    assert isinstance(res_one, BoreholeMode)
+    assert res_one.azimuthal_order == 0

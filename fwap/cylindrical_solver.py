@@ -173,6 +173,33 @@ def _validate_borehole_layers(layers: tuple[BoreholeLayer, ...]) -> None:
             )
 
 
+def _validate_borehole_layers_stacked(
+    layers: tuple[BoreholeLayer, ...],
+    a: float,
+) -> None:
+    """
+    Validate a stacked borehole-layer geometry for the multi-layer
+    (cased-hole) dispersion APIs.
+
+    Wraps :func:`_validate_borehole_layers` with the borehole-radius
+    check ``a > 0``. The radii of the assembled stack
+    (``r_0 = a; r_j = r_{j-1} + layers[j-1].thickness``) are then
+    automatically positive and strictly increasing because each
+    ``thickness > 0``.
+
+    The hook also marks the entry point that plan item G.c will
+    extend with the optional ``kz * thickness`` ill-conditioning
+    warning when the propagator-matrix path lands; G.0 ships only
+    the geometric checks.
+
+    Raises ``ValueError`` on the same conditions as
+    :func:`_validate_borehole_layers`, plus when ``a <= 0``.
+    """
+    _validate_borehole_layers(layers)
+    if a <= 0:
+        raise ValueError("a must be positive")
+
+
 @dataclass
 class BoreholeMode:
     """
@@ -6482,10 +6509,12 @@ def stoneley_dispersion_layered(
         )
     if len(layers_tuple) > 1:
         raise NotImplementedError(
-            "stoneley_dispersion_layered with multi-layer stacks is "
-            "plan item G in docs/plans/cylindrical_biot.md (cased-hole "
-            "propagator matrix). Single-layer and unlayered are "
-            "supported."
+            "stoneley_dispersion_layered with multi-layer stacks "
+            "(N >= 2) is scheduled in plan items G.c (stacked modal "
+            "determinant via the Thomson-Haskell propagator matrix) "
+            "and G.d (public-API hook + cement-bond regression); see "
+            "docs/plans/cylindrical_biot_G.md. Single-layer and "
+            "unlayered are supported."
         )
     if vp <= 0 or vs <= 0 or rho <= 0:
         raise ValueError("vp, vs, rho must all be positive")
@@ -6795,10 +6824,12 @@ def flexural_dispersion_layered(
         )
     if len(layers_tuple) > 1:
         raise NotImplementedError(
-            "flexural_dispersion_layered with multi-layer stacks is "
-            "plan item G in docs/plans/cylindrical_biot.md (cased-hole "
-            "propagator matrix). Single-layer and unlayered are "
-            "supported."
+            "flexural_dispersion_layered with multi-layer stacks "
+            "(N >= 2) is a deferred follow-up to plan G (cased-hole "
+            "n=0 Stoneley) tracked as plan G' in "
+            "docs/plans/cylindrical_biot_G.md. The 6x6 per-layer "
+            "propagator block is sketched in G.f. Single-layer and "
+            "unlayered are supported."
         )
     if vp <= 0 or vs <= 0 or rho <= 0:
         raise ValueError("vp, vs, rho must all be positive")
