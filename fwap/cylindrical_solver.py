@@ -7844,3 +7844,160 @@ def _layered_n1_row2_at_a(
     row[9] = 0.0
     return row
 
+
+# =====================================================================
+# Substep F.2.b.3 -- row 4 of the n=1 layered determinant (r = a)
+# =====================================================================
+#
+# BC4: ``sigma_rz^{(m)}(a) = 0`` (cos-sector axial-shear vanishing
+# at the fluid-annulus interface; fluid carries no shear, so column
+# A is identically zero). First z-derivative-bearing cos row of
+# the F.2 chain. Per substep F.2.a.5: row * i scaling AND col-by-
+# (-i) on C cols.
+#
+# Pre-rescale imaginary-power pattern (F.2.a.5):
+#       Row 4: A 0 | B i*R | C R | D i*R   <- z-bearing
+#
+# Coefficients via sigma_rz = mu (d_z u_r + d_r u_z) and the
+# F.2.a.2 displacement decompositions:
+#
+#   * B contribution: sigma_rz from B_X = -2 i k_z mu_m B_X
+#     (p_m X_0 + X_1/r) for K-flavour (combining d_z u_r and d_r u_z
+#     which both contribute -i k_z B p_m K_1' = -i k_z B (p_m K_0 +
+#     K_1/r) terms). I-flavour: sigma_rz from B_I = +2 i k_z mu_m B_I
+#     (p_m I_0 - I_1/r) (sign flip in the bracket from I_1' = +I_0
+#     - I_1/(p_m r)).
+#
+#   * C contribution: sigma_rz from C_X = +mu_m (k_z^2 + s_m^2) C_X
+#     X_1(s_m r) = +mu_m (2 k_z^2 - k_Sm^2) C_X X_1(s_m r). NO
+#     ``i k_z`` factor (the i k_z's from d_z u_r and d_r u_z combine
+#     with the i k_z on u_r-from-C and the s s' on u_z-from-C; net
+#     real). Same outer sign for I and K (direct X_1 term).
+#
+#   * D contribution: sigma_rz from D_X = +i k_z mu_m D_X X_1(s_m r)/r
+#     (from d_z u_r only; d_r u_z from D is zero because u_z carries
+#     no D contribution). I-flavour: same sign (direct X_1/r term).
+#
+# After row * i + col-by-(-i) on C cols:
+#
+#   * B columns: pre i*R becomes R after row * i.
+#   * C columns: pre R becomes i*R after row * i, then R after col-i.
+#   * D columns: pre i*R becomes R after row * i.
+#
+# Post-rescale row 4:
+#
+#       Row 4 = [
+#           0,                                          # A
+#           -2 k_z mu_m (p_m I_0(p_m a) - I_1(p_m a)/a),# B_I
+#           +2 k_z mu_m (p_m K_0(p_m a) + K_1(p_m a)/a),# B_K -> M42
+#           +mu_m (2 k_z^2 - k_Sm^2) I_1(s_m a),        # C_I
+#           +mu_m (2 k_z^2 - k_Sm^2) K_1(s_m a),        # C_K -> M43
+#            0, 0,                                      # B, C (formation)
+#           -k_z mu_m I_1(s_m a) / a,                   # D_I
+#           -k_z mu_m K_1(s_m a) / a,                   # D_K -> M44
+#            0,                                         # D (formation)
+#       ]
+#
+# I-K sign-flip pattern: B columns have OPPOSITE outer sign and a
+# sign-flipped bracket internal structure (-p_m I_0 vs +p_m K_0;
+# +I_1/a vs +K_1/a). C columns are direct X_1 -- KEEP sign
+# (single-Bessel-term, +I_1 / +K_1, ratio +I_1/K_1). D columns are
+# direct X_1/r -- KEEP sign (-I_1/a vs -K_1/a, ratio +I_1/K_1).
+
+
+def _layered_n1_row4_at_a(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+) -> np.ndarray:
+    r"""
+    Row 4 of the n=1 layered modal determinant evaluated at the
+    fluid-annulus interface ``r = a``.
+
+    Encodes the axial-shear vanishing BC ``sigma_rz^{(m)}(a) = 0``
+    in the cos sector. First z-derivative-bearing cos row of the
+    F.2 chain; gets row * i AND col-by-(-i) on C cols per substep
+    F.2.a.5.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    vp, vs : float
+        Formation half-space P / S velocities. Carried for
+        signature uniformity; not used by row 4.
+    rho : float
+        Formation density. Same as above; not used.
+    vf, rho_f : float
+        Fluid velocity / density. Not used (fluid carries no
+        shear); carried for signature uniformity.
+    a : float
+        Fluid-annulus interface radius (m).
+    layer : BoreholeLayer
+        The annular layer; sets ``mu_m, k_Sm, p_m, s_m``.
+
+    Returns
+    -------
+    ndarray, shape (10,) complex
+        Coefficients of (A, B_I, B_K, C_I, C_K, B, C, D_I, D_K, D)
+        in row 4. Real-valued in the bound regime.
+
+    See Also
+    --------
+    _modal_determinant_n1 : The n=1 single-interface form. At
+        layer=formation, ``row[0] = M41 = 0``, ``row[2] = M42``,
+        ``row[4] = M43``, ``row[8] = M44`` bit-exactly.
+    _layered_n0_row3_at_a : The F.1 n=0 layered counterpart for the
+        sigma_rz BC. The n=1 form adds the D-amplitude D_I, D_K
+        columns (cols 7, 8) via the ``(1/r) d_theta psi_z`` u_r
+        cross-coupling absent at n=0, and switches Bessel index
+        0 -> 1 in the multi-term entries.
+    """
+    del vp, vs, rho, rho_f  # not used by row 4
+    F_f, p_m, s_m, _, _ = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=layer.vp, vs=layer.vs, vf=vf, layer=layer,
+    )
+    del F_f  # row 4 doesn't touch the fluid column
+
+    I0_pm_a = float(special.iv(0, p_m * a))
+    I1_pm_a = float(special.iv(1, p_m * a))
+    K0_pm_a = float(special.kv(0, p_m * a))
+    K1_pm_a = float(special.kv(1, p_m * a))
+    I1_sm_a = float(special.iv(1, s_m * a))
+    K1_sm_a = float(special.kv(1, s_m * a))
+
+    mu_m = layer.rho * layer.vs * layer.vs
+    kSm2 = (omega / layer.vs) ** 2
+    two_kz2_minus_kSm2 = 2.0 * kz * kz - kSm2
+
+    row = np.zeros(10, dtype=complex)
+    # A column: fluid carries no shear.
+    row[0] = 0.0
+    # B_I column (post-rescale; sign-flipped bracket from I_1' = +I_0 - I_1/(p_m r)).
+    row[1] = -2.0 * kz * mu_m * (p_m * I0_pm_a - I1_pm_a / a)
+    # B_K column (matches M42 at layer=formation).
+    row[2] = +2.0 * kz * mu_m * (p_m * K0_pm_a + K1_pm_a / a)
+    # C_I column (post-rescale; row * i AND col-by-(-i), net factor 1).
+    row[3] = +mu_m * two_kz2_minus_kSm2 * I1_sm_a
+    # C_K column (matches M43 at layer=formation).
+    row[4] = +mu_m * two_kz2_minus_kSm2 * K1_sm_a
+    # Formation columns (B, C) vanish at r = a.
+    row[5] = 0.0
+    row[6] = 0.0
+    # D_I column (post-rescale; row * i flips +i*R to -R).
+    row[7] = -kz * mu_m * I1_sm_a / a
+    # D_K column (matches M44 at layer=formation).
+    row[8] = -kz * mu_m * K1_sm_a / a
+    # D column (formation; zero at r = a).
+    row[9] = 0.0
+    return row
+
