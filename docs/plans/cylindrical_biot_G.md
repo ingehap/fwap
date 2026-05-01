@@ -374,12 +374,13 @@ Risk concentrated in:
 
 ## Deferred follow-ups (separate plans)
 
-- **G' — n=1 cased-hole flexural** (~700 lines + 25 tests).
-  Mirror of G with 6×6 propagator blocks. The cased-hole
-  flexural is the headline cement-bond / through-tubing
-  evaluation tool; this is the highest-priority follow-up.
+- **G' — n=1 cased-hole flexural** — ✅ DONE. Shipped via
+  [`cylindrical_biot_G_prime.md`](cylindrical_biot_G_prime.md);
+  the cased-hole flexural is the headline cement-bond / through-
+  tubing evaluation tool.
 - **G'' — n=2 cased-hole quadrupole** (~550 lines + 20 tests).
-  LWD relevance.
+  Mirror of G' with 8×8 propagator blocks (stronger P / SV / SH
+  coupling at n=2). LWD relevance.
 - **Knopoff / Kennett delta-matrix** for thick-layer / high-f
   conditioning (~200 lines + 6 tests). Only needed if G's user
   base hits the kz·thickness > 30 regime; defer indefinitely.

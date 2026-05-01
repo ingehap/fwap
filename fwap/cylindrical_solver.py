@@ -52,20 +52,25 @@ Scope (this module)
   keep the wave bound in the annulus. Layer parameters are
   collected in :class:`BoreholeLayer`. See plan F in
   ``docs/plans/cylindrical_biot.md`` for the full decomposition.
-* **Cased-hole multi-layer extension** (n=0): for an arbitrary
-  ``N``-layer stack (typically ``fluid -> casing -> cement
-  -> formation`` or ``fluid -> casing -> cement -> mudcake ->
-  formation``), :func:`stoneley_dispersion_layered` dispatches
-  to a Thomson-Haskell-style propagator-matrix path
-  (:func:`_modal_determinant_n0_cased`) that folds the ``N``
-  layer-internal amplitude families into a single 7x7 modal
-  determinant via per-layer 4x4 propagators
-  ``P_j = E_j(r_outer) E_j(r_inner)^{-1}``. The ``N=0`` and
-  ``N=1`` cases remain bit-equivalent to the unlayered and
-  hand-coded F.1 solvers respectively. The n=1 (cased-hole
-  flexural) and n=2 (cased-hole quadrupole) counterparts are
-  deferred follow-ups to plan G; see plan G in
-  ``docs/plans/cylindrical_biot_G.md`` for the full breakdown.
+* **Cased-hole multi-layer extension** (n=0 and n=1, slow-
+  formation): for an arbitrary ``N``-layer stack (typically
+  ``fluid -> casing -> cement -> formation`` or ``fluid ->
+  casing -> cement -> mudcake -> formation``), both
+  :func:`stoneley_dispersion_layered` and
+  :func:`flexural_dispersion_layered` dispatch to Thomson-
+  Haskell-style propagator-matrix paths
+  (:func:`_modal_determinant_n0_cased` for n=0, 4x4 per-layer
+  propagators folded into a 7x7 modal determinant;
+  :func:`_modal_determinant_n1_cased` for n=1, 6x6 per-layer
+  propagators folded into a 10x10 modal determinant). The
+  ``N=0`` and ``N=1`` paths remain bit-equivalent to the
+  unlayered and hand-coded F.1 / F.2 solvers respectively.
+  The n=1 path additionally enforces the slow-formation per-
+  layer constraint (``layer.vs >= vs``) at validation time via
+  :func:`_validate_flexural_layers_stacked`. The n=2 (cased-
+  hole quadrupole) counterpart is a deferred follow-up to plan
+  G''; see plan G in ``docs/plans/cylindrical_biot.md`` and
+  the G / G' sub-plan docs for the full breakdown.
 
 Sign conventions
 ----------------

@@ -11,13 +11,13 @@ order n=1 (dipole flexural). This is the n=1 sister of plan G
 
 ## Status of plan G' overall
 
-- ⏳ G'.0 — public-API foundation
-- ⏳ G'.a — math scaffolding (substep blocks, comments only)
-- ⏳ G'.b — n=1 per-layer propagator helper (G'.b.1 + G'.b.2)
-- ⏳ G'.c — n=1 stacked modal determinant (assembly + collapse oracles)
-- ⏳ G'.d — n=1 public API + multi-layer regression
-- ⏳ G'.e — n=1 hardening
-- ⏳ G'.f — cross-cutting docs
+- ✅ G'.0 — public-API foundation
+- ✅ G'.a — math scaffolding (substep blocks, comments only)
+- ✅ G'.b — n=1 per-layer propagator helper (G'.b.1 + G'.b.2)
+- ✅ G'.c — n=1 stacked modal determinant (assembly + collapse oracles)
+- ✅ G'.d — n=1 public API + multi-layer regression
+- ✅ G'.e — n=1 hardening
+- ✅ G'.f — cross-cutting docs
 
 Plan G' is the immediate follow-up to plan G; the propagator-
 matrix scaffolding from G transfers directly with the substitutions
@@ -305,7 +305,23 @@ Mirror of G.e for the flexural cased-hole solver.
   follow-up as completed.
 - Update module docstring scope to mention multi-layer cased-hole
   flexural support alongside the existing G n=0 description.
-- Commit pointers in this plan doc.
+- Commit pointers below.
+
+### Landing commits (branch `claude/plan-cylindrical-biot-f-JgjGH`)
+
+- `514bde4` — G'.0  public-API foundation
+  (`_validate_flexural_layers_stacked` + sharpened NIE)
+- `2075534` — G'.a  math scaffolding (substep blocks)
+- `d05f00c` — G'.b.1  6×6 `_layer_e_matrix_n1` (36/36 entries
+  pinned vs F.2 row builders to `rtol=1e-12`)
+- `edc2758` — G'.b.2  6×6 `_layer_propagator_n1` (state-vector
+  round-trip oracle)
+- `7f31e22` — G'.c  10×10 `_modal_determinant_n1_cased` (N=1
+  numerical match with F.2 to `rtol=1e-10`)
+- `b6a4888` — G'.d  wire `flexural_dispersion_layered` for
+  multi-layer + `_flexural_kz_bracket_cased`
+- `ff6de6d` — G'.e  hardening (multi-frequency det-at-root,
+  layer-collapse oracles, cement-stiffness physics)
 
 ## Total scope
 
