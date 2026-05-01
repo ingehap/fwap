@@ -9711,3 +9711,210 @@ def _modal_row1_at_a_vti(
     row[2] = +kz * K1_qSV_a
     return row
 
+
+# =====================================================================
+# Substep H.c.1.b -- polarization-ratio helper + row 2 (sigma_rr at r=a)
+# =====================================================================
+#
+# BC2: ``-(sigma_rr^{(s)}(a) + P^{(f)}(a)) = 0`` (cos-sector
+# normal-stress balance at the borehole wall; row negated for
+# visual parallel with the n=0 isotropic form). Algebraically the
+# heaviest row of the n=0 VTI determinant: combines the C-matrix
+# Lame-replacement at the K_0 coefficient with the polarization-
+# ratio-mediated u_z contribution.
+#
+# **VTI sigma_rr formula at n=0** (axisymmetric):
+#
+#       sigma_rr = C11 d_r u_r + (C11 - 2 C66) (u_r / r) + C13 d_z u_z
+#
+# The middle term ``(C11 - 2 C66) (u_r / r)`` is the slot through
+# which **C66 enters the n=0 modal determinant** -- via the
+# ``epsilon_theta_theta = u_r / r`` strain in the cylindrical
+# Hooke law. (At isotropic C11 - 2 C66 = lambda; the term reduces
+# to ``lambda u_r / r`` and combines with the divergence into the
+# standard ``lambda div(u) + 2 mu d_r u_r`` form.)
+#
+# This is what gives the Norris 1990 LF closed-form
+# ``S_ST^2 = 1/V_f^2 + rho_f / C66`` its C66 dependence at n=0:
+# the matrix entries carry C66 through the u_r/r slot, and the
+# LF expansion of the Stoneley root extracts that dependence.
+#
+# **Polarization ratio** for each Christoffel root:
+#
+#   gamma_qX = u_z / u_r |_qX
+#            = -i (C11 alpha_qX^2 - C44 k_z^2 + rho omega^2)
+#               / [(C13 + C44) alpha_qX k_z]
+#
+# Independent of r-component normalization choice. At isotropic
+# limit: gamma_qP -> -i k_z / p, gamma_qSV -> -i s / k_z.
+#
+# **Stress factor Q_qX** (the K_0 coefficient combination):
+#
+#   Q_qX = (C44 (C11 alpha_qX^2 + C13 k_z^2) - C13 rho omega^2)
+#          / (C13 + C44)
+#
+# At isotropic limit: Q_qP -> mu (2 k_z^2 - k_S^2) (the standard
+# Lame combination); Q_qSV -> 2 mu s^2.
+#
+# **Row 2 entries**:
+#
+#   A column: M21 = -I_0(F_f a)  (same as isotropic)
+#
+#   B_qP column (post-rescale; no row scaling, no C-col scaling):
+#       row[1] = -Q_qP * K_0(alpha_qP a) - 2 C66 alpha_qP K_1(alpha_qP a) / a
+#
+#   C_qSV column (post-rescale via col-by-(-i)):
+#       row[2] = -k_z Q_qSV / alpha_qSV * K_0(alpha_qSV a)
+#                - 2 k_z C66 K_1(alpha_qSV a) / a
+#
+# Isotropic-collapse identity: row[1] -> M22 = -mu (2 k_z^2 -
+# k_S^2) K_0(p a) - 2 mu p K_1(p a) / a; row[2] -> M23 =
+# -2 k_z mu (s K_0(s a) + K_1(s a) / a). Verified algebraically
+# above; the tests in H.c.1.b confirm to floating-point precision.
+
+
+def _polarization_ratio_uz_over_ur_vti(
+    alpha_qX: float,
+    kz: float,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c44: float,
+    rho: float,
+) -> complex:
+    r"""
+    Christoffel-eigenvector polarization ratio
+    ``gamma_qX = u_z / u_r`` at the qX Christoffel root.
+
+    Independent of any normalization choice for the (u_r, u_z)
+    eigenvector; multiply by the chosen u_r normalization to
+    recover the absolute u_z component.
+
+    Formula:
+        gamma_qX = -i (C11 alpha_qX^2 - C44 k_z^2 + rho omega^2)
+                   / [(C13 + C44) alpha_qX k_z]
+
+    Isotropic limit (verified in H.c.1.b tests):
+        gamma_qP  -> -i k_z / p
+        gamma_qSV -> -i s / k_z
+
+    Parameters
+    ----------
+    alpha_qX : float
+        Christoffel root for the qX branch (qP or qSV).
+    kz, omega : float
+        Axial wavenumber and angular frequency.
+    c11, c13, c44 : float
+        VTI stiffness coefficients (Pa).
+    rho : float
+        Formation density (kg/m^3).
+
+    Returns
+    -------
+    complex
+        The polarization ratio. Imaginary in general; the actual
+        u_z normalization in the row builders combines this with
+        the chosen u_r normalization (e.g., -alpha_qP for qP,
+        -i k_z for qSV).
+    """
+    common = c11 * alpha_qX * alpha_qX - c44 * kz * kz + rho * omega * omega
+    return -1j * common / ((c13 + c44) * alpha_qX * kz)
+
+
+def _modal_row2_at_a_vti(
+    kz: float,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> np.ndarray:
+    r"""
+    Row 2 of the n=0 VTI Stoneley modal determinant at ``r = a``.
+
+    Encodes the negated normal-stress balance BC
+    ``-(sigma_rr^{(s)}(a) + P^{(f)}(a)) = 0`` in the cos sector.
+    Returns the three post-rescale coefficients in column order
+    ``[A | B_qP, C_qSV]``.
+
+    Parameters
+    ----------
+    kz, omega : float
+        Axial wavenumber and angular frequency.
+    c11, c13, c33, c44, c66 : float
+        VTI stiffness tensor entries (Pa). All used here:
+        ``c11, c13, c44`` set Q_qX and the polarization ratio;
+        ``c66`` enters via the ``(C11 - 2 C66) u_r/r`` slot in
+        sigma_rr (the Norris 1990 C66-coupling slot at n=0).
+        ``c33`` enters indirectly via the Christoffel roots
+        from :func:`_radial_wavenumbers_vti`.
+    rho : float
+        Formation density (kg/m^3).
+    vf, rho_f : float
+        Fluid velocity and density.
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    ndarray, shape (3,) complex
+        Coefficients of (A, B_qP, C_qSV) in row 2. Real-valued
+        in the bound regime.
+
+    See Also
+    --------
+    _modal_determinant_n0 : Isotropic n=0 form. At isotropic-
+        collapse C-matrix, ``row[0] = M21``, ``row[1] = M22``,
+        ``row[2] = M23`` bit-exactly.
+    _polarization_ratio_uz_over_ur_vti : The Christoffel
+        polarization ratio (used internally; surfaced for the
+        H.c.1.b tests).
+    """
+    F_f = float(np.sqrt(kz * kz - (omega / vf) ** 2))
+    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti(
+        kz, omega, c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho,
+    )
+
+    I0_Ff_a = float(special.iv(0, F_f * a))
+    K0_qP_a = float(special.kv(0, alpha_qP * a))
+    K1_qP_a = float(special.kv(1, alpha_qP * a))
+    K0_qSV_a = float(special.kv(0, alpha_qSV * a))
+    K1_qSV_a = float(special.kv(1, alpha_qSV * a))
+
+    rho_omega_sq = rho * omega * omega
+    # Stress factor Q_qX = (C44 (C11 alpha_qX^2 + C13 kz^2) - C13 rho omega^2)
+    #                       / (C13 + C44)
+    # Reduces to mu (2 kz^2 - kS^2) at isotropic limit for qP, and
+    # 2 mu s^2 for qSV.
+    q_qP = (
+        c44 * (c11 * alpha_qP * alpha_qP + c13 * kz * kz)
+        - c13 * rho_omega_sq
+    ) / (c13 + c44)
+    q_qSV = (
+        c44 * (c11 * alpha_qSV * alpha_qSV + c13 * kz * kz)
+        - c13 * rho_omega_sq
+    ) / (c13 + c44)
+
+    row = np.zeros(3, dtype=complex)
+    # A column: -P^{(f)}(a) = -A I_0(F_f a) (same as isotropic).
+    row[0] = -I0_Ff_a
+    # B_qP column: -Q_qP K_0 - 2 C66 alpha_qP K_1/a.
+    # In isotropic Q_qP = mu (2 kz^2 - kS^2) and 2 C66 = 2 mu, so
+    # row[1] -> -mu ((2 kz^2 - kS^2) K_0(p a) + 2 p K_1(p a)/a) = M22.
+    row[1] = -q_qP * K0_qP_a - 2.0 * c66 * alpha_qP * K1_qP_a / a
+    # C_qSV column post-rescale: -kz (Q_qSV / alpha_qSV) K_0 - 2 kz C66 K_1/a.
+    # In isotropic Q_qSV / alpha_qSV = 2 mu s^2 / s = 2 mu s, so
+    # row[2] -> -kz (2 mu s K_0 + 2 mu K_1/a) = -2 mu kz (s K_0 + K_1/a) = M23.
+    row[2] = (
+        -kz * (q_qSV / alpha_qSV) * K0_qSV_a
+        - 2.0 * kz * c66 * K1_qSV_a / a
+    )
+    return row
+

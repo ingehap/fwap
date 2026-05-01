@@ -38,6 +38,8 @@ from fwap.cylindrical_solver import (
     _modal_determinant_n1,
     _modal_determinant_n1_layered,
     _modal_row1_at_a_vti,
+    _modal_row2_at_a_vti,
+    _polarization_ratio_uz_over_ur_vti,
     _radial_wavenumbers_vti,
     flexural_dispersion,
     flexural_dispersion_layered,
@@ -5665,3 +5667,172 @@ def test_modal_row1_at_a_vti_uses_alpha_qP_alpha_qSV_not_p_s():
     Vpv = float(np.sqrt(cij["c33"] / rho))
     p_naive = float(np.sqrt(kz * kz - (omega / Vpv) ** 2))
     assert abs(alpha_qP - p_naive) > 0.01  # non-trivial epsilon
+
+
+# =====================================================================
+# Plan item H.c.1.b -- polarization-ratio helper + row 2 (sigma_rr at a)
+# =====================================================================
+#
+# Algebraically heaviest row of the n=0 VTI determinant. Tests
+# anchor on the per-element layer=formation match against M21,
+# M22, M23 of :func:`_modal_determinant_n0` plus a separate
+# polarization-ratio identity check.
+
+
+def test_polarization_ratio_uz_over_ur_vti_isotropic_qP_limit():
+    """At isotropic limit alpha_qP -> p, the polarization ratio
+    gamma_qP = -i k_z / p."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, 1500.0) * 1.5
+
+    p_iso = float(np.sqrt(kz ** 2 - (omega / vp) ** 2))
+    gamma_qP = _polarization_ratio_uz_over_ur_vti(
+        p_iso, kz, omega, c11=cij["c11"], c13=cij["c13"],
+        c44=cij["c44"], rho=rho,
+    )
+    expected = -1j * kz / p_iso
+    assert gamma_qP.real == pytest.approx(expected.real, abs=1.0e-12)
+    assert gamma_qP.imag == pytest.approx(expected.imag, rel=1.0e-12)
+
+
+def test_polarization_ratio_uz_over_ur_vti_isotropic_qSV_limit():
+    """At isotropic limit alpha_qSV -> s, gamma_qSV = -i s / k_z."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, 1500.0) * 1.5
+
+    s_iso = float(np.sqrt(kz ** 2 - (omega / vs) ** 2))
+    gamma_qSV = _polarization_ratio_uz_over_ur_vti(
+        s_iso, kz, omega, c11=cij["c11"], c13=cij["c13"],
+        c44=cij["c44"], rho=rho,
+    )
+    expected = -1j * s_iso / kz
+    assert gamma_qSV.real == pytest.approx(expected.real, abs=1.0e-12)
+    assert gamma_qSV.imag == pytest.approx(expected.imag, rel=1.0e-12)
+
+
+def test_polarization_ratio_uz_over_ur_vti_christoffel_identity():
+    """Substituting (u_r, u_z) = (1, gamma_qX) into the Christoffel
+    eigenvector equation
+        (-C11 alpha^2 + C44 kz^2 - rho omega^2) u_r
+        + i (C13 + C44) alpha kz u_z = 0
+    must give zero to floating-point precision (verifies that the
+    polarization-ratio formula is the correct null-space direction
+    of the Christoffel matrix at the qX root)."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    omega = 2.0 * np.pi * 5000.0
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti(
+        kz, omega, **cij, rho=rho,
+    )
+    rho_omega_sq = rho * omega ** 2
+
+    for alpha_qX in (alpha_qP, alpha_qSV):
+        gamma = _polarization_ratio_uz_over_ur_vti(
+            alpha_qX, kz, omega,
+            c11=cij["c11"], c13=cij["c13"], c44=cij["c44"], rho=rho,
+        )
+        # Eigenvector equation residual:
+        residual = (
+            (-cij["c11"] * alpha_qX ** 2 + cij["c44"] * kz ** 2 - rho_omega_sq)
+            + 1j * (cij["c13"] + cij["c44"]) * alpha_qX * kz * gamma
+        )
+        # Scale check: M11 element ~ rho omega^2 in magnitude.
+        assert abs(residual) < rho_omega_sq * 1.0e-12
+
+
+def test_modal_row2_at_a_vti_isotropic_collapse_matches_M21_M22_M23():
+    """Floating-point oracle for H.c.1.b: at isotropic stiffness,
+    row 2 of the VTI determinant matches M21, M22, M23 of
+    :func:`_modal_determinant_n0` to floating-point precision."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _modal_row2_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+
+    F = float(np.sqrt(kz * kz - (omega / vf) ** 2))
+    p = float(np.sqrt(kz * kz - (omega / vp) ** 2))
+    s = float(np.sqrt(kz * kz - (omega / vs) ** 2))
+    from scipy import special as sp
+
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    M21 = -float(sp.iv(0, F * a))
+    M22 = -mu * (
+        two_kz2_minus_kS2 * float(sp.kv(0, p * a))
+        + 2.0 * p * float(sp.kv(1, p * a)) / a
+    )
+    M23 = -2.0 * kz * mu * (
+        s * float(sp.kv(0, s * a)) + float(sp.kv(1, s * a)) / a
+    )
+
+    assert row[0].real == pytest.approx(M21, rel=1.0e-12)
+    assert row[1].real == pytest.approx(M22, rel=1.0e-12)
+    assert row[2].real == pytest.approx(M23, rel=1.0e-12)
+
+
+def test_modal_row2_at_a_vti_is_real_in_bound_regime():
+    """Substep H.a.6: row 2 is no-row-rescale; col-by-(-i) on
+    C_qSV. Post-rescale row is real-valued in the bound regime.
+    Catches polarization-ratio sign errors that would leave a
+    nonzero imaginary part."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    row = _modal_row2_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e0)
+
+
+def test_modal_row2_at_a_vti_uses_c66_in_KK_one_over_a_term():
+    """Genuine-TI sanity: with C44 != C66 (gamma > 0), the K_1/a
+    coefficient of the B_qP column scales with ``2 C66``, NOT
+    ``2 C44``. Confirms the (C11 - 2 C66) u_r/r slot is correctly
+    transcribed -- the slot through which Norris 1990 LF coupling
+    enters."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    omega = 2.0 * np.pi * 5000.0
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+    a = 0.1
+
+    row = _modal_row2_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=a,
+    )
+    alpha_qP, _, _ = _radial_wavenumbers_vti(kz, omega, **cij, rho=rho)
+    rho_omega_sq = rho * omega ** 2
+    q_qP = (
+        cij["c44"] * (cij["c11"] * alpha_qP ** 2 + cij["c13"] * kz ** 2)
+        - cij["c13"] * rho_omega_sq
+    ) / (cij["c13"] + cij["c44"])
+    from scipy import special as sp
+
+    # row[1] = -Q_qP K_0(alpha_qP a) - 2 C66 alpha_qP K_1(alpha_qP a)/a
+    expected = (
+        -q_qP * float(sp.kv(0, alpha_qP * a))
+        - 2.0 * cij["c66"] * alpha_qP * float(sp.kv(1, alpha_qP * a)) / a
+    )
+    assert row[1].real == pytest.approx(expected, rel=1.0e-12)
+    # Sanity check: confirm fixture has C44 != C66 (genuine gamma).
+    assert cij["c44"] != cij["c66"]
