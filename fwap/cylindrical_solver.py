@@ -6846,6 +6846,38 @@ def _flexural_kz_bracket_layered(
     return kz_lo, kz_hi
 
 
+def _flexural_kz_bracket_cased(
+    omega: float,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...],
+) -> tuple[float, float]:
+    """
+    Bracket the cased-hole n=1 flexural root in (k_z_lo, k_z_hi)
+    for an arbitrary-N layer stack.
+
+    Generalisation of :func:`_flexural_kz_bracket_layered` to
+    ``N >= 1`` layers. Lower bound is the slowest-body-wave floor
+    across the entire stack: fluid, every layer, formation
+    half-space. Upper bound is the same 10 % above formation
+    Rayleigh-speed slowness; the brentq expansion-loop in
+    :func:`flexural_dispersion_layered` handles bracket
+    extension if the multi-layer perturbation lifts the actual
+    root above the cushion.
+    """
+    from fwap.cylindrical import rayleigh_speed
+
+    vR = rayleigh_speed(vp, vs)
+    slowest = min(vs, vf, *(L.vs for L in layers))
+    kz_lo = omega / slowest * (1.0 + 1.0e-6)
+    kz_hi = omega / vR * 1.10
+    return kz_lo, kz_hi
+
+
 def flexural_dispersion_layered(
     freq: np.ndarray,
     *,
@@ -6902,10 +6934,11 @@ def flexural_dispersion_layered(
     ------
     ValueError
         If any input is non-positive, ``vp <= vs``, ``freq``
-        contains a non-positive entry, or any layer is malformed.
+        contains a non-positive entry, any layer is malformed, or
+        any layer fails the slow-formation constraint
+        ``layer.vs >= vs`` (multi-layer only).
     NotImplementedError
-        If ``len(layers) > 1`` (multi-layer is plan item G), or
-        if the formation is fast (``V_S > V_f``) with a non-empty
+        If the formation is fast (``V_S > V_f``) with a non-empty
         layer (fast-formation layered flexural is future work).
     """
     layers_tuple = tuple(layers)
@@ -6913,16 +6946,6 @@ def flexural_dispersion_layered(
     if not layers_tuple:
         return flexural_dispersion(
             freq, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
-        )
-    if len(layers_tuple) > 1:
-        raise NotImplementedError(
-            "flexural_dispersion_layered with multi-layer stacks "
-            "(N >= 2) is scheduled in plan items G'.c (stacked "
-            "modal determinant via the 6x6 Thomson-Haskell "
-            "propagator matrix) and G'.d (public-API hook + "
-            "multi-layer regression); see "
-            "docs/plans/cylindrical_biot_G_prime.md. Single-layer "
-            "and unlayered are supported."
         )
     if vp <= 0 or vs <= 0 or rho <= 0:
         raise ValueError("vp, vs, rho must all be positive")
@@ -6945,19 +6968,38 @@ def flexural_dispersion_layered(
             "flexural is scheduled as a follow-up to plan item F.2."
         )
 
-    layer = layers_tuple[0]
+    n_layers = len(layers_tuple)
+    if n_layers >= 2:
+        # Multi-layer path (G'.d) requires the per-layer slow-formation
+        # constraint layer.vs >= vs. Single-layer F.2 path documents
+        # but does not enforce it (left as the user's responsibility).
+        _validate_flexural_layers_stacked(layers_tuple, a, vs)
     slowness = np.full_like(f_arr, np.nan, dtype=float)
     for i, f in enumerate(f_arr):
         omega = 2.0 * np.pi * float(f)
 
-        def _det(kz_, omega=omega):
-            return _modal_determinant_n1_layered(
-                kz_, omega, vp, vs, rho, vf, rho_f, a, layer=layer,
-            )
+        if n_layers == 1:
+            layer = layers_tuple[0]
 
-        kz_lo, kz_hi = _flexural_kz_bracket_layered(
-            omega, vp, vs, rho, vf, rho_f, a, layer,
-        )
+            def _det(kz_, omega=omega, layer=layer):
+                return _modal_determinant_n1_layered(
+                    kz_, omega, vp, vs, rho, vf, rho_f, a, layer=layer,
+                )
+
+            kz_lo, kz_hi = _flexural_kz_bracket_layered(
+                omega, vp, vs, rho, vf, rho_f, a, layer,
+            )
+        else:
+            def _det(kz_, omega=omega, layers_tuple=layers_tuple):
+                return _modal_determinant_n1_cased(
+                    kz_, omega,
+                    vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+                    layers=layers_tuple,
+                )
+
+            kz_lo, kz_hi = _flexural_kz_bracket_cased(
+                omega, vp, vs, rho, vf, rho_f, a, layers_tuple,
+            )
         try:
             d_lo = _det(kz_lo)
             d_hi = _det(kz_hi)

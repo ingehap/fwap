@@ -3494,22 +3494,6 @@ def test_flexural_dispersion_layered_fast_formation_layered_raises_not_implement
         )
 
 
-def test_flexural_dispersion_layered_multilayer_raises_not_implemented():
-    """Multi-layer stacks (``len(layers) > 1``) currently raise
-    ``NotImplementedError`` until plan items G'.c (stacked modal
-    determinant) and G'.d (public-API hook) land. Single-layer
-    and unlayered are supported by F.2.d."""
-    f = np.array([2000.0, 4000.0])
-    layer1 = BoreholeLayer(vp=3500.0, vs=2600.0, rho=2100.0, thickness=0.005)
-    layer2 = BoreholeLayer(vp=3000.0, vs=2550.0, rho=1900.0, thickness=0.005)
-    with pytest.raises(NotImplementedError, match=r"G'\.c"):
-        flexural_dispersion_layered(
-            f,
-            vp=4500.0, vs=2500.0, rho=2400.0,
-            vf=1500.0, rho_f=1000.0, a=0.1,
-            layers=(layer1, layer2),
-        )
-
 
 def test_flexural_dispersion_layered_rejects_bad_layer_object():
     f = np.array([2000.0])
@@ -7398,26 +7382,6 @@ def test_validate_borehole_layers_stacked_rejects_non_positive_a():
         _validate_borehole_layers_stacked((casing, cement), a=-0.1)
 
 
-def test_flexural_dispersion_layered_two_layer_NIE_points_at_G_prime_c_d():
-    """Sharpened mirror at n=1: the multi-layer NIE message
-    identifies the specific G' sub-units (G'.c stacked modal
-    determinant, G'.d public-API hook) rather than just naming
-    "plan G'". G'.0 wording update."""
-    f = np.array([5000.0])
-    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
-    cement = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05)
-    with pytest.raises(NotImplementedError) as exc_info:
-        flexural_dispersion_layered(
-            f, vp=4500.0, vs=2500.0, rho=2400.0,
-            vf=1500.0, rho_f=1000.0, a=0.1,
-            layers=(casing, cement),
-        )
-    msg = str(exc_info.value)
-    assert "G'.c" in msg
-    assert "G'.d" in msg
-    assert "cylindrical_biot_G_prime.md" in msg
-
-
 def test_stoneley_dispersion_layered_zero_and_one_layer_paths_unchanged():
     """G.0 must not perturb the two existing collapse paths
     (``len(layers) == 0`` and ``len(layers) == 1``). Regression:
@@ -8741,3 +8705,167 @@ def test_modal_determinant_n1_cased_N2_runs_smoke():
     )
     assert np.isfinite(det)
     assert isinstance(det, float)
+
+
+# =====================================================================
+# Plan item G'.d -- public-API hook for cased-hole flexural
+# =====================================================================
+#
+# Replaces the G'.0 ``len(layers) > 1 -> NotImplementedError`` raise
+# with a brentq loop on ``_modal_determinant_n1_cased`` (G'.c).
+# Tests anchor on multi-layer regression / smoothness, plus the
+# slow-formation per-layer constraint enforced by
+# ``_validate_flexural_layers_stacked``.
+
+
+def _typical_g_prime_d_cased_geometry():
+    """Slow-formation cased-hole fixture for G'.d tests. Casing
+    + cement layers both faster in shear than the formation
+    (V_S = 800 m/s); the slow-formation per-layer constraint
+    (validated by ``_validate_flexural_layers_stacked``) holds."""
+    return dict(
+        casing=BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01),
+        cement=BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05),
+        vp=2200.0, vs=800.0, rho=2200.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+
+
+def test_flexural_dispersion_layered_N1_path_unchanged_after_G_prime_d():
+    """Regression: the existing N=1 dispatch (F.2 hand-coded path)
+    remains functional after the G'.d multi-layer wiring. Smoke
+    test on a slow-formation single-layer setup."""
+    layer = BoreholeLayer(vp=2500.0, vs=1100.0, rho=2100.0, thickness=0.005)
+    f = np.linspace(2000.0, 6000.0, 4)
+    res = flexural_dispersion_layered(
+        f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
+        vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A, layers=(layer,),
+    )
+    assert res.name == "flexural"
+    assert res.azimuthal_order == 1
+    finite = np.isfinite(res.slowness)
+    assert finite.any()
+
+
+def test_flexural_dispersion_layered_N2_runs_smoke():
+    """G'.d two-layer regression: typical casing + cement
+    geometry produces a finite, smoothly-dispersive flexural
+    slowness curve across the dipole-sonic band (3-12 kHz)."""
+    g = _typical_g_prime_d_cased_geometry()
+    f = np.linspace(3000.0, 12000.0, 8)
+    res = flexural_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"]),
+    )
+    finite = np.isfinite(res.slowness)
+    assert finite.sum() >= len(f) - 1  # allow at most one cutoff miss
+    assert res.name == "flexural"
+    assert res.azimuthal_order == 1
+    np.testing.assert_array_equal(res.freq, f)
+    # Smoothness fence on contiguous finite values. Slow-formation
+    # flexural slowness diverges sharply near the geometric cutoff
+    # (~ 1.3 kHz here), so step-to-step changes are large at the LF
+    # end of the band and shrink toward the HF asymptote. The fence
+    # is a coarse sanity check, not a tight oracle.
+    s_finite = res.slowness[finite]
+    rel_steps = np.abs(np.diff(s_finite)) / s_finite[:-1]
+    assert np.all(rel_steps < 0.50)
+
+
+def test_flexural_dispersion_layered_N2_returns_borehole_mode():
+    """``BoreholeMode`` return-type contract on the multi-layer
+    flexural dispatch (G'.d). ``attenuation_per_meter is None``
+    confirms the slow-formation bound mode."""
+    g = _typical_g_prime_d_cased_geometry()
+    f = np.linspace(3000.0, 6000.0, 3)
+    res = flexural_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"]),
+    )
+    assert isinstance(res, BoreholeMode)
+    assert res.attenuation_per_meter is None
+
+
+def test_flexural_dispersion_layered_N2_layer_permutation_changes_slowness():
+    """Casing-inside-cement and cement-inside-casing produce
+    distinct flexural slowness curves -- inside-out layer
+    ordering is a physical parameter."""
+    g = _typical_g_prime_d_cased_geometry()
+    f = np.array([5000.0])
+    res_cs = flexural_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"]),
+    )
+    res_sc = flexural_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["cement"], g["casing"]),
+    )
+    assert np.all(np.isfinite(res_cs.slowness))
+    assert np.all(np.isfinite(res_sc.slowness))
+    rel_diff = abs(res_cs.slowness[0] - res_sc.slowness[0]) / res_cs.slowness[0]
+    assert rel_diff > 0.001
+
+
+def test_flexural_dispersion_layered_N2_collapse_to_N1_via_thin_outer_layer():
+    """Two-layer-collapse oracle: with a vanishingly-thin OUTER
+    layer that has the formation's parameters, the G'.d two-
+    layer slowness should match the F.2 single-layer answer with
+    just the inner layer."""
+    layer1 = BoreholeLayer(vp=2500.0, vs=1100.0, rho=2100.0, thickness=0.005)
+    # Outer "layer" has formation properties + tiny thickness;
+    # equivalent to no outer layer at all. layer.vs == vs satisfies
+    # the slow-formation per-layer constraint (>=).
+    layer2_trivial = BoreholeLayer(
+        vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO, thickness=1.0e-5,
+    )
+    f = np.array([5000.0])
+    res_one = flexural_dispersion_layered(
+        f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
+        vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A, layers=(layer1,),
+    )
+    res_two = flexural_dispersion_layered(
+        f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO,
+        vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A,
+        layers=(layer1, layer2_trivial),
+    )
+    assert res_two.slowness[0] == pytest.approx(
+        res_one.slowness[0], rel=1.0e-4,
+    )
+
+
+def test_flexural_dispersion_layered_three_layer_runs_smoke():
+    """Smoke test for N=3 (casing + cement + mudcake): the
+    propagator chain extends past N=2 cleanly. All three layers
+    must be at least as fast in shear as the formation."""
+    g = _typical_g_prime_d_cased_geometry()
+    mudcake = BoreholeLayer(vp=2000.0, vs=1100.0, rho=1700.0, thickness=0.003)
+    f = np.linspace(4000.0, 10000.0, 4)
+    res = flexural_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"], mudcake),
+    )
+    finite = np.isfinite(res.slowness)
+    assert finite.any()
+
+
+def test_flexural_dispersion_layered_N2_rejects_softer_layer():
+    """The G'.d brentq path enforces ``layer.vs >= vs`` per layer
+    via ``_validate_flexural_layers_stacked``. A softer layer
+    triggers ``ValueError`` rather than NaN slownesses or a
+    silent unbound-mode failure."""
+    g = _typical_g_prime_d_cased_geometry()
+    soft_cement = BoreholeLayer(
+        vp=1500.0, vs=600.0, rho=1700.0, thickness=0.05,
+    )  # vs = 600 < formation vs = 800 -> reject
+    with pytest.raises(ValueError, match=r"layer\.vs"):
+        flexural_dispersion_layered(
+            np.array([5000.0]),
+            vp=g["vp"], vs=g["vs"], rho=g["rho"],
+            vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+            layers=(g["casing"], soft_cement),
+        )
