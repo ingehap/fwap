@@ -6156,3 +6156,98 @@ def test_stoneley_dispersion_vti_returns_borehole_mode_for_genuine_TI():
     assert res.name == "Stoneley"
     assert res.azimuthal_order == 0
     np.testing.assert_array_equal(res.freq, f)
+
+
+# =====================================================================
+# Plan item H.c.3 -- Norris 1990 LF closed-form oracle
+# =====================================================================
+#
+# The TI-specific validation oracle. At low frequency the n=0
+# Stoneley slowness in a VTI formation approaches
+#
+#       S_ST^2 = 1/V_f^2 + rho_f / C66            (Norris 1990 eq. 6)
+#
+# Strongest validation of the C-matrix entries: depends on **C66**
+# (NOT C44) -- the difference is invisible in the isotropic-collapse
+# tests (where C44 = C66) but emerges sharply with gamma > 0.
+
+
+def _norris_1990_LF_stoneley_slowness(c66, vf, rho_f):
+    """S_ST = sqrt(1/V_f^2 + rho_f / C66) per Norris 1990 eq. 6.
+    The TI-specific LF closed form for the Stoneley tube-wave
+    slowness."""
+    return float(np.sqrt(1.0 / vf ** 2 + rho_f / c66))
+
+
+def test_stoneley_dispersion_vti_LF_matches_norris_1990_C66_form():
+    """At very low frequency the VTI Stoneley slowness approaches
+    the Norris 1990 closed form
+        S_ST = sqrt(1/V_f^2 + rho_f / C66).
+
+    Tested with a typical Thomsen-stable VTI fixture (gamma ~
+    0.15) at f = 10 Hz. Tolerance loose because the LF closed
+    form is asymptotic; tightening would require f -> 0 and run
+    into bracket-floor numerics."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+
+    res = stoneley_dispersion_vti(
+        np.array([10.0]), **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    s_norris = _norris_1990_LF_stoneley_slowness(cij["c66"], vf, rho_f)
+    # ~0.1% tolerance: leading-order asymptote.
+    assert res.slowness[0] == pytest.approx(s_norris, rel=1.0e-3)
+
+
+def test_stoneley_dispersion_vti_LF_distinguishes_C66_from_C44():
+    """Genuine TI vs isotropic-with-C44: the Norris 1990 LF form
+    uses C66, not C44. With gamma > 0 (C66 > C44), the genuine-TI
+    LF slowness matches the C66-based form much more closely than
+    the C44-based form. Confirms the previous test isn't passing
+    trivially through C44 = C66."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+
+    res = stoneley_dispersion_vti(
+        np.array([10.0]), **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    s_C66 = _norris_1990_LF_stoneley_slowness(cij["c66"], vf, rho_f)
+    s_C44 = _norris_1990_LF_stoneley_slowness(cij["c44"], vf, rho_f)
+    # Fixture has C66 > C44 (gamma > 0), so s_C66 < s_C44.
+    assert s_C66 < s_C44
+    err_to_C66 = abs(res.slowness[0] - s_C66) / s_C66
+    err_to_C44 = abs(res.slowness[0] - s_C44) / s_C44
+    assert err_to_C66 < err_to_C44 * 0.05  # at least 20x closer
+    gamma = (cij["c66"] - cij["c44"]) / (2.0 * cij["c44"])
+    assert gamma > 0.05
+
+
+def test_stoneley_dispersion_vti_LF_gamma_monotonicity():
+    """Increasing C66 (at fixed other C-matrix entries) decreases
+    the LF Stoneley slowness per Norris 1990 (since
+    ``dS_ST^2/dC66 = -rho_f / C66^2 < 0``).
+
+    Verify by computing the LF slowness at two C66 values: the
+    larger C66 produces the smaller slowness."""
+    cij_a = _typical_vti_params()
+    cij_b = dict(cij_a)
+    cij_b["c66"] = cij_a["c66"] * 1.20
+    rho = cij_a.pop("rho")
+    cij_b.pop("rho")
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+
+    res_a = stoneley_dispersion_vti(
+        np.array([10.0]), **cij_a, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    res_b = stoneley_dispersion_vti(
+        np.array([10.0]), **cij_b, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    # Larger C66 -> smaller LF Stoneley slowness.
+    assert res_b.slowness[0] < res_a.slowness[0]
+    s_norris_a = _norris_1990_LF_stoneley_slowness(cij_a["c66"], vf, rho_f)
+    s_norris_b = _norris_1990_LF_stoneley_slowness(cij_b["c66"], vf, rho_f)
+    expected_ratio = s_norris_b / s_norris_a
+    actual_ratio = res_b.slowness[0] / res_a.slowness[0]
+    assert actual_ratio == pytest.approx(expected_ratio, rel=1.0e-3)
