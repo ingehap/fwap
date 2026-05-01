@@ -6442,6 +6442,38 @@ def _stoneley_kz_bracket_layered(
     return kz_lo, kz_hi
 
 
+def _stoneley_kz_bracket_cased(
+    omega: float,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...],
+) -> tuple[float, float]:
+    """
+    Bracket the cased-hole n=0 Stoneley root in (k_z_lo, k_z_hi)
+    for an arbitrary-N layer stack.
+
+    Generalisation of :func:`_stoneley_kz_bracket_layered` to
+    N >= 1 layers. Lower bound is the slowest-body-wave floor
+    across the entire stack: fluid, every layer, formation
+    half-space. Upper bound is the same formation-mu-based LF
+    estimate, with a 1.5x cushion -- the layers' contribution
+    to the low-f limit is a perturbation that the brentq
+    expansion-loop in :func:`stoneley_dispersion_layered`
+    handles if needed.
+    """
+    mu_formation = rho * vs * vs
+    s_st_lf = np.sqrt(1.0 / vf ** 2 + rho_f / mu_formation)
+    kz_lf_est = omega * s_st_lf
+    slowest = min(vs, vf, *(L.vs for L in layers))
+    kz_lo = omega / slowest * (1.0 + 1.0e-6)
+    kz_hi = max(kz_lf_est * 1.5, kz_lo * 2.0)
+    return kz_lo, kz_hi
+
+
 def stoneley_dispersion_layered(
     freq: np.ndarray,
     *,
@@ -6479,12 +6511,16 @@ def stoneley_dispersion_layered(
         Borehole (fluid-side) radius (m).
     layers : tuple of BoreholeLayer, default ()
         Annular elastic layers between the fluid (``r < a``) and
-        the formation half-space, ordered radially outward.
-        ``()`` dispatches to :func:`stoneley_dispersion`. A
-        single-element tuple dispatches to the 7x7 layered solver.
-        Multi-layer support is plan item G (cased-hole / propagator-
-        matrix); for now non-unit-length stacks raise
-        ``NotImplementedError``.
+        the formation half-space, ordered radially outward
+        (``layers[0]`` adjacent to fluid; ``layers[-1]`` adjacent
+        to formation). ``()`` dispatches to
+        :func:`stoneley_dispersion`. A single-element tuple
+        dispatches to the 7x7 layered solver
+        (:func:`_modal_determinant_n0_layered`). Multi-layer
+        stacks (``N >= 2``) dispatch to the Thomson-Haskell-style
+        propagator-matrix path
+        (:func:`_modal_determinant_n0_cased`) shipped in plan
+        item G.
 
     Returns
     -------
@@ -6498,23 +6534,12 @@ def stoneley_dispersion_layered(
     ValueError
         If any input is non-positive, ``vp <= vs``, ``freq``
         contains a non-positive entry, or any layer is malformed.
-    NotImplementedError
-        If ``len(layers) > 1`` (multi-layer is plan item G).
     """
     layers_tuple = tuple(layers)
     _validate_borehole_layers(layers_tuple)
     if not layers_tuple:
         return stoneley_dispersion(
             freq, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
-        )
-    if len(layers_tuple) > 1:
-        raise NotImplementedError(
-            "stoneley_dispersion_layered with multi-layer stacks "
-            "(N >= 2) is scheduled in plan items G.c (stacked modal "
-            "determinant via the Thomson-Haskell propagator matrix) "
-            "and G.d (public-API hook + cement-bond regression); see "
-            "docs/plans/cylindrical_biot_G.md. Single-layer and "
-            "unlayered are supported."
         )
     if vp <= 0 or vs <= 0 or rho <= 0:
         raise ValueError("vp, vs, rho must all be positive")
@@ -6528,19 +6553,33 @@ def stoneley_dispersion_layered(
     if np.any(f_arr <= 0):
         raise ValueError("freq must be strictly positive")
 
-    layer = layers_tuple[0]
+    n_layers = len(layers_tuple)
     slowness = np.full_like(f_arr, np.nan, dtype=float)
     for i, f in enumerate(f_arr):
         omega = 2.0 * np.pi * float(f)
 
-        def _det(kz_, omega=omega):
-            return _modal_determinant_n0_layered(
-                kz_, omega, vp, vs, rho, vf, rho_f, a, layer=layer,
-            )
+        if n_layers == 1:
+            layer = layers_tuple[0]
 
-        kz_lo, kz_hi = _stoneley_kz_bracket_layered(
-            omega, vp, vs, rho, vf, rho_f, a, layer,
-        )
+            def _det(kz_, omega=omega, layer=layer):
+                return _modal_determinant_n0_layered(
+                    kz_, omega, vp, vs, rho, vf, rho_f, a, layer=layer,
+                )
+
+            kz_lo, kz_hi = _stoneley_kz_bracket_layered(
+                omega, vp, vs, rho, vf, rho_f, a, layer,
+            )
+        else:
+            def _det(kz_, omega=omega, layers_tuple=layers_tuple):
+                return _modal_determinant_n0_cased(
+                    kz_, omega,
+                    vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+                    layers=layers_tuple,
+                )
+
+            kz_lo, kz_hi = _stoneley_kz_bracket_cased(
+                omega, vp, vs, rho, vf, rho_f, a, layers_tuple,
+            )
         try:
             d_lo = _det(kz_lo)
             d_hi = _det(kz_hi)

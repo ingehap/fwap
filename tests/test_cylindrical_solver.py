@@ -2096,22 +2096,6 @@ def test_stoneley_dispersion_layered_empty_layers_returns_borehole_mode():
     assert res.azimuthal_order == 0
 
 
-def test_stoneley_dispersion_layered_multilayer_raises_not_implemented():
-    """Multi-layer stacks (``len(layers) > 1``) currently raise
-    ``NotImplementedError`` until plan items G.c (stacked modal
-    determinant) and G.d (public-API hook) land. Single-layer and
-    unlayered are supported by F.1.b.4."""
-    f = np.array([1000.0, 2000.0])
-    layer1 = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
-    layer2 = BoreholeLayer(vp=3000.0, vs=1500.0, rho=1900.0, thickness=0.005)
-    with pytest.raises(NotImplementedError, match=r"G\.c"):
-        stoneley_dispersion_layered(
-            f,
-            vp=4500.0, vs=2500.0, rho=2400.0,
-            vf=1500.0, rho_f=1000.0, a=0.1,
-            layers=(layer1, layer2),
-        )
-
 
 def test_stoneley_dispersion_layered_rejects_bad_layer_object():
     f = np.array([1000.0])
@@ -7411,26 +7395,6 @@ def test_validate_borehole_layers_stacked_rejects_non_positive_a():
         _validate_borehole_layers_stacked((casing, cement), a=-0.1)
 
 
-def test_stoneley_dispersion_layered_two_layer_NIE_points_at_G_c_G_d():
-    """The G.0 dispatch sharpens the multi-layer NIE message to
-    name plan items G.c (stacked modal determinant) and G.d
-    (public-API hook). Verifies the user-facing pointer is
-    actionable rather than just naming "plan G"."""
-    f = np.array([5000.0])
-    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
-    cement = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05)
-    with pytest.raises(NotImplementedError) as exc_info:
-        stoneley_dispersion_layered(
-            f, vp=4500.0, vs=2500.0, rho=2400.0,
-            vf=1500.0, rho_f=1000.0, a=0.1,
-            layers=(casing, cement),
-        )
-    msg = str(exc_info.value)
-    assert "G.c" in msg
-    assert "G.d" in msg
-    assert "cylindrical_biot_G.md" in msg
-
-
 def test_flexural_dispersion_layered_two_layer_NIE_points_at_G_prime():
     """Mirror at n=1: the multi-layer NIE message identifies the
     deferred G' follow-up (cased-hole flexural with 6x6 propagator
@@ -7920,3 +7884,143 @@ def test_modal_determinant_n0_cased_N2_runs_smoke():
     )
     assert np.isfinite(det)
     assert isinstance(det, float)
+
+
+# =====================================================================
+# Plan item G.d -- public-API hook for cased-hole Stoneley
+# =====================================================================
+#
+# Replaces the G.0 ``len(layers) > 1 -> NotImplementedError`` raise
+# with a brentq loop on ``_modal_determinant_n0_cased``. Tests
+# anchor on a multi-layer regression (matching the F.1 single-layer
+# brentq root when an N=2 stack collapses to the F.1 case),
+# layer-permutation distinctness, and a three-layer smoke.
+
+
+def _typical_cased_geometry():
+    """Realistic casing + cement geometry used as the fixture for
+    G.d cased-hole tests. V_S_cement = 1800 m/s (high-strength
+    cement) keeps the cement above V_f = 1500 so the bound floor
+    stays at the fluid value across the dipole-sonic band."""
+    return dict(
+        casing=BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01),
+        cement=BoreholeLayer(vp=2300.0, vs=1800.0, rho=1900.0, thickness=0.05),
+        vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+
+
+def test_stoneley_dispersion_layered_N1_path_unchanged_after_G_d():
+    """Regression: the N=1 dispatch (F.1 hand-coded path) remains
+    functional after the G.d multi-layer wiring. Picks a typical
+    single-layer setup and verifies the slowness curve is finite
+    and well-formed."""
+    p = _typical_g_c_params()
+    layer = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
+    f = np.linspace(2000.0, 8000.0, 6)
+    res = stoneley_dispersion_layered(
+        f, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(layer,),
+    )
+    assert np.all(np.isfinite(res.slowness))
+    assert res.name == "Stoneley"
+    assert res.azimuthal_order == 0
+
+
+def test_stoneley_dispersion_layered_N2_runs_smoke():
+    """G.d two-layer regression: a typical casing + cement
+    geometry produces a finite, smoothly-dispersive Stoneley
+    slowness curve across the dipole-sonic band."""
+    g = _typical_cased_geometry()
+    f = np.linspace(1000.0, 12000.0, 8)
+    res = stoneley_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"]),
+    )
+    assert np.all(np.isfinite(res.slowness))
+    assert res.name == "Stoneley"
+    assert res.azimuthal_order == 0
+    np.testing.assert_array_equal(res.freq, f)
+    # Smoothness fence: relative step-to-step change capped at 5%.
+    rel_steps = np.abs(np.diff(res.slowness)) / res.slowness[:-1]
+    assert np.all(rel_steps < 0.05)
+
+
+def test_stoneley_dispersion_layered_N2_returns_borehole_mode():
+    """``BoreholeMode`` return-type contract on the multi-layer
+    dispatch (G.d)."""
+    g = _typical_cased_geometry()
+    f = np.linspace(2000.0, 6000.0, 4)
+    res = stoneley_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"]),
+    )
+    assert isinstance(res, BoreholeMode)
+    assert res.attenuation_per_meter is None  # bound mode
+
+
+def test_stoneley_dispersion_layered_N2_layer_permutation_changes_slowness():
+    """Casing-inside-cement and cement-inside-casing produce
+    distinct slowness curves -- the inside-out layer ordering is
+    a physical parameter, not a labelling convention."""
+    g = _typical_cased_geometry()
+    f = np.array([5000.0])
+    res_cs = stoneley_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"]),
+    )
+    res_sc = stoneley_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["cement"], g["casing"]),
+    )
+    assert np.all(np.isfinite(res_cs.slowness))
+    assert np.all(np.isfinite(res_sc.slowness))
+    rel_diff = abs(res_cs.slowness[0] - res_sc.slowness[0]) / res_cs.slowness[0]
+    assert rel_diff > 0.001
+
+
+def test_stoneley_dispersion_layered_N2_collapse_to_N1_via_thin_outer_layer():
+    """Two-layer-collapse oracle: with a vanishingly-thin outer
+    layer that has the formation's parameters, the G.d two-layer
+    path should match the F.1 single-layer slowness to high
+    precision. Confirms the propagator chain and BC bookkeeping
+    handle the trivial outer-layer limit cleanly."""
+    p = _typical_g_c_params()
+    f = np.array([5000.0])
+    layer1 = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
+    # Outer "layer" has formation properties + tiny thickness;
+    # equivalent to no outer layer at all.
+    layer2_trivial = BoreholeLayer(
+        vp=p["vp"], vs=p["vs"], rho=p["rho"], thickness=1.0e-5,
+    )
+    res_one_layer = stoneley_dispersion_layered(
+        f, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(layer1,),
+    )
+    res_two_layer = stoneley_dispersion_layered(
+        f, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"],
+        layers=(layer1, layer2_trivial),
+    )
+    assert res_two_layer.slowness[0] == pytest.approx(
+        res_one_layer.slowness[0], rel=1.0e-4,
+    )
+
+
+def test_stoneley_dispersion_layered_three_layer_runs_smoke():
+    """Smoke test for N=3 (casing + cement + mudcake): produces
+    a finite slowness curve. No analytic oracle; just confirms
+    the propagator chain extends past N=2 cleanly."""
+    g = _typical_cased_geometry()
+    mudcake = BoreholeLayer(vp=2000.0, vs=1600.0, rho=1700.0, thickness=0.003)
+    f = np.linspace(2000.0, 8000.0, 5)
+    res = stoneley_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"], mudcake),
+    )
+    assert np.all(np.isfinite(res.slowness))
