@@ -7,10 +7,9 @@ leaky-mode finish of `fwap.cylindrical_solver`, D-E add the n=2
 azimuthal order, F-G add radial layering, H adds anisotropy, and I
 is a cross-cutting validation deliverable.
 
-**Status snapshot.** A, B, C, D, E, F, G (n=0 Stoneley), H —
-✅ DONE. Remaining: G' (n=1 cased-hole flexural; deferred
-follow-up to G), G'' (n=2 cased-hole quadrupole; deferred), and
-I (validation notebook).
+**Status snapshot.** A, B, C, D, E, F, G (n=0 Stoneley), G'
+(n=1 cased-hole flexural), H — ✅ DONE. Remaining: G'' (n=2
+cased-hole quadrupole; deferred), and I (validation notebook).
 
 ## Existing scaffolding to reuse
 
@@ -307,26 +306,28 @@ generalisation in radius, not in `kz`).
 
 ---
 
-## G. Cased-hole multi-layer extension (propagator matrix) — ✅ DONE (n=0)
+## G. Cased-hole multi-layer extension (propagator matrix) — ✅ DONE (n=0, n=1)
 
-**Status.** Shipped via plan
+**Status.** n=0 shipped via plan
 [`cylindrical_biot_G.md`](cylindrical_biot_G.md), G.0 through
-G.f. The n=0 (Stoneley) cased-hole solver is wired through the
-existing `stoneley_dispersion_layered` public API: passing a
+G.f. n=1 shipped via plan
+[`cylindrical_biot_G_prime.md`](cylindrical_biot_G_prime.md),
+G'.0 through G'.f. Both cased-hole solvers are wired through
+the existing `*_dispersion_layered` public APIs: passing a
 multi-layer `layers=(casing, cement, ...)` tuple now dispatches
 to the Thomson-Haskell propagator-matrix path
-(`_modal_determinant_n0_cased`); single-layer and unlayered
-paths remain bit-unchanged. Validation covers two-formation-
-layers collapse to unlayered (`rtol=1e-6`), thin-trivial-layer
-collapse to N=1, layer-permutation distinctness, multi-frequency
-det-at-root self-consistency, and a stiffer-cement-makes-faster-
-Stoneley physics oracle.
+(`_modal_determinant_n0_cased` for Stoneley,
+`_modal_determinant_n1_cased` for flexural); single-layer and
+unlayered paths remain bit-unchanged. Validation covers two-
+formation-layers collapse to unlayered (`rtol=1e-6`), thin-
+trivial-layer collapse to N=1, layer-permutation distinctness,
+multi-frequency det-at-root self-consistency, and cement-
+stiffness physics oracles for both Stoneley and flexural. The
+n=1 path additionally enforces the slow-formation per-layer
+constraint (`layer.vs >= vs`) at validation time.
 
 **Deferred follow-ups** (separate plans, not yet scheduled):
 
-- **G' — n=1 cased-hole flexural** (~700 lines + 25 tests):
-  6×6 per-layer propagator block; biggest engineering payoff
-  for cement-bond / through-tubing logging.
 - **G'' — n=2 cased-hole quadrupole** (~550 lines + 20 tests):
   LWD relevance.
 - **Tang & Cheng 2004 fig 7.1 digitised reproduction**:
@@ -335,6 +336,12 @@ Stoneley physics oracle.
 - **Knopoff / Kennett delta-matrix** for thick-layer / very-
   high-frequency conditioning: only needed if `kz · thickness >
   30` regime emerges.
+- **Bracket-helper refinement** for cased-hole flexural in
+  slow-formation, thick-cement geometries, where the brentq-
+  expansion loop in `flexural_dispersion_layered` may converge
+  to a tube-wave-like mode at very large slowness rather than
+  the perturbed formation flexural. Documented in the G'.e
+  cement-stiffness test docstring.
 
 ---
 
@@ -422,15 +429,12 @@ incrementally per reference figure.
 The shortest viable path to a public leaky-mode product was
 A → C → B (about a week, shipped). The shortest path to LWD-
 grade processing was A → C → B → D → E (about two weeks,
-shipped). Layered and anisotropic work (F, G n=0, H) shipped
-independently of the leaky-mode chain. Remaining items:
+shipped). Layered and anisotropic work (F, G n=0, G' n=1, H)
+shipped independently of the leaky-mode chain. Remaining items:
 
-- **G'** — n=1 cased-hole flexural (deferred follow-up to G).
-  Mirrors G's propagator-matrix scaffolding with 6×6 per-layer
-  blocks. Highest engineering payoff for cement-bond / through-
-  tubing flexural logging.
 - **G''** — n=2 cased-hole quadrupole (deferred follow-up to G,
-  D). LWD relevance.
+  D, G'). Mirrors G' scaffolding with 8×8 per-layer propagators
+  (n=2 has stronger P / SV / SH coupling). LWD relevance.
 - **I** — validation notebook against published dispersion
   figures (Tang & Cheng 2004 fig 7.1 reproduction in particular,
   flagged in the G.e plan). Standalone deliverable; one figure
