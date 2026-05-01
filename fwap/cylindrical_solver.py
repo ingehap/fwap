@@ -10756,6 +10756,182 @@ def _modal_determinant_n1_cased(
 
 
 # =====================================================================
+# Plan item G''.b.1 -- mode-amplitude-to-state-vector matrix E_n2(r)
+# =====================================================================
+#
+# 6x6 matrix mapping a uniform layer's wave amplitudes
+# ``c = (B_I, B_K, C_I, C_K, D_I, D_K)`` to the six-component
+# state vector ``v(r) = (u_r, u_z, u_theta, sigma_rr, sigma_rz,
+# sigma_r_theta)`` at azimuthal order n=2 (quadrupole). Direct
+# transcription of substep G''.a.2 with the substep-F.2.a.5
+# phase rescale absorbed.
+#
+# Each entry is derived from the n=2 ansatz in G''.a (potentials
+# ``phi = B I_2(p r) cos(2 theta)``, ``psi_theta = C I_2(s r)
+# cos(2 theta)``, ``psi_z = D I_2(s r) sin(2 theta)``) plus the
+# Bessel-derivative identities at n=2:
+#
+#   d_r I_2(p r) = p I_1(p r) - 2 I_2(p r) / r
+#   d_r K_2(p r) = -p K_1(p r) - 2 K_2(p r) / r
+#   (1/r) d_r [r I_2(s r)] = s I_1(s r) - I_2(s r) / r
+#   (1/r) d_r [r K_2(s r)] = -s K_1(s r) - K_2(s r) / r
+#
+# K-flavour entries cross-check against the unlayered
+# ``_modal_determinant_n2`` (which carries B / C / D = K_K /
+# C_K / D_K only); the I-flavour entries follow the F.2.a.2
+# sign-flip pattern (BesseI-index-up coefficient flips,
+# Bessel-index-up + correction-term coefficient keeps).
+
+
+def _layer_e_matrix_n2(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    r: float,
+) -> np.ndarray:
+    r"""
+    6x6 mode-amplitude-to-state-vector matrix ``E_n2(r)`` for a
+    uniform isotropic-elastic layer at azimuthal order n=2
+    (quadrupole).
+
+    Sister of :func:`_layer_e_matrix_n0` (4x4 at n=0) and
+    :func:`_layer_e_matrix_n1` (6x6 at n=1) at azimuthal order
+    2. Maps the six wave amplitudes
+    ``c = (B_I, B_K, C_I, C_K, D_I, D_K)`` to the state vector
+    ``v(r) = (u_r, u_z, u_theta, sigma_rr, sigma_rz,
+    sigma_r_theta)`` via ``v(r) = E_n2(r) c`` at n=2, with the
+    substep-F.2.a.5 phase rescale (row * i for u_z and sigma_rz;
+    col * -i for SV columns C_I, C_K) absorbed.
+
+    Bessel functions: ``(I_1, I_2)`` and ``(K_1, K_2)`` (vs
+    ``(I_0, I_1)`` at n=1). Explicit n=2 azimuthal factors
+    (``2 n (n+1) = 12``, ``n^2 - 1 = 3``) appear in the stress
+    rows (sigma_rr, sigma_rz, sigma_r_theta).
+
+    Sparsity pattern (pinned by G''.b.1 tests; identical to n=1):
+
+    * Row 1 (``u_z``) cols 4, 5 (``D_I``, ``D_K``): 0. SH
+      potential ``psi_z`` doesn't contribute to ``u_z``.
+    * Row 2 (``u_theta``) cols 2, 3 (``C_I``, ``C_K``): 0. SV
+      potential ``psi_theta`` doesn't contribute to ``u_theta``.
+
+    Parameters
+    ----------
+    kz, omega : float
+        Trial axial wavenumber (rad / m) and angular frequency
+        (rad / s).
+    vp, vs, rho : float
+        Layer P / S velocity (m/s) and density (kg/m^3). Must
+        satisfy ``vp > vs > 0`` and ``rho > 0``.
+    r : float
+        Radius at which to evaluate ``E_n2(r)`` (m). Must be
+        positive.
+
+    Returns
+    -------
+    ndarray, shape (6, 6)
+        ``E_n2(r)`` post-rescale. Real-valued in the bound
+        regime; ``NaN``-filled outside the bound regime.
+
+    See Also
+    --------
+    _layer_e_matrix_n1 : The n=1 (flexural) sister.
+    _layer_propagator_n2 : G''.b.2 follow-up using
+        ``E_n2(r_outer) E_n2(r_inner)^{-1}`` to map the state
+        vector across a layer at n=2.
+    """
+    p2 = kz * kz - (omega / vp) ** 2
+    s2 = kz * kz - (omega / vs) ** 2
+    if p2 <= 0.0 or s2 <= 0.0 or r <= 0.0:
+        return np.full((6, 6), np.nan)
+    p = float(np.sqrt(p2))
+    s = float(np.sqrt(s2))
+    pr = p * r
+    sr = s * r
+    I1_p = float(special.iv(1, pr))
+    I2_p = float(special.iv(2, pr))
+    K1_p = float(special.kv(1, pr))
+    K2_p = float(special.kv(2, pr))
+    I1_s = float(special.iv(1, sr))
+    I2_s = float(special.iv(2, sr))
+    K1_s = float(special.kv(1, sr))
+    K2_s = float(special.kv(2, sr))
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    E = np.zeros((6, 6))
+    # Row 0: u_r = d_r phi + (n/r) psi_z - i k_z psi_theta. At n=2,
+    # the d_theta-induced term is +(2/r) psi_z. col*(-i) on C cols.
+    E[0, 0] = +p * I1_p - 2.0 * I2_p / r           # B_I
+    E[0, 1] = -p * K1_p - 2.0 * K2_p / r           # B_K
+    E[0, 2] = -kz * I2_s                            # C_I
+    E[0, 3] = -kz * K2_s                            # C_K
+    E[0, 4] = +2.0 * I2_s / r                       # D_I
+    E[0, 5] = +2.0 * K2_s / r                       # D_K
+    # Row 1: u_z = i k_z phi + (1/r) d_r [r psi_theta]. row*i on
+    # all entries; col*(-i) on C cols (net factor 1).
+    E[1, 0] = -kz * I2_p                            # B_I
+    E[1, 1] = -kz * K2_p                            # B_K
+    E[1, 2] = +s * I1_s - I2_s / r                  # C_I
+    E[1, 3] = -s * K1_s - K2_s / r                  # C_K
+    E[1, 4] = 0.0                                   # D_I (SH no u_z)
+    E[1, 5] = 0.0                                   # D_K
+    # Row 2: u_theta = (n/r) phi cos -> -(n/r) F_n sin sector;
+    # contributions also from -d_r psi_z. C cols are zero (SV no
+    # u_theta).
+    E[2, 0] = -2.0 * I2_p / r                       # B_I
+    E[2, 1] = -2.0 * K2_p / r                       # B_K
+    E[2, 2] = 0.0                                   # C_I
+    E[2, 3] = 0.0                                   # C_K
+    E[2, 4] = -s * I1_s + 2.0 * I2_s / r            # D_I
+    E[2, 5] = +s * K1_s + 2.0 * K2_s / r            # D_K
+    # Row 3: sigma_rr = lambda div u + 2 mu d_r u_r. Lame
+    # reduction; n^2 (n+1) factor 12 in the F_n / r^2 term.
+    E[3, 0] = +mu * (
+        two_kz2_minus_kS2 * I2_p
+        - 2.0 * p * I1_p / r
+        + 12.0 * I2_p / (r * r)
+    )                                               # B_I
+    E[3, 1] = +mu * (
+        two_kz2_minus_kS2 * K2_p
+        + 2.0 * p * K1_p / r
+        + 12.0 * K2_p / (r * r)
+    )                                               # B_K
+    E[3, 2] = -2.0 * kz * mu * (s * I1_s - 2.0 * I2_s / r)   # C_I
+    E[3, 3] = +2.0 * kz * mu * (s * K1_s + 2.0 * K2_s / r)   # C_K
+    E[3, 4] = +4.0 * mu * (s * I1_s / r - 3.0 * I2_s / (r * r))   # D_I
+    E[3, 5] = -4.0 * mu * (s * K1_s / r + 3.0 * K2_s / (r * r))   # D_K
+    # Row 4: sigma_rz = mu (d_z u_r + d_r u_z). row*i on all
+    # entries; col*(-i) on C cols. n^2-1 = 3 factor in the C cols.
+    E[4, 0] = -2.0 * kz * mu * (p * I1_p - 2.0 * I2_p / r)   # B_I
+    E[4, 1] = +2.0 * kz * mu * (p * K1_p + 2.0 * K2_p / r)   # B_K
+    E[4, 2] = +mu * (two_kz2_minus_kS2 + 3.0 / (r * r)) * I2_s   # C_I
+    E[4, 3] = +mu * (two_kz2_minus_kS2 + 3.0 / (r * r)) * K2_s   # C_K
+    E[4, 4] = -2.0 * kz * mu * I2_s / r                       # D_I
+    E[4, 5] = -2.0 * kz * mu * K2_s / r                       # D_K
+    # Row 5: sigma_r_theta = mu [d_r u_theta + (1/r) d_theta u_r
+    #                            - u_theta/r]. Sin sector; no row
+    # scaling. n^2 (n+1) = 12 factor in the F_n / r^2 term.
+    E[5, 0] = +4.0 * mu * (-p * I1_p / r + 3.0 * I2_p / (r * r))   # B_I
+    E[5, 1] = +4.0 * mu * (+p * K1_p / r + 3.0 * K2_p / (r * r))   # B_K
+    E[5, 2] = +2.0 * kz * mu * I2_s / r                            # C_I
+    E[5, 3] = +2.0 * kz * mu * K2_s / r                            # C_K
+    E[5, 4] = -mu * (
+        (s * s + 12.0 / (r * r)) * I2_s
+        - 2.0 * s * I1_s / r
+    )                                                              # D_I
+    E[5, 5] = -mu * (
+        (s * s + 12.0 / (r * r)) * K2_s
+        + 2.0 * s * K1_s / r
+    )                                                              # D_K
+    return E
+
+
+# =====================================================================
 # Plan item H.0 -- public-API foundation for VTI formation
 # =====================================================================
 #

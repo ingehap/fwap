@@ -20,6 +20,7 @@ from fwap.cylindrical_solver import (
     BoreholeMode,
     _layer_e_matrix_n0,
     _layer_e_matrix_n1,
+    _layer_e_matrix_n2,
     _layer_propagator_n0,
     _layer_propagator_n1,
     _modal_determinant_n0_cased,
@@ -9151,3 +9152,197 @@ def test_quadrupole_dispersion_layered_rejects_invalid_inputs():
         quadrupole_dispersion_layered(
             np.array([0.0]), **base, layers=(layer,),
         )
+
+
+# =====================================================================
+# Plan item G''.b.1 -- 6x6 mode-amplitude-to-state-vector matrix at n=2
+# =====================================================================
+#
+# Without an F.3-equivalent oracle, the per-element pinning is
+# weaker than G.b.1 / G'.b.1. The structural oracles (sparsity,
+# finiteness, NaN propagation) plus a layer=formation cross-
+# check vs the K-flavour entries transcribed from the existing
+# ``_modal_determinant_n2`` docstring catch transcription errors
+# at the entry level; the determinant-level checks in G''.c /
+# G''.d / G''.e anchor correctness via root-match identities.
+
+
+def _typical_g_pp_b1_layer_params():
+    """Slow-formation harder-than-formation layer fixture for
+    G''.b.1 / G''.b.2 tests."""
+    return dict(
+        vp=2500.0, vs=1100.0, rho=2100.0,
+        kz=2.0 * np.pi * 5000.0 / 800.0,
+        omega=2.0 * np.pi * 5000.0,
+    )
+
+
+def test_layer_e_matrix_n2_real_in_bound_regime():
+    """All 36 entries are finite real in the bound regime
+    post-rescale."""
+    p = _typical_g_pp_b1_layer_params()
+    E = _layer_e_matrix_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=0.1,
+    )
+    assert np.all(np.isfinite(E))
+    assert E.dtype == np.float64
+
+
+def test_layer_e_matrix_n2_returns_nan_below_bound_floor():
+    """Below the bound floor (``kz < omega / V_S``), at least one
+    of ``p^2``, ``s^2`` is negative -- the helper returns NaN-
+    filled."""
+    omega = 2.0 * np.pi * 5000.0
+    vp, vs, rho = 2500.0, 1100.0, 2100.0
+    kz = omega / vs * 0.5
+    with np.errstate(invalid="ignore"):
+        E = _layer_e_matrix_n2(
+            kz=kz, omega=omega, vp=vp, vs=vs, rho=rho, r=0.1,
+        )
+    assert np.all(np.isnan(E))
+
+
+def test_layer_e_matrix_n2_determinant_nonzero_in_bound_regime():
+    """Precondition for the G''.b.2 propagator inverse."""
+    p = _typical_g_pp_b1_layer_params()
+    E = _layer_e_matrix_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=0.1,
+    )
+    det = float(np.linalg.det(E))
+    assert np.isfinite(det)
+    assert abs(det) > 0.0
+
+
+def test_layer_e_matrix_n2_sparsity_pattern():
+    """Pin the known-zero entries of E_n2(r):
+
+    * Row 1 (``u_z``) cols 4, 5 (``D_I``, ``D_K``): SH potential
+      ``psi_z`` doesn't contribute to ``u_z``.
+    * Row 2 (``u_theta``) cols 2, 3 (``C_I``, ``C_K``): SV
+      potential ``psi_theta`` doesn't contribute to ``u_theta``."""
+    p = _typical_g_pp_b1_layer_params()
+    E = _layer_e_matrix_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=0.1,
+    )
+    # u_z row, D cols.
+    assert E[1, 4] == 0.0
+    assert E[1, 5] == 0.0
+    # u_theta row, C cols.
+    assert E[2, 2] == 0.0
+    assert E[2, 3] == 0.0
+
+
+def test_layer_e_matrix_n2_K_flavour_matches_modal_determinant_n2_docstring():
+    """Cross-check vs the K-flavour entries transcribed from
+    ``_modal_determinant_n2``'s docstring at r=a:
+
+    * Row 1 (BC1: f - m, layer cols negated) -> u_r row of E,
+      K-flavour cols (B_K, C_K, D_K).
+    * Row 2 (BC2: -m, layer cols negated) -> sigma_rr row.
+    * Row 3 (BC3: m=0, layer cols positive) -> sigma_rtheta row.
+    * Row 4 (BC4: m=0, layer cols positive) -> sigma_rz row.
+
+    The unlayered formula from the docstring at radius ``r=a``
+    becomes (for the layer's E entries) the formation parameters
+    evaluated at ``r=a`` (since the formation half-space's K-only
+    contribution to the modal matrix uses the same Bessel ansatz
+    as the layer's K-flavour part at this radius)."""
+    from scipy import special as _special
+    vp, vs, rho = 2200.0, 800.0, 2200.0
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / vs * 1.05  # bound regime
+    a = 0.1
+
+    E = _layer_e_matrix_n2(
+        kz=kz, omega=omega, vp=vp, vs=vs, rho=rho, r=a,
+    )
+
+    # Local Bessel evaluations matching the docstring's notation.
+    p_ = float(np.sqrt(kz * kz - (omega / vp) ** 2))
+    s_ = float(np.sqrt(kz * kz - (omega / vs) ** 2))
+    K1pa = float(_special.kv(1, p_ * a))
+    K2pa = float(_special.kv(2, p_ * a))
+    K1sa = float(_special.kv(1, s_ * a))
+    K2sa = float(_special.kv(2, s_ * a))
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    # Row 1 (BC1) layer cols are -E[u_r row, K-flavour cols]:
+    # B_K: +p K_1 + 2 K_2/a    (docstring)
+    # C_K: +kz K_2             (docstring)
+    # D_K: -2 K_2/a            (docstring)
+    assert -E[0, 1] == pytest.approx(+p_ * K1pa + 2.0 * K2pa / a, rel=1e-12)
+    assert -E[0, 3] == pytest.approx(+kz * K2sa, rel=1e-12)
+    assert -E[0, 5] == pytest.approx(-2.0 * K2sa / a, rel=1e-12)
+
+    # Row 2 (BC2) layer cols negated:
+    # B_K: -mu * [(2 kz^2 - kS^2) K_2 + 2 p K_1/a + 12 K_2/a^2]
+    # C_K: -2 mu kz * [s K_1 + 2 K_2/a]
+    # D_K: +4 mu * [s K_1/a + 3 K_2/a^2]
+    assert -E[3, 1] == pytest.approx(
+        -mu * (two_kz2_minus_kS2 * K2pa + 2.0 * p_ * K1pa / a + 12.0 * K2pa / (a * a)),
+        rel=1e-12,
+    )
+    assert -E[3, 3] == pytest.approx(
+        -2.0 * mu * kz * (s_ * K1sa + 2.0 * K2sa / a), rel=1e-12,
+    )
+    assert -E[3, 5] == pytest.approx(
+        +4.0 * mu * (s_ * K1sa / a + 3.0 * K2sa / (a * a)), rel=1e-12,
+    )
+
+    # Row 3 (BC3) layer cols positive (no negation):
+    # B_K: +4 mu * [p K_1/a + 3 K_2/a^2]
+    # C_K: +2 mu kz K_2/a
+    # D_K: -mu * [(s^2 + 12/a^2) K_2 + 2 s K_1/a]
+    assert E[5, 1] == pytest.approx(
+        +4.0 * mu * (p_ * K1pa / a + 3.0 * K2pa / (a * a)), rel=1e-12,
+    )
+    assert E[5, 3] == pytest.approx(+2.0 * mu * kz * K2sa / a, rel=1e-12)
+    assert E[5, 5] == pytest.approx(
+        -mu * ((s_ * s_ + 12.0 / (a * a)) * K2sa + 2.0 * s_ * K1sa / a),
+        rel=1e-12,
+    )
+
+    # Row 4 (BC4) layer cols positive:
+    # B_K: +2 mu kz * [p K_1 + 2 K_2/a]
+    # C_K: +mu * [(2 kz^2 - kS^2) + 3/a^2] K_2
+    # D_K: -2 mu kz K_2/a
+    assert E[4, 1] == pytest.approx(
+        +2.0 * mu * kz * (p_ * K1pa + 2.0 * K2pa / a), rel=1e-12,
+    )
+    assert E[4, 3] == pytest.approx(
+        +mu * (two_kz2_minus_kS2 + 3.0 / (a * a)) * K2sa, rel=1e-12,
+    )
+    assert E[4, 5] == pytest.approx(-2.0 * mu * kz * K2sa / a, rel=1e-12)
+
+
+def test_layer_e_matrix_n2_n2_factors_appear():
+    """Pin the explicit n=2 factors: ``12 = 2 n (n+1)`` in the
+    F_2 / r^2 term of sigma_rr; ``3 = n^2 - 1`` in the SV column
+    of sigma_rz. Catches a transcription error where an n=1
+    formula was reused at n=2."""
+    from scipy import special as _special
+    p = _typical_g_pp_b1_layer_params()
+    a = 0.1
+    E = _layer_e_matrix_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=a,
+    )
+    # sigma_rr row (3) B_K col (1): expect (2 kz^2 - kS^2) K_2
+    # + 2 p K_1/a + 12 K_2/a^2 (with leading +mu).
+    p_ = float(np.sqrt(p["kz"] * p["kz"] - (p["omega"] / p["vp"]) ** 2))
+    K1pa = float(_special.kv(1, p_ * a))
+    K2pa = float(_special.kv(2, p_ * a))
+    mu = p["rho"] * p["vs"] ** 2
+    kS2 = (p["omega"] / p["vs"]) ** 2
+    expected = mu * (
+        (2.0 * p["kz"] ** 2 - kS2) * K2pa + 2.0 * p_ * K1pa / a + 12.0 * K2pa / (a * a)
+    )
+    assert E[3, 1] == pytest.approx(expected, rel=1e-12)
+
+    # sigma_rz row (4) C_K col (3): expect (2 kz^2 - kS^2 + 3/a^2) K_2
+    # (with leading +mu).
+    s_ = float(np.sqrt(p["kz"] * p["kz"] - (p["omega"] / p["vs"]) ** 2))
+    K2sa = float(_special.kv(2, s_ * a))
+    expected_rz = mu * (2.0 * p["kz"] ** 2 - kS2 + 3.0 / (a * a)) * K2sa
+    assert E[4, 3] == pytest.approx(expected_rz, rel=1e-12)
