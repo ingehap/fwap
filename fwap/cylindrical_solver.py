@@ -52,6 +52,20 @@ Scope (this module)
   keep the wave bound in the annulus. Layer parameters are
   collected in :class:`BoreholeLayer`. See plan F in
   ``docs/plans/cylindrical_biot.md`` for the full decomposition.
+* **Cased-hole multi-layer extension** (n=0): for an arbitrary
+  ``N``-layer stack (typically ``fluid -> casing -> cement
+  -> formation`` or ``fluid -> casing -> cement -> mudcake ->
+  formation``), :func:`stoneley_dispersion_layered` dispatches
+  to a Thomson-Haskell-style propagator-matrix path
+  (:func:`_modal_determinant_n0_cased`) that folds the ``N``
+  layer-internal amplitude families into a single 7x7 modal
+  determinant via per-layer 4x4 propagators
+  ``P_j = E_j(r_outer) E_j(r_inner)^{-1}``. The ``N=0`` and
+  ``N=1`` cases remain bit-equivalent to the unlayered and
+  hand-coded F.1 solvers respectively. The n=1 (cased-hole
+  flexural) and n=2 (cased-hole quadrupole) counterparts are
+  deferred follow-ups to plan G; see plan G in
+  ``docs/plans/cylindrical_biot_G.md`` for the full breakdown.
 
 Sign conventions
 ----------------

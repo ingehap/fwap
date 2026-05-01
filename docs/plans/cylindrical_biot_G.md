@@ -9,13 +9,13 @@ style propagator-matrix.
 
 ## Status of plan G overall
 
-- ⏳ G.0 — public-API foundation
-- ⏳ G.a — math scaffolding (substep blocks, comments only)
-- ⏳ G.b — n=0 per-layer propagator helper
-- ⏳ G.c — n=0 stacked modal determinant (assembly + collapse oracles)
-- ⏳ G.d — n=0 public API + free-pipe / cement-bond regression
-- ⏳ G.e — n=0 hardening (Tang & Cheng 2004 fig 7.1)
-- ⏳ G.f — cross-cutting docs
+- ✅ G.0 — public-API foundation
+- ✅ G.a — math scaffolding (substep blocks, comments only)
+- ✅ G.b — n=0 per-layer propagator helper (G.b.1 + G.b.2)
+- ✅ G.c — n=0 stacked modal determinant (assembly + collapse oracles)
+- ✅ G.d — n=0 public API + cement-bond regression
+- ✅ G.e — n=0 hardening (Tang & Cheng 2004 fig 7.1 deferred)
+- ✅ G.f — cross-cutting docs
 
 Plan G is independent of plans A-E (leaky-mode chain) and H (VTI).
 It depends on F (single-extra-layer infrastructure: `BoreholeLayer`,
@@ -322,9 +322,27 @@ chain's self-consistency.
 - Mark item G done in `docs/plans/cylindrical_biot.md`.
 - Update module docstring scope to mention multi-layer cased-hole
   support.
-- Commit pointers in this plan doc.
+- Commit pointers below.
 - Note that n=1 / n=2 cased-hole counterparts are deferred to
   follow-up plans G' / G''.
+
+### Landing commits (branch `claude/plan-cylindrical-biot-f-JgjGH`)
+
+- `881efcd` — G.0  public-API foundation
+  (`_validate_borehole_layers_stacked`, sharpened NIE messages)
+- `154a4f3` — G.a  math scaffolding (state vector, E(r),
+  propagator chain, BC bookkeeping, conditioning)
+- `bad8650` — G.a  sigma_rz sign erratum
+- `eabf884` — G.b.1  `_layer_e_matrix_n0` (4 per-element oracles
+  vs F.1.b row builders)
+- `123e634` — G.b.2  `_layer_propagator_n0` (round-trip via
+  state-vector identity, composition group law)
+- `dd3db3e` — G.c  `_modal_determinant_n0_cased` (N=1 numerical
+  match with F.1 to `rtol=1e-10`)
+- `9e6b1ed` — G.d  `stoneley_dispersion_layered` multi-layer
+  brentq path; `_stoneley_kz_bracket_cased` helper
+- `9df7a78` — G.e  hardening (multi-frequency det-at-root,
+  layer-collapse oracles, cement-bond physics sanity)
 
 ## Total scope
 
