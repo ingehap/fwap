@@ -9918,3 +9918,136 @@ def _modal_row2_at_a_vti(
     )
     return row
 
+
+# =====================================================================
+# Substep H.c.1.c -- row 3 (sigma_rz at r=a)
+# =====================================================================
+#
+# BC3: ``sigma_rz^{(s)}(a) = 0`` (cos-sector axial-shear vanishing
+# at the borehole wall; fluid carries no shear so column A is
+# identically zero). Z-derivative-bearing row; gets the FULL
+# substep-H.a.6 phase rescale (row * i AND col-by-(-i) on C_qSV).
+#
+# **VTI sigma_rz formula** (same form as isotropic with mu -> C44):
+#
+#       sigma_rz = C44 (d_z u_r + d_r u_z)
+#
+# C44 (vertical shear modulus) is the only stiffness coefficient
+# that appears explicitly in the constitutive relation; C66 does
+# NOT enter row 3. The Christoffel roots and the polarization
+# ratio (which depend on the full C-matrix) do enter through u_r
+# and u_z, however.
+#
+# **Stress factor P_qX** for sigma_rz (single combination,
+# distinct from the Q_qX of substep H.c.1.b):
+#
+#   P_qX = C11 alpha_qX^2 + C13 k_z^2 + rho omega^2
+#
+# In isotropic limit (verified algebraically):
+#   P_qP  -> 2 (lambda + mu) k_z^2     (using p^2 = k_z^2 -
+#                                        rho omega^2 / (lambda + 2 mu))
+#   P_qSV -> (lambda + mu) (2 k_z^2 - k_S^2)
+#
+# **Row 3 entries (post-rescale)**:
+#
+#   A column: 0  (fluid no shear)
+#
+#   B_qP column:
+#       row[1] = C44 alpha_qP P_qP / [(C13 + C44) k_z] * K_1(alpha_qP a)
+#       Isotropic limit -> 2 mu p k_z K_1(p a) = M32.
+#
+#   C_qSV column:
+#       row[2] = C44 P_qSV / (C13 + C44) * K_1(alpha_qSV a)
+#       Isotropic limit -> mu (2 k_z^2 - k_S^2) K_1(s a) = M33.
+#
+# The phase rescale (row * i + col-by-(-i) on C) is what flips
+# the pre-rescale ``-i`` factor on B_qP and the ``+real`` factor
+# on C_qSV into the post-rescale real entries above. Forgetting
+# either rescale is the most direct H.a.6 transcription error;
+# the row.imag == 0 test catches it.
+
+
+def _modal_row3_at_a_vti(
+    kz: float,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> np.ndarray:
+    r"""
+    Row 3 of the n=0 VTI Stoneley modal determinant at ``r = a``.
+
+    Encodes BC3 ``sigma_rz^{(s)}(a) = 0`` (cos sector). The
+    fluid-no-shear identity makes column A identically zero.
+    Returns the three post-rescale coefficients in column order
+    ``[A | B_qP, C_qSV]``.
+
+    Parameters
+    ----------
+    kz, omega : float
+        Axial wavenumber and angular frequency.
+    c11, c13, c33, c44, c66 : float
+        VTI stiffness tensor entries (Pa). ``c66`` is carried for
+        signature uniformity but does NOT enter row 3 (sigma_rz
+        depends only on C44).
+    rho : float
+        Formation density (kg/m^3).
+    vf, rho_f : float
+        Fluid velocity / density. Carried for signature uniformity
+        but not used by row 3 (fluid carries no shear).
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    ndarray, shape (3,) complex
+        Coefficients of (A, B_qP, C_qSV) in row 3. Real-valued in
+        the bound regime.
+
+    See Also
+    --------
+    _modal_determinant_n0 : Isotropic n=0 form. At isotropic
+        collapse, ``row[0] = M31 = 0``, ``row[1] = M32``,
+        ``row[2] = M33`` bit-exactly.
+    """
+    del vf, rho_f  # fluid carries no shear; not used by row 3
+    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti(
+        kz, omega, c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho,
+    )
+    K1_qP_a = float(special.kv(1, alpha_qP * a))
+    K1_qSV_a = float(special.kv(1, alpha_qSV * a))
+
+    rho_omega_sq = rho * omega * omega
+    # Stress factor P_qX = C11 alpha_qX^2 + C13 kz^2 + rho omega^2.
+    # Distinct from the Q_qX of row 2; appears here through the
+    # sigma_rz combination C44 (d_z u_r + d_r u_z).
+    p_qP = c11 * alpha_qP * alpha_qP + c13 * kz * kz + rho_omega_sq
+    p_qSV = c11 * alpha_qSV * alpha_qSV + c13 * kz * kz + rho_omega_sq
+
+    row = np.zeros(3, dtype=complex)
+    # A column: fluid carries no shear; sigma_rz from A is zero.
+    row[0] = 0.0
+    # B_qP column (post-rescale via row * i):
+    #   pre-rescale: -i C44 alpha_qP P_qP / [(C13 + C44) k_z] K_1
+    #   post: +C44 alpha_qP P_qP / [(C13 + C44) k_z] K_1
+    # Isotropic limit P_qP -> 2 (lambda + mu) k_z^2, so
+    #   row[1] -> 2 mu p k_z K_1(p a) = M32.
+    row[1] = (
+        c44 * alpha_qP * p_qP / ((c13 + c44) * kz) * K1_qP_a
+    )
+    # C_qSV column (post-rescale via row * i AND col-by-(-i),
+    # net factor +1):
+    #   pre-rescale: +C44 P_qSV / (C13 + C44) K_1 (already real)
+    #   post-rescale: same value (i * (-i) = 1).
+    # Isotropic limit P_qSV -> (lambda + mu)(2 k_z^2 - k_S^2), so
+    #   row[2] -> mu (2 k_z^2 - k_S^2) K_1(s a) = M33.
+    row[2] = c44 * p_qSV / (c13 + c44) * K1_qSV_a
+    return row
+

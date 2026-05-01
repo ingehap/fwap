@@ -39,6 +39,7 @@ from fwap.cylindrical_solver import (
     _modal_determinant_n1_layered,
     _modal_row1_at_a_vti,
     _modal_row2_at_a_vti,
+    _modal_row3_at_a_vti,
     _polarization_ratio_uz_over_ur_vti,
     _radial_wavenumbers_vti,
     flexural_dispersion,
@@ -5836,3 +5837,110 @@ def test_modal_row2_at_a_vti_uses_c66_in_KK_one_over_a_term():
     assert row[1].real == pytest.approx(expected, rel=1.0e-12)
     # Sanity check: confirm fixture has C44 != C66 (genuine gamma).
     assert cij["c44"] != cij["c66"]
+
+
+# =====================================================================
+# Plan item H.c.1.c -- row 3 (sigma_rz at r=a)
+# =====================================================================
+#
+# Z-derivative-bearing cos row of the n=0 VTI determinant. Gets
+# the FULL substep-H.a.6 phase rescale (row * i AND col-by-(-i)
+# on C_qSV). Tests anchor on the per-element layer=formation
+# match against M31, M32, M33.
+
+
+def test_modal_row3_at_a_vti_isotropic_collapse_matches_M31_M32_M33():
+    """Floating-point oracle for H.c.1.c: at isotropic stiffness,
+    row 3 of the VTI determinant matches M31, M32, M33 of
+    :func:`_modal_determinant_n0` to floating-point precision."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _modal_row3_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+
+    p = float(np.sqrt(kz * kz - (omega / vp) ** 2))
+    s = float(np.sqrt(kz * kz - (omega / vs) ** 2))
+    from scipy import special as sp
+
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    M31 = 0.0
+    M32 = 2.0 * kz * p * mu * float(sp.kv(1, p * a))
+    M33 = mu * two_kz2_minus_kS2 * float(sp.kv(1, s * a))
+
+    assert row[0] == 0.0
+    assert row[1].real == pytest.approx(M32, rel=1.0e-12)
+    assert row[2].real == pytest.approx(M33, rel=1.0e-12)
+
+
+def test_modal_row3_at_a_vti_fluid_column_is_zero():
+    """A column identically zero (fluid carries no shear)."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    row = _modal_row3_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert row[0] == 0.0
+    # B and C columns generically non-zero.
+    assert row[1] != 0.0
+    assert row[2] != 0.0
+
+
+def test_modal_row3_at_a_vti_is_real_in_bound_regime():
+    """Substep H.a.6: row 3 is z-derivative-bearing -- gets the
+    FULL rescale (row * i AND col-by-(-i) on C_qSV). Both must be
+    correctly applied for the post-rescale row to be real.
+    Forgetting the row * i is the most direct H.a.6 transcription
+    error; this test catches it."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    row = _modal_row3_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e-14)
+
+
+def test_modal_row3_at_a_vti_does_not_use_c66():
+    """Genuine-TI sanity: sigma_rz uses ONLY C44 (vertical shear),
+    not C66 (horizontal shear). Doubling C66 leaves row 3
+    unchanged, EXCEPT through the alpha_qP and alpha_qSV
+    Christoffel roots from :func:`_radial_wavenumbers_vti` which
+    only depend on C11, C13, C33, C44, rho (not C66). Confirms
+    the (C11 - 2 C66) u_r/r slot does NOT appear in row 3."""
+    cij_a = _typical_vti_params()
+    cij_b = dict(cij_a)
+    cij_b["c66"] = cij_a["c66"] * 2.0  # double C66
+    rho = cij_a.pop("rho")
+    cij_b.pop("rho")
+
+    omega = 2.0 * np.pi * 5000.0
+    vsv = float(np.sqrt(cij_a["c44"] / rho))
+    # Bound regime floor: must be above min(V_Sv) and the doubled
+    # V_Sh of cij_b. Pick kz well above both.
+    kz = omega / vsv * 2.0
+
+    row_a = _modal_row3_at_a_vti(
+        kz, omega, **cij_a, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    row_b = _modal_row3_at_a_vti(
+        kz, omega, **cij_b, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    # Identical: row 3 doesn't see C66 directly.
+    np.testing.assert_array_equal(row_a, row_b)
