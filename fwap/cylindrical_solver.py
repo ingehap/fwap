@@ -10816,3 +10816,103 @@ def _modal_row4_at_a_n1_vti(
     row[3] = -kz * c44 * K1_SH_a / a
     return row
 
+
+# =====================================================================
+# Substep H.d.5 -- assembly into _modal_determinant_n1_vti
+# =====================================================================
+#
+# Stacks the four row builders (H.d.1 / H.d.2 / H.d.3 / H.d.4) into
+# the 4x4 VTI flexural modal matrix and returns the determinant
+# as a real scalar.
+#
+# Each row builder applies the substep-H.a.6 phase rescale
+# internally: row 4 (the only z-derivative-bearing row in the n=1
+# 4x4) by ``i``; column C_qSV by ``-i``. The assembled matrix is
+# real-valued in the bound regime; ``np.linalg.det`` on the
+# .real part returns the real determinant directly.
+#
+# Reduces to :func:`_modal_determinant_n1` (sharing the same
+# flexural root in k_z, with an irrelevant overall scale factor)
+# when the stiffness tensor is isotropic. The H.d.6 follow-up
+# (``flexural_dispersion_vti`` end-to-end brentq) is the
+# floating-point oracle that anchors this assembly.
+
+
+def _modal_determinant_n1_vti(
+    kz: float,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> float:
+    r"""
+    4x4 dipole modal determinant for the n=1 (flexural) VTI
+    dispersion.
+
+    Stacks the four row builders from H.d.1 / H.d.2 / H.d.3 /
+    H.d.4 into the 4x4 VTI flexural modal matrix, applies the
+    substep-H.a.6 phase rescale (already absorbed into each
+    row), and returns the determinant as a real scalar.
+
+    Reduces to :func:`_modal_determinant_n1` (sharing the same
+    flexural root in ``k_z``, with an irrelevant overall scale
+    factor) when the stiffness tensor is isotropic. The H.d.6
+    integration test in :func:`flexural_dispersion_vti` is the
+    floating-point oracle that anchors this assembly.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m). Must lie in the bound
+        regime ``kz > omega / min(V_Sv, V_Sh, V_f)``.
+    omega : float
+        Angular frequency (rad / s).
+    c11, c13, c33, c44, c66 : float
+        VTI stiffness tensor entries (Pa).
+    rho : float
+        Formation density (kg/m^3).
+    vf, rho_f : float
+        Borehole-fluid velocity and density.
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    float
+        ``det(M)`` of the 4x4 VTI flexural modal matrix, real-
+        valued in the bound regime. NaN outside the bound regime.
+    """
+    rows = [
+        _modal_row1_at_a_n1_vti(
+            kz, omega,
+            c11=c11, c13=c13, c33=c33, c44=c44, c66=c66,
+            rho=rho, vf=vf, rho_f=rho_f, a=a,
+        ),
+        _modal_row2_at_a_n1_vti(
+            kz, omega,
+            c11=c11, c13=c13, c33=c33, c44=c44, c66=c66,
+            rho=rho, vf=vf, rho_f=rho_f, a=a,
+        ),
+        _modal_row3_at_a_n1_vti(
+            kz, omega,
+            c11=c11, c13=c13, c33=c33, c44=c44, c66=c66,
+            rho=rho, vf=vf, rho_f=rho_f, a=a,
+        ),
+        _modal_row4_at_a_n1_vti(
+            kz, omega,
+            c11=c11, c13=c13, c33=c33, c44=c44, c66=c66,
+            rho=rho, vf=vf, rho_f=rho_f, a=a,
+        ),
+    ]
+    M = np.vstack(rows)
+    # Each row is real-valued post-rescale; imaginary parts are
+    # zero to floating-point precision in the bound regime.
+    return float(np.linalg.det(M.real))
+

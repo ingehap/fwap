@@ -45,6 +45,7 @@ from fwap.cylindrical_solver import (
     _modal_row4_at_a_n1_vti,
     _modal_row3_at_a_vti,
     _modal_determinant_n0_vti,
+    _modal_determinant_n1_vti,
     _is_isotropic_stiffness,
     _polarization_ratio_uz_over_ur_vti,
     _radial_wavenumbers_vti,
@@ -6908,3 +6909,123 @@ def test_modal_row4_at_a_n1_vti_C66_independent_except_via_alpha_SH():
     assert row_a[2].real == pytest.approx(row_b[2].real, rel=1.0e-12)
     # D_SH differs (alpha_SH depends on C66).
     assert row_a[3].real != row_b[3].real
+
+
+# =====================================================================
+# Plan item H.d.5 -- assembly into _modal_determinant_n1_vti
+# =====================================================================
+#
+# Stacks the four row builders into the 4x4 VTI flexural modal
+# matrix; takes the real determinant. Tests anchor on the
+# determinant-vanishes-at-isotropic-flexural-root self-consistency.
+# Mirrors the H.c.1.d test pattern.
+
+
+def test_modal_determinant_n1_vti_is_real_in_bound_regime():
+    """The assembled 4x4 matrix is real-valued post-rescale (each
+    row builder applies its own rescale internally), so
+    ``np.linalg.det`` returns a finite real scalar in the bound
+    regime."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    det = _modal_determinant_n1_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert np.isfinite(det)
+    assert isinstance(det, float)
+
+
+def test_modal_determinant_n1_vti_isotropic_collapse_root_matches_unlayered():
+    """Substep H.a.7 (a) self-check at the determinant level: at
+    isotropic stiffness (slow-formation regime where ``F^2 > 0``
+    and the real-valued determinant is well-defined), the VTI
+    determinant has the same flexural root as
+    :func:`_modal_determinant_n1`. The two determinants are not
+    numerically equal (different overall scale due to different
+    intermediate factors), but they share the same root in ``k_z``.
+
+    Verify by: (a) computing the flexural root from
+    ``flexural_dispersion``; (b) evaluating the VTI determinant
+    at that root; (c) checking ``|det_at_root|`` is small relative
+    to its value off-root."""
+    # Slow formation (V_S < V_f) keeps F^2 = kz^2 - (omega/V_f)^2
+    # positive at the flexural root, the regime in which the
+    # real-valued ``_modal_determinant_n1`` (and its VTI mirror)
+    # is well-defined.
+    vp, vs, rho = SLOW_VP, SLOW_VS, SLOW_RHO
+    vf, rho_f, a = SLOW_VF, SLOW_RHO_F, SLOW_A
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    omega = 2.0 * np.pi * 5000.0
+
+    bound = flexural_dispersion(
+        np.array([5000.0]),
+        vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    kz_root = float(bound.slowness[0]) * omega
+
+    det_at_root = _modal_determinant_n1_vti(
+        kz_root, omega, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    det_off_root = _modal_determinant_n1_vti(
+        kz_root * 1.05, omega, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    # Determinant at root much smaller than off-root: brentq-type
+    # root-finder will converge cleanly. The factor 1e-3 budget
+    # is loose because the two determinants differ in absolute
+    # scale; tighter tolerance kicks in at the full
+    # flexural_dispersion_vti integration test in H.d.6.
+    assert abs(det_at_root) < abs(det_off_root) * 1.0e-3
+
+
+def test_modal_determinant_n1_vti_bracket_brackets_isotropic_root():
+    """End-to-end at-isotropic check (slow formation): brentq
+    across a tight bracket around the isotropic flexural root
+    finds the determinant root, and that root matches the
+    isotropic flexural slowness to ``rtol=1e-8``."""
+    from scipy import optimize
+
+    vp, vs, rho = SLOW_VP, SLOW_VS, SLOW_RHO
+    vf, rho_f, a = SLOW_VF, SLOW_RHO_F, SLOW_A
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    omega = 2.0 * np.pi * 5000.0
+
+    bound = flexural_dispersion(
+        np.array([5000.0]),
+        vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    kz_root_iso = float(bound.slowness[0]) * omega
+
+    def _det(kz):
+        return _modal_determinant_n1_vti(
+            kz, omega, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        )
+
+    # Bracket around the isotropic root.
+    kz_lo = kz_root_iso * 0.99
+    kz_hi = kz_root_iso * 1.01
+    d_lo = _det(kz_lo)
+    d_hi = _det(kz_hi)
+    assert np.sign(d_lo) != np.sign(d_hi)  # bracket valid
+    kz_root_vti = optimize.brentq(_det, kz_lo, kz_hi, xtol=1.0e-10)
+    assert kz_root_vti == pytest.approx(kz_root_iso, rel=1.0e-8)
+
+
+def test_modal_determinant_n1_vti_returns_nan_outside_bound_regime():
+    """Below the bound floor at least one Christoffel root is
+    imaginary; the assembled determinant returns NaN (brentq-safe
+    convention propagates from the radial-wavenumber helper)."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vp_h = float(np.sqrt(cij["c11"] / rho))  # fastest body wave
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / vp_h * 0.5  # well below the bound floor
+    with np.errstate(invalid="ignore"):
+        det = _modal_determinant_n1_vti(
+            kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+        )
+    assert np.isnan(det)
