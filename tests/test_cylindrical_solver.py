@@ -18,6 +18,9 @@ from fwap.cylindrical import (
 from fwap.cylindrical_solver import (
     BoreholeLayer,
     BoreholeMode,
+    _layer_e_matrix_n0,
+    _layer_propagator_n0,
+    _validate_borehole_layers_stacked,
     _layered_n0_bessel_pack,
     _layered_n0_radial_wavenumbers,
     _layered_n0_row1_at_a,
@@ -2093,13 +2096,14 @@ def test_stoneley_dispersion_layered_empty_layers_returns_borehole_mode():
 
 
 def test_stoneley_dispersion_layered_multilayer_raises_not_implemented():
-    """Multi-layer stacks (``len(layers) > 1``) are plan item G --
-    the cased-hole propagator-matrix extension. Single-layer and
+    """Multi-layer stacks (``len(layers) > 1``) currently raise
+    ``NotImplementedError`` until plan items G.c (stacked modal
+    determinant) and G.d (public-API hook) land. Single-layer and
     unlayered are supported by F.1.b.4."""
     f = np.array([1000.0, 2000.0])
     layer1 = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
     layer2 = BoreholeLayer(vp=3000.0, vs=1500.0, rho=1900.0, thickness=0.005)
-    with pytest.raises(NotImplementedError, match="plan item G"):
+    with pytest.raises(NotImplementedError, match=r"G\.c"):
         stoneley_dispersion_layered(
             f,
             vp=4500.0, vs=2500.0, rho=2400.0,
@@ -3502,13 +3506,15 @@ def test_flexural_dispersion_layered_fast_formation_layered_raises_not_implement
 
 
 def test_flexural_dispersion_layered_multilayer_raises_not_implemented():
-    """Multi-layer stacks (``len(layers) > 1``) are plan item G --
-    the cased-hole propagator-matrix extension. Single-layer and
-    unlayered are supported by F.2.d."""
+    """Multi-layer stacks (``len(layers) > 1``) currently raise
+    ``NotImplementedError``; the n=1 cased-hole counterpart is
+    deferred to plan G' (follow-up to plan G), which extends the
+    G.b/G.c propagator scaffolding to 6x6 per-layer blocks.
+    Single-layer and unlayered are supported by F.2.d."""
     f = np.array([2000.0, 4000.0])
     layer1 = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
     layer2 = BoreholeLayer(vp=3000.0, vs=1500.0, rho=1900.0, thickness=0.005)
-    with pytest.raises(NotImplementedError, match="plan item G"):
+    with pytest.raises(NotImplementedError, match=r"plan G'"):
         flexural_dispersion_layered(
             f,
             vp=4500.0, vs=2500.0, rho=2400.0,
@@ -7349,3 +7355,387 @@ def test_flexural_dispersion_vti_weak_anisotropy_matches_phenomenological():
     assert np.all(np.isfinite(res_modal.slowness))
     rel_diff = np.abs(res_modal.slowness - s_phenom) / s_phenom
     assert np.all(rel_diff < 0.10)
+
+
+# =====================================================================
+# Plan item G.0 -- public-API foundation for cased-hole multi-layer
+# =====================================================================
+#
+# G.0 widens the multi-layer dispatch in stoneley_dispersion_layered
+# / flexural_dispersion_layered with: (a) a sharper NotImplementedError
+# message that points at the G.c / G.d / G' follow-ups (verified by
+# the existing multilayer_raises_not_implemented tests above, with
+# their match strings updated), and (b) a new helper
+# _validate_borehole_layers_stacked that wraps F's per-layer
+# validation with the borehole-radius check. The propagator-matrix
+# path itself lands in G.b / G.c / G.d.
+
+
+def test_validate_borehole_layers_stacked_accepts_typical_two_layer_stack():
+    """A casing + cement geometry passes the stacked validator
+    without raising. Same ``BoreholeLayer`` validation rules as
+    F's per-layer validator, plus ``a > 0``."""
+    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
+    cement = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05)
+    # Should not raise.
+    _validate_borehole_layers_stacked((casing, cement), a=0.1)
+
+
+def test_validate_borehole_layers_stacked_accepts_empty_stack():
+    """Empty stack ``()`` is the degenerate "no extra layers" case
+    and validates trivially as long as ``a > 0``."""
+    _validate_borehole_layers_stacked((), a=0.1)
+
+
+def test_validate_borehole_layers_stacked_rejects_zero_thickness_in_multi_stack():
+    """A zero-thickness layer in a multi-layer stack is rejected
+    by the per-layer validation (delegated to
+    ``_validate_borehole_layers``). The error message identifies
+    the offending index."""
+    bad = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.0)
+    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
+    with pytest.raises(ValueError, match=r"layers\[1\].*thickness must be positive"):
+        _validate_borehole_layers_stacked((casing, bad), a=0.1)
+
+
+def test_validate_borehole_layers_stacked_rejects_non_positive_a():
+    """Non-positive borehole radius is rejected with a clear
+    error. Catches it earlier than the public-API dispatch, which
+    is useful when G.c starts using the helper."""
+    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
+    cement = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05)
+    with pytest.raises(ValueError, match="a must be positive"):
+        _validate_borehole_layers_stacked((casing, cement), a=0.0)
+    with pytest.raises(ValueError, match="a must be positive"):
+        _validate_borehole_layers_stacked((casing, cement), a=-0.1)
+
+
+def test_stoneley_dispersion_layered_two_layer_NIE_points_at_G_c_G_d():
+    """The G.0 dispatch sharpens the multi-layer NIE message to
+    name plan items G.c (stacked modal determinant) and G.d
+    (public-API hook). Verifies the user-facing pointer is
+    actionable rather than just naming "plan G"."""
+    f = np.array([5000.0])
+    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
+    cement = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05)
+    with pytest.raises(NotImplementedError) as exc_info:
+        stoneley_dispersion_layered(
+            f, vp=4500.0, vs=2500.0, rho=2400.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+            layers=(casing, cement),
+        )
+    msg = str(exc_info.value)
+    assert "G.c" in msg
+    assert "G.d" in msg
+    assert "cylindrical_biot_G.md" in msg
+
+
+def test_flexural_dispersion_layered_two_layer_NIE_points_at_G_prime():
+    """Mirror at n=1: the multi-layer NIE message identifies the
+    deferred G' follow-up (cased-hole flexural with 6x6 propagator
+    blocks) rather than just naming "plan G"."""
+    f = np.array([5000.0])
+    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
+    cement = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05)
+    with pytest.raises(NotImplementedError) as exc_info:
+        flexural_dispersion_layered(
+            f, vp=4500.0, vs=2500.0, rho=2400.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+            layers=(casing, cement),
+        )
+    msg = str(exc_info.value)
+    assert "G'" in msg
+    assert "cylindrical_biot_G.md" in msg
+
+
+def test_stoneley_dispersion_layered_zero_and_one_layer_paths_unchanged():
+    """G.0 must not perturb the two existing collapse paths
+    (``len(layers) == 0`` and ``len(layers) == 1``). Regression:
+    each produces the same slowness curve at a representative
+    frequency."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f = np.array([5000.0])
+
+    # Empty-layer path: dispatches to stoneley_dispersion.
+    res_empty = stoneley_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a, layers=(),
+    )
+    res_unlayered = stoneley_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    np.testing.assert_array_equal(res_empty.slowness, res_unlayered.slowness)
+
+    # Single-layer path: F.1 hand-coded determinant. Just smoke;
+    # bit-equivalent regressions are exercised elsewhere.
+    layer = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
+    res_one = stoneley_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a, layers=(layer,),
+    )
+    assert np.isfinite(res_one.slowness[0])
+    assert isinstance(res_one, BoreholeMode)
+    assert res_one.azimuthal_order == 0
+
+
+# =====================================================================
+# Plan item G.b.1 -- mode-amplitude-to-state-vector matrix E(r)
+# =====================================================================
+#
+# Per-element oracle: at r=a, the layer-amplitude columns of
+# F.1.b row 1 / 2 / 3 (with explicit sign factors per the BC's
+# subtraction convention) match rows 0, 2, 3 of E(a). At r=b,
+# F.1.b row 5 layer cols match row 1 (u_z) of E(b). Together
+# these cover all four rows of E.
+
+
+def _typical_g_b1_layer_params():
+    """Representative non-isotropic-collapse layer + (kz, omega)
+    fixture for G.b.1 / G.b.2 tests. Sits in the slow-formation
+    bound regime so the propagator-matrix path is well-defined."""
+    return dict(
+        vp=3500.0, vs=1800.0, rho=2100.0,
+        kz=2.0 * np.pi * 5000.0 / 1500.0,  # bound: kz > omega/V_S
+        omega=2.0 * np.pi * 5000.0,
+    )
+
+
+def test_layer_e_matrix_n0_row0_matches_F1_row1_at_a_layer_cols():
+    """Row 0 of E(a) (u_r) matches the layer-amplitude columns
+    (1..5) of ``_layered_n0_row1_at_a`` with a sign flip: F.1's
+    BC1 is ``u_r^(f) - u_r^(m) = 0``, so the layer side is
+    negated in the row builder. This is the cleanest per-element
+    oracle for the u_r row of E(r)."""
+    p = _typical_g_b1_layer_params()
+    layer = BoreholeLayer(vp=p["vp"], vs=p["vs"], rho=p["rho"], thickness=0.005)
+    a = 0.1
+    # E(a) for the layer.
+    E = _layer_e_matrix_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=a,
+    )
+    # F.1.b row 1: signature uses (vp, vs, rho) for the formation
+    # half-space; the layer is passed via ``layer``. Row 1 doesn't
+    # touch the formation parameters except for signature uniformity.
+    row1 = _layered_n0_row1_at_a(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    # Layer cols 1..5 of row 1 = -E[0, :] (negation from f - m).
+    np.testing.assert_allclose(
+        row1[1:5].real, -E[0, :], rtol=1.0e-12,
+    )
+
+
+def test_layer_e_matrix_n0_row2_matches_F1_row2_at_a_layer_cols():
+    """Row 2 of E(a) (sigma_rr) matches the layer cols of
+    ``_layered_n0_row2_at_a`` with a sign flip: BC2 is
+    ``-(sigma_rr^(m) + P^(f)) = 0``, layer side negated."""
+    p = _typical_g_b1_layer_params()
+    layer = BoreholeLayer(vp=p["vp"], vs=p["vs"], rho=p["rho"], thickness=0.005)
+    a = 0.1
+    E = _layer_e_matrix_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=a,
+    )
+    row2 = _layered_n0_row2_at_a(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    np.testing.assert_allclose(
+        row2[1:5].real, -E[2, :], rtol=1.0e-12,
+    )
+
+
+def test_layer_e_matrix_n0_row3_matches_F1_row3_at_a_layer_cols():
+    """Row 3 of E(a) (sigma_rz) matches the layer cols of
+    ``_layered_n0_row3_at_a`` with NO sign flip: BC3 is
+    ``sigma_rz^(m) = 0`` (no subtraction with the fluid)."""
+    p = _typical_g_b1_layer_params()
+    layer = BoreholeLayer(vp=p["vp"], vs=p["vs"], rho=p["rho"], thickness=0.005)
+    a = 0.1
+    E = _layer_e_matrix_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=a,
+    )
+    row3 = _layered_n0_row3_at_a(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    np.testing.assert_allclose(
+        row3[1:5].real, E[3, :], rtol=1.0e-12,
+    )
+
+
+def test_layer_e_matrix_n0_row1_uz_matches_F1_row5_at_b_layer_cols():
+    """Row 1 of E(b) (u_z) matches the layer cols of
+    ``_layered_n0_row5_at_b`` with NO sign flip: BC5 is
+    ``u_z^(m)(b) - u_z^(s)(b) = 0`` and the layer cols carry the
+    layer's direct contribution (the formation cols carry the
+    subtracted contribution). Validates the u_z row of E,
+    which has no analog at r=a (the fluid doesn't impose u_z
+    continuity at the borehole wall)."""
+    p = _typical_g_b1_layer_params()
+    layer = BoreholeLayer(vp=p["vp"], vs=p["vs"], rho=p["rho"], thickness=0.005)
+    a = 0.1
+    b = a + layer.thickness
+    E = _layer_e_matrix_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=b,
+    )
+    row5 = _layered_n0_row5_at_b(
+        kz=p["kz"], omega=p["omega"], vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=a, layer=layer,
+    )
+    np.testing.assert_allclose(
+        row5[1:5].real, E[1, :], rtol=1.0e-12,
+    )
+
+
+def test_layer_e_matrix_n0_returns_nan_below_bound_floor():
+    """Below the layer's bound floor (``kz < omega / V_S``), at
+    least one of ``p^2``, ``s^2`` becomes negative -- the Bessel
+    arguments would be imaginary. The helper returns NaN-filled
+    so downstream propagator / determinant evaluations propagate
+    NaN cleanly (brentq-safe convention, mirrors
+    ``_modal_determinant_n0`` and friends)."""
+    omega = 2.0 * np.pi * 5000.0
+    vp, vs, rho = 3500.0, 1800.0, 2100.0
+    # kz well below omega/V_S.
+    kz = omega / vs * 0.5
+    with np.errstate(invalid="ignore"):
+        E = _layer_e_matrix_n0(
+            kz=kz, omega=omega, vp=vp, vs=vs, rho=rho, r=0.1,
+        )
+    assert np.all(np.isnan(E))
+
+
+def test_layer_e_matrix_n0_determinant_nonzero_in_bound_regime():
+    """The G.b.2 propagator path requires inverting E(r). Confirm
+    that ``det(E(r))`` is well above floating-point noise for a
+    representative bound-regime ``(kz, omega, layer)``. The
+    quantitative budget is loose -- the absolute scale of
+    ``det(E)`` depends on the Bessel-pack magnitudes, which can
+    be very large or very small; we just want to rule out the
+    near-singular case that would defeat the inverse."""
+    p = _typical_g_b1_layer_params()
+    a = 0.1
+    E = _layer_e_matrix_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=a,
+    )
+    det = float(np.linalg.det(E))
+    # Just a finite, non-zero determinant. The propagator
+    # round-trip oracle in G.b.2 will catch any conditioning
+    # issue more sharply.
+    assert np.isfinite(det)
+    assert abs(det) > 0.0
+
+
+# =====================================================================
+# Plan item G.b.2 -- per-layer propagator P(r_outer | r_inner)
+# =====================================================================
+#
+# Group-law oracles for ``_layer_propagator_n0`` plus an end-to-end
+# state-vector continuity check. Each oracle is independent of the
+# F.1.b transcription used in G.b.1, so this layer adds genuinely
+# new constraints on top of the per-element match.
+
+
+def test_layer_propagator_n0_identity_when_r_inner_equals_r_outer():
+    """Identity oracle: ``r_inner == r_outer`` -> propagator is
+    ``eye(4)`` to floating-point precision. Catches sign / shape
+    errors in the solve."""
+    p = _typical_g_b1_layer_params()
+    P = _layer_propagator_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=0.105, r_outer=0.105,
+    )
+    np.testing.assert_array_equal(P, np.eye(4))
+
+
+def test_layer_propagator_n0_round_trip_preserves_state_vector():
+    """Round-trip oracle: applying ``P(a|b) @ P(b|a)`` to a
+    physical state vector ``v`` returns ``v`` to floating-point
+    precision. Equivalent to ``P(a|b) P(b|a) = I`` in exact
+    arithmetic; phrasing as a state-vector identity avoids the
+    spurious ~1e-6 off-diagonals from the disparate-magnitude
+    rows (displacement ~ O(1) vs stress ~ O(mu) ~ O(1e10)) that
+    would defeat ``assert_allclose(M, eye, atol=1e-10)`` directly
+    at the matrix level."""
+    p = _typical_g_b1_layer_params()
+    a = 0.1
+    b = a + 0.005
+    P_b_from_a = _layer_propagator_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=a, r_outer=b,
+    )
+    P_a_from_b = _layer_propagator_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=b, r_outer=a,
+    )
+    # Physical state vector (displacement ~ O(1), stress ~ O(mu)).
+    mu = p["rho"] * p["vs"] ** 2
+    v = np.array([1.0, 2.0, 3.0 * mu, 4.0 * mu])
+    v_round = P_a_from_b @ (P_b_from_a @ v)
+    np.testing.assert_allclose(v_round, v, rtol=1.0e-10)
+    # Other direction.
+    v_round_other = P_b_from_a @ (P_a_from_b @ v)
+    np.testing.assert_allclose(v_round_other, v, rtol=1.0e-10)
+
+
+def test_layer_propagator_n0_composition_law():
+    """Composition oracle: ``P(r3|r1) ~ P(r3|r2) @ P(r2|r1)`` for
+    any intermediate ``r2 in (r1, r3)``. The propagator-group law
+    in the radial coordinate. Independent of the F.1.b oracle
+    in G.b.1."""
+    p = _typical_g_b1_layer_params()
+    r1, r2, r3 = 0.1, 0.105, 0.115
+    P_3_from_1 = _layer_propagator_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=r1, r_outer=r3,
+    )
+    P_2_from_1 = _layer_propagator_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=r1, r_outer=r2,
+    )
+    P_3_from_2 = _layer_propagator_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=r2, r_outer=r3,
+    )
+    np.testing.assert_allclose(P_3_from_1, P_3_from_2 @ P_2_from_1, atol=1.0e-10)
+
+
+def test_layer_propagator_n0_state_vector_continuity():
+    """End-to-end state-vector check: pick an arbitrary amplitude
+    vector ``c``; compute ``v(r1) = E(r1) c`` and apply
+    ``P(r2|r1)`` to get ``v(r2)``; verify the result matches
+    ``E(r2) c`` directly. Strongest single-test oracle for the
+    G.b.1 + G.b.2 chain combined."""
+    p = _typical_g_b1_layer_params()
+    r1, r2 = 0.1, 0.115
+    E_r1 = _layer_e_matrix_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=r1,
+    )
+    E_r2 = _layer_e_matrix_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=r2,
+    )
+    P = _layer_propagator_n0(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=r1, r_outer=r2,
+    )
+    # Arbitrary amplitude vector.
+    c = np.array([1.3, -0.7, 2.1, 0.4])
+    v_r1 = E_r1 @ c
+    v_r2_via_P = P @ v_r1
+    v_r2_direct = E_r2 @ c
+    np.testing.assert_allclose(v_r2_via_P, v_r2_direct, rtol=1.0e-10)
+
+
+def test_layer_propagator_n0_returns_nan_below_bound_floor():
+    """Below the layer's bound floor, ``E(r)`` is NaN-filled; the
+    propagator inherits the NaN. Confirms brentq-safe propagation
+    so the G.c assembly's bound-regime gate is reliable."""
+    omega = 2.0 * np.pi * 5000.0
+    vp, vs, rho = 3500.0, 1800.0, 2100.0
+    kz = omega / vs * 0.5  # well below bound floor
+    with np.errstate(invalid="ignore"):
+        P = _layer_propagator_n0(
+            kz=kz, omega=omega, vp=vp, vs=vs, rho=rho,
+            r_inner=0.1, r_outer=0.105,
+        )
+    assert np.all(np.isnan(P))
