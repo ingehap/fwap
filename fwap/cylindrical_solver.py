@@ -10051,3 +10051,101 @@ def _modal_row3_at_a_vti(
     row[2] = c44 * p_qSV / (c13 + c44) * K1_qSV_a
     return row
 
+
+# =====================================================================
+# Substep H.c.1.d -- assembly into _modal_determinant_n0_vti
+# =====================================================================
+#
+# Stacks the three row builders (H.c.1.a, H.c.1.b, H.c.1.c) into
+# the 3x3 VTI Stoneley modal matrix and returns the determinant
+# as a real scalar.
+#
+# Each row builder applies the substep-H.a.6 phase rescale
+# internally (row * i for the z-derivative-bearing row 3, col-by-
+# (-i) on the C_qSV column), so the assembled matrix is real-valued
+# in the bound regime and ``np.linalg.det`` returns the real
+# determinant directly.
+#
+# Reduces to :func:`_modal_determinant_n0` (up to an irrelevant
+# overall scale factor) when the C-matrix is isotropic; the
+# determinant *root* coincides at floating-point precision. The
+# determinant *value* differs by a constant pre-factor of no
+# physical relevance -- the H.c.2 integration test
+# (``stoneley_dispersion_vti`` end-to-end) is the floating-point
+# oracle that closes this assembly.
+
+
+def _modal_determinant_n0_vti(
+    kz: float,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> float:
+    r"""
+    3x3 axisymmetric modal determinant for the n=0 (Stoneley)
+    VTI dispersion.
+
+    Stacks the three row builders from H.c.1.a / H.c.1.b /
+    H.c.1.c into the 3x3 VTI Stoneley modal matrix, applies the
+    substep-H.a.6 phase rescale (already absorbed into each
+    row), and returns the determinant as a real scalar.
+
+    Reduces to :func:`_modal_determinant_n0` (sharing the same
+    root in ``k_z``, with an irrelevant overall scale) when the
+    stiffness tensor is isotropic. The H.c.2 integration test in
+    :func:`stoneley_dispersion_vti` is the floating-point oracle
+    that anchors this assembly.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m). Must lie in the bound
+        regime ``kz > omega / min(V_Sv, V_Sh, V_f)``.
+    omega : float
+        Angular frequency (rad / s).
+    c11, c13, c33, c44, c66 : float
+        VTI stiffness tensor entries (Pa).
+    rho : float
+        Formation density (kg/m^3).
+    vf, rho_f : float
+        Borehole-fluid velocity and density.
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    float
+        ``det(M)`` of the 3x3 VTI Stoneley modal matrix, real-
+        valued in the bound regime. NaN outside the bound regime.
+    """
+    rows = [
+        _modal_row1_at_a_vti(
+            kz, omega,
+            c11=c11, c13=c13, c33=c33, c44=c44, c66=c66,
+            rho=rho, vf=vf, rho_f=rho_f, a=a,
+        ),
+        _modal_row2_at_a_vti(
+            kz, omega,
+            c11=c11, c13=c13, c33=c33, c44=c44, c66=c66,
+            rho=rho, vf=vf, rho_f=rho_f, a=a,
+        ),
+        _modal_row3_at_a_vti(
+            kz, omega,
+            c11=c11, c13=c13, c33=c33, c44=c44, c66=c66,
+            rho=rho, vf=vf, rho_f=rho_f, a=a,
+        ),
+    ]
+    M = np.vstack(rows)
+    # Each row is real-valued post-rescale; imaginary parts are
+    # zero to floating-point precision in the bound regime. Take
+    # the real part to discard sub-machine-epsilon imaginary noise.
+    return float(np.linalg.det(M.real))
+
