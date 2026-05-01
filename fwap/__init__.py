@@ -261,6 +261,7 @@ from fwap.cylindrical_solver import (
     flexural_dispersion_layered,
     flexural_dispersion_vti,
     quadrupole_dispersion,
+    quadrupole_dispersion_layered,
     segments_from_kz_curve,
     stoneley_dispersion,
     stoneley_dispersion_layered,
@@ -431,6 +432,7 @@ __all__ = [
     "flexural_dispersion_vti",
     "pseudo_rayleigh_modal_dispersion",
     "quadrupole_dispersion",
+    "quadrupole_dispersion_layered",
     "segments_from_kz_curve",
     # LWD phenomenological layer
     "lwd_collar_mode",

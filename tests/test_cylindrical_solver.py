@@ -20,8 +20,10 @@ from fwap.cylindrical_solver import (
     BoreholeMode,
     _layer_e_matrix_n0,
     _layer_e_matrix_n1,
+    _layer_e_matrix_n2,
     _layer_propagator_n0,
     _layer_propagator_n1,
+    _layer_propagator_n2,
     _modal_determinant_n0_cased,
     _modal_determinant_n1_cased,
     _validate_borehole_layers_stacked,
@@ -9014,3 +9016,440 @@ def test_flexural_dispersion_layered_cement_stiffness_sensitivity():
     assert rel_diff > 0.01
     # Empirical direction: stiffer cement -> smaller slowness.
     assert res_stiff.slowness[0] < res_soft.slowness[0]
+
+
+# =====================================================================
+# Plan item G''.0 -- public-API foundation for cased-hole quadrupole
+# =====================================================================
+#
+# Introduces ``quadrupole_dispersion_layered`` from scratch: with
+# ``layers=()`` it dispatches to ``quadrupole_dispersion``; with
+# any non-empty layer stack it raises NotImplementedError pointing
+# at G''.c / G''.d (the propagator-matrix scaffolding that ships
+# in subsequent sub-units). Validation rules cover the slow-
+# formation per-layer constraint and a fast-formation NIE for
+# the deferred complex-determinant follow-up.
+
+
+def test_quadrupole_dispersion_layered_layers_empty_dispatches_to_unlayered():
+    """``layers=()`` -> bit-equivalent to
+    ``quadrupole_dispersion``. Floating-point regression oracle
+    for plan G''."""
+    from fwap.cylindrical_solver import (
+        quadrupole_dispersion, quadrupole_dispersion_layered,
+    )
+    f = np.linspace(8000.0, 25000.0, 5)
+    # LWD-quadrupole-relevant slow formation.
+    vp, vs, rho = 2200.0, 800.0, 2200.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    res_unl = quadrupole_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    res_lyr = quadrupole_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a, layers=(),
+    )
+    np.testing.assert_array_equal(res_lyr.slowness, res_unl.slowness)
+    np.testing.assert_array_equal(res_lyr.freq, res_unl.freq)
+    assert res_lyr.name == "quadrupole"
+    assert res_lyr.azimuthal_order == 2
+
+
+def test_quadrupole_dispersion_layered_single_layer_raises_pointing_at_G_pp_c_d():
+    """``len(layers) >= 1`` raises ``NotImplementedError`` with a
+    message naming G''.c (stacked modal determinant) and G''.d
+    (public-API hook), plus the sub-plan doc reference. Sharpens
+    until the multi-layer brentq path lands."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+    layer = BoreholeLayer(vp=2500.0, vs=1100.0, rho=2100.0, thickness=0.005)
+    with pytest.raises(NotImplementedError) as exc_info:
+        quadrupole_dispersion_layered(
+            np.array([10000.0]),
+            vp=2200.0, vs=800.0, rho=2200.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+            layers=(layer,),
+        )
+    msg = str(exc_info.value)
+    assert "G''.c" in msg
+    assert "G''.d" in msg
+    assert "cylindrical_biot_G_pp.md" in msg
+
+
+def test_quadrupole_dispersion_layered_returns_borehole_mode_for_unlayered():
+    """``BoreholeMode`` return-type contract on the unlayered
+    dispatch. Type and azimuthal_order are pinned for every
+    public path; the actual slowness numerics are covered by
+    the existing ``quadrupole_dispersion`` tests."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+    f = np.linspace(8000.0, 15000.0, 3)
+    res = quadrupole_dispersion_layered(
+        f, vp=2200.0, vs=800.0, rho=2200.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    assert isinstance(res, BoreholeMode)
+    assert res.name == "quadrupole"
+    assert res.azimuthal_order == 2
+    np.testing.assert_array_equal(res.freq, f)
+
+
+def test_quadrupole_dispersion_layered_rejects_softer_layer():
+    """The per-layer slow-formation constraint
+    ``layer.vs >= vs`` is enforced via the G'.0
+    ``_validate_flexural_layers_stacked`` helper (the constraint
+    is the same at n=1 and n=2). A softer layer triggers
+    ``ValueError`` with the offending index."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+    soft_layer = BoreholeLayer(
+        vp=1500.0, vs=600.0, rho=1700.0, thickness=0.05,
+    )  # vs = 600 < formation vs = 800 -> reject
+    with pytest.raises(ValueError, match=r"layer\.vs"):
+        quadrupole_dispersion_layered(
+            np.array([10000.0]),
+            vp=2200.0, vs=800.0, rho=2200.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+            layers=(soft_layer,),
+        )
+
+
+def test_quadrupole_dispersion_layered_fast_formation_with_layer_raises():
+    """Fast-formation cased-hole quadrupole (``V_S > V_f`` with
+    a non-empty layer) is a deferred follow-up. Single-interface
+    fast-formation ``quadrupole_dispersion`` is supported via
+    auto-dispatch; the layered version requires the complex-
+    determinant path which is out of scope for plan G''."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+    layer = BoreholeLayer(vp=4000.0, vs=3300.0, rho=2500.0, thickness=0.005)
+    # Fast formation: V_S = 3100 > V_f = 1500.
+    with pytest.raises(NotImplementedError, match="fast formation"):
+        quadrupole_dispersion_layered(
+            np.array([10000.0]),
+            vp=5500.0, vs=3100.0, rho=2500.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+            layers=(layer,),
+        )
+
+
+def test_quadrupole_dispersion_layered_rejects_invalid_inputs():
+    """Standard input validation: positivity, ``vp > vs``, and
+    strictly-positive frequencies."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+    base = dict(
+        vp=2200.0, vs=800.0, rho=2200.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    layer = BoreholeLayer(vp=2500.0, vs=1100.0, rho=2100.0, thickness=0.005)
+    f = np.array([10000.0])
+    # Non-positive vp.
+    with pytest.raises(ValueError, match="vp, vs, rho must all be positive"):
+        quadrupole_dispersion_layered(
+            f, **{**base, "vp": 0.0}, layers=(layer,),
+        )
+    # vp <= vs.
+    with pytest.raises(ValueError, match=r"vp > vs"):
+        quadrupole_dispersion_layered(
+            f, **{**base, "vp": 700.0}, layers=(layer,),
+        )
+    # Non-positive freq.
+    with pytest.raises(ValueError, match="freq must be strictly positive"):
+        quadrupole_dispersion_layered(
+            np.array([0.0]), **base, layers=(layer,),
+        )
+
+
+# =====================================================================
+# Plan item G''.b.1 -- 6x6 mode-amplitude-to-state-vector matrix at n=2
+# =====================================================================
+#
+# Without an F.3-equivalent oracle, the per-element pinning is
+# weaker than G.b.1 / G'.b.1. The structural oracles (sparsity,
+# finiteness, NaN propagation) plus a layer=formation cross-
+# check vs the K-flavour entries transcribed from the existing
+# ``_modal_determinant_n2`` docstring catch transcription errors
+# at the entry level; the determinant-level checks in G''.c /
+# G''.d / G''.e anchor correctness via root-match identities.
+
+
+def _typical_g_pp_b1_layer_params():
+    """Slow-formation harder-than-formation layer fixture for
+    G''.b.1 / G''.b.2 tests."""
+    return dict(
+        vp=2500.0, vs=1100.0, rho=2100.0,
+        kz=2.0 * np.pi * 5000.0 / 800.0,
+        omega=2.0 * np.pi * 5000.0,
+    )
+
+
+def test_layer_e_matrix_n2_real_in_bound_regime():
+    """All 36 entries are finite real in the bound regime
+    post-rescale."""
+    p = _typical_g_pp_b1_layer_params()
+    E = _layer_e_matrix_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=0.1,
+    )
+    assert np.all(np.isfinite(E))
+    assert E.dtype == np.float64
+
+
+def test_layer_e_matrix_n2_returns_nan_below_bound_floor():
+    """Below the bound floor (``kz < omega / V_S``), at least one
+    of ``p^2``, ``s^2`` is negative -- the helper returns NaN-
+    filled."""
+    omega = 2.0 * np.pi * 5000.0
+    vp, vs, rho = 2500.0, 1100.0, 2100.0
+    kz = omega / vs * 0.5
+    with np.errstate(invalid="ignore"):
+        E = _layer_e_matrix_n2(
+            kz=kz, omega=omega, vp=vp, vs=vs, rho=rho, r=0.1,
+        )
+    assert np.all(np.isnan(E))
+
+
+def test_layer_e_matrix_n2_determinant_nonzero_in_bound_regime():
+    """Precondition for the G''.b.2 propagator inverse."""
+    p = _typical_g_pp_b1_layer_params()
+    E = _layer_e_matrix_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=0.1,
+    )
+    det = float(np.linalg.det(E))
+    assert np.isfinite(det)
+    assert abs(det) > 0.0
+
+
+def test_layer_e_matrix_n2_sparsity_pattern():
+    """Pin the known-zero entries of E_n2(r):
+
+    * Row 1 (``u_z``) cols 4, 5 (``D_I``, ``D_K``): SH potential
+      ``psi_z`` doesn't contribute to ``u_z``.
+    * Row 2 (``u_theta``) cols 2, 3 (``C_I``, ``C_K``): SV
+      potential ``psi_theta`` doesn't contribute to ``u_theta``."""
+    p = _typical_g_pp_b1_layer_params()
+    E = _layer_e_matrix_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=0.1,
+    )
+    # u_z row, D cols.
+    assert E[1, 4] == 0.0
+    assert E[1, 5] == 0.0
+    # u_theta row, C cols.
+    assert E[2, 2] == 0.0
+    assert E[2, 3] == 0.0
+
+
+def test_layer_e_matrix_n2_K_flavour_matches_modal_determinant_n2_docstring():
+    """Cross-check vs the K-flavour entries transcribed from
+    ``_modal_determinant_n2``'s docstring at r=a:
+
+    * Row 1 (BC1: f - m, layer cols negated) -> u_r row of E,
+      K-flavour cols (B_K, C_K, D_K).
+    * Row 2 (BC2: -m, layer cols negated) -> sigma_rr row.
+    * Row 3 (BC3: m=0, layer cols positive) -> sigma_rtheta row.
+    * Row 4 (BC4: m=0, layer cols positive) -> sigma_rz row.
+
+    The unlayered formula from the docstring at radius ``r=a``
+    becomes (for the layer's E entries) the formation parameters
+    evaluated at ``r=a`` (since the formation half-space's K-only
+    contribution to the modal matrix uses the same Bessel ansatz
+    as the layer's K-flavour part at this radius)."""
+    from scipy import special as _special
+    vp, vs, rho = 2200.0, 800.0, 2200.0
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / vs * 1.05  # bound regime
+    a = 0.1
+
+    E = _layer_e_matrix_n2(
+        kz=kz, omega=omega, vp=vp, vs=vs, rho=rho, r=a,
+    )
+
+    # Local Bessel evaluations matching the docstring's notation.
+    p_ = float(np.sqrt(kz * kz - (omega / vp) ** 2))
+    s_ = float(np.sqrt(kz * kz - (omega / vs) ** 2))
+    K1pa = float(_special.kv(1, p_ * a))
+    K2pa = float(_special.kv(2, p_ * a))
+    K1sa = float(_special.kv(1, s_ * a))
+    K2sa = float(_special.kv(2, s_ * a))
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    # Row 1 (BC1) layer cols are -E[u_r row, K-flavour cols]:
+    # B_K: +p K_1 + 2 K_2/a    (docstring)
+    # C_K: +kz K_2             (docstring)
+    # D_K: -2 K_2/a            (docstring)
+    assert -E[0, 1] == pytest.approx(+p_ * K1pa + 2.0 * K2pa / a, rel=1e-12)
+    assert -E[0, 3] == pytest.approx(+kz * K2sa, rel=1e-12)
+    assert -E[0, 5] == pytest.approx(-2.0 * K2sa / a, rel=1e-12)
+
+    # Row 2 (BC2) layer cols negated:
+    # B_K: -mu * [(2 kz^2 - kS^2) K_2 + 2 p K_1/a + 12 K_2/a^2]
+    # C_K: -2 mu kz * [s K_1 + 2 K_2/a]
+    # D_K: +4 mu * [s K_1/a + 3 K_2/a^2]
+    assert -E[3, 1] == pytest.approx(
+        -mu * (two_kz2_minus_kS2 * K2pa + 2.0 * p_ * K1pa / a + 12.0 * K2pa / (a * a)),
+        rel=1e-12,
+    )
+    assert -E[3, 3] == pytest.approx(
+        -2.0 * mu * kz * (s_ * K1sa + 2.0 * K2sa / a), rel=1e-12,
+    )
+    assert -E[3, 5] == pytest.approx(
+        +4.0 * mu * (s_ * K1sa / a + 3.0 * K2sa / (a * a)), rel=1e-12,
+    )
+
+    # Row 3 (BC3) layer cols positive (no negation):
+    # B_K: +4 mu * [p K_1/a + 3 K_2/a^2]
+    # C_K: +2 mu kz K_2/a
+    # D_K: -mu * [(s^2 + 12/a^2) K_2 + 2 s K_1/a]
+    assert E[5, 1] == pytest.approx(
+        +4.0 * mu * (p_ * K1pa / a + 3.0 * K2pa / (a * a)), rel=1e-12,
+    )
+    assert E[5, 3] == pytest.approx(+2.0 * mu * kz * K2sa / a, rel=1e-12)
+    assert E[5, 5] == pytest.approx(
+        -mu * ((s_ * s_ + 12.0 / (a * a)) * K2sa + 2.0 * s_ * K1sa / a),
+        rel=1e-12,
+    )
+
+    # Row 4 (BC4) layer cols positive:
+    # B_K: +2 mu kz * [p K_1 + 2 K_2/a]
+    # C_K: +mu * [(2 kz^2 - kS^2) + 3/a^2] K_2
+    # D_K: -2 mu kz K_2/a
+    assert E[4, 1] == pytest.approx(
+        +2.0 * mu * kz * (p_ * K1pa + 2.0 * K2pa / a), rel=1e-12,
+    )
+    assert E[4, 3] == pytest.approx(
+        +mu * (two_kz2_minus_kS2 + 3.0 / (a * a)) * K2sa, rel=1e-12,
+    )
+    assert E[4, 5] == pytest.approx(-2.0 * mu * kz * K2sa / a, rel=1e-12)
+
+
+def test_layer_e_matrix_n2_n2_factors_appear():
+    """Pin the explicit n=2 factors: ``12 = 2 n (n+1)`` in the
+    F_2 / r^2 term of sigma_rr; ``3 = n^2 - 1`` in the SV column
+    of sigma_rz. Catches a transcription error where an n=1
+    formula was reused at n=2."""
+    from scipy import special as _special
+    p = _typical_g_pp_b1_layer_params()
+    a = 0.1
+    E = _layer_e_matrix_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=a,
+    )
+    # sigma_rr row (3) B_K col (1): expect (2 kz^2 - kS^2) K_2
+    # + 2 p K_1/a + 12 K_2/a^2 (with leading +mu).
+    p_ = float(np.sqrt(p["kz"] * p["kz"] - (p["omega"] / p["vp"]) ** 2))
+    K1pa = float(_special.kv(1, p_ * a))
+    K2pa = float(_special.kv(2, p_ * a))
+    mu = p["rho"] * p["vs"] ** 2
+    kS2 = (p["omega"] / p["vs"]) ** 2
+    expected = mu * (
+        (2.0 * p["kz"] ** 2 - kS2) * K2pa + 2.0 * p_ * K1pa / a + 12.0 * K2pa / (a * a)
+    )
+    assert E[3, 1] == pytest.approx(expected, rel=1e-12)
+
+    # sigma_rz row (4) C_K col (3): expect (2 kz^2 - kS^2 + 3/a^2) K_2
+    # (with leading +mu).
+    s_ = float(np.sqrt(p["kz"] * p["kz"] - (p["omega"] / p["vs"]) ** 2))
+    K2sa = float(_special.kv(2, s_ * a))
+    expected_rz = mu * (2.0 * p["kz"] ** 2 - kS2 + 3.0 / (a * a)) * K2sa
+    assert E[4, 3] == pytest.approx(expected_rz, rel=1e-12)
+
+
+# =====================================================================
+# Plan item G''.b.2 -- per-layer propagator P(r_outer | r_inner) at n=2
+# =====================================================================
+#
+# Group-law oracles for ``_layer_propagator_n2`` (6x6 sister of
+# ``_layer_propagator_n1``). Round-trip uses the state-vector
+# form to avoid the ``cond(E) ~ mu`` issue called out in
+# G.b.2 / G'.b.2.
+
+
+def test_layer_propagator_n2_identity_when_r_inner_equals_r_outer():
+    """Identity oracle: ``r_inner == r_outer`` -> propagator is
+    ``eye(6)`` to floating-point precision."""
+    p = _typical_g_pp_b1_layer_params()
+    P = _layer_propagator_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=0.105, r_outer=0.105,
+    )
+    np.testing.assert_array_equal(P, np.eye(6))
+
+
+def test_layer_propagator_n2_round_trip_preserves_state_vector():
+    """Round-trip oracle via state-vector identity at n=2:
+    applying ``P(a|b) @ P(b|a)`` to a physical state vector
+    ``v`` returns ``v`` to ``rtol=1e-10``. State-vector phrasing
+    avoids the spurious ~1e-6 off-diagonals from disparate-
+    magnitude rows (displacement ~ O(1) vs stress ~ O(mu) ~
+    O(1e10)) per the G.b.2 / G'.b.2 lesson."""
+    p = _typical_g_pp_b1_layer_params()
+    a = 0.1
+    b = a + 0.005
+    P_b_from_a = _layer_propagator_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=a, r_outer=b,
+    )
+    P_a_from_b = _layer_propagator_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=b, r_outer=a,
+    )
+    mu = p["rho"] * p["vs"] ** 2
+    v = np.array([1.0, 2.0, 1.5, 3.0 * mu, 4.0 * mu, 2.5 * mu])
+    v_round = P_a_from_b @ (P_b_from_a @ v)
+    np.testing.assert_allclose(v_round, v, rtol=1.0e-10)
+    v_round_other = P_b_from_a @ (P_a_from_b @ v)
+    np.testing.assert_allclose(v_round_other, v, rtol=1.0e-10)
+
+
+def test_layer_propagator_n2_composition_law():
+    """Composition oracle: ``P(r3|r1) ~ P(r3|r2) @ P(r2|r1)`` for
+    any intermediate ``r2``. The propagator-group law in radius
+    at n=2."""
+    p = _typical_g_pp_b1_layer_params()
+    r1, r2, r3 = 0.1, 0.105, 0.115
+    P_3_from_1 = _layer_propagator_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=r1, r_outer=r3,
+    )
+    P_2_from_1 = _layer_propagator_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=r1, r_outer=r2,
+    )
+    P_3_from_2 = _layer_propagator_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=r2, r_outer=r3,
+    )
+    np.testing.assert_allclose(P_3_from_1, P_3_from_2 @ P_2_from_1, atol=1.0e-10)
+
+
+def test_layer_propagator_n2_state_vector_continuity():
+    """End-to-end state-vector check: pick an arbitrary 6-amp
+    vector ``c``; verify ``P(r2|r1) @ E_n2(r1) c == E_n2(r2) c``
+    to ``rtol=1e-10``. Strongest single-test oracle for the
+    G''.b.1 + G''.b.2 chain combined."""
+    p = _typical_g_pp_b1_layer_params()
+    r1, r2 = 0.1, 0.115
+    E_r1 = _layer_e_matrix_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=r1,
+    )
+    E_r2 = _layer_e_matrix_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=r2,
+    )
+    P = _layer_propagator_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=r1, r_outer=r2,
+    )
+    c = np.array([1.3, -0.7, 2.1, 0.4, -1.1, 0.6])
+    v_r1 = E_r1 @ c
+    v_r2_via_P = P @ v_r1
+    v_r2_direct = E_r2 @ c
+    np.testing.assert_allclose(v_r2_via_P, v_r2_direct, rtol=1.0e-10)
+
+
+def test_layer_propagator_n2_returns_nan_below_bound_floor():
+    """Below the bound floor, ``E_n2(r)`` is NaN-filled; the
+    propagator inherits the NaN."""
+    omega = 2.0 * np.pi * 5000.0
+    vp, vs, rho = 2500.0, 1100.0, 2100.0
+    kz = omega / vs * 0.5
+    with np.errstate(invalid="ignore"):
+        P = _layer_propagator_n2(
+            kz=kz, omega=omega, vp=vp, vs=vs, rho=rho,
+            r_inner=0.1, r_outer=0.105,
+        )
+    assert np.all(np.isnan(P))

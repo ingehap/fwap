@@ -4862,6 +4862,113 @@ def quadrupole_dispersion(
     )
 
 
+def quadrupole_dispersion_layered(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...] = (),
+) -> BoreholeMode:
+    r"""
+    Quadrupole-wave (n = 2) phase slowness vs frequency for a
+    borehole with optional cased-hole annular layers between the
+    fluid and the formation half-space.
+
+    Sister of :func:`stoneley_dispersion_layered` (n=0) and
+    :func:`flexural_dispersion_layered` (n=1) at azimuthal order
+    2. With ``layers=()`` (no extra layers) this is bit-equivalent
+    to :func:`quadrupole_dispersion`. With one or more
+    :class:`BoreholeLayer` instances, the multi-layer cased-hole
+    propagator-matrix path is dispatched to the n=2 stacked modal
+    determinant (G''.c / G''.d follow-ups; not yet shipped).
+
+    Parameters
+    ----------
+    freq : ndarray
+        Frequency grid (Hz). Must be strictly positive.
+    vp, vs, rho : float
+        Formation half-space P-wave velocity (m/s), S-wave
+        velocity (m/s), and bulk density (kg/m^3). Must satisfy
+        ``vp > vs > 0`` and ``rho > 0``.
+    vf, rho_f : float
+        Borehole-fluid velocity (m/s) and density (kg/m^3).
+    a : float
+        Borehole (fluid-side) radius (m).
+    layers : tuple of BoreholeLayer, default ()
+        Annular elastic layers between the fluid (``r < a``) and
+        the formation half-space, ordered radially outward
+        (``layers[0]`` adjacent to fluid; ``layers[-1]`` adjacent
+        to formation). ``()`` dispatches to
+        :func:`quadrupole_dispersion`. Multi-layer dispatch is
+        plan items G''.c (stacked modal determinant) and G''.d
+        (public-API hook); see
+        ``docs/plans/cylindrical_biot_G_pp.md``.
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "quadrupole"``, ``azimuthal_order = 2``.
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive, ``vp <= vs``, ``freq``
+        contains a non-positive entry, any layer is malformed,
+        or any layer fails the slow-formation constraint
+        ``layer.vs >= vs`` (multi-layer only).
+    NotImplementedError
+        If ``len(layers) >= 1`` (G''.c / G''.d not yet shipped),
+        or if the formation is fast (``V_S > V_f``) with a
+        non-empty layer (fast-formation cased-hole quadrupole is
+        a deferred follow-up).
+    """
+    layers_tuple = tuple(layers)
+    _validate_borehole_layers(layers_tuple)
+    if not layers_tuple:
+        return quadrupole_dispersion(
+            freq, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        )
+    if vp <= 0 or vs <= 0 or rho <= 0:
+        raise ValueError("vp, vs, rho must all be positive")
+    if vf <= 0 or rho_f <= 0:
+        raise ValueError("vf and rho_f must be positive")
+    if a <= 0:
+        raise ValueError("a must be positive")
+    if vp <= vs:
+        raise ValueError("require vp > vs")
+    f_arr = np.asarray(freq, dtype=float)
+    if np.any(f_arr <= 0):
+        raise ValueError("freq must be strictly positive")
+    if vs > vf:
+        raise NotImplementedError(
+            "quadrupole_dispersion_layered with fast formation "
+            "(V_S > V_f) and a non-empty layer is not supported "
+            "yet; the fast-formation cased-hole quadrupole "
+            "(complex-determinant variant) is a deferred follow-"
+            "up to plan G''. Slow-formation cased-hole quadrupole "
+            "(in scope for plan G'') will arrive in G''.d when "
+            "shipped."
+        )
+    # Slow-formation per-layer constraint enforced upstream; reuse
+    # the n=1 helper since the constraint ``layer.vs >= vs`` is
+    # the same at n=2 (Sinha-Norris-Chang-style soft-formation
+    # bound-mode regime).
+    _validate_flexural_layers_stacked(layers_tuple, a, vs)
+    raise NotImplementedError(
+        "quadrupole_dispersion_layered with non-empty layers is "
+        "scheduled in plan items G''.c (stacked modal determinant "
+        "via the 6x6 Thomson-Haskell propagator matrix at n=2) "
+        "and G''.d (public-API hook + multi-layer regression); "
+        "see docs/plans/cylindrical_biot_G_pp.md. Unlayered "
+        "(``layers=()``) is supported via dispatch to "
+        "``quadrupole_dispersion``."
+    )
+
+
 # ---------------------------------------------------------------------
 # Plan item F -- single-extra-layer (mudcake / altered zone) extension
 # ---------------------------------------------------------------------
@@ -10408,6 +10515,499 @@ def _modal_determinant_n1_cased(
         M[i_M, 9] = d_form
 
     return float(np.linalg.det(M))
+
+
+# =====================================================================
+# Substep G''.a -- math scaffolding for the cased-hole multi-layer
+#                  propagator-matrix determinant (n=2 quadrupole)
+# =====================================================================
+#
+# Sister of substeps G.a (n=0) and G'.a (n=1) at azimuthal order
+# n=2. Generalises the existing unlayered ``_modal_determinant_n2``
+# (4x4 single-interface form) to N stacked annular layers via a
+# Thomson-Haskell-style 6x6 propagator matrix in cylindrical
+# geometry. Comments-only block; the helpers themselves land in
+# plan items G''.b (per-layer propagator), G''.c (assembly), and
+# G''.d (public-API hook). See
+# ``docs/plans/cylindrical_biot_G_pp.md`` for the full sub-plan.
+#
+# Sign / Bessel / phase conventions are the same as the existing
+# ``_modal_determinant_n2`` substep block (Tang & Cheng 2004
+# sect. 2.5; Kurkjian-Chang 1986). Per-region scalar / vector
+# potentials at azimuthal order n=2:
+#   phi          = [B_I I_2(p r) + B_K K_2(p r)]      cos(2 theta)
+#   psi_theta    = [C_I I_2(s r) + C_K K_2(s r)]      cos(2 theta)
+#   psi_z        = [D_I I_2(s r) + D_K K_2(s r)]      sin(2 theta)
+# Six amplitudes per layer, same as n=1; the structural difference
+# from G'.a is the Bessel-function index shift
+# ``(I_{n-1}, I_n) -> (I_1, I_2)`` and the explicit n=2 azimuthal
+# factors that come out of ``d_theta cos(n theta) = -n sin(n
+# theta)``.
+#
+# The N=0 limit reduces to the unlayered ``_modal_determinant_n2``
+# (4x4) via dispatch in ``quadrupole_dispersion_layered``. The
+# N=1 limit reduces to the same 4x4 form via ``layer = formation``
+# parameter equality, anchored as the floating-point oracle for
+# G''.c (root-level match, since no F.3-equivalent hand-coded
+# 10x10 single-layer form exists).
+#
+# -----
+# Substep G''.a.1 -- State vector at the quadrupole order n=2
+# -----
+#
+# Within any uniform elastic layer (or the formation half-space),
+# the radial-dependent part of the displacement / stress field at
+# n=2 reduces to the same 6-component state vector as n=1:
+#
+#       v(r) = ( u_r(r),  u_z(r),  u_theta(r),
+#                sigma_rr(r),  sigma_rz(r),  sigma_r_theta(r) )^T
+#
+# Six components (same as n>=1) because the d_theta operations at
+# any n>=1 make ``u_theta`` and ``sigma_r_theta`` non-trivial.
+# The cos / sin azimuthal factors (cos(2 theta) for u_r, u_z,
+# sigma_rr, sigma_rz; sin(2 theta) for u_theta, sigma_r_theta)
+# have been stripped per the existing n=2 substep convention.
+#
+# Boundary conditions:
+#   * At fluid-solid interface r = a (4 BCs): u_r continuity,
+#     -(sigma_rr + P^f) = 0, sigma_r_theta = 0, sigma_rz = 0.
+#     The inviscid fluid imposes no constraint on u_z or
+#     u_theta -- two of the six state-vector rows at r=a are
+#     unused.
+#   * At each layer/layer or layer/formation interface r = b_j
+#     (6 BCs): full state-vector continuity ``v(b_j^-) = v(b_j^+)``.
+#
+# Same BC structure as n=1 (G'.a.1); the only change is the
+# Bessel index in each entry of the state-vector / amplitude
+# expressions.
+#
+# -----
+# Substep G''.a.2 -- 6x6 mode-amplitude-to-state-vector matrix E_n2(r)
+# -----
+#
+# Within a single uniform layer (or the formation half-space),
+# ``v(r) = E_n2(r) c`` with
+# ``c = (B_I, B_K, C_I, C_K, D_I, D_K)^T``. The 6x6 matrix
+# E_n2(r) is obtained by transcribing the field-from-potential
+# expansions at n=2 with the substep-F.2.a.5 phase rescale
+# (row * i for u_z and sigma_rz; col * -i for SV columns C_I /
+# C_K) absorbed.
+#
+# **Bessel-derivative identities at n=2** (from the existing
+# ``_modal_determinant_n2`` substep block):
+#
+#   d_r I_2(p r) = p I_1(p r) - 2 I_2(p r) / r
+#   d_r K_2(p r) = -p K_1(p r) - 2 K_2(p r) / r
+#   (1/r) d_r [r I_2(s r)] = s I_1(s r) - I_2(s r) / r
+#   (1/r) d_r [r K_2(s r)] = -s K_1(s r) - K_2(s r) / r
+#
+# The Bessel-index shift ``(I_1, I_2)`` (vs ``(I_0, I_1)`` at
+# n=1) propagates through every entry; the ``-(n-1) F_n / r``
+# correction term ``-2 F_2 / r`` (vs ``-F_1 / r`` at n=1)
+# appears in every Bessel derivative.
+#
+# **Sparsity pattern at n=2** (same as n=1; pinned by G''.b.1
+# tests):
+#   * Row 1 (``u_z``) cols 4, 5 (``D_I``, ``D_K``): 0.
+#     SH potential ``psi_z`` doesn't contribute to ``u_z`` at
+#     any n>=1.
+#   * Row 2 (``u_theta``) cols 2, 3 (``C_I``, ``C_K``): 0.
+#     SV potential ``psi_theta`` doesn't contribute to
+#     ``u_theta`` at any n>=1.
+#
+# **Explicit n=2 factors** (transcribed from
+# ``_modal_determinant_n2``):
+#   * ``2 n (n + 1) = 12`` in the ``B_K K_2 / r^2`` term of
+#     sigma_rr (and in the I-flavour analog).
+#   * ``n^2 - 1 = 3`` in the SV column of sigma_rz (multiplying
+#     the ``K_2(s r) / r^2`` term).
+#   * ``n = 2`` factor from ``d_theta sin(n theta) = +n cos(n
+#     theta)`` and ``d_theta cos(n theta) = -n sin(n theta)``.
+#
+# Reference for the per-row entries: the existing
+# ``_modal_determinant_n2`` formulas (transcribed in the
+# function's docstring) cover the K-flavour columns at the
+# single-interface r=a; the I-flavour columns are obtained via
+# the substep-F.1.a.2 sign-flip pattern (carried over from F.2
+# and the n=1 case in G'.a.2). G''.b.1 implementation
+# transcribes both flavours into the 6x6 matrix.
+#
+# -----
+# Substep G''.a.3 -- Layer propagator P_j(r_outer | r_inner) (6x6)
+# -----
+#
+# Identical to substep G'.a.3 with the dimension change baked in
+# via E_n2(r) (now using I_1/I_2 and K_1/K_2 Bessels instead of
+# I_0/I_1 and K_0/K_1). Composition law:
+#
+#       P_j(r_outer_j | r_inner_j) = E_n2_j(r_outer_j) E_n2_j(r_inner_j)^{-1}
+#
+# Continuity of the 6-vector across each layer/layer interface
+# (G''.a.1) lets the per-layer propagators be composed:
+#
+#       v(r_N_outer) = P_N P_{N-1} ... P_2 P_1  v(r_0_inner)
+#
+# Same algebraic structure as G'.a.3.
+#
+# -----
+# Substep G''.a.4 -- Boundary conditions and 10x10 modal determinant
+# -----
+#
+# Same BC bookkeeping as G'.a.4 (4 BCs at r=a + 6 BCs at r=b
+# = 10 BC rows; 1 fluid + 6 innermost-layer + 3 formation =
+# 10 unknowns). Final 10x10 form has the same column packing as
+# the F.2 / G' convention:
+#
+#   [A | B_I, B_K, C_I, C_K | B_form, C_form | D_I, D_K | D_form]
+#
+# State-row to BC-row mapping at r=a (4 BCs):
+#   BC1 (u_r continuity, layer negated)        -> state row 0 (u_r)
+#   BC2 (-(sigma_rr + P^f), layer negated)     -> state row 3 (sigma_rr)
+#   BC3 (sigma_r_theta = 0, layer positive)    -> state row 5 (sigma_r_theta)
+#   BC4 (sigma_rz = 0, layer positive)         -> state row 4 (sigma_rz)
+#
+# State-row to BC-row mapping at r=b (6 BCs, m - s convention):
+#   BC5  (u_r continuity)                      -> state row 0
+#   BC6  (u_theta continuity)                  -> state row 2
+#   BC7  (u_z continuity)                      -> state row 1
+#   BC8  (sigma_rr continuity)                 -> state row 3
+#   BC9  (sigma_r_theta continuity)            -> state row 5
+#   BC10 (sigma_rz continuity)                 -> state row 4
+#
+# Identical to G'.a.4; the only change is that v(b) = P_total @
+# E_n2(a) c_1 carries the n=2 Bessel functions.
+#
+# **Layer = formation collapse identity at N=1 (G''.a.6 oracle)**:
+# at layer params equal to formation params, the propagator-
+# chain G''.c assembly and the unlayered ``_modal_determinant_n2``
+# share the same brentq root in k_z. The determinant magnitudes
+# differ (different overall scale factors; the cased path is
+# 10x10 vs the unlayered 4x4) but the root is invariant. This
+# is the floating-point oracle for G''.c in the absence of an
+# F.3-equivalent hand-coded 10x10 single-layer form.
+#
+# -----
+# Substep G''.a.5 -- Numerical conditioning (kz * thickness, n=2)
+# -----
+#
+# Same disparate-magnitude story as G.a.5 / G'.a.5: cond(E_n2) ~
+# mu ~ 1e10. The state-vector form for round-trip oracles in
+# G''.b.2 mitigates the raw-matrix-equality footgun (G.b.2 /
+# G'.b.2 lesson; see commit 123e634).
+#
+# **n=2-specific concern**: ``I_2(p r)`` is small near ``p r =
+# 0`` (proportional to ``(p r)^2 / 8``), making the I-flavour
+# columns of E_n2(r) disproportionately small near small radii.
+# Conditioning of ``E_n2(r_inner)`` may degrade slightly compared
+# to n=0 / n=1 at low frequencies. Likely still within double
+# precision for typical cased-hole geometries (kz * thickness ~
+# O(1)); the G''.b.2 round-trip oracle catches the practical
+# impact.
+#
+# Layer-thickness / frequency conditioning: same as G.a.5.
+# Knopoff / Kennett delta-matrix alternatives deferred (out of
+# scope; only needed for ``kz * thickness > 30``).
+#
+# -----
+# Substep G''.a.6 -- Layer = formation collapse identity (G''.c oracle)
+# -----
+#
+# When ``len(layers) == 1`` AND ``layer.{vp, vs, rho} ==
+# formation.{vp, vs, rho}``, the propagator-chain modal
+# determinant and the unlayered ``_modal_determinant_n2`` share
+# the same brentq root in k_z. The determinants themselves
+# differ (10x10 propagator-chain form vs 4x4 unlayered form,
+# different overall scale factors), so the oracle is at the
+# **root level**: the cased determinant evaluated at the
+# unlayered-recovered root is many orders of magnitude smaller
+# than its value at ``kz * 1.005``.
+#
+# Same ``layer = formation`` identity holds for any N >= 1 with
+# all layers carrying formation properties (master-plan G''
+# validation bullet, exercised in G''.e).
+#
+# Difference from G.a.6 / G'.a.6: those plans had
+# ``rtol=1e-10`` numerical-equality oracles via F.1 / F.2's
+# hand-coded layered determinants. G'' has no F.3-equivalent,
+# so the determinant-level numerical-equality oracle is
+# replaced by the brentq-root-match oracle.
+#
+# -----
+# Substep G''.a.7 -- Self-check protocol
+# -----
+#
+# Each implementation step lands with one or more of the
+# following oracles (test names mirror G.a.7 / G'.a.7):
+#
+# (a) Identity propagator: r_outer = r_inner -> P = eye(6) to
+#     floating-point precision.
+# (b) Composition: P(r3 | r1) = P(r3 | r2) @ P(r2 | r1) for any
+#     intermediate r2.
+# (c) State-vector continuity: pick c, verify v(r2) = P(r2 | r1)
+#     v(r1) matches E_n2(r2) c directly.
+# (d) Zero-layer collapse (G''.c): ``layers=()`` dispatches to
+#     ``_modal_determinant_n2`` (4x4 unlayered form).
+# (e) Layer = formation N=1 collapse (G''.c): cased determinant
+#     vanishes at the unlayered brentq root.
+# (f) Order-matters at N=2 (G''.c / G''.d).
+# (g) LWD-quadrupole cement-bond physics (G''.e): stiffer cement
+#     gives a slowness shift in a measurable direction relative
+#     to softer cement at the same casing geometry.
+
+
+# =====================================================================
+# Plan item G''.b.1 -- mode-amplitude-to-state-vector matrix E_n2(r)
+# =====================================================================
+#
+# 6x6 matrix mapping a uniform layer's wave amplitudes
+# ``c = (B_I, B_K, C_I, C_K, D_I, D_K)`` to the six-component
+# state vector ``v(r) = (u_r, u_z, u_theta, sigma_rr, sigma_rz,
+# sigma_r_theta)`` at azimuthal order n=2 (quadrupole). Direct
+# transcription of substep G''.a.2 with the substep-F.2.a.5
+# phase rescale absorbed.
+#
+# Each entry is derived from the n=2 ansatz in G''.a (potentials
+# ``phi = B I_2(p r) cos(2 theta)``, ``psi_theta = C I_2(s r)
+# cos(2 theta)``, ``psi_z = D I_2(s r) sin(2 theta)``) plus the
+# Bessel-derivative identities at n=2:
+#
+#   d_r I_2(p r) = p I_1(p r) - 2 I_2(p r) / r
+#   d_r K_2(p r) = -p K_1(p r) - 2 K_2(p r) / r
+#   (1/r) d_r [r I_2(s r)] = s I_1(s r) - I_2(s r) / r
+#   (1/r) d_r [r K_2(s r)] = -s K_1(s r) - K_2(s r) / r
+#
+# K-flavour entries cross-check against the unlayered
+# ``_modal_determinant_n2`` (which carries B / C / D = K_K /
+# C_K / D_K only); the I-flavour entries follow the F.2.a.2
+# sign-flip pattern (BesseI-index-up coefficient flips,
+# Bessel-index-up + correction-term coefficient keeps).
+
+
+def _layer_e_matrix_n2(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    r: float,
+) -> np.ndarray:
+    r"""
+    6x6 mode-amplitude-to-state-vector matrix ``E_n2(r)`` for a
+    uniform isotropic-elastic layer at azimuthal order n=2
+    (quadrupole).
+
+    Sister of :func:`_layer_e_matrix_n0` (4x4 at n=0) and
+    :func:`_layer_e_matrix_n1` (6x6 at n=1) at azimuthal order
+    2. Maps the six wave amplitudes
+    ``c = (B_I, B_K, C_I, C_K, D_I, D_K)`` to the state vector
+    ``v(r) = (u_r, u_z, u_theta, sigma_rr, sigma_rz,
+    sigma_r_theta)`` via ``v(r) = E_n2(r) c`` at n=2, with the
+    substep-F.2.a.5 phase rescale (row * i for u_z and sigma_rz;
+    col * -i for SV columns C_I, C_K) absorbed.
+
+    Bessel functions: ``(I_1, I_2)`` and ``(K_1, K_2)`` (vs
+    ``(I_0, I_1)`` at n=1). Explicit n=2 azimuthal factors
+    (``2 n (n+1) = 12``, ``n^2 - 1 = 3``) appear in the stress
+    rows (sigma_rr, sigma_rz, sigma_r_theta).
+
+    Sparsity pattern (pinned by G''.b.1 tests; identical to n=1):
+
+    * Row 1 (``u_z``) cols 4, 5 (``D_I``, ``D_K``): 0. SH
+      potential ``psi_z`` doesn't contribute to ``u_z``.
+    * Row 2 (``u_theta``) cols 2, 3 (``C_I``, ``C_K``): 0. SV
+      potential ``psi_theta`` doesn't contribute to ``u_theta``.
+
+    Parameters
+    ----------
+    kz, omega : float
+        Trial axial wavenumber (rad / m) and angular frequency
+        (rad / s).
+    vp, vs, rho : float
+        Layer P / S velocity (m/s) and density (kg/m^3). Must
+        satisfy ``vp > vs > 0`` and ``rho > 0``.
+    r : float
+        Radius at which to evaluate ``E_n2(r)`` (m). Must be
+        positive.
+
+    Returns
+    -------
+    ndarray, shape (6, 6)
+        ``E_n2(r)`` post-rescale. Real-valued in the bound
+        regime; ``NaN``-filled outside the bound regime.
+
+    See Also
+    --------
+    _layer_e_matrix_n1 : The n=1 (flexural) sister.
+    _layer_propagator_n2 : G''.b.2 follow-up using
+        ``E_n2(r_outer) E_n2(r_inner)^{-1}`` to map the state
+        vector across a layer at n=2.
+    """
+    p2 = kz * kz - (omega / vp) ** 2
+    s2 = kz * kz - (omega / vs) ** 2
+    if p2 <= 0.0 or s2 <= 0.0 or r <= 0.0:
+        return np.full((6, 6), np.nan)
+    p = float(np.sqrt(p2))
+    s = float(np.sqrt(s2))
+    pr = p * r
+    sr = s * r
+    I1_p = float(special.iv(1, pr))
+    I2_p = float(special.iv(2, pr))
+    K1_p = float(special.kv(1, pr))
+    K2_p = float(special.kv(2, pr))
+    I1_s = float(special.iv(1, sr))
+    I2_s = float(special.iv(2, sr))
+    K1_s = float(special.kv(1, sr))
+    K2_s = float(special.kv(2, sr))
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
+
+    E = np.zeros((6, 6))
+    # Row 0: u_r = d_r phi + (n/r) psi_z - i k_z psi_theta. At n=2,
+    # the d_theta-induced term is +(2/r) psi_z. col*(-i) on C cols.
+    E[0, 0] = +p * I1_p - 2.0 * I2_p / r           # B_I
+    E[0, 1] = -p * K1_p - 2.0 * K2_p / r           # B_K
+    E[0, 2] = -kz * I2_s                            # C_I
+    E[0, 3] = -kz * K2_s                            # C_K
+    E[0, 4] = +2.0 * I2_s / r                       # D_I
+    E[0, 5] = +2.0 * K2_s / r                       # D_K
+    # Row 1: u_z = i k_z phi + (1/r) d_r [r psi_theta]. row*i on
+    # all entries; col*(-i) on C cols (net factor 1).
+    E[1, 0] = -kz * I2_p                            # B_I
+    E[1, 1] = -kz * K2_p                            # B_K
+    E[1, 2] = +s * I1_s - I2_s / r                  # C_I
+    E[1, 3] = -s * K1_s - K2_s / r                  # C_K
+    E[1, 4] = 0.0                                   # D_I (SH no u_z)
+    E[1, 5] = 0.0                                   # D_K
+    # Row 2: u_theta = (n/r) phi cos -> -(n/r) F_n sin sector;
+    # contributions also from -d_r psi_z. C cols are zero (SV no
+    # u_theta).
+    E[2, 0] = -2.0 * I2_p / r                       # B_I
+    E[2, 1] = -2.0 * K2_p / r                       # B_K
+    E[2, 2] = 0.0                                   # C_I
+    E[2, 3] = 0.0                                   # C_K
+    E[2, 4] = -s * I1_s + 2.0 * I2_s / r            # D_I
+    E[2, 5] = +s * K1_s + 2.0 * K2_s / r            # D_K
+    # Row 3: sigma_rr = lambda div u + 2 mu d_r u_r. Lame
+    # reduction; n^2 (n+1) factor 12 in the F_n / r^2 term.
+    E[3, 0] = +mu * (
+        two_kz2_minus_kS2 * I2_p
+        - 2.0 * p * I1_p / r
+        + 12.0 * I2_p / (r * r)
+    )                                               # B_I
+    E[3, 1] = +mu * (
+        two_kz2_minus_kS2 * K2_p
+        + 2.0 * p * K1_p / r
+        + 12.0 * K2_p / (r * r)
+    )                                               # B_K
+    E[3, 2] = -2.0 * kz * mu * (s * I1_s - 2.0 * I2_s / r)   # C_I
+    E[3, 3] = +2.0 * kz * mu * (s * K1_s + 2.0 * K2_s / r)   # C_K
+    E[3, 4] = +4.0 * mu * (s * I1_s / r - 3.0 * I2_s / (r * r))   # D_I
+    E[3, 5] = -4.0 * mu * (s * K1_s / r + 3.0 * K2_s / (r * r))   # D_K
+    # Row 4: sigma_rz = mu (d_z u_r + d_r u_z). row*i on all
+    # entries; col*(-i) on C cols. n^2-1 = 3 factor in the C cols.
+    E[4, 0] = -2.0 * kz * mu * (p * I1_p - 2.0 * I2_p / r)   # B_I
+    E[4, 1] = +2.0 * kz * mu * (p * K1_p + 2.0 * K2_p / r)   # B_K
+    E[4, 2] = +mu * (two_kz2_minus_kS2 + 3.0 / (r * r)) * I2_s   # C_I
+    E[4, 3] = +mu * (two_kz2_minus_kS2 + 3.0 / (r * r)) * K2_s   # C_K
+    E[4, 4] = -2.0 * kz * mu * I2_s / r                       # D_I
+    E[4, 5] = -2.0 * kz * mu * K2_s / r                       # D_K
+    # Row 5: sigma_r_theta = mu [d_r u_theta + (1/r) d_theta u_r
+    #                            - u_theta/r]. Sin sector; no row
+    # scaling. n^2 (n+1) = 12 factor in the F_n / r^2 term.
+    E[5, 0] = +4.0 * mu * (-p * I1_p / r + 3.0 * I2_p / (r * r))   # B_I
+    E[5, 1] = +4.0 * mu * (+p * K1_p / r + 3.0 * K2_p / (r * r))   # B_K
+    E[5, 2] = +2.0 * kz * mu * I2_s / r                            # C_I
+    E[5, 3] = +2.0 * kz * mu * K2_s / r                            # C_K
+    E[5, 4] = -mu * (
+        (s * s + 12.0 / (r * r)) * I2_s
+        - 2.0 * s * I1_s / r
+    )                                                              # D_I
+    E[5, 5] = -mu * (
+        (s * s + 12.0 / (r * r)) * K2_s
+        + 2.0 * s * K1_s / r
+    )                                                              # D_K
+    return E
+
+
+# =====================================================================
+# Plan item G''.b.2 -- per-layer propagator P(r_outer | r_inner) at n=2
+# =====================================================================
+#
+# Sister of G.b.2 / G'.b.2 at azimuthal order n=2. Wraps two
+# evaluations of ``_layer_e_matrix_n2`` into the layer
+# propagator P_j = E_n2(r_outer) E_n2(r_inner)^{-1} (substep
+# G''.a.3). Uses ``np.linalg.solve`` rather than explicit
+# ``inv`` for better conditioning.
+#
+# Round-trip / composition oracles in the G''.b.2 tests use the
+# state-vector form to avoid the spurious ~1e-6 off-diagonal
+# residuals of raw matrix-equality tests at ``cond(E_n2) ~ mu
+# ~ 1e10`` -- the same lesson documented in the G.b.2 commit
+# (123e634), inherited from G'.b.2.
+
+
+def _layer_propagator_n2(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    r_inner: float,
+    r_outer: float,
+) -> np.ndarray:
+    r"""
+    6x6 layer propagator ``P(r_outer | r_inner)`` mapping the
+    n=2 state vector ``v(r) = (u_r, u_z, u_theta, sigma_rr,
+    sigma_rz, sigma_r_theta)`` from ``r_inner`` to ``r_outer``
+    within a uniform isotropic-elastic layer.
+
+    Implements substep G''.a.3:
+
+    .. math::
+        P_j(r_{\text{outer}} \mid r_{\text{inner}}) =
+        E_{n=2}(r_{\text{outer}}) \, E_{n=2}(r_{\text{inner}})^{-1}
+
+    with ``E_{n=2}`` from :func:`_layer_e_matrix_n2`.
+
+    Parameters
+    ----------
+    kz, omega : float
+        Trial axial wavenumber (rad / m) and angular frequency
+        (rad / s).
+    vp, vs, rho : float
+        Layer P / S velocity (m/s) and density (kg/m^3).
+    r_inner, r_outer : float
+        Inner and outer radii of the layer (m). May be in either
+        order; the round-trip identity ``P(b|a) P(a|b) v ~ v`` is
+        verified in the tests. ``r_inner == r_outer`` returns
+        ``eye(6)``.
+
+    Returns
+    -------
+    ndarray, shape (6, 6)
+        The layer propagator. Real-valued in the bound regime;
+        ``NaN``-filled outside the bound regime.
+
+    See Also
+    --------
+    _layer_propagator_n1 : The n=1 (flexural) sister, 6x6.
+    _layer_e_matrix_n2 : G''.b.1 helper that this function calls
+        twice.
+    """
+    if r_inner == r_outer:
+        return np.eye(6)
+    E_inner = _layer_e_matrix_n2(
+        kz=kz, omega=omega, vp=vp, vs=vs, rho=rho, r=r_inner,
+    )
+    E_outer = _layer_e_matrix_n2(
+        kz=kz, omega=omega, vp=vp, vs=vs, rho=rho, r=r_outer,
+    )
+    if not (np.all(np.isfinite(E_inner)) and np.all(np.isfinite(E_outer))):
+        return np.full((6, 6), np.nan)
+    return np.linalg.solve(E_inner.T, E_outer.T).T
 
 
 # =====================================================================
