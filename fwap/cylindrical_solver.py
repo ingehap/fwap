@@ -8859,6 +8859,333 @@ def _layered_n1_row10_at_b(
 
 
 # =====================================================================
+# Substep G.a -- math scaffolding for the cased-hole multi-layer
+#                propagator-matrix determinant (n=0)
+# =====================================================================
+#
+# Generalises the F.1 single-extra-layer 7x7 hand-coded form to N
+# stacked annular layers via a Thomson-Haskell-style propagator
+# matrix in cylindrical geometry (Schmitt-Bouchon 1985; Tang &
+# Cheng 2004 ch. 7). Comments-only block; the helpers themselves
+# land in plan items G.b (per-layer propagator), G.c (assembly),
+# and G.d (public-API hook). See ``docs/plans/cylindrical_biot_G.md``
+# for the full sub-plan.
+#
+# Sign / Bessel / phase conventions are the same as F.1.a (which
+# this scaffolding extends), unchanged from the isotropic solver
+# upstream:
+# * Time dependence ``e^{-i omega t}``, axial ``e^{i k_z z}``,
+#   azimuthal ``e^{i n theta}``.
+# * Bound regime ``k_z > omega / V_min`` so all radial wavenumbers
+#   ``F = sqrt(k_z^2 - (omega/V_f)^2)``,
+#   ``p = sqrt(k_z^2 - (omega/V_P)^2)``,
+#   ``s = sqrt(k_z^2 - (omega/V_S)^2)`` are real and positive.
+# * Per-region scalar / vector potentials: in each elastic layer
+#   ``phi = B_I I_0(p r) + B_K K_0(p r)`` (P scalar potential)
+#   and ``psi_theta = C_I I_1(s r) + C_K K_1(s r)`` (SV vector
+#   potential, theta-component for axisymmetric n=0). Two
+#   amplitudes per wave family because the layer is bounded on
+#   both sides; the formation half-space keeps only the
+#   ``K``-flavour (decay outward) and the fluid keeps only the
+#   ``I``-flavour (regular at the axis) -- same as F.1.a.
+#
+# The N=0 limit reduces to the unlayered ``_modal_determinant_n0``
+# ; the N=1 limit reduces to ``_modal_determinant_n0_layered``
+# (within an overall scale factor; same brentq root in k_z). Both
+# limits anchor the floating-point regression oracles in G.c.
+#
+# -----
+# Substep G.a.1 -- State vector at the axisymmetric order n=0
+# -----
+#
+# Within any uniform elastic layer (or the formation half-space),
+# the radial-dependent part of the displacement / stress field at
+# n=0 reduces to a 4-component state vector ``v(r)``:
+#
+#       v(r) = ( u_r(r),  u_z(r),  sigma_rr(r),  sigma_rz(r) )^T
+#
+# Four components (not six) because the n=0 axisymmetric problem
+# has no theta-dependent quantities: ``u_theta = 0`` identically
+# from the axisymmetric ansatz, ``sigma_r_theta = 0`` from
+# ``epsilon_r_theta = 0``, and the remaining stresses
+# ``sigma_theta_theta`` and ``sigma_zz`` are determined by
+# ``u_r, u_z`` via Hooke. The four components above are exactly
+# the four whose continuity is required at every radial interface.
+#
+# At the layer/layer (or fluid/layer, or layer/formation) boundary
+# ``r = b_j``, the n=0 boundary conditions are
+# 1. ``u_r`` continuous,
+# 2. ``u_z`` continuous (slip-free across solid/solid interface),
+# 3. ``sigma_rr`` continuous,
+# 4. ``sigma_rz`` continuous,
+# i.e. ``v(b_j^-) = v(b_j^+)`` -- a single 4-vector identity.
+#
+# The fluid/solid interface at ``r = a`` is the only place where
+# the four components do NOT match one-for-one: in the fluid
+# ``u_z`` is unconstrained (slip allowed), so only three of the
+# four solid-side components match the fluid-side counterparts.
+# That mismatch is what reduces the final determinant below the
+# 4N+? row count one would naively expect from N layers. See
+# G.a.4 for the bookkeeping.
+#
+# -----
+# Substep G.a.2 -- Mode-amplitude to state-vector matrix E(r)
+# -----
+#
+# Within a single uniform layer (or the formation half-space),
+# ``v(r)`` is a linear combination of the four wave amplitudes
+# ``c = (B_I, B_K, C_I, C_K)^T`` collecting the I/K-flavours of
+# the P scalar potential and the SV vector potential:
+#
+#       v(r) = E(r) c
+#
+# The 4x4 matrix ``E(r)`` is obtained by transcribing the
+# substep-F.1.a.2 (displacement) and F.1.a.3 (stress) field forms
+# at radius r, with each column corresponding to one wave
+# amplitude:
+#
+#                | (B_I-col)  (B_K-col)  (C_I-col)  (C_K-col) |
+#       E(r) =   |     u_r entries from each amplitude         |
+#                |     u_z entries                              |
+#                |    sigma_rr entries                          |
+#                |    sigma_rz entries                          |
+#
+# Using the standard modified-Bessel recurrences
+# ``I_0'(x) = I_1(x)``, ``K_0'(x) = -K_1(x)``,
+# ``(1/r) (d/dr)[r I_1(s r)] = s I_0(s r)``, etc., and the F.1.a
+# Lame reduction ``-lambda k_P^2 + 2 mu p^2 = mu (2 k_z^2 - k_S^2)``,
+# the four rows are (pre-rescale; phase rescaling follows the
+# F.1.a.5 row * i, col * -i convention so the assembled
+# determinant is real):
+#
+# Row 1 (u_r):
+#       [ +p I_1(p r),  -p K_1(p r),  -i k_z I_1(s r),  -i k_z K_1(s r) ]
+#
+# Row 2 (u_z):
+#       [ +i k_z I_0(p r),  +i k_z K_0(p r),  +s I_0(s r),  -s K_0(s r) ]
+#
+# Row 3 (sigma_rr):
+#       [ -lambda k_P^2 I_0(p r) + 2 mu p^2 I_0(p r) - 2 mu p I_1(p r)/r,
+#         -lambda k_P^2 K_0(p r) + 2 mu p^2 K_0(p r) + 2 mu p K_1(p r)/r,
+#         -2 i mu k_z s I_0(s r) + 2 i mu k_z I_1(s r)/r,
+#         +2 i mu k_z s K_0(s r) + 2 i mu k_z K_1(s r)/r ]
+#
+# Row 4 (sigma_rz):
+#       [ +2 i mu k_z p I_1(p r),
+#         -2 i mu k_z p K_1(p r),
+#         -mu (2 k_z^2 - k_S^2) I_1(s r),
+#         -mu (2 k_z^2 - k_S^2) K_1(s r) ]
+#
+# (The signs above pre-rescale; absorb the row * i / col * -i
+# rescale at the assembly step in G.c so each row is real-valued
+# in the bound regime. See substep G.a.5.)
+#
+# Note: row 3's first two entries reduce, via the Lame identity,
+# to ``+/- mu (2 k_z^2 - k_S^2) I_0/K_0(p r) +/- 2 mu p K_1(p r)/r``
+# -- the same combination that appears in F.1's row 5 (sigma_rr
+# at r = b). Direct transcription from F.1.b with the I-flavour
+# kept alongside the K-flavour.
+#
+# -----
+# Substep G.a.3 -- Layer propagator P_j(r_outer | r_inner)
+# -----
+#
+# Within layer j with mode amplitudes c_j (constant across the
+# annulus), the state vector at the inner and outer radii are
+#       v_j(r_inner_j) = E_j(r_inner_j) c_j
+#       v_j(r_outer_j) = E_j(r_outer_j) c_j
+# so the 4-vector at the outer radius is related to the 4-vector
+# at the inner radius by the propagator
+#
+#       P_j(r_outer_j | r_inner_j) = E_j(r_outer_j) E_j(r_inner_j)^{-1}
+#
+# i.e. ``v_j(r_outer_j) = P_j v_j(r_inner_j)``.
+#
+# Continuity of the 4-vector across each layer/layer interface
+# (substep G.a.1) lets the per-layer propagators be composed
+# directly:
+#
+#       v(r_N_outer) = P_N P_{N-1} ... P_2 P_1  v(r_0_inner)
+#
+# where ``r_0_inner = a`` (borehole wall, fluid side) and
+# ``r_N_outer = b = a + sum(thickness_j)`` (formation half-space
+# inner boundary). The composed propagator ``P_total`` is the
+# only 4x4 quantity the assembly step in G.c needs to evaluate;
+# the per-layer propagators do not need to be retained
+# separately.
+#
+# Note: in cylindrical geometry P_j is NOT a matrix exponential
+# of a constant-coefficient matrix (unlike Thomson-Haskell for
+# plane-layered media). The radial ODE for ``v(r)`` has Bessel
+# coefficients depending on r, so the propagator is genuinely
+# the product ``E(r_outer) E(r_inner)^{-1}`` of two 4x4 Bessel
+# matrices. The "matrix exponential" intuition transfers
+# qualitatively (composition law, identity at r_outer = r_inner)
+# but the explicit form differs.
+#
+# -----
+# Substep G.a.4 -- Boundary conditions and modal determinant
+# -----
+#
+# Three sets of BCs assemble the dispersion relation:
+#
+# (i) Fluid side at r = a. The fluid holds 1 amplitude
+# ``A`` from ``P^(f) = A I_0(F r)``, giving ``u_r^(f)(a) = (F I_1(F a))/(rho_f omega^2)``,
+# ``sigma_rr^(f)(a) = -A I_0(F a)``, and ``sigma_rz^(f)(a) = 0``
+# (inviscid). The three solid-side BCs at r = a are
+#       BC1: u_r^(f)(a) - u_r^(s)(a) = 0
+#       BC2: sigma_rr^(s)(a) + A I_0(F a) = 0
+#       BC3: sigma_rz^(s)(a) = 0
+# Encoded as a 3x4 row block ``B_fluid_at_a`` extracting the
+# three components ``(u_r, sigma_rr - <fluid contribution>,
+# sigma_rz)`` of the layer-1 state vector ``v_1(a)``, plus a 3x1
+# column for the fluid amplitude ``A``.
+#
+# (ii) Formation half-space at r = b. Only the K-flavour
+# survives (decay outward): two amplitudes ``B_form_K``,
+# ``C_form_K``. Continuity of all four components of ``v`` at
+# r = b sets up four equations involving ``v_N(b)``, ``B_form_K``,
+# and ``C_form_K``:
+#       v_N(b) = E_form(b) (B_form_K, C_form_K, 0, 0)^T
+#                                          [I-flavours dropped]
+# Encoded as a 4x4 row block ``B_outer_at_b`` extracting all four
+# components against the half-space form.
+#
+# (iii) Layer/layer continuity at r = b_j for j=1..N-1: handled
+# implicitly by the propagator chain P_total = P_N ... P_1 (G.a.3).
+#
+# Assembled modal determinant. Stack the BCs into a square
+# system. The unknowns are
+#       (A, B_form_K, C_form_K)^T              (three amplitudes)
+# and the equations are the three fluid-side BCs at r = a (using
+# ``v_1(a) = E_1(a) c_1``) and the four formation-side BCs at
+# r = b (using ``v_N(b) = P_total E_1(a) c_1``), composed so the
+# layer-internal amplitudes ``c_j`` are eliminated via the
+# propagator chain. Concretely:
+#
+#       M = [[ B_fluid_at_a,                 col_A ],
+#            [ B_outer_at_b @ P_total,       col_form ]]
+#
+# where ``col_A`` is the 3-vector encoding the fluid amplitude's
+# contribution to BC1-3 and ``col_form`` is the 4x2 block
+# encoding the half-space K-flavour amplitudes' contribution to
+# the four r=b continuity rows, evaluated against E_form(b).
+# Net dimensions: ``M`` is (3 + 4) x (1 + 2 + 4) = 7 x 7 (where
+# the +4 columns are the four layer-1-amplitude unknowns
+# ``c_1``). Wait -- that's the un-reduced count.
+#
+# Reduction. The four ``c_1`` columns are eliminated by absorbing
+# E_1(a) into the rows: pre-multiply the bottom block by
+# ``B_outer_at_b @ P_total @ E_1(a)``. The resulting 7x7 system
+# has unknowns ``(A, B_form_K, C_form_K, c_1_cols)`` and seven
+# rows (three at r=a, four at r=b).
+#
+# **Key reduction at single-layer collapse (N=1)**: P_total reduces
+# to ``E_1(b) E_1(a)^{-1}``, so ``B_outer_at_b @ P_total @ E_1(a) =
+# B_outer_at_b @ E_1(b)``, i.e. the assembly drops to the same
+# 7x7 form as F.1's hand-coded ``_modal_determinant_n0_layered``.
+# This is the floating-point oracle for G.c (substep G.a.6).
+#
+# **Multi-layer (N >= 2)**: P_total = P_N ... P_1 has the same 4x4
+# shape; the assembly stays 7x7. The propagator chain is the
+# only N-dependent piece. Plan item G.c handles the explicit
+# row/column packing.
+#
+# -----
+# Substep G.a.5 -- Numerical conditioning (kz * thickness)
+# -----
+#
+# The propagator P_j = E_j(r_outer) E_j(r_inner)^{-1} requires
+# inverting E_j at the inner boundary. Within a layer of
+# thickness ``h`` and radial wavenumber ``kappa`` (whichever of
+# F, p, s is active), the modified-Bessel matrix entries scale
+# as
+#       I_0(kappa r), I_1(kappa r) ~ exp(+kappa r)/sqrt(2 pi kappa r)
+#       K_0(kappa r), K_1(kappa r) ~ sqrt(pi/(2 kappa r)) exp(-kappa r)
+# so the four columns of E(r) span a range of ~ exp(+/- kappa r)
+# at large argument. Across a layer of thickness h, the
+# **conditioning ratio** of E(r_inner) is roughly
+# ``cond(E) ~ exp(2 kappa_max h)`` with kappa_max the largest of
+# (F, p, s) in the layer.
+#
+# **Typical cased-hole geometries.**
+# * Borehole radius a ~ 0.1 m, casing thickness ~ 0.01 m, cement
+#   thickness ~ 0.05 m.
+# * Sonic band 1-15 kHz: omega/V_S ~ 2-30 / m for typical V_S.
+# * kz at the Stoneley root sits between 1/V_f and 1/V_S in
+#   slowness, i.e. omega * (1/1500 to 1/3000) ~ 4 to 60 / m.
+# * kappa h ~ 60 / m * 0.05 m = 3 (top of band, thick cement).
+# * Conditioning ratio ~ exp(6) ~ 400 -- well within double-
+#   precision tolerance.
+#
+# **Heavily-anisotropic / very-thick / very-high-frequency cases.**
+# When ``kappa h >> 30`` the I-flavour columns overflow and the
+# K-flavour underflow; ``inv(E_inner)`` becomes useless. Standard
+# remedies (deferred to a follow-up plan):
+# * **Knopoff delta-matrix** (Knopoff 1964): composes 6x6 minor
+#   determinants instead of full propagators; avoids the
+#   inversion step.
+# * **Kennett reflection / transmission**: tracks per-layer
+#   reflection coefficients instead of propagators; numerically
+#   stable for arbitrarily thick stacks.
+# Out of scope for G's first pass; the N >= 30 conditioning
+# warning hook is placed in ``_validate_borehole_layers_stacked``
+# (G.0) for later G.c expansion.
+#
+# -----
+# Substep G.a.6 -- Single-layer collapse identity (G.b -> F.1)
+# -----
+#
+# When ``len(layers) == 1`` the propagator path's modal
+# determinant must agree with F.1's hand-coded
+# ``_modal_determinant_n0_layered`` to a non-trivial overall
+# scale factor (different intermediate factorisations: F.1's
+# 7x7 hand-coded form folds the propagator implicitly through
+# the per-row builders, while G.c assembles the propagator
+# explicitly).
+#
+# Concretely:
+#       det(M_propagator)  =  scale * det(M_F1)
+# with ``scale`` independent of k_z, omega, layer / formation
+# parameters (it cancels powers of ``det(E_1(a))`` between
+# the two assemblies). The brentq root in k_z is the same.
+# Pin ``scale`` empirically at the test: at a representative
+# ``(k_z, omega)``, compute the ratio ``det(M_propagator) /
+# det(M_F1)`` once and verify it stays constant across a small
+# k_z grid.
+#
+# Same scaling identity holds at ``len(layers) == 0`` (collapse
+# to ``_modal_determinant_n0`` via the formation-half-space-only
+# assembly).
+#
+# -----
+# Substep G.a.7 -- Self-check protocol
+# -----
+#
+# Each implementation step lands with one or more of the
+# following oracles (test names mirror the H.a.7 / F.1.a.6
+# protocols):
+#
+# (a) Identity propagator: r_outer = r_inner -> P = eye(4) to
+#     floating-point precision. Tests E(r)^{-1} E(r) round-trip.
+# (b) Composition: P(r3 | r1) = P(r3 | r2) @ P(r2 | r1) for any
+#     intermediate r2. Tests the propagator group law.
+# (c) State-vector continuity: pick c, verify that
+#     v(r2) = P(r2 | r1) v(r1) matches E(r2) c directly.
+# (d) Zero-layer collapse (G.c): the propagator-matrix
+#     determinant matches ``_modal_determinant_n0`` (within an
+#     overall k_z-independent scale).
+# (e) Single-layer collapse (G.c): matches
+#     ``_modal_determinant_n0_layered`` (same overall-scale
+#     identity).
+# (f) Order-matters at N=2 (G.c / G.d): swapping (L_a, L_b) ->
+#     (L_b, L_a) gives a different slowness curve.
+# (g) Cement-bond regression (G.d): well-bonded vs free-pipe
+#     synthetic produces distinct Stoneley dispersion curves
+#     (Tang & Cheng 2004 fig 7.1).
+
+
+# =====================================================================
 # Plan item H.0 -- public-API foundation for VTI formation
 # =====================================================================
 #
