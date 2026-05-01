@@ -11,10 +11,24 @@ stress conditions at the borehole wall.
 Scope (this module)
 -------------------
 * Isotropic-elastic formation, single-interface and single-extra-
-  annular-layer geometries. The VTI extension lives on the
-  roadmap as a follow-up (Schmitt 1989 elastic part); the
-  numerical scaffolding here will be reused. Multi-layer (cased-
-  hole / propagator-matrix) extension is plan item G.
+  annular-layer geometries; **VTI formation** (transversely
+  isotropic, vertical symmetry axis) for the n=0 (Stoneley) and
+  n=1 (flexural, slow formation) bound modes via the Schmitt 1989
+  modal determinant. Multi-layer (cased-hole / propagator-matrix)
+  extension is plan item G; fast-formation TI flexural via the
+  complex-determinant variant is a deferred follow-up to plan H.
+* **VTI public APIs**: :func:`stoneley_dispersion_vti` (n=0; any
+  formation) and :func:`flexural_dispersion_vti` (n=1; slow-
+  formation TI, ``V_Sv < V_f``). Five-parameter stiffness tensor
+  (C11, C13, C33, C44, C66) plus density. With an isotropic
+  tensor both routines bit-match the unlayered isotropic
+  counterparts. The Norris 1990 LF closed-form
+  ``S_ST^2 = 1/V_f^2 + rho_f / C66`` (TI-specific oracle) anchors
+  the n=0 validation; the Sinha-Norris-Chang LF asymptote
+  ``slowness -> 1/V_Sv`` and the
+  :func:`fwap.cylindrical.flexural_dispersion_vti_physical`
+  weak-anisotropy regression anchor the n=1 case. See plan H in
+  ``docs/plans/cylindrical_biot.md`` for the full breakdown.
 * **Bound-mode + n=0 leaky regimes**: the bound-mode public APIs
   (:func:`stoneley_dispersion`, :func:`flexural_dispersion`)
   cover the regime ``k_z > omega / V_S`` (all radial wavenumbers
@@ -9071,6 +9085,53 @@ def _stoneley_kz_bracket_vti(
     return kz_lo, kz_hi
 
 
+def _flexural_kz_bracket_vti(
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> tuple[float, float]:
+    """
+    Bracket the n=1 VTI flexural root in (k_z_lo, k_z_hi) for
+    the slow-formation regime.
+
+    The Sinha-Norris-Chang phenomenological model places the
+    flexural phase velocity in a band around ``V_Sv`` at low f,
+    descending to a TI-Rayleigh-like speed at high f. Slowness
+    sits between roughly ``1/V_Sv`` (LF asymptote) and
+    ``~1.1/V_Sv`` (HF Rayleigh-like).
+
+    Lower bound: just above ``omega / V_Sv`` -- the SH-decoupled
+    bound floor (``alpha_SH^2 = (C44 k_z^2 - rho omega^2) / C66``
+    requires ``k_z > omega / V_Sv``).
+
+    Upper bound: ``1.5 omega / V_Sv``, generous enough to cover
+    the HF Rayleigh-like asymptote. Caller may expand outward if
+    no sign change is found.
+
+    Notes
+    -----
+    Restricted to the slow-formation TI regime (``V_Sv < V_f``);
+    the caller is expected to dispatch fast-formation TI elsewhere
+    since the real-valued VTI determinant requires
+    ``k_z > omega / V_f`` (``F_f^2 > 0``), which is automatic only
+    when ``V_Sv < V_f``.
+    """
+    Vsv = float(np.sqrt(c44 / rho))
+    kz_lo = omega / Vsv * (1.0 + 1.0e-6)
+    kz_hi = omega / Vsv * 1.5
+    if kz_hi <= kz_lo:
+        kz_hi = kz_lo * 2.0
+    return kz_lo, kz_hi
+
+
 def flexural_dispersion_vti(
     freq: np.ndarray,
     *,
@@ -9090,9 +9151,19 @@ def flexural_dispersion_vti(
 
     Sister of :func:`stoneley_dispersion_vti` at azimuthal order 1.
     With an isotropic stiffness tensor this is bit-equivalent to
-    :func:`flexural_dispersion`; with a genuinely-anisotropic
-    tensor it raises ``NotImplementedError`` pointing at plan
-    item H.d (``docs/plans/cylindrical_biot_H.md``).
+    :func:`flexural_dispersion`. With a genuinely-anisotropic
+    tensor in the slow-formation regime (``V_Sv = sqrt(C44/rho)
+    < V_f``), runs the Schmitt 1989 VTI modal determinant
+    :func:`_modal_determinant_n1_vti` through brentq with the
+    Sinha-Norris-Chang-driven bracket
+    :func:`_flexural_kz_bracket_vti`.
+
+    Fast-formation TI (``V_Sv > V_f``, where ``F_f^2 < 0`` and the
+    fluid Bessels become oscillatory) requires a complex variant of
+    the VTI modal determinant; that is out of scope for plan H.d
+    and raises ``NotImplementedError``. The mirror of the
+    isotropic ``_flexural_dispersion_fast_formation`` complex path
+    is deferred to a follow-up plan item.
 
     Parameters and validation rules: identical to
     :func:`stoneley_dispersion_vti`.
@@ -9107,7 +9178,8 @@ def flexural_dispersion_vti(
     ValueError
         Same conditions as :func:`stoneley_dispersion_vti`.
     NotImplementedError
-        If the stiffness tensor is genuinely anisotropic.
+        If the stiffness tensor is genuinely anisotropic and
+        ``V_Sv > V_f`` (fast-formation TI).
     """
     _validate_vti_stiffness(c11, c13, c33, c44, c66, rho)
     if vf <= 0 or rho_f <= 0:
@@ -9123,13 +9195,76 @@ def flexural_dispersion_vti(
         return flexural_dispersion(
             f_arr, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
         )
-    raise NotImplementedError(
-        "flexural_dispersion_vti with a genuinely-anisotropic "
-        "stiffness tensor is not implemented yet; the Schmitt 1989 "
-        "VTI modal determinant is scheduled in plan item H.d "
-        "(see docs/plans/cylindrical_biot_H.md). The isotropic-"
-        "collapse case is supported via dispatch to "
-        "flexural_dispersion."
+    Vsv = float(np.sqrt(c44 / rho))
+    if Vsv > vf:
+        raise NotImplementedError(
+            "flexural_dispersion_vti for fast-formation TI "
+            f"(V_Sv = {Vsv:.0f} m/s > V_f = {vf:.0f} m/s) is not "
+            "implemented yet. The real-valued VTI modal determinant "
+            "requires F_f^2 = k_z^2 - (omega/V_f)^2 > 0, i.e. "
+            "V_Sv < V_f. The complex-determinant path mirroring the "
+            "isotropic _flexural_dispersion_fast_formation is "
+            "deferred (see plan item H.d follow-up in "
+            "docs/plans/cylindrical_biot_H.md). Slow-formation TI "
+            "(V_Sv < V_f) and the isotropic-collapse case are "
+            "supported."
+        )
+    # Genuine TI, slow formation: brentq loop on
+    # _modal_determinant_n1_vti per H.d.6.
+    slowness = np.full_like(f_arr, np.nan, dtype=float)
+    for i, f in enumerate(f_arr):
+        omega = 2.0 * np.pi * float(f)
+
+        def _det(kz_, omega=omega):
+            return _modal_determinant_n1_vti(
+                kz_, omega,
+                c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho,
+                vf=vf, rho_f=rho_f, a=a,
+            )
+
+        kz_lo, kz_hi = _flexural_kz_bracket_vti(
+            omega,
+            c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho,
+            vf=vf, rho_f=rho_f, a=a,
+        )
+        try:
+            d_lo = _det(kz_lo)
+            d_hi = _det(kz_hi)
+            n_expand = 0
+            while (
+                np.isfinite(d_lo)
+                and np.isfinite(d_hi)
+                and np.sign(d_lo) == np.sign(d_hi)
+                and n_expand < 8
+            ):
+                kz_hi *= 1.5
+                d_hi = _det(kz_hi)
+                n_expand += 1
+            if (not np.isfinite(d_lo)) or (not np.isfinite(d_hi)):
+                logger.debug(
+                    "flexural_dispersion_vti: det evaluation NaN "
+                    "at f=%.1f Hz (likely outside bound regime)", f,
+                )
+                continue
+            if np.sign(d_lo) == np.sign(d_hi):
+                logger.debug(
+                    "flexural_dispersion_vti: failed to bracket "
+                    "at f=%.1f Hz", f,
+                )
+                continue
+            kz_root = optimize.brentq(_det, kz_lo, kz_hi, xtol=1.0e-10)
+            slowness[i] = kz_root / omega
+        except (ValueError, RuntimeError) as exc:
+            logger.debug(
+                "flexural_dispersion_vti: brentq failed at "
+                "f=%.1f Hz: %s", f, exc,
+            )
+
+    return BoreholeMode(
+        name="flexural",
+        azimuthal_order=1,
+        freq=f_arr,
+        slowness=slowness,
     )
 
 
@@ -10669,4 +10804,250 @@ def _modal_row3_at_a_n1_vti(
         + 4.0 * K1_SH_a / (a * a)
     )
     return row
+
+
+# =====================================================================
+# Substep H.d.4 -- row 4 of the n=1 VTI flexural determinant (r=a)
+# =====================================================================
+#
+# BC4: ``sigma_rz^{(s)}(a) = 0`` (cos sector, dipole order).
+# Z-derivative-bearing row; gets the FULL substep-H.a.6 rescale
+# (row * i + col-by-(-i) on C_qSV).
+#
+# **VTI sigma_rz formula**:
+#
+#       sigma_rz = 2 C44 epsilon_rz = C44 (d_z u_r + d_r u_z)
+#
+# Pure C44 shear -- no Lame replacement (C44 is the constitutive
+# shear modulus). Same form as H.c.1.c's n=0 row 3, plus the new
+# D_SH column at n=1.
+#
+# **P_qX combination reused from H.c.1.c**:
+#
+#       P_qX = C11 alpha_qX^2 + C13 k_z^2 + rho omega^2
+#
+# Reduces to ``2 (lambda + mu) k_z^2`` for qP at isotropic limit;
+# to ``(lambda + mu)(2 k_z^2 - k_S^2)`` for qSV.
+#
+# The P_qX combination naturally appears via the algebraic identity
+# ``i k_z + z_qX_polarization = i P_qX / [(C13+C44) k_z]`` (qP) or
+# ``k_z^2 - z_qSV alpha_qSV = P_qSV / (C13+C44)`` (qSV) -- the
+# (i k_z + z_X) sum collapses to a clean P_qX expression at the
+# wall.
+#
+# **D_SH at row 4**: D enters via ``d_z u_r`` from
+# ``(1/r) d_theta psi_z`` in u_r. ``d_r u_z`` from D is zero
+# (curl_z drops psi_z, so u_z has no D contribution). The
+# d_z u_r contribution gives ``+i k_z C44 D K_1(alpha_SH a)/a``
+# pre-rescale; row * i flips to ``-k_z C44 K_1/a`` post-rescale,
+# matching M44.
+#
+# **Row 4 entries (post-rescale)**:
+#
+#       row[0] = 0                                          # A (no shear)
+#       row[1] = +C44 P_qP / [(C13 + C44) k_z]
+#                * (alpha_qP K_0(alpha_qP a)
+#                   + K_1(alpha_qP a) / a)                  # B_qP -> M42
+#       row[2] = +C44 P_qSV / (C13 + C44)
+#                * K_1(alpha_qSV a)                         # C_qSV -> M43
+#       row[3] = -k_z C44 K_1(alpha_SH a) / a               # D_SH -> M44
+#
+# Note: the B_qP entry has the TWO-TERM ``alpha_qP K_0 + K_1/a``
+# combination at n=1 (vs the single ``K_1`` term at n=0 in
+# H.c.1.c row 3). Same Bessel-derivative pattern as row 1 (H.d.1)
+# reflecting the K_1-indexed qP scalar potential at n=1.
+
+
+def _modal_row4_at_a_n1_vti(
+    kz: float,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> np.ndarray:
+    r"""
+    Row 4 of the n=1 VTI flexural modal determinant evaluated at
+    the borehole wall ``r = a``.
+
+    Encodes the axial-shear-vanishing BC ``sigma_rz^{(s)}(a) = 0``
+    (cos sector, dipole order). Z-derivative-bearing; gets the
+    FULL substep-H.a.6 rescale (``row * i`` + ``col-by-(-i)`` on
+    C_qSV). Returns the four post-rescale coefficients in column
+    order ``[A | B_qP, C_qSV, D_SH]``.
+
+    Parameters
+    ----------
+    kz, omega : float
+        Axial wavenumber and angular frequency.
+    c11, c13, c33, c44, c66 : float
+        VTI stiffness tensor entries (Pa). All used:
+        ``c11, c13, c44`` set P_qX combinations on B_qP and C_qSV
+        columns; ``c44`` is the outer constitutive shear modulus
+        (the only C-matrix term in the D_SH column);
+        ``c66`` doesn't appear directly in the entries but
+        affects ``alpha_SH`` via the SH Christoffel branch.
+    rho : float
+        Formation density (kg/m^3).
+    vf, rho_f : float
+        Fluid velocity / density. Not used (fluid carries no
+        shear); carried for signature uniformity.
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    ndarray, shape (4,) complex
+        Coefficients of (A, B_qP, C_qSV, D_SH) in row 4. Real-
+        valued in the bound regime.
+
+    See Also
+    --------
+    _modal_determinant_n1 : Isotropic n=1 form. At isotropic-
+        collapse, ``row[0] = M41 = 0``, ``row[1] = M42``,
+        ``row[2] = M43``, ``row[3] = M44`` bit-exactly.
+    _modal_row3_at_a_vti : The n=0 sigma_rz counterpart. The n=1
+        form adds D_SH (cross-coupled via ``d_z u_r`` from
+        ``(1/r) d_theta psi_z``) and uses the two-term
+        ``alpha_qP K_0 + K_1/a`` combination on B_qP (vs single
+        K_1 at n=0).
+    """
+    del vf, rho_f  # not used by row 4 (fluid no shear)
+    alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti(
+        kz, omega, c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho,
+    )
+
+    K0_qP_a = float(special.kv(0, alpha_qP * a))
+    K1_qP_a = float(special.kv(1, alpha_qP * a))
+    K1_qSV_a = float(special.kv(1, alpha_qSV * a))
+    K1_SH_a = float(special.kv(1, alpha_SH * a))
+
+    rho_omega_sq = rho * omega * omega
+    p_qP = c11 * alpha_qP * alpha_qP + c13 * kz * kz + rho_omega_sq
+    p_qSV = c11 * alpha_qSV * alpha_qSV + c13 * kz * kz + rho_omega_sq
+
+    row = np.zeros(4, dtype=complex)
+    # A column: fluid carries no shear at the wall.
+    row[0] = 0.0
+    # B_qP column: C44 P_qP / [(C13+C44) kz] times the two-term
+    # alpha_qP K_0 + K_1/a combination. At isotropic alpha_qP -> p,
+    # P_qP -> 2(lambda+mu) kz^2, gives 2 mu kz (p K_0 + K_1/a) = M42.
+    row[1] = (
+        +c44 * p_qP / ((c13 + c44) * kz)
+        * (alpha_qP * K0_qP_a + K1_qP_a / a)
+    )
+    # C_qSV column post-rescale: C44 P_qSV / (C13 + C44) * K_1.
+    # At isotropic P_qSV / (C13+C44) -> (2 kz^2 - kS^2), gives
+    # mu (2 kz^2 - kS^2) K_1(sa) = M43.
+    row[2] = +c44 * p_qSV / (c13 + c44) * K1_qSV_a
+    # D_SH column post-rescale: -kz C44 K_1(alpha_SH a)/a.
+    # Matches M44 at alpha_SH -> s, C44 -> mu.
+    row[3] = -kz * c44 * K1_SH_a / a
+    return row
+
+
+# =====================================================================
+# Substep H.d.5 -- assembly into _modal_determinant_n1_vti
+# =====================================================================
+#
+# Stacks the four row builders (H.d.1 / H.d.2 / H.d.3 / H.d.4) into
+# the 4x4 VTI flexural modal matrix and returns the determinant
+# as a real scalar.
+#
+# Each row builder applies the substep-H.a.6 phase rescale
+# internally: row 4 (the only z-derivative-bearing row in the n=1
+# 4x4) by ``i``; column C_qSV by ``-i``. The assembled matrix is
+# real-valued in the bound regime; ``np.linalg.det`` on the
+# .real part returns the real determinant directly.
+#
+# Reduces to :func:`_modal_determinant_n1` (sharing the same
+# flexural root in k_z, with an irrelevant overall scale factor)
+# when the stiffness tensor is isotropic. The H.d.6 follow-up
+# (``flexural_dispersion_vti`` end-to-end brentq) is the
+# floating-point oracle that anchors this assembly.
+
+
+def _modal_determinant_n1_vti(
+    kz: float,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> float:
+    r"""
+    4x4 dipole modal determinant for the n=1 (flexural) VTI
+    dispersion.
+
+    Stacks the four row builders from H.d.1 / H.d.2 / H.d.3 /
+    H.d.4 into the 4x4 VTI flexural modal matrix, applies the
+    substep-H.a.6 phase rescale (already absorbed into each
+    row), and returns the determinant as a real scalar.
+
+    Reduces to :func:`_modal_determinant_n1` (sharing the same
+    flexural root in ``k_z``, with an irrelevant overall scale
+    factor) when the stiffness tensor is isotropic. The H.d.6
+    integration test in :func:`flexural_dispersion_vti` is the
+    floating-point oracle that anchors this assembly.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m). Must lie in the bound
+        regime ``kz > omega / min(V_Sv, V_Sh, V_f)``.
+    omega : float
+        Angular frequency (rad / s).
+    c11, c13, c33, c44, c66 : float
+        VTI stiffness tensor entries (Pa).
+    rho : float
+        Formation density (kg/m^3).
+    vf, rho_f : float
+        Borehole-fluid velocity and density.
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    float
+        ``det(M)`` of the 4x4 VTI flexural modal matrix, real-
+        valued in the bound regime. NaN outside the bound regime.
+    """
+    rows = [
+        _modal_row1_at_a_n1_vti(
+            kz, omega,
+            c11=c11, c13=c13, c33=c33, c44=c44, c66=c66,
+            rho=rho, vf=vf, rho_f=rho_f, a=a,
+        ),
+        _modal_row2_at_a_n1_vti(
+            kz, omega,
+            c11=c11, c13=c13, c33=c33, c44=c44, c66=c66,
+            rho=rho, vf=vf, rho_f=rho_f, a=a,
+        ),
+        _modal_row3_at_a_n1_vti(
+            kz, omega,
+            c11=c11, c13=c13, c33=c33, c44=c44, c66=c66,
+            rho=rho, vf=vf, rho_f=rho_f, a=a,
+        ),
+        _modal_row4_at_a_n1_vti(
+            kz, omega,
+            c11=c11, c13=c13, c33=c33, c44=c44, c66=c66,
+            rho=rho, vf=vf, rho_f=rho_f, a=a,
+        ),
+    ]
+    M = np.vstack(rows)
+    # Each row is real-valued post-rescale; imaginary parts are
+    # zero to floating-point precision in the bound regime.
+    return float(np.linalg.det(M.real))
 
