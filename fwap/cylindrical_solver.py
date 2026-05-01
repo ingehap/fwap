@@ -10,10 +10,11 @@ stress conditions at the borehole wall.
 
 Scope (this module)
 -------------------
-* Isotropic-elastic formation, single-layer (no mudcake / altered
-  zone). The VTI extension lives on the roadmap as a follow-up
-  (Schmitt 1989 elastic part); the numerical scaffolding here will
-  be reused.
+* Isotropic-elastic formation, single-interface and single-extra-
+  annular-layer geometries. The VTI extension lives on the
+  roadmap as a follow-up (Schmitt 1989 elastic part); the
+  numerical scaffolding here will be reused. Multi-layer (cased-
+  hole / propagator-matrix) extension is plan item G.
 * **Bound-mode + n=0 leaky regimes**: the bound-mode public APIs
   (:func:`stoneley_dispersion`, :func:`flexural_dispersion`)
   cover the regime ``k_z > omega / V_S`` (all radial wavenumbers
@@ -21,13 +22,22 @@ Scope (this module)
   (:func:`pseudo_rayleigh_dispersion`) extends this to the n=0
   leaky regime via outgoing-wave Hankel-function boundary
   conditions and complex-:math:`k_z` Mueller iteration. The
-  high-frequency leaky-flexural and quadrupole regimes follow
-  the same scaffolding and are scheduled as plan items B and E
-  in ``docs/plans/cylindrical_biot.md``.
-* **n=0 and n=1 monopole/dipole.** The n=2 quadrupole mode
-  follows the same approach but with a 4x4 modal matrix derived
-  from a three-scalar Helmholtz decomposition. It is plan item D;
-  see ``docs/plans/cylindrical_biot.md``.
+  fast-formation flexural and quadrupole regimes are wired into
+  the public APIs (auto-dispatched).
+* **n=0, n=1, n=2 azimuthal orders**: monopole (Stoneley + pseudo-
+  Rayleigh), dipole (flexural), quadrupole. All three share the
+  Helmholtz-decomposition machinery; the n=2 case uses a
+  three-scalar decomposition with a 4x4 modal matrix.
+* **Single-extra-layer (mudcake / altered zone) extension**: the
+  layered public APIs :func:`stoneley_dispersion_layered` (n=0,
+  7x7 modal determinant) and :func:`flexural_dispersion_layered`
+  (n=1, 10x10 modal determinant) handle one annular layer between
+  fluid and formation. n=0 layered covers both fast- and slow-
+  formation bound regimes; n=1 layered covers slow-formation only
+  with the additional ``layer.vs >= vs`` constraint required to
+  keep the wave bound in the annulus. Layer parameters are
+  collected in :class:`BoreholeLayer`. See plan F in
+  ``docs/plans/cylindrical_biot.md`` for the full decomposition.
 
 Sign conventions
 ----------------

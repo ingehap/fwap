@@ -1,9 +1,15 @@
-# Plan: cylindrical-Biot item F continuation
+# Plan: cylindrical-Biot item F continuation — ✅ DONE (n=0)
 
 Detailed expansion of [item F in
 `docs/plans/cylindrical_biot.md`](cylindrical_biot.md) (single
 extra annular layer between fluid and formation: mudcake or
 altered zone).
+
+**Status (n=0 chain)**: shipped in PR #45 (F.1.a math scaffolding +
+F.1.b.{1,2,3,4} per-row builders + assembly) on top of the F.1.0
+foundation in PR #43. The follow-up (F.2 -- n=1 flexural layered)
+is tracked in [`cylindrical_biot_F_2.md`](cylindrical_biot_F_2.md)
+and shipped via PRs #48 and #49.
 
 ## Already landed
 

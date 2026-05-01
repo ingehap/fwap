@@ -1,16 +1,26 @@
-# Plan F.2: n=1 (flexural) layered modal determinant
+# Plan F.2: n=1 (flexural) layered modal determinant — ✅ DONE
 
 Sister of plan F.1 at azimuthal order 1. Implements the
 single-extra-layer flexural dispersion in
 [`fwap.cylindrical_solver`](../../fwap/cylindrical_solver.py) on
-top of the F.1 scaffolding, with one major structural addition:
-the cos / sin sector decomposition at n=1.
+top of the F.1 scaffolding.
+
+**Note on the original "cos / sin sector decomposition" framing**:
+the original draft of this document claimed cos and sin sectors
+decouple at n=1 into a 7×7 + 3×3 block-diagonal product.
+**This was wrong** -- the d_θ operations in u_r, σ_rθ, σ_rz
+cross-couple every amplitude family into BCs of either azimuthal
+sector, so the 10×10 layered modal determinant is fully dense.
+See substep F.2.a.6 in `fwap/cylindrical_solver.py` for the
+erratum. The corrected implementation has each row builder
+return shape-(10,) (not shape-(7,) or shape-(3,)) and the F.2.d
+assembly stacks all 10 rows directly.
 
 ## Status of plan F overall
 
 - ✅ F.1 — n=0 (Stoneley) layered, 7×7 — landed in PR #45
-- ⏳ F.2 — n=1 (flexural) layered, 10×10 — this document
-- ⏳ F.3 — cross-cutting docs / plan-doc cleanup
+- ✅ F.2 — n=1 (flexural) layered, 10×10 — landed in PRs #48, #49
+- ✅ F.3 — cross-cutting docs / plan-doc cleanup — this PR
 
 ## Mathematical structure
 
