@@ -8930,14 +8930,13 @@ def stoneley_dispersion_vti(
     in a VTI formation (transversely isotropic, vertical symmetry
     axis).
 
-    Foundation surface for plan item H. With an isotropic stiffness
-    tensor (``C11 = C33``, ``C44 = C66``, ``C13 = C11 - 2 * C44``)
-    this is bit-equivalent to :func:`stoneley_dispersion` with
-    ``vp = sqrt(C33 / rho), vs = sqrt(C44 / rho)``. With a
-    genuinely-anisotropic tensor, the public API currently raises
-    ``NotImplementedError`` pointing at the Schmitt 1989 modal-
-    determinant work scheduled in plan items H.b / H.c
-    (``docs/plans/cylindrical_biot_H.md``).
+    With an isotropic stiffness tensor (``C11 = C33``, ``C44 = C66``,
+    ``C13 = C11 - 2 * C44``) this is bit-equivalent to
+    :func:`stoneley_dispersion` with ``vp = sqrt(C33 / rho)``,
+    ``vs = sqrt(C44 / rho)``. With a genuinely-anisotropic tensor,
+    runs the Schmitt 1989 VTI modal determinant
+    :func:`_modal_determinant_n0_vti` through brentq with the
+    Norris-1990-driven bracket :func:`_stoneley_kz_bracket_vti`.
 
     Parameters
     ----------
@@ -8964,9 +8963,6 @@ def stoneley_dispersion_vti(
         If any input is non-positive, the stiffness tensor
         violates Thomsen-stability, or ``freq`` contains a
         non-positive entry.
-    NotImplementedError
-        If the stiffness tensor is genuinely anisotropic. The
-        VTI modal determinant is plan items H.b / H.c.
     """
     _validate_vti_stiffness(c11, c13, c33, c44, c66, rho)
     if vf <= 0 or rho_f <= 0:
@@ -8982,14 +8978,97 @@ def stoneley_dispersion_vti(
         return stoneley_dispersion(
             f_arr, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
         )
-    raise NotImplementedError(
-        "stoneley_dispersion_vti with a genuinely-anisotropic "
-        "stiffness tensor is not implemented yet; the Schmitt 1989 "
-        "VTI modal determinant is scheduled in plan items H.b / H.c "
-        "(see docs/plans/cylindrical_biot_H.md). The isotropic-"
-        "collapse case (C11=C33, C44=C66, C13=C11-2*C44) is "
-        "supported via dispatch to stoneley_dispersion."
+    # Genuine TI: brentq loop on _modal_determinant_n0_vti per H.c.2.
+    slowness = np.full_like(f_arr, np.nan, dtype=float)
+    for i, f in enumerate(f_arr):
+        omega = 2.0 * np.pi * float(f)
+
+        def _det(kz_, omega=omega):
+            return _modal_determinant_n0_vti(
+                kz_, omega,
+                c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho,
+                vf=vf, rho_f=rho_f, a=a,
+            )
+
+        kz_lo, kz_hi = _stoneley_kz_bracket_vti(
+            omega,
+            c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho,
+            vf=vf, rho_f=rho_f, a=a,
+        )
+        try:
+            d_lo = _det(kz_lo)
+            d_hi = _det(kz_hi)
+            n_expand = 0
+            while (
+                np.isfinite(d_lo)
+                and np.isfinite(d_hi)
+                and np.sign(d_lo) == np.sign(d_hi)
+                and n_expand < 8
+            ):
+                kz_hi *= 1.5
+                d_hi = _det(kz_hi)
+                n_expand += 1
+            if (not np.isfinite(d_lo)) or (not np.isfinite(d_hi)):
+                logger.debug(
+                    "stoneley_dispersion_vti: det evaluation NaN "
+                    "at f=%.1f Hz (likely outside bound regime)", f,
+                )
+                continue
+            if np.sign(d_lo) == np.sign(d_hi):
+                logger.debug(
+                    "stoneley_dispersion_vti: failed to bracket "
+                    "at f=%.1f Hz", f,
+                )
+                continue
+            kz_root = optimize.brentq(_det, kz_lo, kz_hi, xtol=1.0e-10)
+            slowness[i] = kz_root / omega
+        except (ValueError, RuntimeError) as exc:
+            logger.debug(
+                "stoneley_dispersion_vti: brentq failed at "
+                "f=%.1f Hz: %s", f, exc,
+            )
+
+    return BoreholeMode(
+        name="Stoneley",
+        azimuthal_order=0,
+        freq=f_arr,
+        slowness=slowness,
     )
+
+
+def _stoneley_kz_bracket_vti(
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> tuple[float, float]:
+    """
+    Bracket the n=0 VTI Stoneley root in (k_z_lo, k_z_hi).
+
+    Lower bound: just above the bound-regime floor
+    ``omega / min(V_Sv, V_Sh, V_f)``. Upper bound from the
+    Norris 1990 LF closed-form ``S_ST^2 = 1/V_f^2 + rho_f / C66``;
+    the actual converged kz is bracketed to within a factor of 1.5.
+
+    Note: uses C66 (NOT C44) in the LF estimate -- the TI-specific
+    coupling per Norris 1990. In isotropic this matches the
+    standard isotropic bracket since C66 = C44 = mu.
+    """
+    s_st_lf = float(np.sqrt(1.0 / vf ** 2 + rho_f / c66))
+    kz_lf_est = omega * s_st_lf
+    Vsv = float(np.sqrt(c44 / rho))
+    Vsh = float(np.sqrt(c66 / rho))
+    slowest = min(Vsv, Vsh, vf)
+    kz_lo = omega / slowest * (1.0 + 1.0e-6)
+    kz_hi = max(kz_lf_est * 1.5, kz_lo * 2.0)
+    return kz_lo, kz_hi
 
 
 def flexural_dispersion_vti(
