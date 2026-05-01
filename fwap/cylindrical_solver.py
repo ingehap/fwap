@@ -6561,6 +6561,146 @@ def stoneley_dispersion_layered(
 #     non-trivial case.
 
 
+# =====================================================================
+# Substep F.2.d -- assembly + public-API dispatch (n=1 layered)
+# =====================================================================
+#
+# Stack the ten row builders (F.2.b.1-7 cos-sector + F.2.c.1-3 sin-
+# sector) into the 10x10 modal matrix and return the determinant.
+# Each row builder applies the substep-F.2.a.5 row / column phase
+# rescale internally, so the assembled matrix is real-valued in the
+# bound regime; ``np.linalg.det`` returns the real determinant
+# directly.
+#
+# The public-API dispatch in :func:`flexural_dispersion_layered`
+# replaces the previous ``NotImplementedError`` with a brentq loop
+# driven by the bound-regime bracket extended to ``min(V_S, V_S_m,
+# V_f)``. Slow-formation regime only (``V_S < V_f`` AND
+# ``V_S_m < V_f``); fast-formation layered flexural is future work.
+
+
+def _modal_determinant_n1_layered(
+    kz: float,
+    omega: float,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    *,
+    layer: BoreholeLayer,
+) -> float:
+    r"""
+    10x10 dipole modal determinant for a borehole with one annular
+    layer between fluid and formation.
+
+    Stacks the ten row builders from substeps F.2.b and F.2.c into
+    the 10x10 layered matrix, applies the substep-F.2.a.5 phase
+    rescale (already absorbed into each row), and returns the
+    determinant as a real scalar.
+
+    Reduces to :func:`_modal_determinant_n1` (up to an irrelevant
+    overall scale factor) when ``(layer.vp, layer.vs, layer.rho) =
+    (vp, vs, rho)``: the layer=formation regression test in
+    :func:`flexural_dispersion_layered` is the floating-point
+    oracle for this routine.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m). Must lie in the bound
+        regime ``kz > omega / min(V_S, V_S_m, V_f)``; outside the
+        regime the determinant is NaN.
+    omega, vp, vs, rho, vf, rho_f, a : float
+        Formation, fluid, and borehole geometry parameters.
+    layer : BoreholeLayer
+        Annular layer between fluid and formation.
+
+    Returns
+    -------
+    float
+        ``det(M)`` of the 10x10 layered modal matrix, real-valued
+        in the bound regime. NaN outside the bound regime.
+    """
+    rows = [
+        _layered_n1_row1_at_a(
+            kz, omega, vp=vp, vs=vs, rho=rho,
+            vf=vf, rho_f=rho_f, a=a, layer=layer,
+        ),
+        _layered_n1_row2_at_a(
+            kz, omega, vp=vp, vs=vs, rho=rho,
+            vf=vf, rho_f=rho_f, a=a, layer=layer,
+        ),
+        _layered_n1_row3_at_a(
+            kz, omega, vp=vp, vs=vs, rho=rho,
+            vf=vf, rho_f=rho_f, a=a, layer=layer,
+        ),
+        _layered_n1_row4_at_a(
+            kz, omega, vp=vp, vs=vs, rho=rho,
+            vf=vf, rho_f=rho_f, a=a, layer=layer,
+        ),
+        _layered_n1_row5_at_b(
+            kz, omega, vp=vp, vs=vs, rho=rho,
+            vf=vf, rho_f=rho_f, a=a, layer=layer,
+        ),
+        _layered_n1_row6_at_b(
+            kz, omega, vp=vp, vs=vs, rho=rho,
+            vf=vf, rho_f=rho_f, a=a, layer=layer,
+        ),
+        _layered_n1_row7_at_b(
+            kz, omega, vp=vp, vs=vs, rho=rho,
+            vf=vf, rho_f=rho_f, a=a, layer=layer,
+        ),
+        _layered_n1_row8_at_b(
+            kz, omega, vp=vp, vs=vs, rho=rho,
+            vf=vf, rho_f=rho_f, a=a, layer=layer,
+        ),
+        _layered_n1_row9_at_b(
+            kz, omega, vp=vp, vs=vs, rho=rho,
+            vf=vf, rho_f=rho_f, a=a, layer=layer,
+        ),
+        _layered_n1_row10_at_b(
+            kz, omega, vp=vp, vs=vs, rho=rho,
+            vf=vf, rho_f=rho_f, a=a, layer=layer,
+        ),
+    ]
+    M = np.vstack(rows)
+    # Each row is real-valued post-rescale; the imaginary parts are
+    # zero to floating-point precision in the bound regime. Take the
+    # real part to discard sub-machine-epsilon imaginary noise.
+    return float(np.linalg.det(M.real))
+
+
+def _flexural_kz_bracket_layered(
+    omega: float,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+) -> tuple[float, float]:
+    """
+    Bracket the layered n=1 flexural root in (k_z_lo, k_z_hi).
+
+    Lower bound: just above the bound-regime floor
+    ``omega / min(V_S, V_S_m, V_f)`` so all five radial wavenumbers
+    are real positive. Upper bound: 10 % above the formation
+    Rayleigh-speed slowness (the high-f flexural asymptote in the
+    unlayered slow-formation case; the layered perturbation is
+    typically bounded so this is a generous outer bracket).
+    """
+    from fwap.cylindrical import rayleigh_speed
+
+    vR = rayleigh_speed(vp, vs)
+    slowest = min(vs, layer.vs, vf)
+    kz_lo = omega / slowest * (1.0 + 1.0e-6)
+    kz_hi = omega / vR * 1.10
+    return kz_lo, kz_hi
+
+
 def flexural_dispersion_layered(
     freq: np.ndarray,
     *,
@@ -6578,12 +6718,11 @@ def flexural_dispersion_layered(
     fluid and the formation half-space.
 
     With ``layers=()`` (no extra layers) this is bit-equivalent to
-    :func:`flexural_dispersion`. With one or more
-    :class:`BoreholeLayer` entries this is the public entry point
-    for plan item F.2 in ``docs/plans/cylindrical_biot_F_2.md``;
-    the underlying 10x10 layered modal determinant is scheduled
-    as the next steps of that plan and currently raises
-    ``NotImplementedError``.
+    :func:`flexural_dispersion`. With a single
+    :class:`BoreholeLayer` it dispatches to the 10x10 layered modal
+    determinant :func:`_modal_determinant_n1_layered` and brentq's
+    its lowest root across the frequency grid -- the public-API
+    payload of plan item F.2.
 
     Parameters
     ----------
@@ -6599,30 +6738,30 @@ def flexural_dispersion_layered(
         Borehole (fluid-side) radius (m).
     layers : tuple of BoreholeLayer, default ()
         Annular elastic layers between the fluid (``r < a``) and
-        the formation half-space, ordered radially outward. The
-        empty tuple is the degenerate single-interface case and
-        dispatches to :func:`flexural_dispersion`.
+        the formation half-space, ordered radially outward.
+        ``()`` dispatches to :func:`flexural_dispersion`. A
+        single-element tuple dispatches to the 10x10 layered
+        solver (slow-formation regime only). Multi-layer support
+        is plan item G; fast-formation layered flexural
+        (``V_S > V_f``) is future work.
 
     Returns
     -------
     BoreholeMode
         ``name = "flexural"``, ``azimuthal_order = 1``, with
-        ``freq`` echoed and ``slowness[i]`` the phase slowness at
-        each frequency. ``NaN`` at any frequency where the bracket
-        failed (typically below the geometric cutoff for slow
-        formations, or in the wrong physical regime).
+        ``slowness[i]`` the phase slowness at each frequency.
+        ``NaN`` at any frequency where the bracket failed
+        (typically below the geometric cutoff).
 
     Raises
     ------
     ValueError
         If any input is non-positive, ``vp <= vs``, ``freq``
-        contains a non-positive entry, or any layer in ``layers``
-        is malformed.
+        contains a non-positive entry, or any layer is malformed.
     NotImplementedError
-        If ``layers`` is non-empty. The non-degenerate path is
-        blocked on the layered modal-determinant implementation
-        (plan item F.2; see
-        ``docs/plans/cylindrical_biot_F_2.md``).
+        If ``len(layers) > 1`` (multi-layer is plan item G), or
+        if the formation is fast (``V_S > V_f``) with a non-empty
+        layer (fast-formation layered flexural is future work).
     """
     layers_tuple = tuple(layers)
     _validate_borehole_layers(layers_tuple)
@@ -6630,11 +6769,85 @@ def flexural_dispersion_layered(
         return flexural_dispersion(
             freq, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
         )
-    raise NotImplementedError(
-        "flexural_dispersion_layered with non-empty layers is not "
-        "implemented yet; the 10x10 layered modal determinant is "
-        "scheduled in plan item F.2 in "
-        "docs/plans/cylindrical_biot_F_2.md."
+    if len(layers_tuple) > 1:
+        raise NotImplementedError(
+            "flexural_dispersion_layered with multi-layer stacks is "
+            "plan item G in docs/plans/cylindrical_biot.md (cased-hole "
+            "propagator matrix). Single-layer and unlayered are "
+            "supported."
+        )
+    if vp <= 0 or vs <= 0 or rho <= 0:
+        raise ValueError("vp, vs, rho must all be positive")
+    if vf <= 0 or rho_f <= 0:
+        raise ValueError("vf and rho_f must be positive")
+    if a <= 0:
+        raise ValueError("a must be positive")
+    if vp <= vs:
+        raise ValueError("require vp > vs")
+    f_arr = np.asarray(freq, dtype=float)
+    if np.any(f_arr <= 0):
+        raise ValueError("freq must be strictly positive")
+
+    if vs > vf:
+        raise NotImplementedError(
+            "flexural_dispersion_layered with fast formation "
+            "(V_S > V_f) and a non-empty layer is not supported "
+            "yet; the 10x10 layered solver here covers the slow-"
+            "formation bound regime only. Fast-formation layered "
+            "flexural is scheduled as a follow-up to plan item F.2."
+        )
+
+    layer = layers_tuple[0]
+    slowness = np.full_like(f_arr, np.nan, dtype=float)
+    for i, f in enumerate(f_arr):
+        omega = 2.0 * np.pi * float(f)
+
+        def _det(kz_, omega=omega):
+            return _modal_determinant_n1_layered(
+                kz_, omega, vp, vs, rho, vf, rho_f, a, layer=layer,
+            )
+
+        kz_lo, kz_hi = _flexural_kz_bracket_layered(
+            omega, vp, vs, rho, vf, rho_f, a, layer,
+        )
+        try:
+            d_lo = _det(kz_lo)
+            d_hi = _det(kz_hi)
+            n_expand = 0
+            while (
+                np.isfinite(d_lo)
+                and np.isfinite(d_hi)
+                and np.sign(d_lo) == np.sign(d_hi)
+                and n_expand < 8
+            ):
+                kz_hi *= 1.5
+                d_hi = _det(kz_hi)
+                n_expand += 1
+            if (not np.isfinite(d_lo)) or (not np.isfinite(d_hi)):
+                logger.debug(
+                    "flexural_dispersion_layered: det evaluation NaN "
+                    "at f=%.1f Hz (likely outside bound regime)", f,
+                )
+                continue
+            if np.sign(d_lo) == np.sign(d_hi):
+                logger.debug(
+                    "flexural_dispersion_layered: failed to bracket "
+                    "at f=%.1f Hz (likely below cutoff)", f,
+                )
+                continue
+            kz_root = optimize.brentq(_det, kz_lo, kz_hi, xtol=1.0e-10)
+            slowness[i] = kz_root / omega
+        except (ValueError, RuntimeError) as exc:
+            logger.debug(
+                "flexural_dispersion_layered: brentq failed at "
+                "f=%.1f Hz: %s", f, exc,
+            )
+
+    return BoreholeMode(
+        name="flexural",
+        azimuthal_order=1,
+        freq=f_arr,
+        slowness=slowness,
     )
 
 

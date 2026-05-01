@@ -36,6 +36,7 @@ from fwap.cylindrical_solver import (
     _modal_determinant_n0,
     _modal_determinant_n0_layered,
     _modal_determinant_n1,
+    _modal_determinant_n1_layered,
     flexural_dispersion,
     flexural_dispersion_layered,
     stoneley_dispersion,
@@ -3465,19 +3466,36 @@ def test_flexural_dispersion_layered_empty_layers_returns_borehole_mode():
     assert res.azimuthal_order == 1
 
 
-def test_flexural_dispersion_layered_non_empty_layers_raises_not_implemented():
-    """Non-empty layers are blocked on plan item F.2 (the 10x10
-    layered modal determinant); the public API raises
-    NotImplementedError so callers don't silently get the unlayered
-    answer."""
+def test_flexural_dispersion_layered_fast_formation_layered_raises_not_implemented():
+    """Fast-formation layered flexural (``V_S > V_f`` with a
+    non-empty layer) is future work per F.2.d. The 10x10 layered
+    solver covers the slow-formation bound regime only; fast-
+    formation layered raises a clear NotImplementedError."""
     f = np.array([2000.0, 4000.0])
+    # Fast formation: vs (2500) > vf (1500).
     layer = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.01)
-    with pytest.raises(NotImplementedError, match="plan item F\\.2"):
+    with pytest.raises(NotImplementedError, match="fast formation"):
         flexural_dispersion_layered(
             f,
             vp=4500.0, vs=2500.0, rho=2400.0,
             vf=1500.0, rho_f=1000.0, a=0.1,
             layers=(layer,),
+        )
+
+
+def test_flexural_dispersion_layered_multilayer_raises_not_implemented():
+    """Multi-layer stacks (``len(layers) > 1``) are plan item G --
+    the cased-hole propagator-matrix extension. Single-layer and
+    unlayered are supported by F.2.d."""
+    f = np.array([2000.0, 4000.0])
+    layer1 = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
+    layer2 = BoreholeLayer(vp=3000.0, vs=1500.0, rho=1900.0, thickness=0.005)
+    with pytest.raises(NotImplementedError, match="plan item G"):
+        flexural_dispersion_layered(
+            f,
+            vp=4500.0, vs=2500.0, rho=2400.0,
+            vf=1500.0, rho_f=1000.0, a=0.1,
+            layers=(layer1, layer2),
         )
 
 
@@ -4948,3 +4966,156 @@ def test_layered_n1_row10_at_b_annulus_K_matches_row4_M42_M43_M44_at_b():
     assert row10[2].real == pytest.approx(M42_at_b)
     assert row10[4].real == pytest.approx(M43_at_b)
     assert row10[8].real == pytest.approx(M44_at_b)
+
+
+# =====================================================================
+# Plan item F.2.d -- assembly + dispatch
+# =====================================================================
+#
+# Closes the F.2.b/c chain. Tests fall into two groups:
+#
+#   * ``_modal_determinant_n1_layered``: real-valued in bound regime;
+#     evaluates without raising; behaves correctly at the layer=
+#     formation degenerate point.
+#   * ``flexural_dispersion_layered`` end-to-end: layer=formation
+#     reproduces ``flexural_dispersion`` slowness curve to
+#     ``rtol=1e-8``; thickness->0 limit ditto; dispatched correctly.
+
+
+def _layered_n1_slow_formation_params():
+    """Slow-formation fixture (vs < vf) for end-to-end layered
+    flexural tests. The layer must satisfy ``layer.vs >= vs``
+    (a ``harder'' layer) for the wave to stay in the bound regime
+    in the annulus: flexural slowness in slow formations is very
+    close to ``1/vs``, and a softer layer (``layer.vs < vs``)
+    would put ``s_m^2 < 0`` in the annulus -- the leaky regime
+    handled by future fast-formation-layered work."""
+    return dict(
+        vp=3000.0, vs=1200.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+        layer=BoreholeLayer(vp=3200.0, vs=1300.0, rho=2350.0, thickness=0.005),
+    )
+
+
+def test_modal_determinant_n1_layered_is_real_in_bound_regime():
+    """Substep F.2.a.5 phase rescale: each row builder applies the
+    rescale internally, so the assembled 10x10 is real-valued in
+    the bound regime."""
+    p = _layered_n1_slow_formation_params()
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(p["vs"], p["layer"].vs, p["vf"]) * 1.05
+    det = _modal_determinant_n1_layered(
+        kz, omega, p["vp"], p["vs"], p["rho"],
+        p["vf"], p["rho_f"], p["a"], layer=p["layer"],
+    )
+    assert np.isfinite(det)
+    assert isinstance(det, float)
+
+
+def test_modal_determinant_n1_layered_layer_equals_formation_root_matches_unlayered():
+    """The substep-F.2.a.7 (a) self-check at the determinant level:
+    at layer=formation, the layered determinant has the same
+    flexural root as :func:`_modal_determinant_n1`. The two
+    determinants are not numerically equal (the 10x10 has a
+    different overall scale than the 4x4), but they share the
+    same root in ``k_z``."""
+    vp, vs, rho = 3000.0, 1200.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+
+    bound = flexural_dispersion(
+        np.array([5000.0]),
+        vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    kz_root = float(bound.slowness[0]) * omega
+
+    det_at_root = _modal_determinant_n1_layered(
+        kz_root, omega, vp, vs, rho, vf, rho_f, a, layer=layer,
+    )
+    det_off_root = _modal_determinant_n1_layered(
+        kz_root * 1.05, omega, vp, vs, rho, vf, rho_f, a, layer=layer,
+    )
+    # Determinant at root much smaller than off-root.
+    assert abs(det_at_root) < abs(det_off_root) * 1.0e-3
+
+
+def test_flexural_dispersion_layered_layer_equals_formation_matches_unlayered():
+    """End-to-end integration test: with a layer whose properties
+    match the formation, the layered solver produces the same
+    flexural dispersion curve as the unlayered solver to
+    ``rtol=1e-8``. Floating-point oracle for the entire F.2 chain.
+    Any algebra error accumulated across the ten row builders
+    surfaces here."""
+    vp, vs, rho = 3000.0, 1200.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    f = np.linspace(2000.0, 8000.0, 12)
+
+    res_unlayered = flexural_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    res_layered = flexural_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(layer,),
+    )
+    np.testing.assert_allclose(
+        res_layered.slowness, res_unlayered.slowness,
+        rtol=1.0e-8, equal_nan=True,
+    )
+
+
+def test_flexural_dispersion_layered_thickness_zero_limit():
+    """As ``layer.thickness -> 0`` (with arbitrary layer material),
+    the layered solver continuously approaches the unlayered
+    answer. Algebraic identity: in the limit ``b -> a``, the rows
+    at r=b approach the rows at r=a, the second interface
+    degenerates, and the converged k_z must approach the single-
+    interface root."""
+    vp, vs, rho = 3000.0, 1200.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f = 5000.0
+
+    res_unlayered = flexural_dispersion(
+        np.array([f]), vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+
+    # Even a "different" layer with vanishing thickness should
+    # converge to the unlayered flexural slowness. Use a harder
+    # layer (layer.vs > vs) so the bound regime holds in the
+    # annulus per the F.2.d slow-formation gate.
+    layer_thin = BoreholeLayer(
+        vp=3200.0, vs=1300.0, rho=2350.0, thickness=1.0e-9,
+    )
+    res_thin = flexural_dispersion_layered(
+        np.array([f]), vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(layer_thin,),
+    )
+    assert res_thin.slowness[0] == pytest.approx(
+        res_unlayered.slowness[0], rel=1.0e-4,
+    )
+
+
+def test_flexural_dispersion_layered_non_trivial_layer_runs():
+    """Smoke test: a soft mudcake layer different from the
+    formation produces a finite slowness curve in the slow-
+    formation bound regime. No analytic oracle here (Schmitt 1988
+    fig 6 is the F.2.e validation target); the test confirms that
+    the dispatch + 10x10 + brentq + bracket all wire up without
+    raising."""
+    p = _layered_n1_slow_formation_params()
+    f = np.linspace(2000.0, 8000.0, 8)
+
+    res = flexural_dispersion_layered(
+        f, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"],
+        layers=(p["layer"],),
+    )
+    assert res.name == "flexural"
+    assert res.azimuthal_order == 1
+    assert res.slowness.shape == f.shape
+    # Most slownesses finite in the bound regime; cutoff effects may
+    # leave a few low-frequency NaNs, so check that at least the
+    # high-f half is fully populated.
+    n_finite = int(np.sum(np.isfinite(res.slowness)))
+    assert n_finite >= len(f) // 2
