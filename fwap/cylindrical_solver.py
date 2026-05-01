@@ -7410,3 +7410,153 @@ def _layered_n1_row6_at_b(
     row[9] = -s * K0_s_b - K1_s_b / b
     return row
 
+
+# =====================================================================
+# Substep F.2.c.3 -- row 9 of the n=1 layered determinant (r = b)
+# =====================================================================
+#
+# BC9: ``sigma_rtheta^{(m)}(b) - sigma_rtheta^{(s)}(b) = 0``
+# (sin-sector tangential-stress continuity at the annulus-formation
+# interface). Closes substep F.2.c. Same algebraic structure as
+# row 3 at r=a -- annulus side reuses the row-3 form evaluated at
+# r=b; formation side is the single-interface n=1 sigma_rtheta
+# formula, subtracted.
+#
+# Coefficients (post-rescale; B real, C real after col-by-(-i),
+# D real -- same imaginary-power pattern as row 3):
+#
+#       Row 9 = [
+#           0,                                                  # A
+#          +2 mu_m (-p_m I_0(p_m b)/b + 2 I_1(p_m b)/b^2),     # B_I
+#          +2 mu_m (+p_m K_0(p_m b)/b + 2 K_1(p_m b)/b^2),     # B_K
+#          +k_z mu_m I_1(s_m b) / b,                            # C_I
+#          +k_z mu_m K_1(s_m b) / b,                            # C_K
+#          -2 mu (p K_0(p b)/b + 2 K_1(p b)/b^2),               # B (subtracted)
+#          -k_z mu K_1(s b) / b,                                # C (subtracted)
+#          -mu_m (s_m^2 I_1 - 2 s_m I_0/b + 4 I_1/b^2),         # D_I
+#          -mu_m (s_m^2 K_1 + 2 s_m K_0/b + 4 K_1/b^2),         # D_K
+#          +mu (s^2 K_1 + 2 s K_0/b + 4 K_1/b^2),               # D (subtracted)
+#       ]
+#
+# Substep-F.2.a.7 (a) K-flavour cancellation at layer=formation:
+# all three K/non-K pairs cancel (B_K + B = 0, C_K + C = 0,
+# D_K + D = 0) -- the strongest correctness oracle for r=b
+# sin-sector rows since no single-interface analog exists for
+# rows 5-10.
+#
+# Cross-row identity: at layer=formation, row 9's annulus
+# K-flavour entries match row 3's M32, M33, M34 forms evaluated
+# at r=b instead of r=a (same underlying sigma_rtheta formula at
+# both interfaces; the only difference is the evaluation radius
+# and the subtracted-formation contribution).
+
+
+def _layered_n1_row9_at_b(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+) -> np.ndarray:
+    r"""
+    Row 9 of the n=1 layered modal determinant evaluated at the
+    annulus-formation interface ``r = b = a + layer.thickness``.
+
+    Encodes the tangential-stress continuity BC
+    ``sigma_rtheta^{(m)}(b) - sigma_rtheta^{(s)}(b) = 0`` in the
+    sin sector. Closes the F.2.c sin-sector chain. Returns the
+    ten post-rescale coefficients.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    vp, vs, rho : float
+        Formation half-space P / S velocities and density. All
+        used (mu = rho * vs^2 sets the formation B / C / D
+        coefficients on columns 5, 6, 9).
+    vf, rho_f : float
+        Fluid velocity / density. Not used (fluid doesn't reach
+        r=b); carried for signature uniformity.
+    a : float
+        Fluid-annulus interface radius (m); ``b = a + layer.thickness``.
+    layer : BoreholeLayer
+        The annular layer; sets ``mu_m, p_m, s_m``.
+
+    Returns
+    -------
+    ndarray, shape (10,) complex
+        Coefficients of (A, B_I, B_K, C_I, C_K, B, C, D_I, D_K, D)
+        in row 9. Real-valued in the bound regime.
+
+    See Also
+    --------
+    _layered_n1_row3_at_a : Same physical BC at the first
+        interface r=a. The annulus-side entries are identical
+        in form (just evaluated at r=b vs r=a); the formation
+        columns are non-zero in row 9 (vs zero in row 3).
+    """
+    del rho_f  # not used by row 9; kept for signature uniformity
+    F_f, p_m, s_m, p, s = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=vp, vs=vs, vf=vf, layer=layer,
+    )
+    del F_f  # row 9 doesn't touch the fluid column
+    b = a + layer.thickness
+
+    I0_pm_b = float(special.iv(0, p_m * b))
+    I1_pm_b = float(special.iv(1, p_m * b))
+    K0_pm_b = float(special.kv(0, p_m * b))
+    K1_pm_b = float(special.kv(1, p_m * b))
+    I0_sm_b = float(special.iv(0, s_m * b))
+    I1_sm_b = float(special.iv(1, s_m * b))
+    K0_sm_b = float(special.kv(0, s_m * b))
+    K1_sm_b = float(special.kv(1, s_m * b))
+    K0_p_b = float(special.kv(0, p * b))
+    K1_p_b = float(special.kv(1, p * b))
+    K0_s_b = float(special.kv(0, s * b))
+    K1_s_b = float(special.kv(1, s * b))
+
+    mu_m = layer.rho * layer.vs * layer.vs
+    mu = rho * vs * vs
+
+    row = np.zeros(10, dtype=complex)
+    # A column: fluid carries no shear; doesn't reach r=b.
+    row[0] = 0.0
+    # B_I (sign-flipped d_r-induced ``p_m I_0/b`` term).
+    row[1] = 2.0 * mu_m * (-p_m * I0_pm_b / b + 2.0 * I1_pm_b / (b * b))
+    # B_K (matches row 3 B_K form at r=b instead of r=a).
+    row[2] = 2.0 * mu_m * (+p_m * K0_pm_b / b + 2.0 * K1_pm_b / (b * b))
+    # C_I, C_K (post-rescale; col-by-(-i) cancels +i factor).
+    row[3] = +kz * mu_m * I1_sm_b / b
+    row[4] = +kz * mu_m * K1_sm_b / b
+    # B column (formation; subtracted, sign-flipped vs B_K at layer=formation).
+    row[5] = -2.0 * mu * (+p * K0_p_b / b + 2.0 * K1_p_b / (b * b))
+    # C column (formation; subtracted, post-rescale).
+    row[6] = -kz * mu * K1_s_b / b
+    # D_I (sign-flipped d_r-induced ``s_m I_0/b`` term).
+    row[7] = -mu_m * (
+        s_m * s_m * I1_sm_b
+        - 2.0 * s_m * I0_sm_b / b
+        + 4.0 * I1_sm_b / (b * b)
+    )
+    # D_K (matches row 3 D_K form at r=b).
+    row[8] = -mu_m * (
+        s_m * s_m * K1_sm_b
+        + 2.0 * s_m * K0_sm_b / b
+        + 4.0 * K1_sm_b / (b * b)
+    )
+    # D column (formation; subtracted, sign-flipped vs D_K at layer=formation).
+    row[9] = +mu * (
+        s * s * K1_s_b
+        + 2.0 * s * K0_s_b / b
+        + 4.0 * K1_s_b / (b * b)
+    )
+    return row
+
