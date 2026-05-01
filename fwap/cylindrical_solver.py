@@ -9326,6 +9326,98 @@ def _layer_e_matrix_n0(
 
 
 # =====================================================================
+# Plan item G.b.2 -- per-layer propagator P(r_outer | r_inner)
+# =====================================================================
+#
+# Wraps two evaluations of ``_layer_e_matrix_n0`` into the layer
+# propagator P_j = E(r_outer) E(r_inner)^{-1} (substep G.a.3).
+# Uses ``np.linalg.solve`` rather than explicit ``inv`` for
+# better conditioning (and to avoid the standard "compose,
+# don't invert" footgun on near-singular E).
+#
+# The propagator maps the full state vector
+# ``v(r) = (u_r, u_z, sigma_rr, sigma_rz)`` from r_inner to
+# r_outer within a uniform layer:
+#
+#       v(r_outer) = P(r_outer | r_inner) v(r_inner)
+#
+# Composition / round-trip oracles in the G.b.2 tests pin the
+# group-law identities P(r3|r1) = P(r3|r2) P(r2|r1) and
+# P(r2|r1) P(r1|r2) = I to floating-point precision.
+
+
+def _layer_propagator_n0(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    r_inner: float,
+    r_outer: float,
+) -> np.ndarray:
+    r"""
+    4x4 layer propagator ``P(r_outer | r_inner)`` mapping the
+    state vector ``v(r) = (u_r, u_z, sigma_rr, sigma_rz)`` from
+    ``r_inner`` to ``r_outer`` within a uniform isotropic-elastic
+    layer at azimuthal order n=0.
+
+    Implements substep G.a.3:
+
+    .. math::
+        P_j(r_{\text{outer}} \mid r_{\text{inner}}) =
+        E(r_{\text{outer}}) \, E(r_{\text{inner}})^{-1}
+
+    with ``E`` from :func:`_layer_e_matrix_n0`. The inversion is
+    performed via :func:`numpy.linalg.solve` (with the transpose
+    trick so the right-multiplication by the inverse becomes a
+    left-multiplication-style solve).
+
+    Parameters
+    ----------
+    kz, omega : float
+        Trial axial wavenumber (rad / m) and angular frequency
+        (rad / s).
+    vp, vs, rho : float
+        Layer P / S velocity (m/s) and density (kg/m^3). Must
+        satisfy ``vp > vs > 0`` and ``rho > 0``.
+    r_inner, r_outer : float
+        Inner and outer radii of the layer (m). May be in
+        either order; the round-trip identity
+        ``P(b|a) P(a|b) = I`` is verified in the tests.
+        ``r_inner == r_outer`` returns ``eye(4)``.
+
+    Returns
+    -------
+    ndarray, shape (4, 4)
+        The layer propagator. Real-valued in the bound regime;
+        ``NaN``-filled outside the bound regime (propagated from
+        :func:`_layer_e_matrix_n0`).
+
+    See Also
+    --------
+    _layer_e_matrix_n0 : G.b.1 helper that this function calls
+        twice (at ``r_inner`` and ``r_outer``).
+    """
+    if r_inner == r_outer:
+        return np.eye(4)
+    E_inner = _layer_e_matrix_n0(
+        kz=kz, omega=omega, vp=vp, vs=vs, rho=rho, r=r_inner,
+    )
+    E_outer = _layer_e_matrix_n0(
+        kz=kz, omega=omega, vp=vp, vs=vs, rho=rho, r=r_outer,
+    )
+    if not (np.all(np.isfinite(E_inner)) and np.all(np.isfinite(E_outer))):
+        return np.full((4, 4), np.nan)
+    # Compose ``E_outer @ inv(E_inner)`` via ``solve``:
+    #   X = E_outer @ inv(E_inner)
+    #   X @ E_inner = E_outer
+    #   E_inner.T @ X.T = E_outer.T
+    # so X.T = solve(E_inner.T, E_outer.T), and X is the transpose.
+    return np.linalg.solve(E_inner.T, E_outer.T).T
+
+
+# =====================================================================
 # Plan item H.0 -- public-API foundation for VTI formation
 # =====================================================================
 #
