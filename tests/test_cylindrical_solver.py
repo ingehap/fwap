@@ -23,6 +23,7 @@ from fwap.cylindrical_solver import (
     _layer_e_matrix_n2,
     _layer_propagator_n0,
     _layer_propagator_n1,
+    _layer_propagator_n2,
     _modal_determinant_n0_cased,
     _modal_determinant_n1_cased,
     _validate_borehole_layers_stacked,
@@ -9346,3 +9347,109 @@ def test_layer_e_matrix_n2_n2_factors_appear():
     K2sa = float(_special.kv(2, s_ * a))
     expected_rz = mu * (2.0 * p["kz"] ** 2 - kS2 + 3.0 / (a * a)) * K2sa
     assert E[4, 3] == pytest.approx(expected_rz, rel=1e-12)
+
+
+# =====================================================================
+# Plan item G''.b.2 -- per-layer propagator P(r_outer | r_inner) at n=2
+# =====================================================================
+#
+# Group-law oracles for ``_layer_propagator_n2`` (6x6 sister of
+# ``_layer_propagator_n1``). Round-trip uses the state-vector
+# form to avoid the ``cond(E) ~ mu`` issue called out in
+# G.b.2 / G'.b.2.
+
+
+def test_layer_propagator_n2_identity_when_r_inner_equals_r_outer():
+    """Identity oracle: ``r_inner == r_outer`` -> propagator is
+    ``eye(6)`` to floating-point precision."""
+    p = _typical_g_pp_b1_layer_params()
+    P = _layer_propagator_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=0.105, r_outer=0.105,
+    )
+    np.testing.assert_array_equal(P, np.eye(6))
+
+
+def test_layer_propagator_n2_round_trip_preserves_state_vector():
+    """Round-trip oracle via state-vector identity at n=2:
+    applying ``P(a|b) @ P(b|a)`` to a physical state vector
+    ``v`` returns ``v`` to ``rtol=1e-10``. State-vector phrasing
+    avoids the spurious ~1e-6 off-diagonals from disparate-
+    magnitude rows (displacement ~ O(1) vs stress ~ O(mu) ~
+    O(1e10)) per the G.b.2 / G'.b.2 lesson."""
+    p = _typical_g_pp_b1_layer_params()
+    a = 0.1
+    b = a + 0.005
+    P_b_from_a = _layer_propagator_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=a, r_outer=b,
+    )
+    P_a_from_b = _layer_propagator_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=b, r_outer=a,
+    )
+    mu = p["rho"] * p["vs"] ** 2
+    v = np.array([1.0, 2.0, 1.5, 3.0 * mu, 4.0 * mu, 2.5 * mu])
+    v_round = P_a_from_b @ (P_b_from_a @ v)
+    np.testing.assert_allclose(v_round, v, rtol=1.0e-10)
+    v_round_other = P_b_from_a @ (P_a_from_b @ v)
+    np.testing.assert_allclose(v_round_other, v, rtol=1.0e-10)
+
+
+def test_layer_propagator_n2_composition_law():
+    """Composition oracle: ``P(r3|r1) ~ P(r3|r2) @ P(r2|r1)`` for
+    any intermediate ``r2``. The propagator-group law in radius
+    at n=2."""
+    p = _typical_g_pp_b1_layer_params()
+    r1, r2, r3 = 0.1, 0.105, 0.115
+    P_3_from_1 = _layer_propagator_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=r1, r_outer=r3,
+    )
+    P_2_from_1 = _layer_propagator_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=r1, r_outer=r2,
+    )
+    P_3_from_2 = _layer_propagator_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=r2, r_outer=r3,
+    )
+    np.testing.assert_allclose(P_3_from_1, P_3_from_2 @ P_2_from_1, atol=1.0e-10)
+
+
+def test_layer_propagator_n2_state_vector_continuity():
+    """End-to-end state-vector check: pick an arbitrary 6-amp
+    vector ``c``; verify ``P(r2|r1) @ E_n2(r1) c == E_n2(r2) c``
+    to ``rtol=1e-10``. Strongest single-test oracle for the
+    G''.b.1 + G''.b.2 chain combined."""
+    p = _typical_g_pp_b1_layer_params()
+    r1, r2 = 0.1, 0.115
+    E_r1 = _layer_e_matrix_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=r1,
+    )
+    E_r2 = _layer_e_matrix_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"], r=r2,
+    )
+    P = _layer_propagator_n2(
+        kz=p["kz"], omega=p["omega"], vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        r_inner=r1, r_outer=r2,
+    )
+    c = np.array([1.3, -0.7, 2.1, 0.4, -1.1, 0.6])
+    v_r1 = E_r1 @ c
+    v_r2_via_P = P @ v_r1
+    v_r2_direct = E_r2 @ c
+    np.testing.assert_allclose(v_r2_via_P, v_r2_direct, rtol=1.0e-10)
+
+
+def test_layer_propagator_n2_returns_nan_below_bound_floor():
+    """Below the bound floor, ``E_n2(r)`` is NaN-filled; the
+    propagator inherits the NaN."""
+    omega = 2.0 * np.pi * 5000.0
+    vp, vs, rho = 2500.0, 1100.0, 2100.0
+    kz = omega / vs * 0.5
+    with np.errstate(invalid="ignore"):
+        P = _layer_propagator_n2(
+            kz=kz, omega=omega, vp=vp, vs=vs, rho=rho,
+            r_inner=0.1, r_outer=0.105,
+        )
+    assert np.all(np.isnan(P))

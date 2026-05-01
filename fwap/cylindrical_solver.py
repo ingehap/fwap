@@ -10932,6 +10932,85 @@ def _layer_e_matrix_n2(
 
 
 # =====================================================================
+# Plan item G''.b.2 -- per-layer propagator P(r_outer | r_inner) at n=2
+# =====================================================================
+#
+# Sister of G.b.2 / G'.b.2 at azimuthal order n=2. Wraps two
+# evaluations of ``_layer_e_matrix_n2`` into the layer
+# propagator P_j = E_n2(r_outer) E_n2(r_inner)^{-1} (substep
+# G''.a.3). Uses ``np.linalg.solve`` rather than explicit
+# ``inv`` for better conditioning.
+#
+# Round-trip / composition oracles in the G''.b.2 tests use the
+# state-vector form to avoid the spurious ~1e-6 off-diagonal
+# residuals of raw matrix-equality tests at ``cond(E_n2) ~ mu
+# ~ 1e10`` -- the same lesson documented in the G.b.2 commit
+# (123e634), inherited from G'.b.2.
+
+
+def _layer_propagator_n2(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    r_inner: float,
+    r_outer: float,
+) -> np.ndarray:
+    r"""
+    6x6 layer propagator ``P(r_outer | r_inner)`` mapping the
+    n=2 state vector ``v(r) = (u_r, u_z, u_theta, sigma_rr,
+    sigma_rz, sigma_r_theta)`` from ``r_inner`` to ``r_outer``
+    within a uniform isotropic-elastic layer.
+
+    Implements substep G''.a.3:
+
+    .. math::
+        P_j(r_{\text{outer}} \mid r_{\text{inner}}) =
+        E_{n=2}(r_{\text{outer}}) \, E_{n=2}(r_{\text{inner}})^{-1}
+
+    with ``E_{n=2}`` from :func:`_layer_e_matrix_n2`.
+
+    Parameters
+    ----------
+    kz, omega : float
+        Trial axial wavenumber (rad / m) and angular frequency
+        (rad / s).
+    vp, vs, rho : float
+        Layer P / S velocity (m/s) and density (kg/m^3).
+    r_inner, r_outer : float
+        Inner and outer radii of the layer (m). May be in either
+        order; the round-trip identity ``P(b|a) P(a|b) v ~ v`` is
+        verified in the tests. ``r_inner == r_outer`` returns
+        ``eye(6)``.
+
+    Returns
+    -------
+    ndarray, shape (6, 6)
+        The layer propagator. Real-valued in the bound regime;
+        ``NaN``-filled outside the bound regime.
+
+    See Also
+    --------
+    _layer_propagator_n1 : The n=1 (flexural) sister, 6x6.
+    _layer_e_matrix_n2 : G''.b.1 helper that this function calls
+        twice.
+    """
+    if r_inner == r_outer:
+        return np.eye(6)
+    E_inner = _layer_e_matrix_n2(
+        kz=kz, omega=omega, vp=vp, vs=vs, rho=rho, r=r_inner,
+    )
+    E_outer = _layer_e_matrix_n2(
+        kz=kz, omega=omega, vp=vp, vs=vs, rho=rho, r=r_outer,
+    )
+    if not (np.all(np.isfinite(E_inner)) and np.all(np.isfinite(E_outer))):
+        return np.full((6, 6), np.nan)
+    return np.linalg.solve(E_inner.T, E_outer.T).T
+
+
+# =====================================================================
 # Plan item H.0 -- public-API foundation for VTI formation
 # =====================================================================
 #
