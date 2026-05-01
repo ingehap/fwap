@@ -37,6 +37,7 @@ from fwap.cylindrical_solver import (
     _modal_determinant_n0_layered,
     _modal_determinant_n1,
     _modal_determinant_n1_layered,
+    _modal_row1_at_a_vti,
     _radial_wavenumbers_vti,
     flexural_dispersion,
     flexural_dispersion_layered,
@@ -5557,3 +5558,110 @@ def test_radial_wavenumbers_vti_below_bound_floor_returns_nan():
         )
     # alpha_SH definitely NaN below the V_Sv-related floor.
     assert np.isnan(alpha_SH)
+
+
+# =====================================================================
+# Plan item H.c.1.a -- row 1 of the n=0 VTI modal determinant (r = a)
+# =====================================================================
+#
+# First row of the 3x3 VTI Stoneley modal determinant. Returns the
+# three post-rescale coefficients [A | B_qP, C_qSV]. At isotropic
+# collapse the entries match (M11, M12, M13) of
+# :func:`_modal_determinant_n0` bit-exactly -- the floating-point
+# oracle for the H.c.1 chain.
+
+
+def test_modal_row1_at_a_vti_isotropic_collapse_matches_M11_M12_M13():
+    """Floating-point oracle: at isotropic stiffness, row 1 of the
+    VTI determinant matches M11, M12, M13 of
+    :func:`_modal_determinant_n0` to floating-point precision."""
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _modal_row1_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+
+    F = float(np.sqrt(kz * kz - (omega / vf) ** 2))
+    p = float(np.sqrt(kz * kz - (omega / vp) ** 2))
+    s = float(np.sqrt(kz * kz - (omega / vs) ** 2))
+    from scipy import special as sp
+
+    M11 = F * float(sp.iv(1, F * a)) / (rho_f * omega ** 2)
+    M12 = p * float(sp.kv(1, p * a))
+    M13 = kz * float(sp.kv(1, s * a))
+
+    assert row[0].real == pytest.approx(M11, rel=1.0e-12)
+    assert row[1].real == pytest.approx(M12, rel=1.0e-12)
+    assert row[2].real == pytest.approx(M13, rel=1.0e-12)
+
+
+def test_modal_row1_at_a_vti_all_columns_nonzero_in_bound_regime():
+    """Sparsity / non-degeneracy: in the bound regime all three
+    columns of row 1 are non-zero."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    row = _modal_row1_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    for i in range(3):
+        assert row[i] != 0.0
+
+
+def test_modal_row1_at_a_vti_is_real_in_bound_regime():
+    """Substep H.a.6 phase rescale: row 1 has the no-row-rescale
+    pattern; only column-by-(-i) on the C_qSV column is applied.
+    Post-rescale row is real-valued in the bound regime."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    row = _modal_row1_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e-14)
+
+
+def test_modal_row1_at_a_vti_uses_alpha_qP_alpha_qSV_not_p_s():
+    """Genuine TI sanity: with non-trivial epsilon (C11 != C33),
+    the qP root alpha_qP differs from the isotropic-equivalent
+    p = sqrt(kz^2 - omega^2 / V_Pv^2). Verify row[1] uses
+    alpha_qP K_1(alpha_qP a), NOT p K_1(p a). Confirms the row
+    builder pulls from the Christoffel solver, not from a hard-
+    coded isotropic substitution."""
+    cij = _typical_vti_params()
+    rho = cij.pop("rho")
+    vsv = float(np.sqrt(cij["c44"] / rho))
+    vsh = float(np.sqrt(cij["c66"] / rho))
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vsv, vsh, 1500.0) * 1.5
+
+    row = _modal_row1_at_a_vti(
+        kz, omega, **cij, rho=rho, vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+    # Pull alpha_qP from the helper.
+    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti(
+        kz, omega, **cij, rho=rho,
+    )
+    from scipy import special as sp
+
+    expected_BqP = alpha_qP * float(sp.kv(1, alpha_qP * 0.1))
+    expected_CqSV = kz * float(sp.kv(1, alpha_qSV * 0.1))
+    assert row[1].real == pytest.approx(expected_BqP, rel=1.0e-12)
+    assert row[2].real == pytest.approx(expected_CqSV, rel=1.0e-12)
+    # Sanity: confirm alpha_qP differs from the naive p computed
+    # with V_Pv = sqrt(c33/rho) so the test isn't passing trivially.
+    Vpv = float(np.sqrt(cij["c33"] / rho))
+    p_naive = float(np.sqrt(kz * kz - (omega / Vpv) ** 2))
+    assert abs(alpha_qP - p_naive) > 0.01  # non-trivial epsilon

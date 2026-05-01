@@ -9586,3 +9586,128 @@ def _radial_wavenumbers_vti(
     alpha_SH = float(np.sqrt(alpha_SH_sq)) if alpha_SH_sq >= 0.0 else float("nan")
     return alpha_qP, alpha_qSV, alpha_SH
 
+
+# =====================================================================
+# Substep H.c.1.a -- row 1 of the n=0 VTI modal determinant (r = a)
+# =====================================================================
+#
+# BC1: ``u_r^{(f)}(a) - u_r^{(s)}(a) = 0`` (cos-sector continuity of
+# radial displacement at the borehole wall). First row of the n=0
+# VTI Stoneley modal determinant; same row layout as
+# :func:`_modal_determinant_n0` but with the Christoffel roots
+# ``alpha_qP``, ``alpha_qSV`` replacing the isotropic ``p``, ``s``.
+#
+# Per substep H.a.4, the u_r contributions in the formation come
+# from the radial r-component of each Christoffel eigenvector:
+#
+#       u_r^{(qP)}(r)  = -B_qP * alpha_qP * K_1(alpha_qP r)
+#       u_r^{(qSV)}(r) = -i k_z * C_qSV * K_1(alpha_qSV r)
+#
+# The qP r-component normalises as ``-alpha_qP`` (carries the factor
+# from the radial derivative of the qP scalar potential); the qSV
+# r-component normalises as ``-i k_z`` (carries the axial-derivative
+# factor from the vector-potential-style ansatz). Both are
+# convention-matched to the isotropic n=0 forms, so the polarization
+# ratio ``gamma_qX = u_z/u_r`` does NOT enter row 1 (only u_r matters
+# here).
+#
+# Subtracting (fluid - solid):
+#
+#       Row 1 (pre-rescale) = [
+#           +F_f I_1(F_f a) / (rho_f omega^2),     # A column
+#           +alpha_qP K_1(alpha_qP a),              # B_qP column
+#           +i k_z K_1(alpha_qSV a),                # C_qSV column (pre-rescale)
+#       ]
+#
+# Phase rescale (substep H.a.6 = same as isotropic n=0): row 1 is
+# NOT z-derivative-bearing (no row * i). The C-column is rescaled
+# by ``-i``; post-rescale C entry: ``(-i)(+i k_z K_1) = +k_z K_1``.
+#
+# Post-rescale row 1:
+#
+#       Row 1 = [
+#           +F_f I_1(F_f a) / (rho_f omega^2),     # A
+#           +alpha_qP K_1(alpha_qP a),              # B_qP
+#           +k_z K_1(alpha_qSV a),                  # C_qSV
+#       ]
+#
+# Isotropic-collapse identity: with the isotropic stiffness tensor,
+# alpha_qP -> p and alpha_qSV -> s (substep H.b unit oracle), so
+# row 1 reduces bit-exactly to (M11, M12, M13) of
+# :func:`_modal_determinant_n0` -- the floating-point oracle for
+# this row builder.
+
+
+def _modal_row1_at_a_vti(
+    kz: float,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> np.ndarray:
+    r"""
+    Row 1 of the n=0 VTI Stoneley modal determinant evaluated at
+    the borehole wall ``r = a``.
+
+    Encodes the radial-displacement continuity BC
+    ``u_r^{(f)}(a) - u_r^{(s)}(a) = 0`` (cos sector). Returns the
+    three post-rescale coefficients in the column order
+    ``[A | B_qP, C_qSV]``.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    c11, c13, c33, c44, c66 : float
+        VTI stiffness tensor entries (Pa).
+    rho : float
+        Formation density (kg / m^3). Carried for signature
+        uniformity; not used by row 1 (no stress / no Lame term).
+    vf : float
+        Fluid velocity (m/s).
+    rho_f : float
+        Fluid density (kg/m^3).
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    ndarray, shape (3,) complex
+        Coefficients of (A, B_qP, C_qSV) in row 1. Real-valued in
+        the bound regime.
+
+    See Also
+    --------
+    _modal_determinant_n0 : Isotropic n=0 form. At isotropic-
+        collapse C-matrix, ``row[0] = M11``, ``row[1] = M12``,
+        ``row[2] = M13`` bit-exactly.
+    _radial_wavenumbers_vti : Provides ``alpha_qP`` and
+        ``alpha_qSV`` (the Christoffel roots).
+    """
+    F_f = float(np.sqrt(kz * kz - (omega / vf) ** 2))
+    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti(
+        kz, omega, c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho,
+    )
+
+    I1_Ff_a = float(special.iv(1, F_f * a))
+    K1_qP_a = float(special.kv(1, alpha_qP * a))
+    K1_qSV_a = float(special.kv(1, alpha_qSV * a))
+
+    row = np.zeros(3, dtype=complex)
+    # A column: fluid u_r contribution (matches M11 at any C-matrix).
+    row[0] = F_f * I1_Ff_a / (rho_f * omega ** 2)
+    # B_qP column (matches M12 at isotropic limit alpha_qP -> p).
+    row[1] = +alpha_qP * K1_qP_a
+    # C_qSV column post-rescale (col-by-(-i) cancels the +i factor).
+    row[2] = +kz * K1_qSV_a
+    return row
+
