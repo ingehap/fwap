@@ -5119,3 +5119,117 @@ def test_flexural_dispersion_layered_non_trivial_layer_runs():
     # high-f half is fully populated.
     n_finite = int(np.sum(np.isfinite(res.slowness)))
     assert n_finite >= len(f) // 2
+
+
+# =====================================================================
+# Plan item F.2.e -- validation hardening on top of F.2.d
+# =====================================================================
+#
+# Hardening tests for the assembled layered flexural solver. Each
+# tests an asymptotic / self-consistency property that the
+# layer=formation regression alone doesn't pin down.
+#
+# Note: the F.1.d "thickness -> infty" test does NOT translate
+# cleanly to F.2 because the layer's natural flexural mode has
+# phase velocity in (V_R_layer, V_S_layer), and the F.2.d
+# "harder layer" requirement (V_S_layer >= V_S_formation) means
+# this band lies AT OR ABOVE V_S_formation -- outside the bound
+# regime captured by the formation half-space. The layered
+# flexural slowness in the thickness -> infty limit thus exits
+# the bound regime; a faithful test would need fast-formation
+# layered handling (future work).
+
+
+def test_modal_determinant_n1_layered_vanishes_at_converged_root():
+    """Self-consistency: at the converged ``k_z`` returned by
+    :func:`flexural_dispersion_layered` (any non-trivial layer), the
+    layered determinant is several orders of magnitude smaller than
+    its value off-root. Sharper than the layer=formation det-at-root
+    check from F.2.d; works for any harder layer in the slow-
+    formation bound regime."""
+    p = _layered_n1_slow_formation_params()
+    f = 5000.0
+    omega = 2.0 * np.pi * f
+
+    res = flexural_dispersion_layered(
+        np.array([f]), vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(p["layer"],),
+    )
+    kz_root = float(res.slowness[0]) * omega
+
+    det_at = _modal_determinant_n1_layered(
+        kz_root, omega, p["vp"], p["vs"], p["rho"],
+        p["vf"], p["rho_f"], p["a"], layer=p["layer"],
+    )
+    det_off = _modal_determinant_n1_layered(
+        kz_root * 1.01, omega, p["vp"], p["vs"], p["rho"],
+        p["vf"], p["rho_f"], p["a"], layer=p["layer"],
+    )
+    # brentq-converged root: |det_at| >= 6 orders of magnitude
+    # smaller than |det_off| at 1% off the root.
+    assert abs(det_at) < abs(det_off) * 1.0e-6
+
+
+def test_flexural_dispersion_layered_multiple_frequencies_bound_regime():
+    """Smoke test across the slow-formation bound band. The flexural
+    slowness in a slow formation INCREASES with frequency: low-f
+    cutoff is at slowness ~1/V_S (formation), high-f asymptote is
+    at slowness ~1/V_R > 1/V_S (Rayleigh / Scholte limit). Confirm
+    monotonicity holds across a wide band with a non-trivial
+    layer."""
+    p = _layered_n1_slow_formation_params()
+    # Skip the very low-f cutoff region; pick frequencies safely
+    # above the geometric cutoff f ~ V_S / (2 pi a) ~ 1900 Hz
+    # (which the layer can shift slightly upward).
+    f = np.geomspace(3000.0, 15000.0, 12)
+
+    res = flexural_dispersion_layered(
+        f, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"],
+        layers=(p["layer"],),
+    )
+    assert np.all(np.isfinite(res.slowness))
+    # Slowness increases monotonically with frequency in slow-
+    # formation flexural (1/V_S at cutoff -> 1/V_R at high f, with
+    # V_R < V_S so 1/V_R > 1/V_S). Tiny negative tolerance for
+    # asymptotic-flatness rounding noise.
+    diffs = np.diff(res.slowness)
+    assert np.all(diffs > -1.0e-9)
+
+
+def test_flexural_dispersion_layered_harder_layer_speeds_up_flexural():
+    """Headline physics validation: a layer with ``V_S_layer >
+    V_S_formation`` (harder near-borehole zone) speeds up the
+    flexural wave -- the layered slowness is BELOW the unlayered
+    slowness at the same frequency. Direct test of the qualitative
+    expectation behind altered-zone interpretation: stiffer
+    near-wall material shifts flexural slowness toward the layer's
+    Rayleigh-like speed (faster than the formation's).
+
+    Quantitative: the smoke test above showed ~1-1.3% speedup at
+    a few kHz; this test confirms the inequality holds at every
+    frequency in a typical band."""
+    vp, vs, rho = 3000.0, 1200.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    f = np.linspace(3000.0, 8000.0, 10)
+
+    res_unlayered = flexural_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    hard_layer = BoreholeLayer(
+        vp=3500.0, vs=1500.0, rho=2400.0, thickness=0.01,
+    )
+    res_layered = flexural_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(hard_layer,),
+    )
+    # Both fully populated in this band.
+    assert np.all(np.isfinite(res_unlayered.slowness))
+    assert np.all(np.isfinite(res_layered.slowness))
+    # Harder layer => faster flexural => smaller slowness.
+    assert np.all(res_layered.slowness < res_unlayered.slowness)
+    # Speedup should be within physically reasonable range
+    # (0.1% to 5% for a 1 cm layer with modest contrast).
+    speedup_frac = 1.0 - res_layered.slowness / res_unlayered.slowness
+    assert np.all(speedup_frac > 0.001)
+    assert np.all(speedup_frac < 0.05)
