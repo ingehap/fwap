@@ -20,6 +20,7 @@ from fwap.cylindrical_solver import (
     BoreholeMode,
     _layer_e_matrix_n0,
     _layer_propagator_n0,
+    _modal_determinant_n0_cased,
     _validate_borehole_layers_stacked,
     _layered_n0_bessel_pack,
     _layered_n0_radial_wavenumbers,
@@ -2094,22 +2095,6 @@ def test_stoneley_dispersion_layered_empty_layers_returns_borehole_mode():
     assert res.name == "Stoneley"
     assert res.azimuthal_order == 0
 
-
-def test_stoneley_dispersion_layered_multilayer_raises_not_implemented():
-    """Multi-layer stacks (``len(layers) > 1``) currently raise
-    ``NotImplementedError`` until plan items G.c (stacked modal
-    determinant) and G.d (public-API hook) land. Single-layer and
-    unlayered are supported by F.1.b.4."""
-    f = np.array([1000.0, 2000.0])
-    layer1 = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
-    layer2 = BoreholeLayer(vp=3000.0, vs=1500.0, rho=1900.0, thickness=0.005)
-    with pytest.raises(NotImplementedError, match=r"G\.c"):
-        stoneley_dispersion_layered(
-            f,
-            vp=4500.0, vs=2500.0, rho=2400.0,
-            vf=1500.0, rho_f=1000.0, a=0.1,
-            layers=(layer1, layer2),
-        )
 
 
 def test_stoneley_dispersion_layered_rejects_bad_layer_object():
@@ -7410,26 +7395,6 @@ def test_validate_borehole_layers_stacked_rejects_non_positive_a():
         _validate_borehole_layers_stacked((casing, cement), a=-0.1)
 
 
-def test_stoneley_dispersion_layered_two_layer_NIE_points_at_G_c_G_d():
-    """The G.0 dispatch sharpens the multi-layer NIE message to
-    name plan items G.c (stacked modal determinant) and G.d
-    (public-API hook). Verifies the user-facing pointer is
-    actionable rather than just naming "plan G"."""
-    f = np.array([5000.0])
-    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
-    cement = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05)
-    with pytest.raises(NotImplementedError) as exc_info:
-        stoneley_dispersion_layered(
-            f, vp=4500.0, vs=2500.0, rho=2400.0,
-            vf=1500.0, rho_f=1000.0, a=0.1,
-            layers=(casing, cement),
-        )
-    msg = str(exc_info.value)
-    assert "G.c" in msg
-    assert "G.d" in msg
-    assert "cylindrical_biot_G.md" in msg
-
-
 def test_flexural_dispersion_layered_two_layer_NIE_points_at_G_prime():
     """Mirror at n=1: the multi-layer NIE message identifies the
     deferred G' follow-up (cased-hole flexural with 6x6 propagator
@@ -7739,3 +7704,476 @@ def test_layer_propagator_n0_returns_nan_below_bound_floor():
             r_inner=0.1, r_outer=0.105,
         )
     assert np.all(np.isnan(P))
+
+
+# =====================================================================
+# Plan item G.c -- stacked modal determinant
+# =====================================================================
+#
+# Tests anchor on the N=1 collapse to F.1 (``_modal_determinant_n0_layered``)
+# as the floating-point oracle, plus a few oracles that exercise
+# the N >= 2 propagator chain (order-matters; two-identical-layers
+# equivalent to one double-thickness layer via the group law).
+
+
+def _typical_g_c_params():
+    """Slow-formation cased-hole fixture for G.c tests. Keeps the
+    Stoneley root in the bound regime across a representative
+    band; layers are typical casing / cement / mudcake values."""
+    return dict(
+        vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+
+
+def test_modal_determinant_n0_cased_N1_matches_F1_off_root():
+    """N=1 floating-point oracle: at any (kz, omega) in the bound
+    regime away from the Stoneley root, G.c's determinant matches
+    F.1's ``_modal_determinant_n0_layered`` to relative precision
+    ``rtol=1e-10`` (no extra scale factor; the propagator chain
+    at N=1 reduces P_1 @ E_1(a) -> E_1(b), exactly the F.1 form).
+
+    Strongest pinning of the G.c assembly against the existing
+    F.1 row-builder transcription that has shipped through F.1.b.4."""
+    p = _typical_g_c_params()
+    layer = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    # Pick kz away from the Stoneley root (1.05x off the unlayered
+    # bound floor; well into the bound regime).
+    kz = omega / p["vf"] * 1.05
+    det_F1 = _modal_determinant_n0_layered(
+        kz, omega, p["vp"], p["vs"], p["rho"], p["vf"], p["rho_f"], p["a"],
+        layer=layer,
+    )
+    det_Gc = _modal_determinant_n0_cased(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(layer,),
+    )
+    assert det_Gc == pytest.approx(det_F1, rel=1.0e-10)
+
+
+def test_modal_determinant_n0_cased_N1_vanishes_at_F1_brentq_root():
+    """N=1 brentq-root oracle: at the Stoneley root recovered by
+    ``stoneley_dispersion_layered(layers=(layer,))``, G.c's
+    determinant is many orders of magnitude smaller than its
+    value 1% off the root. Confirms the brentq pipeline G.d will
+    drive against G.c will find the same root as F.1."""
+    p = _typical_g_c_params()
+    layer = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+
+    res = stoneley_dispersion_layered(
+        np.array([5000.0]),
+        vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(layer,),
+    )
+    kz_root = float(res.slowness[0]) * omega
+    det_at = _modal_determinant_n0_cased(
+        kz_root, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(layer,),
+    )
+    det_off = _modal_determinant_n0_cased(
+        kz_root * 1.01, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(layer,),
+    )
+    assert abs(det_at) < abs(det_off) * 1.0e-10
+
+
+def test_modal_determinant_n0_cased_returns_nan_below_bound_floor():
+    """``kz < omega / V_f`` -> ``F_f^2 < 0`` -> NaN; or ``kz`` below
+    the slowest layer / formation V_S -> propagator chain returns
+    NaN. Either way the assembly propagates NaN cleanly so brentq
+    can reject the bracket."""
+    p = _typical_g_c_params()
+    layer = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    # kz well below the fluid floor.
+    kz = omega / p["vf"] * 0.5
+    with np.errstate(invalid="ignore"):
+        det = _modal_determinant_n0_cased(
+            kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+            vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(layer,),
+        )
+    assert np.isnan(det)
+
+
+def test_modal_determinant_n0_cased_two_identical_layers_equals_one_double_thickness():
+    """Group-law oracle for the propagator chain: two contiguous
+    identical layers (L, L) of thickness ``h`` each compose to a
+    single layer of thickness ``2h`` via ``P_2 @ P_1 = P(r3 | r1)``.
+
+    Direct test that G.c.7 propagator-chain composition is wired
+    correctly. Independent of F.1: would catch any error in the
+    inside-out layer-radii arithmetic or the chain accumulator."""
+    p = _typical_g_c_params()
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / p["vf"] * 1.05  # bound regime
+    # Single layer of thickness 0.01.
+    L_double = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.01)
+    # Two layers of thickness 0.005 each, same params.
+    L_half = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
+    det_single = _modal_determinant_n0_cased(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(L_double,),
+    )
+    det_split = _modal_determinant_n0_cased(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(L_half, L_half),
+    )
+    # The two assemblies use different innermost-layer E_1(a) factors
+    # (both layers have the same params, but the half-layer's
+    # E_1(a) has different bessel-pack values than the double-layer's
+    # E_1(a)). The brentq root in kz is the same; the absolute
+    # determinant magnitudes can differ. Verify the root match by
+    # checking that |det_single| / |det_split| is the same as the
+    # ratio of innermost-layer det(E_1(a))s (the layer-1-amplitude
+    # scale factor that distinguishes them).
+    #
+    # Simplest oracle: both should change sign across the same kz
+    # window, captured by the same-sign / same-magnitude-order test.
+    # Tight ratio: at this off-root kz, both should be the SAME up
+    # to an overall sign because L_double's E_1(a) is identical to
+    # L_half's E_1(a) (same vp/vs/rho/r=a). The propagator chain
+    # composes to the same total transformation across thickness 0.01.
+    assert det_single == pytest.approx(det_split, rel=1.0e-10)
+
+
+def test_modal_determinant_n0_cased_order_matters_at_N2():
+    """Physical sanity: with two distinct layers ``(L_a, L_b)``,
+    swapping the order to ``(L_b, L_a)`` produces a different
+    determinant -- the inside-out layer ordering is a physical
+    parameter (a casing inside a cement looks different from a
+    cement inside a casing).
+
+    Independent of F.1; would catch any error where the
+    propagator chain ignored layer ordering or composed in the
+    wrong direction."""
+    p = _typical_g_c_params()
+    omega = 2.0 * np.pi * 5000.0
+    L_a = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)  # casing
+    L_b = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.01)  # cement
+    # kz safely above the slowest-shear bound floor (cement V_S = 1300).
+    kz = omega / min(L_a.vs, L_b.vs, p["vs"], p["vf"]) * 1.05
+    det_ab = _modal_determinant_n0_cased(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(L_a, L_b),
+    )
+    det_ba = _modal_determinant_n0_cased(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(L_b, L_a),
+    )
+    assert np.isfinite(det_ab) and np.isfinite(det_ba)
+    # Layer permutation is non-trivial (well above floating-point noise).
+    rel_diff = abs(det_ab - det_ba) / max(abs(det_ab), abs(det_ba))
+    assert rel_diff > 0.01
+
+
+def test_modal_determinant_n0_cased_N2_runs_smoke():
+    """Smoke test for the N=2 (cased-hole) path: a typical
+    casing + cement geometry produces a finite real determinant
+    at a representative bound-regime ``kz``."""
+    p = _typical_g_c_params()
+    omega = 2.0 * np.pi * 5000.0
+    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
+    cement = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05)
+    # kz safely above the slowest-shear bound floor.
+    kz = omega / min(casing.vs, cement.vs, p["vs"], p["vf"]) * 1.05
+    det = _modal_determinant_n0_cased(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(casing, cement),
+    )
+    assert np.isfinite(det)
+    assert isinstance(det, float)
+
+
+# =====================================================================
+# Plan item G.d -- public-API hook for cased-hole Stoneley
+# =====================================================================
+#
+# Replaces the G.0 ``len(layers) > 1 -> NotImplementedError`` raise
+# with a brentq loop on ``_modal_determinant_n0_cased``. Tests
+# anchor on a multi-layer regression (matching the F.1 single-layer
+# brentq root when an N=2 stack collapses to the F.1 case),
+# layer-permutation distinctness, and a three-layer smoke.
+
+
+def _typical_cased_geometry():
+    """Realistic casing + cement geometry used as the fixture for
+    G.d cased-hole tests. V_S_cement = 1800 m/s (high-strength
+    cement) keeps the cement above V_f = 1500 so the bound floor
+    stays at the fluid value across the dipole-sonic band."""
+    return dict(
+        casing=BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01),
+        cement=BoreholeLayer(vp=2300.0, vs=1800.0, rho=1900.0, thickness=0.05),
+        vp=4500.0, vs=2500.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+
+
+def test_stoneley_dispersion_layered_N1_path_unchanged_after_G_d():
+    """Regression: the N=1 dispatch (F.1 hand-coded path) remains
+    functional after the G.d multi-layer wiring. Picks a typical
+    single-layer setup and verifies the slowness curve is finite
+    and well-formed."""
+    p = _typical_g_c_params()
+    layer = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
+    f = np.linspace(2000.0, 8000.0, 6)
+    res = stoneley_dispersion_layered(
+        f, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(layer,),
+    )
+    assert np.all(np.isfinite(res.slowness))
+    assert res.name == "Stoneley"
+    assert res.azimuthal_order == 0
+
+
+def test_stoneley_dispersion_layered_N2_runs_smoke():
+    """G.d two-layer regression: a typical casing + cement
+    geometry produces a finite, smoothly-dispersive Stoneley
+    slowness curve across the dipole-sonic band."""
+    g = _typical_cased_geometry()
+    f = np.linspace(1000.0, 12000.0, 8)
+    res = stoneley_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"]),
+    )
+    assert np.all(np.isfinite(res.slowness))
+    assert res.name == "Stoneley"
+    assert res.azimuthal_order == 0
+    np.testing.assert_array_equal(res.freq, f)
+    # Smoothness fence: relative step-to-step change capped at 5%.
+    rel_steps = np.abs(np.diff(res.slowness)) / res.slowness[:-1]
+    assert np.all(rel_steps < 0.05)
+
+
+def test_stoneley_dispersion_layered_N2_returns_borehole_mode():
+    """``BoreholeMode`` return-type contract on the multi-layer
+    dispatch (G.d)."""
+    g = _typical_cased_geometry()
+    f = np.linspace(2000.0, 6000.0, 4)
+    res = stoneley_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"]),
+    )
+    assert isinstance(res, BoreholeMode)
+    assert res.attenuation_per_meter is None  # bound mode
+
+
+def test_stoneley_dispersion_layered_N2_layer_permutation_changes_slowness():
+    """Casing-inside-cement and cement-inside-casing produce
+    distinct slowness curves -- the inside-out layer ordering is
+    a physical parameter, not a labelling convention."""
+    g = _typical_cased_geometry()
+    f = np.array([5000.0])
+    res_cs = stoneley_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"]),
+    )
+    res_sc = stoneley_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["cement"], g["casing"]),
+    )
+    assert np.all(np.isfinite(res_cs.slowness))
+    assert np.all(np.isfinite(res_sc.slowness))
+    rel_diff = abs(res_cs.slowness[0] - res_sc.slowness[0]) / res_cs.slowness[0]
+    assert rel_diff > 0.001
+
+
+def test_stoneley_dispersion_layered_N2_collapse_to_N1_via_thin_outer_layer():
+    """Two-layer-collapse oracle: with a vanishingly-thin outer
+    layer that has the formation's parameters, the G.d two-layer
+    path should match the F.1 single-layer slowness to high
+    precision. Confirms the propagator chain and BC bookkeeping
+    handle the trivial outer-layer limit cleanly."""
+    p = _typical_g_c_params()
+    f = np.array([5000.0])
+    layer1 = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.005)
+    # Outer "layer" has formation properties + tiny thickness;
+    # equivalent to no outer layer at all.
+    layer2_trivial = BoreholeLayer(
+        vp=p["vp"], vs=p["vs"], rho=p["rho"], thickness=1.0e-5,
+    )
+    res_one_layer = stoneley_dispersion_layered(
+        f, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(layer1,),
+    )
+    res_two_layer = stoneley_dispersion_layered(
+        f, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"],
+        layers=(layer1, layer2_trivial),
+    )
+    assert res_two_layer.slowness[0] == pytest.approx(
+        res_one_layer.slowness[0], rel=1.0e-4,
+    )
+
+
+def test_stoneley_dispersion_layered_three_layer_runs_smoke():
+    """Smoke test for N=3 (casing + cement + mudcake): produces
+    a finite slowness curve. No analytic oracle; just confirms
+    the propagator chain extends past N=2 cleanly."""
+    g = _typical_cased_geometry()
+    mudcake = BoreholeLayer(vp=2000.0, vs=1600.0, rho=1700.0, thickness=0.003)
+    f = np.linspace(2000.0, 8000.0, 5)
+    res = stoneley_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"], mudcake),
+    )
+    assert np.all(np.isfinite(res.slowness))
+
+
+# =====================================================================
+# Plan item G.e -- validation hardening for the cased-hole solver
+# =====================================================================
+#
+# Mirror of F.2.e / H.e for the propagator-matrix Stoneley path.
+# The Tang & Cheng 2004 fig 7.1 reproduction (digitised CSV) is
+# deferred to a follow-up; the four tests below are the cheap
+# self-consistency / collapse oracles that the propagator chain
+# can satisfy without external reference data.
+
+
+def test_modal_determinant_n0_cased_vanishes_at_converged_root_multi_freq():
+    """Self-consistency: at every brentq-converged ``k_z`` from
+    ``stoneley_dispersion_layered`` (cased-hole, two-layer), the
+    propagator-matrix determinant is many orders of magnitude
+    smaller than its value at ``k_z * 1.005``. Multi-frequency
+    sharper than the H.c.2 / G.d single-frequency oracle: catches
+    regressions where the brentq pipeline converges to something
+    other than the true root for some frequencies."""
+    g = _typical_cased_geometry()
+    f = np.geomspace(1500.0, 10000.0, 6)
+    res = stoneley_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"]),
+    )
+    assert np.all(np.isfinite(res.slowness))
+    for i, fi in enumerate(f):
+        omega = 2.0 * np.pi * float(fi)
+        kz_root = float(res.slowness[i]) * omega
+        det_at = _modal_determinant_n0_cased(
+            kz_root, omega, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+            vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+            layers=(g["casing"], g["cement"]),
+        )
+        det_off = _modal_determinant_n0_cased(
+            kz_root * 1.005, omega, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+            vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+            layers=(g["casing"], g["cement"]),
+        )
+        assert abs(det_at) < abs(det_off) * 1.0e-6, (
+            f"f={fi:.1f}: |det_at|={abs(det_at):.3e} not << "
+            f"|det_off|={abs(det_off):.3e}"
+        )
+
+
+def test_stoneley_dispersion_layered_thin_inner_layer_collapses_to_outer_only():
+    """Two-layer-collapse oracle: with a vanishingly-thin INNER
+    layer that has the outer layer's parameters, the G.d
+    two-layer slowness should match the F.1 single-layer
+    answer with just the outer layer (effectively ignoring
+    the trivial inner annulus). Mirror of the G.d
+    ``thin_outer_layer`` test, this time exercising the
+    propagator chain's first link."""
+    p = _typical_g_c_params()
+    f = np.array([5000.0])
+    outer = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.01)
+    inner_trivial = BoreholeLayer(
+        vp=outer.vp, vs=outer.vs, rho=outer.rho, thickness=1.0e-5,
+    )
+    res_one_layer = stoneley_dispersion_layered(
+        f, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(outer,),
+    )
+    res_two_layer = stoneley_dispersion_layered(
+        f, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"],
+        layers=(inner_trivial, outer),
+    )
+    assert res_two_layer.slowness[0] == pytest.approx(
+        res_one_layer.slowness[0], rel=1.0e-4,
+    )
+
+
+def test_stoneley_dispersion_layered_two_formation_layers_collapse_to_unlayered():
+    """Master-plan G validation bullet 1: with both annular
+    layers carrying formation properties, the multi-layer
+    Stoneley slowness should match the unlayered
+    ``stoneley_dispersion`` answer to high precision. The
+    layers are physically vacuous (just slabs of formation
+    pretending to be a casing + cement).
+
+    Strongest pinning of the G.d brentq pipeline against the
+    pre-G unlayered baseline: would catch any bias introduced
+    by the propagator-chain assembly that survives at small
+    layer-formation contrast."""
+    p = _typical_g_c_params()
+    f = np.linspace(2000.0, 8000.0, 5)
+    # Two layers with formation properties; thicknesses are
+    # arbitrary since the layer = formation collapse is exact.
+    formation_l1 = BoreholeLayer(
+        vp=p["vp"], vs=p["vs"], rho=p["rho"], thickness=0.01,
+    )
+    formation_l2 = BoreholeLayer(
+        vp=p["vp"], vs=p["vs"], rho=p["rho"], thickness=0.05,
+    )
+    res_unlayered = stoneley_dispersion(
+        f, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"],
+    )
+    res_cased = stoneley_dispersion_layered(
+        f, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"],
+        layers=(formation_l1, formation_l2),
+    )
+    # Tolerance sized to brentq's xtol (1e-10) propagated into
+    # slowness via division by omega ~ 1e4: relative ~1e-6.
+    np.testing.assert_allclose(
+        res_cased.slowness, res_unlayered.slowness, rtol=1.0e-6,
+    )
+
+
+def test_stoneley_dispersion_layered_stiffer_cement_speeds_up_stoneley():
+    """Cement-bond physics: a stiffer cement (higher V_S)
+    couples the Stoneley wave more strongly to the formation,
+    pulling the slowness DOWN (faster wave) at the same casing
+    geometry. Soft cement (lower V_S, closer to free-pipe)
+    leaves the Stoneley closer to its fluid-coupled limit
+    (slower wave; larger slowness).
+
+    Direct test of the qualitative cement-bond logging
+    signature without committing to digitised reference data
+    (Tang & Cheng 2004 fig 7.1, deferred). Quantitative: the
+    speedup is on the order of a few percent for typical
+    cement-stiffness contrasts."""
+    g = _typical_cased_geometry()
+    f = np.array([5000.0])
+    casing = g["casing"]
+    cement_stiff = BoreholeLayer(
+        vp=2500.0, vs=2000.0, rho=2000.0, thickness=g["cement"].thickness,
+    )
+    cement_soft = BoreholeLayer(
+        vp=1900.0, vs=1600.0, rho=1700.0, thickness=g["cement"].thickness,
+    )
+    res_stiff = stoneley_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(casing, cement_stiff),
+    )
+    res_soft = stoneley_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(casing, cement_soft),
+    )
+    assert np.all(np.isfinite(res_stiff.slowness))
+    assert np.all(np.isfinite(res_soft.slowness))
+    # Stiffer cement -> smaller slowness (faster Stoneley).
+    assert res_stiff.slowness[0] < res_soft.slowness[0]
+    # Quantitative: at least 0.1% speedup.
+    rel_speedup = (res_soft.slowness[0] - res_stiff.slowness[0]) / res_soft.slowness[0]
+    assert rel_speedup > 0.001

@@ -7,8 +7,10 @@ leaky-mode finish of `fwap.cylindrical_solver`, D-E add the n=2
 azimuthal order, F-G add radial layering, H adds anisotropy, and I
 is a cross-cutting validation deliverable.
 
-**Status snapshot.** A, B, C, D, E, F, H — ✅ DONE. Remaining: G
-(cased-hole multi-layer) and I (validation notebook).
+**Status snapshot.** A, B, C, D, E, F, G (n=0 Stoneley), H —
+✅ DONE. Remaining: G' (n=1 cased-hole flexural; deferred
+follow-up to G), G'' (n=2 cased-hole quadrupole; deferred), and
+I (validation notebook).
 
 ## Existing scaffolding to reuse
 
@@ -305,36 +307,34 @@ generalisation in radius, not in `kz`).
 
 ---
 
-## G. Cased-hole multi-layer extension (propagator matrix)
+## G. Cased-hole multi-layer extension (propagator matrix) — ✅ DONE (n=0)
 
-**Why tractable.** Generalises F to N layers
-(`fluid → casing → cement → formation`, N=3 stacked layers).
-Becomes a proper propagator-matrix method (Thomson-Haskell style)
-rather than a hand-coded matrix per layer count.
+**Status.** Shipped via plan
+[`cylindrical_biot_G.md`](cylindrical_biot_G.md), G.0 through
+G.f. The n=0 (Stoneley) cased-hole solver is wired through the
+existing `stoneley_dispersion_layered` public API: passing a
+multi-layer `layers=(casing, cement, ...)` tuple now dispatches
+to the Thomson-Haskell propagator-matrix path
+(`_modal_determinant_n0_cased`); single-layer and unlayered
+paths remain bit-unchanged. Validation covers two-formation-
+layers collapse to unlayered (`rtol=1e-6`), thin-trivial-layer
+collapse to N=1, layer-permutation distinctness, multi-frequency
+det-at-root self-consistency, and a stiffer-cement-makes-faster-
+Stoneley physics oracle.
 
-**What to build.**
+**Deferred follow-ups** (separate plans, not yet scheduled):
 
-1. `_layer_propagator_n(kz, omega, vp, vs, rho, r_inner, r_outer,
-   azimuthal_order)` returning the per-layer propagator block.
-2. Stack the per-layer propagators, apply the regularity-at-axis
-   BC and outgoing/decaying BC at infinity, take the determinant.
-3. Public `stoneley_dispersion_cased(..., casing, cement,
-   formation)` with structured `Layer` dataclasses, plus n=1 and
-   n=2 (via D) counterparts.
-
-**Validation.**
-
-- One-layer collapse: a `casing` with formation properties +
-  `cement` with formation properties reproduces the F output.
-- Cement-bond synthetic: a free pipe (cement Vp/Vs ≈ 0) shows
-  the well-known Stoneley contamination by the casing extensional
-  mode.
-- Reproduce Tang & Cheng 2004 fig 7.1.
-
-**Scope.** ~400 lines + 10 tests. One week.
-
-**Depends on.** F (interface-block bookkeeping is shared) and
-optionally D (n=2 matrix, for through-tubing flexural).
+- **G' — n=1 cased-hole flexural** (~700 lines + 25 tests):
+  6×6 per-layer propagator block; biggest engineering payoff
+  for cement-bond / through-tubing logging.
+- **G'' — n=2 cased-hole quadrupole** (~550 lines + 20 tests):
+  LWD relevance.
+- **Tang & Cheng 2004 fig 7.1 digitised reproduction**:
+  flagged in the G.e plan; deferred to per-figure CSV ingestion
+  work.
+- **Knopoff / Kennett delta-matrix** for thick-layer / very-
+  high-frequency conditioning: only needed if `kz · thickness >
+  30` regime emerges.
 
 ---
 
@@ -422,12 +422,16 @@ incrementally per reference figure.
 The shortest viable path to a public leaky-mode product was
 A → C → B (about a week, shipped). The shortest path to LWD-
 grade processing was A → C → B → D → E (about two weeks,
-shipped). Layered and anisotropic work (F, H) shipped
+shipped). Layered and anisotropic work (F, G n=0, H) shipped
 independently of the leaky-mode chain. Remaining items:
 
-- **G** — cased-hole multi-layer (propagator-matrix). Depends
-  on F (done). Largest remaining scope; highest engineering
-  payoff for cased-hole logging.
+- **G'** — n=1 cased-hole flexural (deferred follow-up to G).
+  Mirrors G's propagator-matrix scaffolding with 6×6 per-layer
+  blocks. Highest engineering payoff for cement-bond / through-
+  tubing flexural logging.
+- **G''** — n=2 cased-hole quadrupole (deferred follow-up to G,
+  D). LWD relevance.
 - **I** — validation notebook against published dispersion
-  figures. Standalone deliverable; one figure per landed
-  solver. Smallest, most demo-friendly remaining item.
+  figures (Tang & Cheng 2004 fig 7.1 reproduction in particular,
+  flagged in the G.e plan). Standalone deliverable; one figure
+  per landed solver. Smallest, most demo-friendly remaining item.
