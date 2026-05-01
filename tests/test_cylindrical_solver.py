@@ -27,6 +27,7 @@ from fwap.cylindrical_solver import (
     _layered_n1_row2_at_a,
     _layered_n1_row3_at_a,
     _layered_n1_row4_at_a,
+    _layered_n1_row5_at_b,
     _layered_n1_row6_at_b,
     _layered_n1_row9_at_b,
     _modal_determinant_n0,
@@ -4394,3 +4395,119 @@ def test_layered_n1_row4_at_a_C_and_D_column_i_k_sign_flips():
     assert row[3].real / row[4].real == pytest.approx(expected_ratio)
     assert row[7].real / row[8].real == pytest.approx(expected_ratio)
 
+
+# =====================================================================
+# Plan item F.2.b.4 -- row 5 of the n=1 layered determinant (r = b)
+# =====================================================================
+#
+# Mirror of row 1 evaluated at r=b with non-zero formation columns.
+# No single-interface analog; primary oracle is K-flavour
+# cancellation at layer=formation.
+
+
+def test_layered_n1_row5_at_b_layer_equals_formation_K_flavour_cancels():
+    """Substep F.2.a.7 (a) self-check: at layer=formation all THREE
+    K-flavour annulus / formation column pairs cancel:
+
+        row5[2] (B_K) + row5[5] (B) == 0
+        row5[4] (C_K) + row5[6] (C) == 0
+        row5[8] (D_K) + row5[9] (D) == 0
+    """
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _layered_n1_row5_at_b(
+        kz, omega, vp=vp, vs=vs, rho=rho,
+        vf=vf, rho_f=rho_f, a=a, layer=layer,
+    )
+    assert row[2].real + row[5].real == pytest.approx(0.0, abs=1.0e-14)
+    assert row[4].real + row[6].real == pytest.approx(0.0, abs=1.0e-14)
+    assert row[8].real + row[9].real == pytest.approx(0.0, abs=1.0e-14)
+
+
+def test_layered_n1_row5_at_b_fluid_column_is_zero():
+    """Sparsity: A column zero (fluid r<a doesn't reach r=b);
+    remaining nine columns generically non-zero."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n1_row5_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    assert row[0] == 0.0
+    for i in range(1, 10):
+        assert row[i] != 0.0
+
+
+def test_layered_n1_row5_at_b_is_real_in_bound_regime():
+    """Substep F.2.a.5: row 5 has the no-row-rescale pattern;
+    column-by-(-i) on C_I, C_K, C only. Post-rescale row is real."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n1_row5_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e-14)
+
+
+def test_layered_n1_row5_at_b_matches_closed_form_per_column():
+    """Per-column transcription check against substep F.2.a.2's
+    u_r decomposition at r=b."""
+    p, omega, kz = _row1_test_setup()
+    F_f, p_m, s_m, p_form, s_form = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    a = p["a"]
+    b = a + p["layer"].thickness
+    from scipy import special as sp
+
+    row = _layered_n1_row5_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=a, layer=p["layer"],
+    )
+
+    expected_BI = +p_m * float(sp.iv(0, p_m * b)) - float(sp.iv(1, p_m * b)) / b
+    expected_BK = -p_m * float(sp.kv(0, p_m * b)) - float(sp.kv(1, p_m * b)) / b
+    expected_CI = -kz * float(sp.iv(1, s_m * b))
+    expected_CK = -kz * float(sp.kv(1, s_m * b))
+    expected_B = +p_form * float(sp.kv(0, p_form * b)) + float(sp.kv(1, p_form * b)) / b
+    expected_C = +kz * float(sp.kv(1, s_form * b))
+    expected_DI = +float(sp.iv(1, s_m * b)) / b
+    expected_DK = +float(sp.kv(1, s_m * b)) / b
+    expected_D = -float(sp.kv(1, s_form * b)) / b
+
+    assert row[1].real == pytest.approx(expected_BI)
+    assert row[2].real == pytest.approx(expected_BK)
+    assert row[3].real == pytest.approx(expected_CI)
+    assert row[4].real == pytest.approx(expected_CK)
+    assert row[5].real == pytest.approx(expected_B)
+    assert row[6].real == pytest.approx(expected_C)
+    assert row[7].real == pytest.approx(expected_DI)
+    assert row[8].real == pytest.approx(expected_DK)
+    assert row[9].real == pytest.approx(expected_D)
+
+
+def test_layered_n1_row5_at_b_annulus_K_sign_opposite_to_row1_at_a():
+    """Sign-flow consistency vs row 1: the BC subtraction direction
+    flips between row 1 (``u_r^{(f)} - u_r^{(m)} = 0``, annulus
+    appears with - sign) and row 5 (``u_r^{(m)} - u_r^{(s)} = 0``,
+    annulus appears with + sign). Consequently row 5's annulus
+    K-flavour B_K is the negation of row 1's B_K (modulo the
+    radius shift a -> b)."""
+    p, omega, kz = _row1_test_setup()
+    F_f, p_m, _, _, _ = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    from scipy import special as sp
+
+    row5 = _layered_n1_row5_at_b(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    b = p["a"] + p["layer"].thickness
+    # Row 5 B_K should be -p_m K_0(p_m b) - K_1(p_m b)/b = -(row 1 B_K form at r=b).
+    assert row5[2].real == pytest.approx(
+        -(p_m * float(sp.kv(0, p_m * b)) + float(sp.kv(1, p_m * b)) / b)
+    )

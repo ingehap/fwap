@@ -8001,3 +8001,136 @@ def _layered_n1_row4_at_a(
     row[9] = 0.0
     return row
 
+
+# =====================================================================
+# Substep F.2.b.4 -- row 5 of the n=1 layered determinant (r = b)
+# =====================================================================
+#
+# BC5: ``u_r^{(m)}(b) - u_r^{(s)}(b) = 0`` (cos-sector continuity
+# of radial displacement at the annulus-formation interface).
+# Mirror of row 1 evaluated at r=b, with formation columns now
+# non-zero. No single-interface analog at r=b -- primary oracle
+# is the F.2.a.7 (a) K-flavour cancellation at layer=formation.
+#
+# Coefficients via substep F.2.a.2 displacement decompositions
+# (annulus side mirrors row 1 at r=b; formation side is the n=1
+# single-interface u_r at r=b, subtracted):
+#
+#       Row 5 (post-rescale) =
+#           [  0,                                          # A (fluid r<a)
+#             +p_m I_0(p_m b) - I_1(p_m b)/b,             # B_I
+#             -p_m K_0(p_m b) - K_1(p_m b)/b,             # B_K
+#             -k_z I_1(s_m b),                             # C_I
+#             -k_z K_1(s_m b),                             # C_K
+#             +p K_0(p b) + K_1(p b)/b,                    # B (subtracted)
+#             +k_z K_1(s b),                               # C (subtracted)
+#             +I_1(s_m b) / b,                             # D_I
+#             +K_1(s_m b) / b,                             # D_K
+#             -K_1(s b) / b ]                             # D (subtracted)
+#
+# K-flavour cancellation pairs at layer=formation:
+#   row[2] (B_K) + row[5] (B) = (-p K_0 - K_1/b) + (+p K_0 + K_1/b) = 0
+#   row[4] (C_K) + row[6] (C) = (-k_z K_1) + (+k_z K_1) = 0
+#   row[8] (D_K) + row[9] (D) = (+K_1/b) + (-K_1/b) = 0
+#
+# Sign-flow consistency vs row 1: the BC subtraction direction
+# flips between row 1 (``u_r^{(f)} - u_r^{(m)} = 0``) and row 5
+# (``u_r^{(m)} - u_r^{(s)} = 0``). The annulus contributes with
+# OPPOSITE sign in the two rows; consequently row 5's K-flavour
+# B_K coefficient (annulus) is the negation of row 1's B_K
+# coefficient (annulus, evaluated at r=a vs r=b).
+
+
+def _layered_n1_row5_at_b(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+) -> np.ndarray:
+    r"""
+    Row 5 of the n=1 layered modal determinant evaluated at the
+    annulus-formation interface ``r = b = a + layer.thickness``.
+
+    Encodes the radial-displacement continuity BC
+    ``u_r^{(m)}(b) - u_r^{(s)}(b) = 0`` in the cos sector. Returns
+    the ten post-rescale coefficients.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    vp, vs : float
+        Formation half-space P / S velocities (m/s); set the
+        formation radial wavenumbers ``p, s`` used by columns 5, 6, 9.
+    rho : float
+        Formation density (kg/m^3). Carried for signature
+        uniformity; not used by row 5 (no stress terms).
+    vf, rho_f : float
+        Fluid velocity / density. Not used (fluid r<a doesn't
+        reach r=b); carried for signature uniformity.
+    a : float
+        Fluid-annulus interface radius (m); ``b = a + layer.thickness``.
+    layer : BoreholeLayer
+        The annular layer; sets ``p_m, s_m``.
+
+    Returns
+    -------
+    ndarray, shape (10,) complex
+        Coefficients of (A, B_I, B_K, C_I, C_K, B, C, D_I, D_K, D)
+        in row 5. Real-valued in the bound regime.
+
+    See Also
+    --------
+    _layered_n1_row1_at_a : Same physical BC at r=a. Row 5's
+        annulus K-flavour entries have OPPOSITE sign vs row 1's
+        (BC subtraction flip; annulus appears with - sign in
+        row 1 and + sign in row 5).
+    """
+    del rho, rho_f  # not used by row 5; kept for signature uniformity
+    F_f, p_m, s_m, p, s = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=vp, vs=vs, vf=vf, layer=layer,
+    )
+    del F_f  # row 5 doesn't touch the fluid column
+    b = a + layer.thickness
+
+    I0_pm_b = float(special.iv(0, p_m * b))
+    I1_pm_b = float(special.iv(1, p_m * b))
+    K0_pm_b = float(special.kv(0, p_m * b))
+    K1_pm_b = float(special.kv(1, p_m * b))
+    I1_sm_b = float(special.iv(1, s_m * b))
+    K1_sm_b = float(special.kv(1, s_m * b))
+    K0_p_b = float(special.kv(0, p * b))
+    K1_p_b = float(special.kv(1, p * b))
+    K1_s_b = float(special.kv(1, s * b))
+
+    row = np.zeros(10, dtype=complex)
+    # A column: fluid r<a; doesn't reach r=b.
+    row[0] = 0.0
+    # B_I column (annulus; sign flip on p_m I_0 vs B_K's p_m K_0).
+    row[1] = +p_m * I0_pm_b - I1_pm_b / b
+    # B_K column (annulus, sign flipped vs row 1 due to BC subtraction).
+    row[2] = -p_m * K0_pm_b - K1_pm_b / b
+    # C_I column (post-rescale; col-by-(-i) cancels -i factor).
+    row[3] = -kz * I1_sm_b
+    # C_K column (post-rescale).
+    row[4] = -kz * K1_sm_b
+    # B column (formation; subtracted, sign-flipped vs B_K at layer=formation).
+    row[5] = +p * K0_p_b + K1_p_b / b
+    # C column (formation; subtracted, post-rescale).
+    row[6] = +kz * K1_s_b
+    # D_I column (annulus SH cross-coupling).
+    row[7] = +I1_sm_b / b
+    # D_K column (annulus SH).
+    row[8] = +K1_sm_b / b
+    # D column (formation SH; subtracted).
+    row[9] = -K1_s_b / b
+    return row
+
