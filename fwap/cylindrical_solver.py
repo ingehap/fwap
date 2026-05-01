@@ -7703,3 +7703,144 @@ def _layered_n1_row1_at_a(
     row[9] = 0.0
     return row
 
+
+# =====================================================================
+# Substep F.2.b.2 -- row 2 of the n=1 layered determinant (r = a)
+# =====================================================================
+#
+# BC2: ``-(sigma_rr^{(m)}(a) + P^{(f)}(a)) = 0`` (cos-sector
+# normal-stress balance at the fluid-annulus interface; row negated
+# for visual parallel with the n=0 / n=1 single-interface forms).
+# Lame-reduction row -- the algebraically heaviest of the cos-
+# sector rows at r=a.
+#
+# Coefficients via the F.2.a.3 stress derivation. The annulus K-
+# flavour entries mirror the M21-M24 form of
+# :func:`_modal_determinant_n1`; the I-flavour twins follow the
+# F.1.a.2 sign-flip rule:
+#
+#   * "(2 k_z^2 - k_Sm^2) X_1" terms KEEP sign across I/K (direct
+#     terms; X_1 keeps natural index).
+#   * "2 p_m X_0/a" terms FLIP sign (derivative-induced from
+#     X_1' = -X_0 - X_1/(p_m r) for K, +X_0 - X_1/(p_m r) for I).
+#   * "4 X_1/a^2" terms KEEP sign (direct).
+#   * "s_m X_0/a" derivative-induced terms FLIP sign in D entries.
+#   * "X_1/a", "X_1/a^2" direct terms KEEP sign.
+#
+# Plus the genuinely new D-amplitude column at n=1 (D contributes
+# to u_r via ``(1/r) d_theta psi_z``, hence to sigma_rr via
+# ``2 mu d_r u_r``):
+#
+#       Coefficient of D_K in -(sigma_rr + P) at r=a
+#           = +2 mu_m [s_m K_0(s_m a) / a + 2 K_1(s_m a) / a^2]
+#
+# (matches M24 at layer=formation).
+#
+# Phase rescale: row 2 is NOT z-derivative-bearing; column-by-(-i)
+# on C_I, C_K only. Post-rescale C entries flip from i*R to R.
+
+
+def _layered_n1_row2_at_a(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+) -> np.ndarray:
+    r"""
+    Row 2 of the n=1 layered modal determinant evaluated at the
+    fluid-annulus interface ``r = a``.
+
+    Encodes the negated normal-stress balance BC
+    ``-(sigma_rr^{(m)}(a) + P^{(f)}(a)) = 0`` in the cos sector.
+    Returns the ten post-rescale coefficients.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    vp, vs : float
+        Formation half-space P / S velocities. Carried for
+        signature uniformity; not used by row 2.
+    rho : float
+        Formation density. Same as above; not used.
+    vf, rho_f : float
+        Fluid velocity / density.
+    a : float
+        Fluid-annulus interface radius (m).
+    layer : BoreholeLayer
+        The annular layer; sets ``mu_m, k_Sm, p_m, s_m``.
+
+    Returns
+    -------
+    ndarray, shape (10,) complex
+        Coefficients of (A, B_I, B_K, C_I, C_K, B, C, D_I, D_K, D)
+        in row 2. Real-valued in the bound regime.
+
+    See Also
+    --------
+    _modal_determinant_n1 : The n=1 single-interface form. At
+        layer=formation, ``row[0] = M21``, ``row[2] = M22``,
+        ``row[4] = M23``, ``row[8] = M24`` bit-exactly.
+    _layered_n0_row2_at_a : The F.1 n=0 layered counterpart. The
+        n=1 form adds D_I, D_K columns via the
+        ``(1/r) d_theta psi_z`` cross-coupling absent at n=0,
+        and switches Bessel index 0 -> 1 in the Lame combination
+        (M22 here uses K_1 vs K_0 for the n=0 analog).
+    """
+    del vp, vs, rho  # not used by row 2 (formation cols zero)
+    F_f, p_m, s_m, _, _ = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=layer.vp, vs=layer.vs, vf=vf, layer=layer,
+    )
+
+    I0_pm_a = float(special.iv(0, p_m * a))
+    I1_pm_a = float(special.iv(1, p_m * a))
+    K0_pm_a = float(special.kv(0, p_m * a))
+    K1_pm_a = float(special.kv(1, p_m * a))
+    I0_sm_a = float(special.iv(0, s_m * a))
+    I1_sm_a = float(special.iv(1, s_m * a))
+    K0_sm_a = float(special.kv(0, s_m * a))
+    K1_sm_a = float(special.kv(1, s_m * a))
+    I1_Ff_a = float(special.iv(1, F_f * a))
+
+    mu_m = layer.rho * layer.vs * layer.vs
+    kSm2 = (omega / layer.vs) ** 2
+    two_kz2_minus_kSm2 = 2.0 * kz * kz - kSm2
+
+    row = np.zeros(10, dtype=complex)
+    # A column: -P^{(f)}(a) coefficient (matches M21 at layer=formation).
+    row[0] = -I1_Ff_a
+    # B_I column (sign-flipped d_r-induced ``2 p_m I_0/a`` term).
+    row[1] = -mu_m * (
+        two_kz2_minus_kSm2 * I1_pm_a
+        - 2.0 * p_m * I0_pm_a / a
+        + 4.0 * I1_pm_a / (a * a)
+    )
+    # B_K column (matches M22 at layer=formation).
+    row[2] = -mu_m * (
+        two_kz2_minus_kSm2 * K1_pm_a
+        + 2.0 * p_m * K0_pm_a / a
+        + 4.0 * K1_pm_a / (a * a)
+    )
+    # C_I column (post-rescale; col-by-(-i) cancels +i factor).
+    row[3] = +2.0 * kz * mu_m * (s_m * I0_sm_a - I1_sm_a / a)
+    # C_K column (matches M23 at layer=formation).
+    row[4] = -2.0 * kz * mu_m * (s_m * K0_sm_a + K1_sm_a / a)
+    # Formation columns (B, C) vanish at r = a.
+    row[5] = 0.0
+    row[6] = 0.0
+    # D_I column (sign-flipped d_r-induced ``s_m I_0/a`` term).
+    row[7] = +2.0 * mu_m * (-s_m * I0_sm_a / a + 2.0 * I1_sm_a / (a * a))
+    # D_K column (matches M24 at layer=formation).
+    row[8] = +2.0 * mu_m * (+s_m * K0_sm_a / a + 2.0 * K1_sm_a / (a * a))
+    # D column (formation; zero at r = a).
+    row[9] = 0.0
+    return row
+
