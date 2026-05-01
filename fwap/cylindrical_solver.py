@@ -7560,3 +7560,146 @@ def _layered_n1_row9_at_b(
     )
     return row
 
+
+# =====================================================================
+# Substep F.2.b.1 -- row 1 of the n=1 layered determinant (r = a)
+# =====================================================================
+#
+# BC1: ``u_r^{(f)}(a) - u_r^{(m)}(a) = 0`` (cos-sector continuity
+# of radial displacement at the fluid-annulus interface). First
+# cos-sector row of the F.2 chain. Returns shape-(10,) per the
+# F.2.a.6 dense-matrix convention.
+#
+# Coefficients from substep F.2.a.2:
+#
+#   u_r^{(f)} = (A / (rho_f omega^2)) [F_f I_0(F_f r) - I_1(F_f r)/r] cos(theta)
+#
+#   u_r^{(m)} =  B_I [p_m I_0(p_m r) - I_1(p_m r)/r]     (d_r phi^{(m,I)})
+#              + B_K [-p_m K_0(p_m r) - K_1(p_m r)/r]    (d_r phi^{(m,K)})
+#              + D_I I_1(s_m r) / r                       ((1/r) d_theta psi_z^{(m,I)})
+#              + D_K K_1(s_m r) / r                       ((1/r) d_theta psi_z^{(m,K)})
+#              - i k_z C_I I_1(s_m r)                     (-d_z psi_theta^{(m,I)})
+#              - i k_z C_K K_1(s_m r)                     (-d_z psi_theta^{(m,K)})
+#                                                          (cos sector)
+#
+# The D contribution is GENUINELY NEW vs the F.1 n=0 layered case
+# (substep F.1.b.2.a row 1 had no D column because at n=0 the
+# (1/r) d_theta psi_z term is killed by the axisymmetric ansatz).
+# At n=1 the SH amplitude D appears directly in cos-sector u_r
+# rows -- this is one of the cross-sector couplings that breaks
+# the (now-withdrawn) F.2.a.6 block-diagonal claim.
+#
+# Subtracting (fluid - annulus) and stripping cos(theta):
+#
+#       Row 1 (pre-rescale) =
+#           [  +(F_f I_0(F_f a) - I_1(F_f a)/a) / (rho_f omega^2),  # A
+#              -p_m I_0(p_m a) + I_1(p_m a)/a,                       # B_I
+#              +p_m K_0(p_m a) + K_1(p_m a)/a,                       # B_K
+#              +i k_z I_1(s_m a),                                     # C_I
+#              +i k_z K_1(s_m a),                                     # C_K
+#               0,                                                    # B
+#               0,                                                    # C
+#              -I_1(s_m a) / a,                                       # D_I
+#              -K_1(s_m a) / a,                                       # D_K
+#               0 ]                                                   # D
+#
+# Imaginary-power pattern: A R | B R | C i*R | D R -- matches
+# substep F.2.a.5's row-1 entry. Phase rescale: row 1 is NOT
+# z-derivative-bearing; only column-by-(-i) on C_I, C_K is
+# applied. Post-rescale C entries are real.
+
+
+def _layered_n1_row1_at_a(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+) -> np.ndarray:
+    r"""
+    Row 1 of the n=1 layered modal determinant evaluated at the
+    fluid-annulus interface ``r = a``.
+
+    Encodes the radial-displacement continuity BC
+    ``u_r^{(f)}(a) - u_r^{(m)}(a) = 0`` in the cos sector. Returns
+    the ten post-rescale coefficients.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    vp, vs : float
+        Formation half-space P / S velocities (m/s). Carried for
+        signature uniformity; not used by row 1 (formation columns
+        zero at r=a).
+    rho : float
+        Formation density. Same as above; not used.
+    vf : float
+        Borehole-fluid velocity (m/s).
+    rho_f : float
+        Borehole-fluid density (kg/m^3).
+    a : float
+        Fluid-annulus interface radius (m).
+    layer : BoreholeLayer
+        The annular layer; sets ``p_m``, ``s_m``.
+
+    Returns
+    -------
+    ndarray, shape (10,) complex
+        Coefficients of (A, B_I, B_K, C_I, C_K, B, C, D_I, D_K, D)
+        in row 1. Real-valued in the bound regime.
+
+    See Also
+    --------
+    _modal_determinant_n1 : The n=1 single-interface form. At
+        layer=formation, ``row[0] = M11``, ``row[2] = M12``,
+        ``row[4] = M13``, ``row[8] = M14`` bit-exactly.
+    _layered_n0_row1_at_a : The F.1 n=0 layered counterpart. The
+        n=1 form adds D-amplitude contributions (cols 7-9) via
+        the ``(1/r) d_theta psi_z`` cross-coupling, which is
+        absent at n=0.
+    """
+    del vp, vs, rho  # not used by row 1 (formation cols zero)
+    F_f, p_m, s_m, _, _ = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=layer.vp, vs=layer.vs, vf=vf, layer=layer,
+    )
+
+    I0_Ff_a = float(special.iv(0, F_f * a))
+    I1_Ff_a = float(special.iv(1, F_f * a))
+    I0_pm_a = float(special.iv(0, p_m * a))
+    I1_pm_a = float(special.iv(1, p_m * a))
+    K0_pm_a = float(special.kv(0, p_m * a))
+    K1_pm_a = float(special.kv(1, p_m * a))
+    I1_sm_a = float(special.iv(1, s_m * a))
+    K1_sm_a = float(special.kv(1, s_m * a))
+
+    row = np.zeros(10, dtype=complex)
+    # A column (matches M11 at layer=formation).
+    row[0] = (F_f * I0_Ff_a - I1_Ff_a / a) / (rho_f * omega ** 2)
+    # B_I column (sign-flipped d_r-induced ``p_m I_0`` term).
+    row[1] = -p_m * I0_pm_a + I1_pm_a / a
+    # B_K column (matches M12 at layer=formation).
+    row[2] = +p_m * K0_pm_a + K1_pm_a / a
+    # C_I column (post-rescale; col-by-(-i) cancels +i factor).
+    row[3] = +kz * I1_sm_a
+    # C_K column (matches M13 at layer=formation; post-rescale).
+    row[4] = +kz * K1_sm_a
+    # Formation columns (B, C) vanish at r = a.
+    row[5] = 0.0
+    row[6] = 0.0
+    # D_I column (SH cross-coupling via (1/r) d_theta psi_z;
+    # KEEP-sign on the I_1/r term per F.1.a.2).
+    row[7] = -I1_sm_a / a
+    # D_K column (matches M14 at layer=formation).
+    row[8] = -K1_sm_a / a
+    # D column (formation; zero at r = a).
+    row[9] = 0.0
+    return row
+

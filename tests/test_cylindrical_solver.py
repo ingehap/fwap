@@ -23,6 +23,7 @@ from fwap.cylindrical_solver import (
     _layered_n0_row5_at_b,
     _layered_n0_row6_at_b,
     _layered_n0_row7_at_b,
+    _layered_n1_row1_at_a,
     _layered_n1_row3_at_a,
     _layered_n1_row6_at_b,
     _layered_n1_row9_at_b,
@@ -3971,4 +3972,148 @@ def test_layered_n1_row9_at_b_annulus_K_matches_row3_M32_M33_M34_at_b():
     assert row9[2].real == pytest.approx(M32_at_b)
     assert row9[4].real == pytest.approx(M33_at_b)
     assert row9[8].real == pytest.approx(M34_at_b)
+
+
+# =====================================================================
+# Plan item F.2.b.1 -- row 1 of the n=1 layered determinant (r = a)
+# =====================================================================
+#
+# First cos-sector row of the F.2 chain. The genuinely new content
+# vs F.1.b.2.a (n=0 row 1) is the D-amplitude column: at n=1 the
+# SH amplitude D appears in cos-sector u_r via the
+# ``(1/r) d_theta psi_z`` cross-coupling. Primary oracle: per-
+# element layer=formation match against M11-M14 of
+# :func:`_modal_determinant_n1`.
+
+
+def test_layered_n1_row1_at_a_layer_equals_formation_per_element():
+    """At layer=formation, row 1's K-flavour annulus columns and
+    the A column match M11, M12, M13, M14 of
+    :func:`_modal_determinant_n1` to floating-point precision.
+
+    Specifically:
+        row[0] (A)   = M11   (fluid pressure coefficient)
+        row[2] (B_K) = M12   (P-amplitude at r=a)
+        row[4] (C_K) = M13   (SV-amplitude at r=a, post-rescale)
+        row[8] (D_K) = M14   (SH-amplitude at r=a -- new at n=1)
+    """
+    vp, vs, rho = 4500.0, 2500.0, 2400.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / min(vs, vf) * 1.5
+
+    row = _layered_n1_row1_at_a(
+        kz, omega, vp=vp, vs=vs, rho=rho,
+        vf=vf, rho_f=rho_f, a=a, layer=layer,
+    )
+
+    F = float(np.sqrt(kz * kz - (omega / vf) ** 2))
+    p = float(np.sqrt(kz * kz - (omega / vp) ** 2))
+    s = float(np.sqrt(kz * kz - (omega / vs) ** 2))
+    from scipy import special as sp
+
+    M11 = (
+        F * float(sp.iv(0, F * a)) - float(sp.iv(1, F * a)) / a
+    ) / (rho_f * omega ** 2)
+    M12 = p * float(sp.kv(0, p * a)) + float(sp.kv(1, p * a)) / a
+    M13 = kz * float(sp.kv(1, s * a))
+    M14 = -float(sp.kv(1, s * a)) / a
+
+    assert row[0].real == pytest.approx(M11)
+    assert row[2].real == pytest.approx(M12)
+    assert row[4].real == pytest.approx(M13)
+    assert row[8].real == pytest.approx(M14)
+
+
+def test_layered_n1_row1_at_a_formation_columns_are_zero():
+    """Sparsity: at r=a the formation columns (5 = B, 6 = C, 9 = D)
+    are zero -- the formation half-space lives at r > b and doesn't
+    touch the fluid-annulus interface."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n1_row1_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    assert row[5] == 0.0
+    assert row[6] == 0.0
+    assert row[9] == 0.0
+    # All other columns generically non-zero in the bound regime.
+    for i in (0, 1, 2, 3, 4, 7, 8):
+        assert row[i] != 0.0
+
+
+def test_layered_n1_row1_at_a_is_real_in_bound_regime():
+    """Substep F.2.a.5: row 1 has the no-row-rescale pattern;
+    only the column-by-(-i) on C_I, C_K is applied. Post-rescale
+    row is real-valued in the bound regime."""
+    p, omega, kz = _row1_test_setup()
+    row = _layered_n1_row1_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    np.testing.assert_allclose(row.imag, 0.0, atol=1.0e-14)
+
+
+def test_layered_n1_row1_at_a_matches_closed_form_per_column():
+    """Per-column transcription check against substep F.2.a.2's
+    u_r decomposition (with the F.1.a.2 sign-flip pattern applied
+    to the I-flavour annulus terms)."""
+    p, omega, kz = _row1_test_setup()
+    F_f, p_m, s_m, _, _ = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    a = p["a"]
+    from scipy import special as sp
+
+    row = _layered_n1_row1_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=a, layer=p["layer"],
+    )
+
+    expected_A = (
+        F_f * float(sp.iv(0, F_f * a)) - float(sp.iv(1, F_f * a)) / a
+    ) / (p["rho_f"] * omega ** 2)
+    expected_BI = (
+        -p_m * float(sp.iv(0, p_m * a)) + float(sp.iv(1, p_m * a)) / a
+    )
+    expected_BK = (
+        +p_m * float(sp.kv(0, p_m * a)) + float(sp.kv(1, p_m * a)) / a
+    )
+    expected_CI = +kz * float(sp.iv(1, s_m * a))
+    expected_CK = +kz * float(sp.kv(1, s_m * a))
+    expected_DI = -float(sp.iv(1, s_m * a)) / a
+    expected_DK = -float(sp.kv(1, s_m * a)) / a
+
+    assert row[0].real == pytest.approx(expected_A)
+    assert row[1].real == pytest.approx(expected_BI)
+    assert row[2].real == pytest.approx(expected_BK)
+    assert row[3].real == pytest.approx(expected_CI)
+    assert row[4].real == pytest.approx(expected_CK)
+    assert row[7].real == pytest.approx(expected_DI)
+    assert row[8].real == pytest.approx(expected_DK)
+
+
+def test_layered_n1_row1_at_a_C_and_D_column_i_k_sign_flips():
+    """The C and D entries are single-Bessel-term (no derivative-
+    induced terms), so the I-K ratios collapse to clean
+    ``+I_1(s_m a) / K_1(s_m a)`` -- KEEP-sign per F.1.a.2 (direct
+    terms, no Bessel-index shift)."""
+    p, omega, kz = _row1_test_setup()
+    F_f, p_m, s_m, _, _ = _layered_n0_radial_wavenumbers(
+        kz, omega, vp=p["vp"], vs=p["vs"], vf=p["vf"], layer=p["layer"],
+    )
+    from scipy import special as sp
+
+    row = _layered_n1_row1_at_a(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layer=p["layer"],
+    )
+    expected_ratio = (
+        +float(sp.iv(1, s_m * p["a"])) / float(sp.kv(1, s_m * p["a"]))
+    )
+    # C ratio: I_1(s_m a) / K_1(s_m a).
+    assert row[3].real / row[4].real == pytest.approx(expected_ratio)
+    # D ratio: also I_1(s_m a) / K_1(s_m a) (same Bessel arg).
+    assert row[7].real / row[8].real == pytest.approx(expected_ratio)
 
