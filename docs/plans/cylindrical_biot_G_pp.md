@@ -152,23 +152,69 @@ factors.
   (``B_I I_2(p r) + B_K K_2(p r)``), SV vector
   (``C_I I_2(s r) + C_K K_2(s r)``), and SH vector
   (``D_I I_2(s r) + D_K K_2(s r)``) at azimuthal order n=2.
-  Six rows: the six state-vector components.
+  Six rows: the six state-vector components ``v(r) = (u_r,
+  u_z, u_theta, sigma_rr, sigma_rz, sigma_r_theta)``.
 
   **Bessel-derivative identities at n=2** (transcribed from
-  the existing `_modal_determinant_n2`):
+  the existing `_modal_determinant_n2`; the n=2 case is the
+  ``nu = 2`` instance of ``d_r F_nu(x r) = (x/2) [F_{nu-1}(x r)
+  + sigma F_{nu+1}(x r)] = x F_{nu-1}(x r) - (nu/r) F_nu(x r)``,
+  with ``sigma = +1`` for ``F = I`` and ``sigma = -1`` for
+  ``F = K``):
 
-  * ``d_r I_2(p r) = p [I_1(p r) - (2/(pr)) I_2(p r)]
-                   = p I_1(p r) - 2 I_2(p r) / r``
+  * ``d_r I_2(p r) = p I_1(p r) - 2 I_2(p r) / r``
   * ``d_r K_2(p r) = -p K_1(p r) - 2 K_2(p r) / r``
-  * ``(1/r) d_r [r I_1(s r)]  = ...`` (carried over from F.2)
-  * Similar for SV and SH amplitudes.
+  * ``(1/r) d_r [r I_2(s r)] = s I_1(s r) - I_2(s r) / r``
+  * ``(1/r) d_r [r K_2(s r)] = -s K_1(s r) - K_2(s r) / r``
 
-  **Explicit n=2 factors** appearing in the stress entries
-  (per `_modal_determinant_n2`):
+  The Bessel-index shift ``(I_1, I_2)`` (vs ``(I_0, I_1)`` at
+  n=1) propagates through every entry; the ``-(n - 1) F_n / r``
+  correction in ``(1/r) d_r [r F_n]`` becomes ``-F_2 / r`` at
+  n=2 (vs no correction at n=1, since ``-(n - 1) = 0`` there).
+  The same identities apply to the SV and SH columns by
+  substituting ``p -> s``.
 
-  * ``2 n (n + 1) = 12`` in the ``B_K K_2 / r^2`` term of
-    sigma_rr.
-  * ``n^2 - 1 = 3`` in the SV column of sigma_rz.
+  **Explicit n=2 azimuthal factors** appearing in the stress
+  entries (per `_modal_determinant_n2`; from the ``cos(n
+  theta)`` / ``sin(n theta)`` derivative chain ``d_theta cos(n
+  theta) = -n sin(n theta)``):
+
+  * ``2 n (n + 1) = 12`` in the ``B_{I,K} F_2 / r^2`` term of
+    sigma_rr (and in the SH column of sigma_r_theta).
+  * ``n^2 - 1 = 3`` in the SV column of sigma_rz (multiplying
+    the ``F_2(s r) / r^2`` term).
+  * Standalone ``n = 2`` factor wherever a ``d_theta`` is
+    consumed (sigma_r_theta cross-derivative, u_theta SV
+    contribution).
+
+  **E_n2(r) row map** (transcribed in
+  `fwap/cylindrical_solver.py:10866-10930`; the F.2.a.5 phase
+  rescale — row * i for ``u_z`` and ``sigma_rz``, col * -i for
+  the SV columns ``C_I`` / ``C_K`` — is absorbed so all 36
+  entries are real-valued in the bound regime):
+
+  | Row | State component | B_I, B_K cols | C_I, C_K cols | D_I, D_K cols |
+  |-----|-----------------|---------------|---------------|---------------|
+  | 0 | ``u_r`` | ``±p F_1(p r) - 2 F_2(p r) / r`` | ``-k_z F_2(s r)`` | ``+2 F_2(s r) / r`` |
+  | 1 | ``u_z`` | ``-k_z F_2(p r)`` | ``±s F_1(s r) - F_2(s r) / r`` | 0 (sparsity) |
+  | 2 | ``u_theta`` | ``-2 F_2(p r) / r`` | 0 (sparsity) | ``∓s F_1(s r) + 2 F_2(s r) / r`` |
+  | 3 | ``sigma_rr`` | ``mu [(2 k_z^2 - k_S^2) F_2 ∓ 2 p F_1 / r + 12 F_2 / r^2]`` | ``∓2 k_z mu (s F_1 ∓ 2 F_2 / r)`` | ``±4 mu (s F_1 / r ∓ 3 F_2 / r^2)`` |
+  | 4 | ``sigma_rz`` | ``∓2 k_z mu (p F_1 ∓ 2 F_2 / r)`` | ``+mu (2 k_z^2 - k_S^2 + 3/r^2) F_2`` | ``-2 k_z mu F_2 / r`` |
+  | 5 | ``sigma_r_theta`` | ``+4 mu (∓p F_1 / r + 3 F_2 / r^2)`` | ``+2 k_z mu F_2 / r`` | ``-mu [(s^2 + 12/r^2) F_2 ∓ 2 s F_1 / r]`` |
+
+  The ``±`` / ``∓`` signs select the I-flavour (upper) or
+  K-flavour (lower) entry within each two-column block;
+  ``F_1``, ``F_2`` denote the appropriate ``I`` or ``K`` Bessel
+  function; ``mu = rho * V_S^2`` and ``k_S = omega / V_S``.
+
+  **Sparsity pattern** (same as n=1, pinned by G''.b.1 tests):
+
+  * Row 1 (``u_z``) cols 4, 5 (``D_I``, ``D_K``): zero —
+    the SH potential ``psi_z`` doesn't contribute to ``u_z``
+    at any ``n >= 1``.
+  * Row 2 (``u_theta``) cols 2, 3 (``C_I``, ``C_K``): zero —
+    the SV potential ``psi_theta`` doesn't contribute to
+    ``u_theta`` at any ``n >= 1``.
 
 * **G''.a.3** — Layer propagator
   ``P_j = E_j(r_outer) E_j(r_inner)^{-1}`` (6x6). Composition
