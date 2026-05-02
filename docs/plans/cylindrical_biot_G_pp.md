@@ -18,27 +18,27 @@ and G' (n=1).
 | G''.a — math scaffolding (comments only) | ✅ | `fwap/cylindrical_solver.py:10518-10756` | n/a |
 | G''.b.1 — `_layer_e_matrix_n2` | ✅ | `fwap/cylindrical_solver.py:10786` | 6 / 6 |
 | G''.b.2 — `_layer_propagator_n2` | ✅ | `fwap/cylindrical_solver.py:10951` | 5 / 5 |
-| G''.c — `_modal_determinant_n2_cased` | ✅ | `fwap/cylindrical_solver.py:11041` | 5 / 5 (one moved to G''.0) |
-| G''.d — public-API hook + brentq loop | ⏳ | currently raises `NotImplementedError` at `fwap/cylindrical_solver.py:4961` | 0 / 6 planned |
+| G''.c — `_modal_determinant_n2_cased` | ✅ | `fwap/cylindrical_solver.py:11121` | 5 / 5 (one moved to G''.0) |
+| G''.d — public-API hook + brentq loop | ✅ | `fwap/cylindrical_solver.py:4865` (`_quadrupole_kz_bracket_cased`) and `:4896` (`quadrupole_dispersion_layered` brentq path) | 6 / 6 |
 | G''.e — n=2 hardening | ⏳ | not yet shipped | 0 / 4 planned |
 | G''.f — cross-cutting docs | ⏳ | not yet shipped | n/a |
 
-**Shipped so far:** G''.0 + G''.a + G''.b.1 + G''.b.2 + G''.c —
-22 of the ~33 planned tests, covering the public API surface
-(`layers=()` dispatch + validation + future-NIE), the n=2 math
+**Shipped so far:** G''.0 + G''.a + G''.b.1 + G''.b.2 + G''.c +
+G''.d — 28 of the ~33 planned tests, covering the public API
+surface (`layers=()` dispatch + validation), the n=2 math
 scaffolding, the per-layer `E_n2(r)` helper, the per-layer
-propagator, and the 10x10 stacked modal determinant with the
-G''.a.6 layer = formation root-match oracle wired into the test
-suite. The `len(layers) >= 1` cased-hole path of
-`quadrupole_dispersion_layered` still raises
-`NotImplementedError` until G''.d wires the brentq loop on
-top of G''.c.
+propagator, the 10x10 stacked modal determinant with the
+G''.a.6 layer = formation root-match oracle, and the public-API
+brentq path that wires `_modal_determinant_n2_cased` into
+`quadrupole_dispersion_layered`. End-to-end check at the
+public-API level: when `layer = formation`, the multi-layer
+brentq path returns the unlayered `quadrupole_dispersion`
+slowness to `rtol=1e-9` across the LF-quadrupole band.
 
-**Next up:** G''.d wires `_modal_determinant_n2_cased` into
-`quadrupole_dispersion_layered` via brentq + a
-`_quadrupole_kz_bracket_cased` helper. G''.e then adds
-hardening (multi-layer collapse oracles + LWD cement-bond
-physics).
+**Next up:** G''.e adds hardening (multi-layer collapse
+oracles + LWD cement-bond physics directional test); G''.f is
+the cross-cutting docs sweep (mark G/G'/G'' done in the
+master plan).
 
 Plan G'' depends on the propagator-matrix scaffolding from plans
 G (4x4 at n=0) and G' (6x6 at n=1); it inherits the same
@@ -604,7 +604,7 @@ available**. Replace with:
 - **N=0 dispatch to unlayered**: ``len(layers) == 0`` returns
   the unlayered slowness without going through `_modal_determinant_n2_cased`.
 
-## G''.d — n=2 public-API hook (~80 lines + 6 tests) ⏳ pending
+## G''.d — n=2 public-API hook (~80 lines + 6 tests) ✅ shipped
 
 Replaces the G''.0 ``len(layers) >= 1 -> NotImplementedError``
 raise in `quadrupole_dispersion_layered` with a brentq loop on
@@ -685,10 +685,10 @@ of tests + ~33 tests, distributed across ~7 mergeable PRs
 bundled). Conservative estimate: 5-7 days of focused work
 (similar to G').
 
-**Shipped (G''.0 + G''.a + G''.b.1 + G''.b.2 + G''.c):** 22 of
-the ~33 planned tests; 5 of the 7 PRs. **Remaining (G''.d +
-G''.e + G''.f bundled):** ~2 PRs, ~10-11 tests, 1-2 days
-estimated based on G' / G actuals.
+**Shipped (G''.0 + G''.a + G''.b.1 + G''.b.2 + G''.c +
+G''.d):** 28 of the ~33 planned tests; 6 of the 7 PRs.
+**Remaining (G''.e + G''.f bundled):** ~1 PR, ~4-5 tests, 1
+day estimated based on G' / G actuals.
 
 Risk concentrated in:
 
@@ -764,17 +764,19 @@ Done:
    G''.a.4 with the G''.a.6 layer = formation root-match
    oracle, propagator group-law oracle (two identical layers ≡
    one double-thickness), N=2 order-matters, and casing+cement
-   smoke. Function not yet wired into a public path; G''.d
-   replaces the existing `NotImplementedError` raise with a
-   brentq loop.
+   smoke.
+6. ✅ **G''.d** (public-API hook + multi-layer regression) --
+   first physically-meaningful G'' output. New
+   `_quadrupole_kz_bracket_cased` helper plus a brentq loop on
+   `_modal_determinant_n2_cased`; the
+   `quadrupole_dispersion_layered` `NotImplementedError` raise
+   is gone for `len(layers) >= 1` (slow-formation regime).
+   End-to-end pinning: when `layer = formation`, the multi-
+   layer brentq path matches the unlayered
+   `quadrupole_dispersion` slowness to `rtol=1e-9`.
 
 Remaining:
 
-6. ⏳ **G''.d** (public-API hook + multi-layer regression) --
-   first physically-meaningful G'' output. Replaces the
-   `NotImplementedError` raise in
-   `quadrupole_dispersion_layered` with a brentq loop on top
-   of `_modal_determinant_n2_cased`.
 7. ⏳ **G''.e** (hardening + LWD cement-bond physics --
    directional prediction in the plan, sign pinned by test).
 8. ⏳ **G''.f** (docs).

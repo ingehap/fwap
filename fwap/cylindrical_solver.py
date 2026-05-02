@@ -4862,6 +4862,37 @@ def quadrupole_dispersion(
     )
 
 
+def _quadrupole_kz_bracket_cased(
+    omega: float,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...],
+) -> tuple[float, float]:
+    """
+    Bracket the cased-hole n=2 quadrupole root in (k_z_lo, k_z_hi)
+    for an arbitrary-N layer stack.
+
+    Mirrors :func:`_flexural_kz_bracket_cased`: lower bound is the
+    slowest-body-wave floor across the entire stack (fluid, every
+    layer, formation half-space); upper bound is 10 % above the
+    formation Rayleigh-speed slowness. The brentq expansion-loop
+    in :func:`quadrupole_dispersion_layered` extends the bracket
+    if the multi-layer perturbation lifts the actual root above
+    the cushion.
+    """
+    from fwap.cylindrical import rayleigh_speed
+
+    vR = rayleigh_speed(vp, vs)
+    slowest = min(vs, vf, *(L.vs for L in layers))
+    kz_lo = omega / slowest * (1.0 + 1.0e-6)
+    kz_hi = omega / vR * 1.10
+    return kz_lo, kz_hi
+
+
 def quadrupole_dispersion_layered(
     freq: np.ndarray,
     *,
@@ -4883,8 +4914,9 @@ def quadrupole_dispersion_layered(
     2. With ``layers=()`` (no extra layers) this is bit-equivalent
     to :func:`quadrupole_dispersion`. With one or more
     :class:`BoreholeLayer` instances, the multi-layer cased-hole
-    propagator-matrix path is dispatched to the n=2 stacked modal
-    determinant (G''.c / G''.d follow-ups; not yet shipped).
+    propagator-matrix path dispatches to the n=2 stacked modal
+    determinant :func:`_modal_determinant_n2_cased` (G''.c) and
+    brentq's its lowest root across the frequency grid (G''.d).
 
     Parameters
     ----------
@@ -4921,11 +4953,8 @@ def quadrupole_dispersion_layered(
         or any layer fails the slow-formation constraint
         ``layer.vs >= vs`` (multi-layer only).
     NotImplementedError
-        If ``len(layers) >= 1`` (G''.d brentq loop not yet
-        shipped; the underlying ``_modal_determinant_n2_cased``
-        from G''.c is in place but unwired), or if the
-        formation is fast (``V_S > V_f``) with a non-empty layer
-        (fast-formation cased-hole quadrupole is a deferred
+        If the formation is fast (``V_S > V_f``) with a non-empty
+        layer (fast-formation cased-hole quadrupole is a deferred
         follow-up).
     """
     layers_tuple = tuple(layers)
@@ -4960,14 +4989,63 @@ def quadrupole_dispersion_layered(
     # the same at n=2 (Sinha-Norris-Chang-style soft-formation
     # bound-mode regime).
     _validate_flexural_layers_stacked(layers_tuple, a, vs)
-    raise NotImplementedError(
-        "quadrupole_dispersion_layered with non-empty layers is "
-        "scheduled in plan item G''.d (public-API hook + brentq "
-        "loop on top of the stacked modal determinant from "
-        "G''.c, which has shipped as ``_modal_determinant_n2_cased``); "
-        "see docs/plans/cylindrical_biot_G_pp.md. Unlayered "
-        "(``layers=()``) is supported via dispatch to "
-        "``quadrupole_dispersion``."
+
+    # Multi-layer cased-hole brentq loop on top of
+    # ``_modal_determinant_n2_cased`` (G''.c). Mirrors the
+    # ``flexural_dispersion_layered`` n>=1 branch.
+    slowness = np.full_like(f_arr, np.nan, dtype=float)
+    for i, f in enumerate(f_arr):
+        omega = 2.0 * np.pi * float(f)
+
+        def _det(kz_, omega=omega, layers_tuple=layers_tuple):
+            return _modal_determinant_n2_cased(
+                kz_, omega,
+                vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+                layers=layers_tuple,
+            )
+
+        kz_lo, kz_hi = _quadrupole_kz_bracket_cased(
+            omega, vp, vs, rho, vf, rho_f, a, layers_tuple,
+        )
+        try:
+            d_lo = _det(kz_lo)
+            d_hi = _det(kz_hi)
+            n_expand = 0
+            while (
+                np.isfinite(d_lo)
+                and np.isfinite(d_hi)
+                and np.sign(d_lo) == np.sign(d_hi)
+                and n_expand < 8
+            ):
+                kz_hi *= 1.5
+                d_hi = _det(kz_hi)
+                n_expand += 1
+            if (not np.isfinite(d_lo)) or (not np.isfinite(d_hi)):
+                logger.debug(
+                    "quadrupole_dispersion_layered: det evaluation "
+                    "NaN at f=%.1f Hz (likely outside bound regime)",
+                    f,
+                )
+                continue
+            if np.sign(d_lo) == np.sign(d_hi):
+                logger.debug(
+                    "quadrupole_dispersion_layered: failed to bracket "
+                    "at f=%.1f Hz (likely below cutoff)", f,
+                )
+                continue
+            kz_root = optimize.brentq(_det, kz_lo, kz_hi, xtol=1.0e-10)
+            slowness[i] = kz_root / omega
+        except (ValueError, RuntimeError) as exc:
+            logger.debug(
+                "quadrupole_dispersion_layered: brentq failed at "
+                "f=%.1f Hz: %s", f, exc,
+            )
+
+    return BoreholeMode(
+        name="quadrupole",
+        azimuthal_order=2,
+        freq=f_arr,
+        slowness=slowness,
     )
 
 
