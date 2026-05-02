@@ -18,22 +18,27 @@ and G' (n=1).
 | G''.a — math scaffolding (comments only) | ✅ | `fwap/cylindrical_solver.py:10518-10756` | n/a |
 | G''.b.1 — `_layer_e_matrix_n2` | ✅ | `fwap/cylindrical_solver.py:10786` | 6 / 6 |
 | G''.b.2 — `_layer_propagator_n2` | ✅ | `fwap/cylindrical_solver.py:10951` | 5 / 5 |
-| G''.c — `_modal_determinant_n2_cased` | ⏳ | not yet shipped | 0 / 6 planned |
+| G''.c — `_modal_determinant_n2_cased` | ✅ | `fwap/cylindrical_solver.py:11041` | 5 / 5 (one moved to G''.0) |
 | G''.d — public-API hook + brentq loop | ⏳ | currently raises `NotImplementedError` at `fwap/cylindrical_solver.py:4961` | 0 / 6 planned |
 | G''.e — n=2 hardening | ⏳ | not yet shipped | 0 / 4 planned |
 | G''.f — cross-cutting docs | ⏳ | not yet shipped | n/a |
 
-**Shipped so far:** G''.0 + G''.a + G''.b.1 + G''.b.2 — 17 of the
-~33 planned tests, covering the public API surface
+**Shipped so far:** G''.0 + G''.a + G''.b.1 + G''.b.2 + G''.c —
+22 of the ~33 planned tests, covering the public API surface
 (`layers=()` dispatch + validation + future-NIE), the n=2 math
-scaffolding, the per-layer `E_n2(r)` helper, and the per-layer
-propagator. The `len(layers) >= 1` cased-hole path still raises
-`NotImplementedError` until G''.c + G''.d land.
+scaffolding, the per-layer `E_n2(r)` helper, the per-layer
+propagator, and the 10x10 stacked modal determinant with the
+G''.a.6 layer = formation root-match oracle wired into the test
+suite. The `len(layers) >= 1` cased-hole path of
+`quadrupole_dispersion_layered` still raises
+`NotImplementedError` until G''.d wires the brentq loop on
+top of G''.c.
 
-**Next up:** G''.c (`_modal_determinant_n2_cased`) replaces the NIE
-raise with a real determinant; G''.d wires it into
-`quadrupole_dispersion_layered` via brentq. G''.e adds hardening
-(multi-layer collapse oracles + LWD cement-bond physics).
+**Next up:** G''.d wires `_modal_determinant_n2_cased` into
+`quadrupole_dispersion_layered` via brentq + a
+`_quadrupole_kz_bracket_cased` helper. G''.e then adds
+hardening (multi-layer collapse oracles + LWD cement-bond
+physics).
 
 Plan G'' depends on the propagator-matrix scaffolding from plans
 G (4x4 at n=0) and G' (6x6 at n=1); it inherits the same
@@ -561,7 +566,7 @@ Mirror of G'.b.2 with `_layer_e_matrix_n2`. Uses
 - State-vector continuity end-to-end.
 - NaN propagation below bound floor.
 
-## G''.c — n=2 stacked modal determinant (~300 lines + 6 tests) ⏳ pending
+## G''.c — n=2 stacked modal determinant (~200 lines + 5 tests) ✅ shipped
 
 ```python
 def _modal_determinant_n2_cased(
@@ -680,10 +685,10 @@ of tests + ~33 tests, distributed across ~7 mergeable PRs
 bundled). Conservative estimate: 5-7 days of focused work
 (similar to G').
 
-**Shipped (G''.0 + G''.a + G''.b.1 + G''.b.2):** 17 of the
-~33 planned tests; 4 of the 7 PRs. **Remaining (G''.c +
-G''.d + G''.e + G''.f bundled):** ~3 PRs, ~16 tests, 2-3
-days estimated based on G' / G actuals.
+**Shipped (G''.0 + G''.a + G''.b.1 + G''.b.2 + G''.c):** 22 of
+the ~33 planned tests; 5 of the 7 PRs. **Remaining (G''.d +
+G''.e + G''.f bundled):** ~2 PRs, ~10-11 tests, 1-2 days
+estimated based on G' / G actuals.
 
 Risk concentrated in:
 
@@ -755,18 +760,21 @@ Done:
    layer=formation cross-check vs unlayered `_modal_determinant_n2`.
 4. ✅ **G''.b.2** (propagator) -- group-law oracles via
    state-vector identities (mirrors G.b.2 / G'.b.2).
+5. ✅ **G''.c** (stacked determinant) -- 10x10 assembly per
+   G''.a.4 with the G''.a.6 layer = formation root-match
+   oracle, propagator group-law oracle (two identical layers ≡
+   one double-thickness), N=2 order-matters, and casing+cement
+   smoke. Function not yet wired into a public path; G''.d
+   replaces the existing `NotImplementedError` raise with a
+   brentq loop.
 
 Remaining:
 
-5. ⏳ **G''.c** (stacked determinant) -- N=0 dispatch +
-   layer=formation N=1 root match + multi-layer collapse
-   oracles. Implements the 10x10 assembly per G''.a.4 and
-   verifies the determinant relation
-   ``det(M_10) = det(E_form(b)) * det(M_4)`` from G''.a.6.
 6. ⏳ **G''.d** (public-API hook + multi-layer regression) --
    first physically-meaningful G'' output. Replaces the
    `NotImplementedError` raise in
-   `quadrupole_dispersion_layered` with a brentq loop.
+   `quadrupole_dispersion_layered` with a brentq loop on top
+   of `_modal_determinant_n2_cased`.
 7. ⏳ **G''.e** (hardening + LWD cement-bond physics --
    directional prediction in the plan, sign pinned by test).
 8. ⏳ **G''.f** (docs).

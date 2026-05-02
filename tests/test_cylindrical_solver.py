@@ -9061,11 +9061,12 @@ def test_quadrupole_dispersion_layered_layers_empty_dispatches_to_unlayered():
     assert res_lyr.azimuthal_order == 2
 
 
-def test_quadrupole_dispersion_layered_single_layer_raises_pointing_at_G_pp_c_d():
+def test_quadrupole_dispersion_layered_single_layer_raises_pointing_at_G_pp_d():
     """``len(layers) >= 1`` raises ``NotImplementedError`` with a
-    message naming G''.c (stacked modal determinant) and G''.d
-    (public-API hook), plus the sub-plan doc reference. Sharpens
-    until the multi-layer brentq path lands."""
+    message naming G''.d (public-API hook), plus the sub-plan doc
+    reference. The G''.c stacked determinant
+    (``_modal_determinant_n2_cased``) ships and is named in the
+    message; only the G''.d brentq wiring is missing."""
     from fwap.cylindrical_solver import quadrupole_dispersion_layered
     layer = BoreholeLayer(vp=2500.0, vs=1100.0, rho=2100.0, thickness=0.005)
     with pytest.raises(NotImplementedError) as exc_info:
@@ -9076,8 +9077,8 @@ def test_quadrupole_dispersion_layered_single_layer_raises_pointing_at_G_pp_c_d(
             layers=(layer,),
         )
     msg = str(exc_info.value)
-    assert "G''.c" in msg
     assert "G''.d" in msg
+    assert "_modal_determinant_n2_cased" in msg
     assert "cylindrical_biot_G_pp.md" in msg
 
 
@@ -9460,3 +9461,166 @@ def test_layer_propagator_n2_returns_nan_below_bound_floor():
             r_inner=0.1, r_outer=0.105,
         )
     assert np.all(np.isnan(P))
+
+
+# =====================================================================
+# Plan item G''.c -- 10x10 stacked modal determinant at n=2
+# =====================================================================
+#
+# Tests for ``_modal_determinant_n2_cased``. With no F.3-equivalent
+# hand-coded n=2 single-layer oracle, the strongest root-level
+# oracle is the layer = formation collapse identity: at layer params
+# equal to formation params, the brentq root in ``k_z`` of the 10x10
+# cased determinant matches the unlayered 4x4
+# ``_modal_determinant_n2`` root (per the substep G''.a.6 algebra:
+# ``det(M_10) = det(E_form(b)) * det(M_4)``). The "N=0 dispatch to
+# unlayered" check is covered by the existing G''.0 test
+# ``test_quadrupole_dispersion_layered_layers_empty_dispatches_to_unlayered``
+# (the dispatch lives in ``quadrupole_dispersion_layered``, not in
+# ``_modal_determinant_n2_cased``), so this block ships 5 tests.
+
+
+def _typical_g_pp_c_params():
+    """Slow-formation cased-hole fixture for G''.c tests. Keeps
+    the unlayered quadrupole root in the bound regime (V_S = 800
+    < V_f = 1500); layers must satisfy the slow-formation
+    constraint ``layer.vs >= formation.vs``."""
+    return dict(
+        vp=2200.0, vs=800.0, rho=2200.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+
+
+def test_modal_determinant_n2_cased_N1_layer_eq_formation_vanishes_at_unlayered_root():
+    """G''.a.6 collapse identity: at ``layer.{vp,vs,rho} ==
+    formation.{vp,vs,rho}``, the cased determinant has a brentq
+    root in ``k_z`` exactly where the unlayered
+    ``_modal_determinant_n2`` does. Verified at the
+    ``quadrupole_dispersion``-converged root: ``|det_at|`` is
+    many orders of magnitude smaller than ``|det_off|`` 0.5%
+    away.
+
+    Strongest root-level oracle in the absence of an F.3
+    per-element form."""
+    from fwap.cylindrical_solver import (
+        _modal_determinant_n2_cased,
+        quadrupole_dispersion,
+    )
+
+    p = _typical_g_pp_c_params()
+    # Layer = formation. Thickness arbitrary; G''.a.6 holds for any
+    # ``b > a``.
+    layer = BoreholeLayer(
+        vp=p["vp"], vs=p["vs"], rho=p["rho"], thickness=0.01,
+    )
+    omega = 2.0 * np.pi * 5000.0
+    res = quadrupole_dispersion(
+        np.array([5000.0]),
+        vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"],
+    )
+    assert np.isfinite(res.slowness[0]), (
+        "fixture must put the unlayered quadrupole root in the bound "
+        "regime so the collapse identity is exercisable"
+    )
+    kz_root = float(res.slowness[0]) * omega
+    det_at = _modal_determinant_n2_cased(
+        kz_root, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(layer,),
+    )
+    det_off = _modal_determinant_n2_cased(
+        kz_root * 1.005, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(layer,),
+    )
+    # Guard against the unphysical case where both are tiny.
+    assert abs(det_off) > 0.0
+    assert abs(det_at) < abs(det_off) * 1.0e-6
+
+
+def test_modal_determinant_n2_cased_returns_nan_below_bound_floor():
+    """``kz`` below the slowest-shear bound floor -> at least one
+    radial wavenumber goes imaginary -> NaN. brentq-safe
+    propagation."""
+    from fwap.cylindrical_solver import _modal_determinant_n2_cased
+
+    p = _typical_g_pp_c_params()
+    layer = BoreholeLayer(vp=2500.0, vs=1100.0, rho=2100.0, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / p["vs"] * 0.5  # well below bound floor
+    with np.errstate(invalid="ignore"):
+        det = _modal_determinant_n2_cased(
+            kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+            vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(layer,),
+        )
+    assert np.isnan(det)
+
+
+def test_modal_determinant_n2_cased_two_identical_layers_equals_one_double_thickness():
+    """Group-law oracle: two contiguous identical layers (L, L)
+    of thickness ``h`` each compose to a single layer of
+    thickness ``2h``. Direct test of the ``P_total = P_N ... P_1``
+    propagator chain at n=2."""
+    from fwap.cylindrical_solver import _modal_determinant_n2_cased
+
+    p = _typical_g_pp_c_params()
+    omega = 2.0 * np.pi * 5000.0
+    kz = omega / p["vs"] * 1.05
+    L_double = BoreholeLayer(vp=2500.0, vs=1100.0, rho=2100.0, thickness=0.01)
+    L_half = BoreholeLayer(vp=2500.0, vs=1100.0, rho=2100.0, thickness=0.005)
+    det_single = _modal_determinant_n2_cased(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(L_double,),
+    )
+    det_split = _modal_determinant_n2_cased(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(L_half, L_half),
+    )
+    # Same E_n2(a), identical propagator chain composes through the
+    # same total thickness 2h.
+    assert det_single == pytest.approx(det_split, rel=1.0e-10)
+
+
+def test_modal_determinant_n2_cased_order_matters_at_N2():
+    """Physical sanity: with two distinct layers ``(L_a, L_b)``,
+    swapping the inside-out order to ``(L_b, L_a)`` produces a
+    different determinant -- layer ordering is a physical
+    parameter, not a labelling convention."""
+    from fwap.cylindrical_solver import _modal_determinant_n2_cased
+
+    p = _typical_g_pp_c_params()
+    omega = 2.0 * np.pi * 5000.0
+    L_a = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)  # casing
+    L_b = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.01)  # cement
+    # kz safely above the slowest-shear bound floor.
+    kz = omega / min(L_a.vs, L_b.vs, p["vs"], p["vf"]) * 1.05
+    det_ab = _modal_determinant_n2_cased(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(L_a, L_b),
+    )
+    det_ba = _modal_determinant_n2_cased(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(L_b, L_a),
+    )
+    assert np.isfinite(det_ab) and np.isfinite(det_ba)
+    rel_diff = abs(det_ab - det_ba) / max(abs(det_ab), abs(det_ba))
+    assert rel_diff > 0.01
+
+
+def test_modal_determinant_n2_cased_N2_casing_plus_cement_smoke():
+    """Smoke for the cased-hole quadrupole N=2 path: typical
+    casing + cement geometry produces a finite real determinant
+    at a representative bound-regime ``kz``. Mirrors the
+    G'.c smoke test for the LWD-band cement-bond geometry."""
+    from fwap.cylindrical_solver import _modal_determinant_n2_cased
+
+    p = _typical_g_pp_c_params()
+    omega = 2.0 * np.pi * 5000.0
+    casing = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
+    cement = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05)
+    kz = omega / min(casing.vs, cement.vs, p["vs"], p["vf"]) * 1.05
+    det = _modal_determinant_n2_cased(
+        kz, omega, vp=p["vp"], vs=p["vs"], rho=p["rho"],
+        vf=p["vf"], rho_f=p["rho_f"], a=p["a"], layers=(casing, cement),
+    )
+    assert np.isfinite(det)
+    assert isinstance(det, float)
