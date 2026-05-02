@@ -18,16 +18,13 @@ from fwap.cylindrical import (
 from fwap.cylindrical_solver import (
     BoreholeLayer,
     BoreholeMode,
+    _is_isotropic_stiffness,
     _layer_e_matrix_n0,
     _layer_e_matrix_n1,
     _layer_e_matrix_n2,
     _layer_propagator_n0,
     _layer_propagator_n1,
     _layer_propagator_n2,
-    _modal_determinant_n0_cased,
-    _modal_determinant_n1_cased,
-    _validate_borehole_layers_stacked,
-    _validate_flexural_layers_stacked,
     _layered_n0_bessel_pack,
     _layered_n0_radial_wavenumbers,
     _layered_n0_row1_at_a,
@@ -38,7 +35,6 @@ from fwap.cylindrical_solver import (
     _layered_n0_row6_at_b,
     _layered_n0_row7_at_b,
     _layered_n1_row1_at_a,
-    _layered_n1_row10_at_b,
     _layered_n1_row2_at_a,
     _layered_n1_row3_at_a,
     _layered_n1_row4_at_a,
@@ -47,22 +43,26 @@ from fwap.cylindrical_solver import (
     _layered_n1_row7_at_b,
     _layered_n1_row8_at_b,
     _layered_n1_row9_at_b,
+    _layered_n1_row10_at_b,
     _modal_determinant_n0,
+    _modal_determinant_n0_cased,
     _modal_determinant_n0_layered,
+    _modal_determinant_n0_vti,
     _modal_determinant_n1,
+    _modal_determinant_n1_cased,
     _modal_determinant_n1_layered,
+    _modal_determinant_n1_vti,
     _modal_row1_at_a_n1_vti,
     _modal_row1_at_a_vti,
     _modal_row2_at_a_n1_vti,
     _modal_row2_at_a_vti,
     _modal_row3_at_a_n1_vti,
-    _modal_row4_at_a_n1_vti,
     _modal_row3_at_a_vti,
-    _modal_determinant_n0_vti,
-    _modal_determinant_n1_vti,
-    _is_isotropic_stiffness,
+    _modal_row4_at_a_n1_vti,
     _polarization_ratio_uz_over_ur_vti,
     _radial_wavenumbers_vti,
+    _validate_borehole_layers_stacked,
+    _validate_flexural_layers_stacked,
     flexural_dispersion,
     flexural_dispersion_layered,
     flexural_dispersion_vti,
@@ -1257,7 +1257,8 @@ def test_pseudo_rayleigh_modal_determinant_at_root_is_small():
     function is converging onto an actual root rather than a
     plateau."""
     from fwap.cylindrical_solver import (
-        _modal_determinant_n0_complex, pseudo_rayleigh_dispersion,
+        _modal_determinant_n0_complex,
+        pseudo_rayleigh_dispersion,
     )
 
     freq = np.array([60000.0])
@@ -1568,10 +1569,12 @@ def test_flexural_slow_formation_bit_identical_after_dispatch():
     a direct call into ``_modal_determinant_n1`` + brentq with the
     same bracket helper, which is what the slow-formation branch
     of the refactored ``flexural_dispersion`` does internally."""
-    from fwap.cylindrical_solver import (
-        _flexural_kz_bracket, _modal_determinant_n1,
-    )
     from scipy import optimize as _opt
+
+    from fwap.cylindrical_solver import (
+        _flexural_kz_bracket,
+        _modal_determinant_n1,
+    )
 
     f = np.linspace(2000.0, 12000.0, 11)
     res = flexural_dispersion(
@@ -1622,11 +1625,9 @@ def test_flexural_fast_formation_velocities_are_real_kz():
     only return real-valued ``k_z``. The converged determinant must
     therefore have small magnitude -- an upper-bound sanity check."""
     from fwap.cylindrical_solver import _modal_determinant_n1_complex
-    from fwap.cylindrical import rayleigh_speed
 
     vp, vs, rho = 5500.0, 3100.0, 2500.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
-    vR = rayleigh_speed(vp, vs)
     f = np.linspace(20000.0, 80000.0, 30)
     res = flexural_dispersion(
         f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a
@@ -1685,7 +1686,8 @@ def test_pseudo_rayleigh_segmenter_returns_single_continuous_segment():
     band -- no NaN gaps in the middle even where the strict
     marcher used to drop steps to single-step root hops."""
     from fwap.cylindrical_solver import (
-        pseudo_rayleigh_dispersion, segments_from_kz_curve,
+        pseudo_rayleigh_dispersion,
+        segments_from_kz_curve,
     )
 
     freq = np.linspace(30000.0, 80000.0, 60)
@@ -1741,8 +1743,8 @@ def test_quadrupole_finite_above_cutoff_in_slow_formation():
     above a geometric cutoff. At least one frequency in a
     reasonable band must yield a finite slowness in the
     ``(1/V_S, ~1.1/V_R)`` window."""
-    from fwap.cylindrical_solver import quadrupole_dispersion
     from fwap.cylindrical import rayleigh_speed
+    from fwap.cylindrical_solver import quadrupole_dispersion
 
     vR = rayleigh_speed(QUAD_VP, QUAD_VS)
     f = np.linspace(3000.0, 20000.0, 10)
@@ -1767,8 +1769,8 @@ def test_quadrupole_dispatches_to_fast_formation_path_when_vs_gt_vf():
     in a sensible band must yield finite slowness in the
     ``(V_R, V_S)`` velocity window. Direct sister of the n=1
     fast-formation dispatch test."""
-    from fwap.cylindrical_solver import quadrupole_dispersion
     from fwap.cylindrical import rayleigh_speed
+    from fwap.cylindrical_solver import quadrupole_dispersion
 
     vp, vs, rho = 5500.0, 3100.0, 2500.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
@@ -1831,7 +1833,8 @@ def test_quadrupole_modal_determinant_at_root_is_near_zero():
     at a nearby off-root point. Same local-zero check used for
     Stoneley and flexural roots."""
     from fwap.cylindrical_solver import (
-        quadrupole_dispersion, _modal_determinant_n2,
+        _modal_determinant_n2,
+        quadrupole_dispersion,
     )
 
     f = np.array([8000.0])
@@ -1929,10 +1932,13 @@ def test_quadrupole_slow_formation_bit_identical_after_dispatch():
     a direct call into ``_modal_determinant_n2`` + brentq with the
     same bracket helper, mirroring the n=1 fast-formation
     bit-identical guard from plan item B."""
-    from fwap.cylindrical_solver import (
-        _quadrupole_kz_bracket, _modal_determinant_n2, quadrupole_dispersion,
-    )
     from scipy import optimize as _opt
+
+    from fwap.cylindrical_solver import (
+        _modal_determinant_n2,
+        _quadrupole_kz_bracket,
+        quadrupole_dispersion,
+    )
 
     f = np.linspace(5000.0, 20000.0, 11)
     res = quadrupole_dispersion(
@@ -1980,7 +1986,8 @@ def test_quadrupole_fast_formation_im_det_relative_zero():
     is the n=2 analogue of the n=1 local-zero check, expressed
     as a relative residual rather than as an absolute one."""
     from fwap.cylindrical_solver import (
-        quadrupole_dispersion, _modal_determinant_n2_complex,
+        _modal_determinant_n2_complex,
+        quadrupole_dispersion,
     )
 
     vp, vs, rho = 5500.0, 3100.0, 2500.0
@@ -2011,8 +2018,8 @@ def test_quadrupole_fast_formation_velocities_in_bound_window():
     """All fast-formation finite outputs must have phase velocity
     strictly between V_R and V_S -- the bound-mode window for the
     n=2 leaky-F regime. Mirrors the n=1 sister test."""
-    from fwap.cylindrical_solver import quadrupole_dispersion
     from fwap.cylindrical import rayleigh_speed
+    from fwap.cylindrical_solver import quadrupole_dispersion
 
     vp, vs, rho = 5500.0, 3100.0, 2500.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
@@ -5850,7 +5857,6 @@ def test_modal_row3_at_a_vti_isotropic_collapse_matches_M31_M32_M33():
     kS2 = (omega / vs) ** 2
     two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
 
-    M31 = 0.0
     M32 = 2.0 * kz * p * mu * float(sp.kv(1, p * a))
     M33 = mu * two_kz2_minus_kS2 * float(sp.kv(1, s * a))
 
@@ -9036,7 +9042,8 @@ def test_quadrupole_dispersion_layered_layers_empty_dispatches_to_unlayered():
     ``quadrupole_dispersion``. Floating-point regression oracle
     for plan G''."""
     from fwap.cylindrical_solver import (
-        quadrupole_dispersion, quadrupole_dispersion_layered,
+        quadrupole_dispersion,
+        quadrupole_dispersion_layered,
     )
     f = np.linspace(8000.0, 25000.0, 5)
     # LWD-quadrupole-relevant slow formation.

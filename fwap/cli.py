@@ -86,7 +86,7 @@ def _pick_one_gather(
     return picks, g
 
 
-def _print_picks_row(name: str, picks: dict) -> None:
+def _print_picks_row(picks: dict) -> None:
     """Print one stdout row per mode for the single-gather shape."""
     for mode in ("P", "S", "Stoneley"):
         p = picks.get(mode)
@@ -245,7 +245,7 @@ def _cmd_process(argv: list[str]) -> int:
             return 1
 
         print("mode       slowness_us_per_ft  V_m_per_s  coherence")
-        _print_picks_row(path, picks)
+        _print_picks_row(picks)
         return 0
 
     # Multi-file mode OR single-file with --output: collect per-depth
