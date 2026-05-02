@@ -221,13 +221,104 @@ factors.
   ``P_total = P_N ... P_2 P_1`` -- identical to G'.a.3 with the
   Bessel-index shift baked into ``E_j``.
 * **G''.a.4** — Boundary conditions and 10x10 modal determinant.
-  Same BC structure as G'.a.4: 4 BCs at r=a (u_r continuity,
-  sigma_rr balance, sigma_rtheta = 0, sigma_rz = 0; the inviscid
-  fluid imposes no constraint on u_z or u_theta) + 6 BCs at r=b
-  (full state-vector continuity). Final 10x10 form:
-  ``[A | B_I, B_K, C_I, C_K | B_form, C_form | D_I, D_K |
-  D_form]``. Reduces at N=0 to the unlayered `_modal_determinant_n2`
-  (4x4 form) after the propagator chain is bypassed.
+  Same BC structure as G'.a.4 (the n=2 change is purely in the
+  Bessel-function index used inside ``E_n2``; the BC bookkeeping
+  is structurally identical). Reduces at N=0 to the unlayered
+  `_modal_determinant_n2` (4x4 form) after the propagator chain
+  is bypassed.
+
+  **Ten unknowns, ten BCs.** The system is square:
+
+  * **1 fluid amplitude** ``A`` — the inviscid borehole-fluid
+    acoustic-pressure scalar; couples to the wall through the
+    radial-displacement and pressure-balance BCs at ``r = a``.
+  * **6 innermost-layer amplitudes** ``c_1 = (B_I, B_K, C_I,
+    C_K, D_I, D_K)`` — both I- and K-flavour P / SV / SH; the
+    layer is finite-thickness so both flavours survive the
+    decay floor.
+  * **3 formation amplitudes** ``(B_form, C_form, D_form)`` —
+    K-flavour only; the formation half-space is unbounded and
+    the I-flavour Bessel functions diverge as ``r -> infinity``,
+    so the radiation condition kills the I-flavour columns.
+
+  **Column packing** of the 10x10 final form (matches the F.2
+  / G' convention; column index 0..9):
+
+  ``[A | B_I, B_K, C_I, C_K | B_form, C_form | D_I, D_K | D_form]``
+
+  **Row layout — 4 BCs at r=a** (fluid-innermost-layer
+  interface; the inviscid fluid carries only ``u_r`` and a
+  pressure scalar, so only the radial-displacement and stress
+  rows of the layer participate, with the layer side entered
+  negated where the BC is a difference):
+
+  | BC | Equation | E_n2 row used | Sector |
+  |----|----------|---------------|--------|
+  | BC1 | ``u_r^(f) = u_r^(m)`` | row 0 (``u_r``), layer side negated | cos |
+  | BC2 | ``sigma_rr^(m) + P^(f) = 0`` | row 3 (``sigma_rr``), layer side negated | cos |
+  | BC3 | ``sigma_r_theta^(m) = 0`` | row 5 (``sigma_r_theta``), layer positive | sin |
+  | BC4 | ``sigma_rz^(m) = 0`` | row 4 (``sigma_rz``), layer positive | cos |
+
+  No BC on ``u_z^(m)`` (row 1) or ``u_theta^(m)`` (row 2) at
+  ``r = a``: the inviscid fluid cannot grip the wall
+  tangentially. Two of the six layer state-vector rows at
+  ``r = a`` are therefore unused.
+
+  **Row layout — 6 BCs at r=b** (outermost-layer / formation
+  half-space interface; full state-vector continuity, written
+  as ``layer - formation = 0``):
+
+  | BC  | Equation                       | E_n2 row used                     |
+  |-----|--------------------------------|-----------------------------------|
+  | BC5 | ``u_r^(m) = u_r^(form)``       | row 0 (``u_r``)                   |
+  | BC6 | ``u_theta^(m) = u_theta^(form)`` | row 2 (``u_theta``)             |
+  | BC7 | ``u_z^(m) = u_z^(form)``       | row 1 (``u_z``)                   |
+  | BC8 | ``sigma_rr^(m) = sigma_rr^(form)`` | row 3 (``sigma_rr``)          |
+  | BC9 | ``sigma_r_theta^(m) = sigma_r_theta^(form)`` | row 5 (``sigma_r_theta``) |
+  | BC10 | ``sigma_rz^(m) = sigma_rz^(form)`` | row 4 (``sigma_rz``)          |
+
+  **How each unknown enters the matrix.** For an ``N``-layer
+  stack the layer-side state vector at ``r = b`` is
+  ``v_layer(b) = P_total @ E_n2(a) c_1`` with
+  ``P_total = P_N ... P_2 P_1`` (G''.a.3). The matrix entries
+  by column:
+
+  * **Col 0 (``A``)** — populates BC1 (fluid ``u_r``
+    contribution) and BC2 (fluid pressure). Zero at all r=b
+    rows (the fluid lives only at ``r <= a``).
+  * **Cols 1-4 (``B_I, B_K, C_I, C_K``)** — innermost-layer
+    P / SV amplitudes. At r=a the relevant rows of ``E_n2(a)``
+    fill BC1-BC4 with the layer sign convention from the
+    table above. At r=b the same columns are picked off
+    ``P_total @ E_n2(a)`` and fill BC5-BC10.
+  * **Cols 7-8 (``D_I, D_K``)** — same as cols 1-4 but for
+    the SH amplitudes. Fill BC1-BC4 at r=a (rows 0, 3, 4, 5
+    of ``E_n2`` are all non-zero in the D columns) and
+    BC5-BC10 at r=b.
+  * **Cols 5, 6, 9 (``B_form, C_form, D_form``)** — formation
+    K-only amplitudes. Zero at all r=a rows (BC1-BC4); at r=b
+    they fill BC5-BC10 with ``-E_form_K(b)`` (the minus sign
+    comes from the ``layer - formation`` convention).
+
+  This pins the entire ``M[10, 10]`` sparsity pattern: cols
+  5, 6, 9 are zero in BC1-BC4; col 0 is zero in BC5-BC10. The
+  determinant is a polynomial-style mix of I/K Bessel
+  functions evaluated at ``p a``, ``s a``, ``p b``, ``s b``,
+  and ``p_form b``, ``s_form b``.
+
+  **Reduction at N=0** — with no annular layers,
+  ``P_total = I_6`` and ``v_layer = E_n2(a) c_1``. The
+  outermost-layer / formation interface collapses onto the
+  fluid / formation interface at ``r = a``; cols 1-4 and 7-8
+  drop out (the innermost layer is the formation), only cols
+  5, 6, 9 survive, and the 10x10 form reduces to the unlayered
+  4x4 ``_modal_determinant_n2``.
+
+  **G''.c reference implementation point**: the row/col
+  bookkeeping above is the assembly target; see the source-
+  side comment block at
+  `fwap/cylindrical_solver.py:10653-10687` for the exact
+  state-row-to-BC-row map G''.c will transcribe.
 * **G''.a.5** — Numerical conditioning. Same disparate-magnitude
   story (``cond(E_n2) ~ mu ~ 1e10``); the state-vector form
   for round-trip oracles in G''.b.2 mitigates the
