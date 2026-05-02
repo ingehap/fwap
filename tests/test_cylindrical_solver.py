@@ -9061,27 +9061,6 @@ def test_quadrupole_dispersion_layered_layers_empty_dispatches_to_unlayered():
     assert res_lyr.azimuthal_order == 2
 
 
-def test_quadrupole_dispersion_layered_single_layer_raises_pointing_at_G_pp_d():
-    """``len(layers) >= 1`` raises ``NotImplementedError`` with a
-    message naming G''.d (public-API hook), plus the sub-plan doc
-    reference. The G''.c stacked determinant
-    (``_modal_determinant_n2_cased``) ships and is named in the
-    message; only the G''.d brentq wiring is missing."""
-    from fwap.cylindrical_solver import quadrupole_dispersion_layered
-    layer = BoreholeLayer(vp=2500.0, vs=1100.0, rho=2100.0, thickness=0.005)
-    with pytest.raises(NotImplementedError) as exc_info:
-        quadrupole_dispersion_layered(
-            np.array([10000.0]),
-            vp=2200.0, vs=800.0, rho=2200.0,
-            vf=1500.0, rho_f=1000.0, a=0.1,
-            layers=(layer,),
-        )
-    msg = str(exc_info.value)
-    assert "G''.d" in msg
-    assert "_modal_determinant_n2_cased" in msg
-    assert "cylindrical_biot_G_pp.md" in msg
-
-
 def test_quadrupole_dispersion_layered_returns_borehole_mode_for_unlayered():
     """``BoreholeMode`` return-type contract on the unlayered
     dispatch. Type and azimuthal_order are pinned for every
@@ -9624,3 +9603,199 @@ def test_modal_determinant_n2_cased_N2_casing_plus_cement_smoke():
     )
     assert np.isfinite(det)
     assert isinstance(det, float)
+
+
+# =====================================================================
+# Plan item G''.d -- public-API hook for cased-hole quadrupole
+# =====================================================================
+#
+# Replaces the G''.0 ``len(layers) >= 1 -> NotImplementedError`` raise
+# with a brentq loop on ``_modal_determinant_n2_cased`` (G''.c). The
+# cased-hole quadrupole bound-mode regime in slow formation is much
+# narrower than the n=1 flexural sister: at strong layer perturbations
+# (real casing + cement; layer Vs much larger than formation Vs) the
+# mode is mostly cut off across the LWD band. The smoke tests therefore
+# pick formation params close to the slow-formation ceiling
+# (Vs = 1200 m/s, vf = 1500 m/s) so casing + cement still satisfies the
+# layer.vs >= formation.vs constraint *and* the geometric quadrupole
+# bound regime stays open in a usable frequency window (~15-18 kHz).
+
+
+def _typical_g_pp_d_cased_geometry():
+    """Slow-formation cased-hole fixture for G''.d tests. Formation
+    Vs = 1200 m/s sits just below ``vf = 1500`` so the slow-
+    formation regime (``vs < vf``) holds; casing + cement layers
+    remain faster in shear than the formation, satisfying
+    ``_validate_flexural_layers_stacked``. The bound-mode quadrupole
+    window for this geometry is ~15-18 kHz (narrower than the
+    flexural sister's 3-12 kHz)."""
+    return dict(
+        casing=BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01),
+        cement=BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05),
+        vp=2400.0, vs=1200.0, rho=2200.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+    )
+
+
+def test_quadrupole_dispersion_layered_N1_layer_eq_formation_matches_unlayered():
+    """G''.a.6 root-match oracle wired through the public API:
+    when ``layer.{vp,vs,rho} == formation.{vp,vs,rho}`` the
+    multi-layer brentq path returns the unlayered
+    ``quadrupole_dispersion`` slowness bit-identically (modulo
+    brentq's xtol=1e-10). Strongest end-to-end pinning of the
+    G''.d wiring."""
+    from fwap.cylindrical_solver import (
+        BoreholeMode,
+        quadrupole_dispersion,
+        quadrupole_dispersion_layered,
+    )
+
+    vp, vs, rho = 2200.0, 800.0, 2200.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.01)
+    f = np.linspace(4000.0, 12000.0, 9)
+    res_unl = quadrupole_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    res_lyr = quadrupole_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(layer,),
+    )
+    assert isinstance(res_lyr, BoreholeMode)
+    finite = np.isfinite(res_unl.slowness) & np.isfinite(res_lyr.slowness)
+    assert finite.any(), "fixture must put the bound mode in band"
+    np.testing.assert_allclose(
+        res_lyr.slowness[finite], res_unl.slowness[finite], rtol=1.0e-9,
+    )
+
+
+def test_quadrupole_dispersion_layered_N2_runs_smoke():
+    """G''.d two-layer regression: casing + cement geometry
+    produces finite quadrupole slownesses in the bound-mode window
+    (15-18 kHz at this fixture). Uses the slow-formation-ceiling
+    fixture (formation Vs = 1200 < vf = 1500) so casing + cement
+    can satisfy the per-layer constraint while keeping the
+    quadrupole geometric cutoff inside an exercisable band."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+
+    g = _typical_g_pp_d_cased_geometry()
+    f = np.linspace(15000.0, 18000.0, 4)
+    res = quadrupole_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"]),
+    )
+    assert res.name == "quadrupole"
+    assert res.azimuthal_order == 2
+    np.testing.assert_array_equal(res.freq, f)
+    finite = np.isfinite(res.slowness)
+    assert finite.sum() >= 3, (
+        f"expected at least 3 of 4 frequencies to land in the cased "
+        f"quadrupole bound regime; got {finite.sum()}"
+    )
+    # Bound-regime sanity: slowness > formation 1/V_S; phase
+    # velocity below formation V_S (low-f asymptote) but above
+    # formation Rayleigh (high-f asymptote, ~0.92 V_S).
+    sl = res.slowness[finite]
+    assert np.all(sl > 1.0 / g["vs"] * 0.99)
+    assert np.all(sl < 1.0 / (g["vs"] * 0.85))
+
+
+def test_quadrupole_dispersion_layered_N2_returns_borehole_mode():
+    """``BoreholeMode`` return-type contract on the multi-layer
+    quadrupole dispatch (G''.d). ``attenuation_per_meter is None``
+    confirms slow-formation bound-mode path (no leaky fast-formation
+    cased-hole quadrupole shipped here)."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+
+    g = _typical_g_pp_d_cased_geometry()
+    f = np.linspace(15000.0, 18000.0, 4)
+    res = quadrupole_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"]),
+    )
+    from fwap.cylindrical_solver import BoreholeMode
+    assert isinstance(res, BoreholeMode)
+    assert res.attenuation_per_meter is None
+
+
+def test_quadrupole_dispersion_layered_N2_layer_permutation_changes_slowness():
+    """Casing-inside-cement and cement-inside-casing produce
+    distinct quadrupole slowness curves -- inside-out layer
+    ordering is a physical parameter, not a labelling convention."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+
+    g = _typical_g_pp_d_cased_geometry()
+    f = np.array([16000.0, 17000.0, 18000.0])
+    res_cs = quadrupole_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"]),
+    )
+    res_sc = quadrupole_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["cement"], g["casing"]),
+    )
+    # Both should produce at least some finite slownesses for the
+    # comparison to be meaningful.
+    common = np.isfinite(res_cs.slowness) & np.isfinite(res_sc.slowness)
+    assert common.any(), "fixture must yield bound modes in both orderings"
+    rel_diff = np.abs(
+        res_cs.slowness[common] - res_sc.slowness[common]
+    ) / np.abs(res_cs.slowness[common])
+    assert np.any(rel_diff > 1.0e-3)
+
+
+def test_quadrupole_dispersion_layered_N2_thin_outer_layer_eq_formation_collapses_to_N1():
+    """G''.a.6 propagator-chain corollary: stacking a thin outer
+    layer with formation parameters on top of an inner layer
+    leaves the cased-hole quadrupole brentq root unchanged
+    (within brentq xtol). The trivial outer layer's per-layer
+    propagator collapses to ``E_form(b_outer) E_form(b_inner)^{-1}``
+    and feeds the same effective state vector at the formation
+    interface as the N=1 path would."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+
+    vp, vs, rho = 2200.0, 800.0, 2200.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    inner = BoreholeLayer(vp=2300.0, vs=900.0, rho=2200.0, thickness=0.005)
+    trivial_outer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.003)
+    f = np.linspace(4000.0, 12000.0, 6)
+    res_n1 = quadrupole_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(inner,),
+    )
+    res_n2 = quadrupole_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(inner, trivial_outer),
+    )
+    common = np.isfinite(res_n1.slowness) & np.isfinite(res_n2.slowness)
+    assert common.any(), "fixture must produce some bound modes"
+    np.testing.assert_allclose(
+        res_n2.slowness[common], res_n1.slowness[common], rtol=1.0e-7,
+    )
+
+
+def test_quadrupole_dispersion_layered_N3_runs_smoke():
+    """G''.d N=3 smoke (casing + cement + mudcake): the brentq +
+    propagator-chain path runs to completion at three layers and
+    returns a finite slowness in the LWD-relevant band where the
+    cased quadrupole is bound. Mudcake placed *inside* the casing
+    requires the radial-outward layer order ``(mudcake, casing,
+    cement)``."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+
+    g = _typical_g_pp_d_cased_geometry()
+    mudcake = BoreholeLayer(vp=2200.0, vs=1300.0, rho=1700.0, thickness=0.002)
+    f = np.array([16000.0, 17000.0, 18000.0])
+    res = quadrupole_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(mudcake, g["casing"], g["cement"]),
+    )
+    assert res.name == "quadrupole"
+    assert res.azimuthal_order == 2
+    finite = np.isfinite(res.slowness)
+    assert finite.any(), "expected at least one frequency in bound regime"
