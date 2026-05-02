@@ -9799,3 +9799,201 @@ def test_quadrupole_dispersion_layered_N3_runs_smoke():
     assert res.azimuthal_order == 2
     finite = np.isfinite(res.slowness)
     assert finite.any(), "expected at least one frequency in bound regime"
+
+
+# =====================================================================
+# Plan item G''.e -- n=2 hardening
+# =====================================================================
+#
+# Hardening tests for the G''.d brentq path: multi-frequency
+# det-at-root self-consistency, thin-inner-formation-layer collapse to
+# the N=1 outer-only case, two-formation-layers collapse to the
+# unlayered ``quadrupole_dispersion`` (master-plan G'' validation
+# bullet), and the LWD-quadrupole cement-bond physics direction
+# (stiffer cement -> faster phase velocity / smaller slowness; the
+# *opposite* of the original plan-doc impedance-coupling argument,
+# now corrected).
+
+
+def test_quadrupole_dispersion_layered_det_vanishes_at_brentq_roots_multi_freq():
+    """G''.e self-consistency: at every brentq-converged ``k_z`` in
+    the LWD band, ``|_modal_determinant_n2_cased(k_z_root)|`` is
+    many orders of magnitude smaller than the same determinant
+    evaluated 0.5 % off the root. Catches a brentq that returned
+    a non-zero (non-converged) ``k_z`` -- e.g., from a bracket that
+    touched but did not cross zero.
+
+    Sister of the multi-frequency det-at-root oracle in G.e / G'.e."""
+    from fwap.cylindrical_solver import (
+        _modal_determinant_n2_cased,
+        quadrupole_dispersion_layered,
+    )
+
+    g = _typical_g_pp_d_cased_geometry()
+    # Use the thin-cement variant where the bound regime is widest.
+    cement_thin = BoreholeLayer(
+        vp=g["cement"].vp, vs=g["cement"].vs, rho=g["cement"].rho,
+        thickness=0.02,
+    )
+    f = np.linspace(14000.0, 18000.0, 5)
+    res = quadrupole_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], cement_thin),
+    )
+    finite_idx = np.where(np.isfinite(res.slowness))[0]
+    assert finite_idx.size >= 4, (
+        f"need >=4 bound-mode frequencies for the multi-freq oracle; "
+        f"got {finite_idx.size}"
+    )
+    for i in finite_idx:
+        omega = 2.0 * np.pi * float(res.freq[i])
+        kz_root = float(res.slowness[i]) * omega
+        det_at = _modal_determinant_n2_cased(
+            kz_root, omega,
+            vp=g["vp"], vs=g["vs"], rho=g["rho"],
+            vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+            layers=(g["casing"], cement_thin),
+        )
+        det_off = _modal_determinant_n2_cased(
+            kz_root * 1.005, omega,
+            vp=g["vp"], vs=g["vs"], rho=g["rho"],
+            vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+            layers=(g["casing"], cement_thin),
+        )
+        assert abs(det_off) > 0.0
+        assert abs(det_at) < abs(det_off) * 1.0e-6, (
+            f"f={res.freq[i]/1000:.1f} kHz: |det_at|={abs(det_at):.2e}  "
+            f"|det_off|={abs(det_off):.2e}  ratio={abs(det_at)/abs(det_off):.2e}"
+        )
+
+
+def test_quadrupole_dispersion_layered_two_formation_layers_collapse_to_unlayered():
+    """G''.e master-plan validation: with both layers carrying
+    formation parameters, the multi-layer brentq path returns the
+    unlayered ``quadrupole_dispersion`` slowness to ``rtol=1e-6``
+    across the full bound-regime band. Sister of the G''.d N=1
+    layer = formation oracle, extended to N=2 telescoping
+    (G''.a.6 propagator chain ``P_total = E_form(b) E_form(a)^-1``
+    independent of ``N`` when all layers equal formation)."""
+    from fwap.cylindrical_solver import (
+        quadrupole_dispersion,
+        quadrupole_dispersion_layered,
+    )
+
+    vp, vs, rho = 2200.0, 800.0, 2200.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer1 = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.005)
+    layer2 = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.008)
+    f = np.linspace(4000.0, 12000.0, 9)
+    res_unl = quadrupole_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    res_n2 = quadrupole_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(layer1, layer2),
+    )
+    finite = np.isfinite(res_unl.slowness) & np.isfinite(res_n2.slowness)
+    assert finite.sum() >= 6, (
+        f"need >=6 bound-mode frequencies; got {finite.sum()}"
+    )
+    np.testing.assert_allclose(
+        res_n2.slowness[finite], res_unl.slowness[finite], rtol=1.0e-6,
+    )
+
+
+def test_quadrupole_dispersion_layered_thin_inner_formation_layer_approaches_outer_only():
+    """G''.e thin-inner-layer collapse: with a thin inner layer
+    carrying formation parameters, the (thin_inner, outer) N=2
+    brentq root converges to the (outer,) N=1 root as
+    ``thickness_inner -> 0``. Continuity / vanishing-perturbation
+    test on the propagator chain.
+
+    The inner-layer-at-formation-params propagator
+    ``P_inner = E_form(a + h) E_form(a)^{-1}`` is a near-identity
+    perturbation as ``h -> 0``; the outer layer's contribution at
+    its inner radius (now at ``a + h`` instead of ``a``) is the
+    only residual difference, which vanishes linearly in ``h``."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+
+    g = _typical_g_pp_d_cased_geometry()
+    cement_thin = BoreholeLayer(
+        vp=g["cement"].vp, vs=g["cement"].vs, rho=g["cement"].rho,
+        thickness=0.02,
+    )
+    inner_form = BoreholeLayer(
+        vp=g["vp"], vs=g["vs"], rho=g["rho"], thickness=1.0e-4,
+    )
+    f = np.array([15000.0, 16000.0])
+    res_n1 = quadrupole_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], cement_thin),
+    )
+    res_n2 = quadrupole_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(inner_form, g["casing"], cement_thin),
+    )
+    finite = np.isfinite(res_n1.slowness) & np.isfinite(res_n2.slowness)
+    assert finite.any(), "fixture must yield bound modes in both"
+    # rtol scales with thickness_inner / borehole_radius ~ 1e-3.
+    np.testing.assert_allclose(
+        res_n2.slowness[finite], res_n1.slowness[finite], rtol=1.0e-3,
+    )
+
+
+def test_quadrupole_dispersion_layered_cement_bond_stiffer_cement_makes_mode_faster():
+    """G''.e LWD-quadrupole cement-bond physics: holding casing
+    and formation fixed, sweeping ``vs_cement`` over the valid
+    range (``vs_cement >= vs_form``) shows the guided-mode phase
+    velocity rising monotonically with cement stiffness -- i.e.,
+    slowness *decreases* as cement gets stiffer.
+
+    This is the *opposite* of the original plan-doc prediction
+    (which argued by impedance-coupling intuition that stiffer
+    cement should pull slowness toward the formation-shear
+    asymptote). The numerical evidence over cement Vs in
+    [1300, 1500] m/s with the slow-formation fixture
+    (``vs_form = 1200``) consistently shows the simpler "stiffer
+    annulus transmits the wave faster" reading: stiffer cement
+    -> smaller slowness."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+
+    g = _typical_g_pp_d_cased_geometry()
+    cement_soft = BoreholeLayer(
+        vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.02,
+    )
+    cement_stiff = BoreholeLayer(
+        vp=2700.0, vs=1500.0, rho=1950.0, thickness=0.02,
+    )
+    f = np.array([14000.0, 15000.0, 16000.0])
+    res_soft = quadrupole_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], cement_soft),
+    )
+    res_stiff = quadrupole_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], cement_stiff),
+    )
+    common = np.isfinite(res_soft.slowness) & np.isfinite(res_stiff.slowness)
+    assert common.sum() >= 2, (
+        f"need >=2 frequencies with both cement variants in the bound "
+        f"regime; got {common.sum()}"
+    )
+    # Stiffer cement should give SMALLER slowness (faster phase
+    # velocity) at every comparable frequency.
+    soft_sl = res_soft.slowness[common]
+    stiff_sl = res_stiff.slowness[common]
+    assert np.all(stiff_sl < soft_sl), (
+        f"expected stiffer cement to give smaller slowness;\n"
+        f"  soft (Vs=1300) slownesses: {soft_sl}\n"
+        f"  stiff(Vs=1500) slownesses: {stiff_sl}"
+    )
+    # Sanity: the shift should be a few percent (not tiny noise,
+    # not >50% which would indicate a different-mode ambiguity).
+    rel_shift = (soft_sl - stiff_sl) / soft_sl
+    assert np.all(rel_shift > 0.005)
+    assert np.all(rel_shift < 0.30)

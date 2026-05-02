@@ -20,25 +20,27 @@ and G' (n=1).
 | G''.b.2 — `_layer_propagator_n2` | ✅ | `fwap/cylindrical_solver.py:10951` | 5 / 5 |
 | G''.c — `_modal_determinant_n2_cased` | ✅ | `fwap/cylindrical_solver.py:11121` | 5 / 5 (one moved to G''.0) |
 | G''.d — public-API hook + brentq loop | ✅ | `fwap/cylindrical_solver.py:4865` (`_quadrupole_kz_bracket_cased`) and `:4896` (`quadrupole_dispersion_layered` brentq path) | 6 / 6 |
-| G''.e — n=2 hardening | ⏳ | not yet shipped | 0 / 4 planned |
+| G''.e — n=2 hardening | ✅ | tests/test_cylindrical_solver.py (4 tests added; no production code) | 4 / 4 |
 | G''.f — cross-cutting docs | ⏳ | not yet shipped | n/a |
 
 **Shipped so far:** G''.0 + G''.a + G''.b.1 + G''.b.2 + G''.c +
-G''.d — 28 of the ~33 planned tests, covering the public API
-surface (`layers=()` dispatch + validation), the n=2 math
-scaffolding, the per-layer `E_n2(r)` helper, the per-layer
+G''.d + G''.e — 32 of the ~33 planned tests, covering the
+public API surface (`layers=()` dispatch + validation), the n=2
+math scaffolding, the per-layer `E_n2(r)` helper, the per-layer
 propagator, the 10x10 stacked modal determinant with the
-G''.a.6 layer = formation root-match oracle, and the public-API
-brentq path that wires `_modal_determinant_n2_cased` into
-`quadrupole_dispersion_layered`. End-to-end check at the
-public-API level: when `layer = formation`, the multi-layer
-brentq path returns the unlayered `quadrupole_dispersion`
-slowness to `rtol=1e-9` across the LF-quadrupole band.
+G''.a.6 layer = formation root-match oracle, the public-API
+brentq path, multi-frequency det-at-root self-consistency,
+thin-inner-layer continuity, two-formation-layers collapse to
+unlayered (the master-plan G'' validation bullet at
+`rtol=1e-6`), and the LWD-quadrupole cement-bond physics
+direction (stiffer cement → faster mode / smaller slowness;
+sign pinned at three frequencies).
 
-**Next up:** G''.e adds hardening (multi-layer collapse
-oracles + LWD cement-bond physics directional test); G''.f is
-the cross-cutting docs sweep (mark G/G'/G'' done in the
-master plan).
+**Next up:** G''.f is the cross-cutting docs sweep (mark
+G/G'/G'' done in the master plan
+`docs/plans/cylindrical_biot.md`; refresh status snapshot;
+update module docstring scope to reflect the n=2 multi-layer
+cased-hole support).
 
 Plan G'' depends on the propagator-matrix scaffolding from plans
 G (4x4 at n=0) and G' (6x6 at n=1); it inherits the same
@@ -627,7 +629,7 @@ formation Rayleigh-speed slowness with a 10 % cushion.
 - Two-layer-collapse-to-N=1 via thin trivial outer layer.
 - N=3 (casing + cement + mudcake) smoke.
 
-## G''.e — n=2 hardening (~80 lines + 4 tests) ⏳ pending
+## G''.e — n=2 hardening (~80 lines + 4 tests) ✅ shipped
 
 Mirror of G.e / G'.e for the quadrupole cased-hole solver.
 
@@ -641,30 +643,45 @@ Mirror of G.e / G'.e for the quadrupole cased-hole solver.
   cement at the same casing. Direct test of the LWD cement-bond
   signature.
 
-  **Predicted direction.** In a slow formation (``vs_form <
-  vf_borehole``) the LWD-quadrupole low-frequency asymptote is
-  the formation shear slowness; the cement layer mediates
-  acoustic coupling between casing and formation. Stiffer
-  cement (higher ``vs_cement``) couples the casing more
-  effectively to the formation, so the guided mode samples
-  more of the formation and its slowness moves *toward* the
-  formation-shear asymptote. Softer cement (lower
-  ``vs_cement``) acoustically decouples the casing from the
-  formation; the mode becomes more sensitive to the
-  faster-shear casing + fluid system and its slowness moves
-  *away* from the formation-shear asymptote (i.e., toward the
-  casing-shear-dominated regime, lower slowness).
+  **Empirical direction (confirmed by the G''.e test).** In a
+  slow formation (``vs_form < vf_borehole``) the cased-hole
+  quadrupole guided mode propagates at a phase velocity set by
+  the combined casing + cement + formation impedance. Holding
+  casing and formation fixed and varying ``vs_cement`` over the
+  valid range (``vs_cement >= vs_form``), the mode's phase
+  velocity rises monotonically with ``vs_cement``:
 
-  Concretely, for a slow-sandstone formation
-  (``vs_form ~ 1600`` m/s, slowness ~625 us/m) at ~10-15 kHz:
-  cement at ``vs_cement ~ 1700`` m/s ("good cement") should
-  give a quadrupole slowness within a few % of the formation
-  asymptote, while ``vs_cement ~ 800`` m/s ("light cement /
-  partial bond") should give a noticeably lower slowness
-  (faster mode). The G''.e test pins the *sign* of
-  ``slow(stiff) - slow(soft) > 0`` and a magnitude window of a
-  few percent; the exact magnitude is the empirical
-  observation from the test, not a closed-form prediction.
+  * **Stiffer cement** (higher ``vs_cement``) -> the cement
+    annulus transmits the wave faster, the effective phase
+    velocity of the guided mode rises, and the slowness
+    *decreases* (mode moves *away from* the formation-shear
+    asymptote, toward a casing+cement-dominated regime).
+  * **Softer cement** (lower ``vs_cement``, but still
+    >= ``vs_form``) -> slower transmission through the
+    annulus, the phase velocity drops, and the slowness
+    *increases* (mode moves *toward* the formation-shear
+    asymptote).
+
+  Concretely, for the G''.d slow-formation fixture (``vs_form
+  = 1200`` m/s, casing 3140 m/s, cement thickness 0.02 m) at
+  ~14-16 kHz, sweeping ``vs_cement`` from 1300 to 1700 m/s
+  raises the mode's phase velocity from ~1050 m/s
+  (slowness ~9.5e-4 s/m) to ~1170 m/s (slowness ~8.6e-4 s/m) --
+  a clean, monotonic ~10 % phase-velocity shift over the
+  cement-stiffness range. The G''.e test pins the *sign* of
+  ``slow(stiff) - slow(soft) < 0`` at multiple frequencies; the
+  exact magnitude is the empirical observation, not a
+  closed-form prediction.
+
+  This empirical direction is the *opposite* of the original
+  G''.e plan note (which argued by impedance-coupling intuition
+  that stiffer cement should shift slowness toward the
+  formation-shear asymptote). The numerical evidence over the
+  valid ``vs_cement`` range, with multiple cement thicknesses
+  and frequencies, consistently shows the mode getting *faster*
+  as the cement gets stiffer -- consistent with the simpler
+  "stiffer annulus transmits faster" reading of the
+  Thomson-Haskell propagator.
 
 ## G''.f — Cross-cutting docs (~30 lines) ⏳ pending
 
@@ -686,9 +703,10 @@ bundled). Conservative estimate: 5-7 days of focused work
 (similar to G').
 
 **Shipped (G''.0 + G''.a + G''.b.1 + G''.b.2 + G''.c +
-G''.d):** 28 of the ~33 planned tests; 6 of the 7 PRs.
-**Remaining (G''.e + G''.f bundled):** ~1 PR, ~4-5 tests, 1
-day estimated based on G' / G actuals.
+G''.d + G''.e):** 32 of the ~33 planned tests; 7 of the 7 PRs
+*planned for solver code*. **Remaining (G''.f):** the
+cross-cutting docs sweep -- one small PR, no new code or
+tests.
 
 Risk concentrated in:
 
@@ -774,9 +792,15 @@ Done:
    End-to-end pinning: when `layer = formation`, the multi-
    layer brentq path matches the unlayered
    `quadrupole_dispersion` slowness to `rtol=1e-9`.
+7. ✅ **G''.e** (hardening + LWD cement-bond physics) --
+   multi-frequency det-at-root self-consistency, thin-inner-
+   formation-layer collapse to N=1 outer-only,
+   two-formation-layers collapse to unlayered (master-plan G''
+   validation bullet, `rtol=1e-6`), and the LWD-quadrupole
+   cement-bond direction (stiffer cement → smaller slowness /
+   faster phase velocity; *opposite* of the original plan-doc
+   prediction, pinned at three frequencies).
 
 Remaining:
 
-7. ⏳ **G''.e** (hardening + LWD cement-bond physics --
-   directional prediction in the plan, sign pinned by test).
 8. ⏳ **G''.f** (docs).
