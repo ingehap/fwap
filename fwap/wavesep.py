@@ -520,7 +520,7 @@ def svd_project(
     dt: float,
     offsets: np.ndarray,
     slowness: float,
-    rank: int = 1,
+    rank: int | None = None,
     reference: int = 0,
     *,
     n_keep: int | None = None,
@@ -533,7 +533,7 @@ def svd_project(
 
     The ``rank`` parameter is the number of singular components kept
     (the "K" in K-L decomposition); for borehole sonic data a single
-    component captures the dominant coherent arrival.
+    component captures the dominant coherent arrival. Defaults to 1.
 
     ``n_keep`` is accepted as a deprecated alias for ``rank`` to keep
     older call sites working. Pass it as a keyword if you must;
@@ -544,8 +544,8 @@ def svd_project(
     represents the coherent arrival at that slowness (Freire & Ulrych,
     1988, *Geophysics* 53(6), 778-785).
     """
-    if n_keep is not None and rank == 1:
-        rank = int(n_keep)
+    if rank is None:
+        rank = int(n_keep) if n_keep is not None else 1
     flat = apply_moveout(data, dt, offsets, slowness, reference=reference)
     U, S, Vt = np.linalg.svd(flat, full_matrices=False)
     S_k = np.zeros_like(S)
@@ -560,7 +560,7 @@ def sequential_kl_separation(
     dt: float,
     offsets: np.ndarray,
     slownesses: Sequence[float],
-    rank: int = 1,
+    rank: int | None = None,
     reference: int = 0,
     *,
     n_keep: int | None = None,
@@ -568,10 +568,11 @@ def sequential_kl_separation(
     """Peel off coherent modes one slowness at a time.
 
     ``rank`` is forwarded to :func:`svd_project`; ``n_keep`` is the
-    deprecated alias kept for backward compatibility.
+    deprecated alias kept for backward compatibility. ``rank`` takes
+    precedence when both are supplied; the default is 1.
     """
-    if n_keep is not None and rank == 1:
-        rank = int(n_keep)
+    if rank is None:
+        rank = int(n_keep) if n_keep is not None else 1
     work = data.copy()
     comps: list[np.ndarray] = []
     for s in slownesses:

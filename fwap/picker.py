@@ -42,10 +42,9 @@ import numpy as np
 
 SelectionRule = Literal["max_coherence", "scored"]
 
-# Shape-bearing aliases. NumPy's static type system cannot express
-# array shapes at this level, so these are documentary type aliases
-# only -- they communicate the contract to readers and to mypy
-# without claiming runtime shape enforcement.
+# Shape contracts. NumPy's static type system cannot express array
+# shapes at this level, so the array signatures below use plain
+# ``np.ndarray`` and the contract is documented here:
 #
 #   PeakArray:  shape (n_candidates, 3) holding rows of
 #               [slowness, time, coherence] as returned by
@@ -54,11 +53,6 @@ SelectionRule = Literal["max_coherence", "scored"]
 #   SlowAxis:   shape (n_slowness,)   -- the slowness axis of an STC.
 #   TimeAxis:   shape (n_time,)       -- the time axis of an STC.
 #   STCSurface: shape (n_slowness, n_time) -- the coherence surface.
-PeakArray = np.ndarray
-PeakRow = np.ndarray
-SlowAxis = np.ndarray
-TimeAxis = np.ndarray
-STCSurface = np.ndarray
 
 from fwap._common import US_PER_FT, _phase_shift, logger
 from fwap.coherence import STCResult, find_peaks
@@ -177,14 +171,14 @@ _VALID_SELECTION_RULES = frozenset({"max_coherence", "scored"})
 
 
 def _best_candidate(
-    candidates: PeakArray,
+    candidates: np.ndarray,
     prior: dict[str, float],
     *,
     t_earliest: float = 0.0,
     selection_rule: SelectionRule = "scored",
     time_penalty: float = 0.1,
     time_scale: float = 1.0e-3,
-) -> PeakRow | None:
+) -> np.ndarray | None:
     """
     Select the best candidate inside a prior window.
 
