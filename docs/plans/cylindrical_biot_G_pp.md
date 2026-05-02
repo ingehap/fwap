@@ -41,10 +41,10 @@ at three frequencies), and the cross-cutting docs sweep that
 closes the plan.
 
 **Deferred to a separate plan** (not blocking on G''):
-fast-formation cased-hole quadrupole, Tang & Cheng 2004
-fig 7 / 8 reproduction (digitised CSV; deferred from G''.e
-analogous to the G.e / G'.e fig 7.1 deferrals), and an
-optional F.3 (single-extra-layer hand-coded n=2 with
+Tang & Cheng 2004 fig 7 / 8 reproduction (digitised CSV;
+deferred from G''.e analogous to the G.e / G'.e fig 7.1
+deferrals), and an optional F.3 (single-extra-layer
+hand-coded n=2 with
 per-element oracles for G''.b.1).
 
 Plan G'' depends on the propagator-matrix scaffolding from plans
@@ -158,8 +158,11 @@ Introduces `quadrupole_dispersion_layered` from scratch (vs G.0
 * Fast-formation case (``V_S > V_f``): for the single-interface
   `quadrupole_dispersion` this is auto-dispatched to the leaky
   complex-determinant variant; for the layered case the
-  fast-formation propagator path is deferred (analogous to F.2's
-  fast-formation NIE).
+  fast-formation propagator path was deferred at G''.0 time
+  (analogous to F.2's fast-formation NIE). It has since shipped
+  via the deferred-follow-up bundle (``_modal_determinant_n2_cased_complex`` +
+  ``_quadrupole_dispersion_fast_formation_layered``); see the
+  Deferred follow-ups section of this plan.
 
 **Tests (6):**
 
@@ -174,9 +177,12 @@ Introduces `quadrupole_dispersion_layered` from scratch (vs G.0
   (`layer.vs < vs` rejected with index in error).
 - Validation rejection: positivity / `vp <= vs` / non-positive
   `freq`.
-- Fast-formation NIE: with `V_S > V_f` and a non-empty layer,
-  raises `NotImplementedError` pointing at the deferred fast-
-  formation layered-quadrupole follow-up.
+- Fast-formation: at G''.0 time, ``V_S > V_f`` with a
+  non-empty layer raised ``NotImplementedError`` pointing at
+  the deferred fast-formation layered-quadrupole follow-up.
+  That follow-up has since shipped; the test now asserts the
+  fast-formation dispatch returns a ``BoreholeMode`` instead of
+  raising.
 
 ## G''.a — math scaffolding (~300 lines comments-only) ✅ shipped
 
@@ -769,11 +775,17 @@ Risk concentrated in:
 - **Tang & Cheng 2004 fig 7 / 8 quadrupole reproduction** for
   cased-hole LWD-quadrupole regression (digitised CSV; deferred
   from G''.e analogous to G.e / G'.e fig 7.1 deferral).
-- **Fast-formation cased-hole quadrupole**: the n=2 quadrupole
-  has both bound and leaky variants in the unlayered case
-  (E auto-dispatch); the cased-hole leaky variant is a
-  separate plan analogous to the future fast-formation layered
-  flexural follow-up to F.2.
+- **Fast-formation cased-hole quadrupole** — ✅ shipped as a
+  follow-up. ``quadrupole_dispersion_layered`` now dispatches
+  ``V_S > V_f`` to ``_modal_determinant_n2_cased_complex``
+  (complex sister of G''.c) and
+  ``_quadrupole_dispersion_fast_formation_layered``
+  (complex sister of G''.d), mirroring the unlayered
+  fast-formation auto-dispatch in ``quadrupole_dispersion``
+  (plan E). The bound regime is real ``k_z`` in
+  ``(omega/V_S, omega/V_R)``; brentq on ``Im(det)`` along
+  the real axis with the same continuation strategy as the
+  unlayered fast-formation driver.
 
 ## References
 
