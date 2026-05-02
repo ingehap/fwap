@@ -12,14 +12,28 @@ and G' (n=1).
 
 ## Status of plan G'' overall
 
-- ⏳ G''.0 — public-API foundation (introduces
-  `quadrupole_dispersion_layered`)
-- ⏳ G''.a — math scaffolding (substep blocks, comments only)
-- ⏳ G''.b — n=2 per-layer propagator helper (G''.b.1 + G''.b.2)
-- ⏳ G''.c — n=2 stacked modal determinant (assembly + collapse oracles)
-- ⏳ G''.d — n=2 public-API hook + multi-layer regression
-- ⏳ G''.e — n=2 hardening
-- ⏳ G''.f — cross-cutting docs
+| Substep | Status | Lands at | Tests |
+|---------|--------|----------|-------|
+| G''.0 — public-API foundation | ✅ | `fwap/cylindrical_solver.py:4865` (`quadrupole_dispersion_layered`) | 6 / 6 |
+| G''.a — math scaffolding (comments only) | ✅ | `fwap/cylindrical_solver.py:10518-10756` | n/a |
+| G''.b.1 — `_layer_e_matrix_n2` | ✅ | `fwap/cylindrical_solver.py:10786` | 6 / 6 |
+| G''.b.2 — `_layer_propagator_n2` | ✅ | `fwap/cylindrical_solver.py:10951` | 5 / 5 |
+| G''.c — `_modal_determinant_n2_cased` | ⏳ | not yet shipped | 0 / 6 planned |
+| G''.d — public-API hook + brentq loop | ⏳ | currently raises `NotImplementedError` at `fwap/cylindrical_solver.py:4961` | 0 / 6 planned |
+| G''.e — n=2 hardening | ⏳ | not yet shipped | 0 / 4 planned |
+| G''.f — cross-cutting docs | ⏳ | not yet shipped | n/a |
+
+**Shipped so far:** G''.0 + G''.a + G''.b.1 + G''.b.2 — 17 of the
+~33 planned tests, covering the public API surface
+(`layers=()` dispatch + validation + future-NIE), the n=2 math
+scaffolding, the per-layer `E_n2(r)` helper, and the per-layer
+propagator. The `len(layers) >= 1` cased-hole path still raises
+`NotImplementedError` until G''.c + G''.d land.
+
+**Next up:** G''.c (`_modal_determinant_n2_cased`) replaces the NIE
+raise with a real determinant; G''.d wires it into
+`quadrupole_dispersion_layered` via brentq. G''.e adds hardening
+(multi-layer collapse oracles + LWD cement-bond physics).
 
 Plan G'' depends on the propagator-matrix scaffolding from plans
 G (4x4 at n=0) and G' (6x6 at n=1); it inherits the same
@@ -82,7 +96,7 @@ a new `_validate_quadrupole_layers_stacked` helper or by reuse
 of `_validate_flexural_layers_stacked` (the constraint is the
 same).
 
-## G''.0 — public-API foundation (~150 lines + 6 tests)
+## G''.0 — public-API foundation (~150 lines + 6 tests) ✅ shipped
 
 Introduces `quadrupole_dispersion_layered` from scratch (vs G.0
 / G'.0 which only sharpened existing NIEs):
@@ -119,7 +133,7 @@ Introduces `quadrupole_dispersion_layered` from scratch (vs G.0
   raises `NotImplementedError` pointing at the deferred fast-
   formation layered-quadrupole follow-up.
 
-## G''.a — math scaffolding (~300 lines comments-only)
+## G''.a — math scaffolding (~300 lines comments-only) ✅ shipped
 
 Substep blocks G''.a.1 through G''.a.7 mirroring G'.a with the
 Bessel-index shift ``(I_1, I_2)`` and the n=2 azimuthal
@@ -206,11 +220,11 @@ factors.
   * (g) LWD-quadrupole physics smoke: cement-bond signature
     distinct from the unlayered case.
 
-## G''.b — n=2 per-layer propagator (~250 lines + 11 tests)
+## G''.b — n=2 per-layer propagator (~250 lines + 11 tests) ✅ shipped
 
 Two sub-units mirroring G'.b.
 
-### G''.b.1 — `_layer_e_matrix_n2` (~180 lines + 6 tests)
+### G''.b.1 — `_layer_e_matrix_n2` (~180 lines + 6 tests) ✅ shipped
 
 ```python
 def _layer_e_matrix_n2(
@@ -247,7 +261,7 @@ pinning is internal:
   with ``p`` near the small-argument limit (catches a sign or
   Bessel-order error in the ``I_2`` derivative formulas).
 
-### G''.b.2 — `_layer_propagator_n2` (~70 lines + 5 tests)
+### G''.b.2 — `_layer_propagator_n2` (~70 lines + 5 tests) ✅ shipped
 
 ```python
 def _layer_propagator_n2(
@@ -269,7 +283,7 @@ Mirror of G'.b.2 with `_layer_e_matrix_n2`. Uses
 - State-vector continuity end-to-end.
 - NaN propagation below bound floor.
 
-## G''.c — n=2 stacked modal determinant (~300 lines + 6 tests)
+## G''.c — n=2 stacked modal determinant (~300 lines + 6 tests) ⏳ pending
 
 ```python
 def _modal_determinant_n2_cased(
@@ -307,7 +321,7 @@ available**. Replace with:
 - **N=0 dispatch to unlayered**: ``len(layers) == 0`` returns
   the unlayered slowness without going through `_modal_determinant_n2_cased`.
 
-## G''.d — n=2 public-API hook (~80 lines + 6 tests)
+## G''.d — n=2 public-API hook (~80 lines + 6 tests) ⏳ pending
 
 Replaces the G''.0 ``len(layers) >= 1 -> NotImplementedError``
 raise in `quadrupole_dispersion_layered` with a brentq loop on
@@ -330,7 +344,7 @@ formation Rayleigh-speed slowness with a 10 % cushion.
 - Two-layer-collapse-to-N=1 via thin trivial outer layer.
 - N=3 (casing + cement + mudcake) smoke.
 
-## G''.e — n=2 hardening (~80 lines + 4 tests)
+## G''.e — n=2 hardening (~80 lines + 4 tests) ⏳ pending
 
 Mirror of G.e / G'.e for the quadrupole cased-hole solver.
 
@@ -345,7 +359,7 @@ Mirror of G.e / G'.e for the quadrupole cased-hole solver.
   signature (qualitative; the direction is the empirical
   observation pinned in the test).
 
-## G''.f — Cross-cutting docs (~30 lines)
+## G''.f — Cross-cutting docs (~30 lines) ⏳ pending
 
 - Mark plan G'' done in `docs/plans/cylindrical_biot.md`
   (update G section status to "✅ DONE (n=0, n=1, n=2)";
