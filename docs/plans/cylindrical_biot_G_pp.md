@@ -43,6 +43,39 @@ The only structural difference is the Bessel-function index shift
 factors that come out of the ``d_theta cos(n theta) = -n sin(n
 theta)`` step (per `_modal_determinant_n2` substep).
 
+## Predecessor mapping (G / G' equivalents)
+
+Many G'' substeps inherit their structure unchanged from
+plans G (n=0, 4x4) and G' (n=1, 6x6). Quick reference for
+reviewers — each G'' substep below lists its direct
+predecessor in [`cylindrical_biot_G.md`](cylindrical_biot_G.md)
+and / or [`cylindrical_biot_G_prime.md`](cylindrical_biot_G_prime.md):
+
+| G'' substep | n=0 (plan G)        | n=1 (plan G')       |
+|-------------|---------------------|---------------------|
+| G''.0       | G.0                 | G'.0                |
+| G''.a.1     | G.a.1               | G'.a.1              |
+| G''.a.2     | G.a.2 (4x4)         | G'.a.2 (6x6)        |
+| G''.a.3     | G.a.3 (4x4 P)       | G'.a.3 (6x6 P)      |
+| G''.a.4     | G.a.4 (7x7 final)   | G'.a.4 (10x10)      |
+| G''.a.5     | G.a.5               | G'.a.5              |
+| G''.a.6     | G.a.6               | G'.a.6              |
+| G''.a.7     | G.a.7               | G'.a.7              |
+| G''.b.1     | G.b.1               | G'.b.1              |
+| G''.b.2     | G.b.2               | G'.b.2              |
+| G''.c       | G.c                 | G'.c                |
+| G''.d       | G.d                 | G'.d                |
+| G''.e       | G.e                 | G'.e                |
+| G''.f       | G.f                 | G'.f                |
+
+The structural delta from G' is the Bessel-function index
+shift ``(I_0, I_1) -> (I_1, I_2)`` and the explicit ``n = 2``
+azimuthal factors (``2 n (n+1) = 12``, ``n^2 - 1 = 3``); the
+state-vector layout, propagator group law, and 10x10 final
+form are pixel-identical to G'. The structural delta from G
+is the additional sin-sector (SH) coupling (4x4 -> 6x6 state
+vector and 7x7 -> 10x10 final form).
+
 ## Scope note (no F.3-equivalent single-layer oracle)
 
 Plans G (n=0) and G' (n=1) had **per-element oracles** for the
@@ -326,12 +359,59 @@ factors.
 
   **n=2 specific concern**: the ``I_2(p r)`` Bessel function
   grows as ``(p r / 2)^2 / 2`` at small ``p r`` and as
-  ``e^{p r} / sqrt(2 pi p r)`` at large ``p r``. The small-
-  argument behavior makes the I-flavour columns disproportion-
-  ately small near ``r = a``, contributing to slightly worse
-  conditioning at low frequencies. Likely still within double
-  precision for typical cased-hole geometries; flagged as a
-  potential issue in G''.b.2 round-trip tests.
+  ``e^{p r} / sqrt(2 pi p r)`` at large ``p r``. Small-argument
+  behaviour makes the I-flavour columns disproportionately
+  small near ``r = a`` while the K-flavour columns blow up;
+  large-argument behaviour drives an exponential split between
+  I and K columns. Both effects degrade ``cond(E_n2)`` and
+  worsen with ``n`` (the n=2 small-argument coefficient
+  ``(p r / 2)^2 / 2`` is two orders below the n=0 ``1`` and
+  one below the n=1 ``(p r) / 2``).
+
+  **Quantification (slow-formation test geometry**, ``vp =
+  3000`` m/s, ``vs = 1600`` m/s, ``rho = 2200`` kg/m^3, ``r =
+  a = 0.10`` m, ``kz = 1.05 * omega / vs`` -- bound-mode just
+  above the floor):
+
+  | f (kHz) | ``cond(E_n0)`` | ``cond(E_n1)`` | ``cond(E_n2)`` |
+  |---------|----------------|----------------|----------------|
+  | 1       | ``1.9e+13``    | ``4.3e+14``    | ``2.7e+18``    |
+  | 3       | ``2.8e+12``    | ``8.7e+12``    | ``2.3e+15``    |
+  | 5       | ``1.8e+12``    | ``2.7e+12``    | ``1.3e+14``    |
+  | 8       | ``3.0e+13``    | ``2.5e+13``    | ``1.6e+13``    |
+  | 12      | ``8.9e+14``    | ``7.5e+14``    | ``4.7e+14``    |
+  | 15      | ---            | ---            | ``5.7e+15``    |
+  | 20      | ``4.9e+17``    | ``4.3e+17``    | ``3.1e+17``    |
+
+  Two regimes show up:
+
+  * **Below ~3 kHz** the n=2 small-``p r`` blowup dominates --
+    ``cond(E_n2)`` is 2-4 orders worse than n=0 / n=1. This
+    is the regime the existing scope note flagged.
+  * **Above ~12 kHz** the large-``p r`` exponential split
+    dominates and all three orders blow up together.
+
+  **Practical implication for G''.b / G''.c.** Double precision
+  carries ~16 decimal digits (``eps ~ 2e-16``). The LWD
+  quadrupole band of interest is ~5-20 kHz; in that window
+  ``cond(E_n2)`` stays at or below ~1e16 except for very low f
+  (rare in LWD) and the very top of the band. A raw
+  ``np.linalg.solve(E_inner, E_outer)`` round-trip oracle
+  written naively against ``E_n2`` would lose 13-15 digits at
+  20 kHz -- below the ~``rtol=1e-10`` pinning that G / G' use.
+  The state-vector formulation in G''.b.2 (apply
+  ``v_outer = P @ v_inner`` and check ``v_outer`` directly
+  rather than equating raw 6x6 matrices) sidesteps the worst
+  cases by operating in the well-conditioned coordinate
+  system. Recommended ``rtol`` budget for G''.b.2 round-trip
+  oracles: ``rtol=1e-8`` at <= 12 kHz, relax to ``rtol=1e-6``
+  in 12-20 kHz (vs ``rtol=1e-10`` for n=0 / n=1 across the
+  same band).
+
+  Numbers above were generated by evaluating
+  ``_layer_e_matrix_n2`` directly; they are reproducible from
+  ``fwap/cylindrical_solver.py:10786`` and serve as the
+  conditioning oracle for G''.b.2.
 
 * **G''.a.6** — Layer = formation collapse identity (G''.c
   oracle). With the lack of an F.3-equivalent hand-coded form,
@@ -342,10 +422,71 @@ factors.
   root in ``k_z`` matches the unlayered
   ``_modal_determinant_n2`` brentq root in ``k_z``.
 
+  **Why the roots match exactly.** With ``layer = formation``,
+  ``E_layer(r) = E_form(r)`` for all ``r``, so the per-layer
+  propagator ``P_layer = E_form(b) E_form(a)^{-1}`` and the
+  layer-side state vector at ``r = b`` simplify:
+
+  ``v_layer(b) = P_layer @ E_form(a) @ c_layer
+              = E_form(b) E_form(a)^{-1} E_form(a) c_layer
+              = E_form(b) c_layer.``
+
+  The six BCs at ``r = b`` (BC5-BC10, full state-vector
+  continuity) then read
+
+  ``E_form(b) c_layer - E_form_K(b) c_form_K = 0``,
+
+  where ``c_form_K = (B_form, C_form, D_form)``. Splitting
+  the layer amplitudes by Bessel flavour
+  ``c_layer = (c_layer_I, c_layer_K)`` and using the
+  block factorisation ``E_form(b) = [E_form_I(b) |
+  E_form_K(b)]``,
+
+  ``E_form_I(b) c_layer_I + E_form_K(b) (c_layer_K -
+  c_form_K) = 0``.
+
+  ``E_form(b)`` is the full 6x6 ``E_n2`` and is non-singular
+  in the bound regime, so the unique solution is
+
+  ``c_layer_I = 0`` and ``c_layer_K = c_form_K``.
+
+  Substituting back into the four ``r = a`` BCs (BC1-BC4)
+  recovers the unlayered system: the layer-side state vector
+  at ``r = a`` becomes ``E_form_K(a) c_form_K`` -- identical
+  to ``v_form(a)`` in the unlayered formulation, with the
+  same column index packing for ``A`` and ``c_form_K``. So
+  the four ``r = a`` rows of the 10x10 reduce to the four
+  rows of the unlayered 4x4 ``_modal_determinant_n2`` system
+  on ``(A, B_form, C_form, D_form)``.
+
+  Determinant relation. The six BC5-BC10 rows decouple
+  cleanly from the ``r = a`` block once the
+  ``c_layer_I = 0`` / ``c_layer_K = c_form_K`` substitution
+  is performed; their contribution to ``det(M_10)`` is the
+  determinant of an explicit 6x6 sub-block built from
+  ``E_form(b)``, independent of ``A``. Therefore
+
+  ``det(M_10)(k_z) = det(E_form(b)) * det(M_4)(k_z)``
+
+  up to a sign from the column reordering. ``det(E_form(b))``
+  is non-zero in the bound regime (a precondition of
+  G''.b.1's "non-singular E" test), so the ``k_z`` zeros of
+  ``det(M_10)`` are exactly the zeros of ``det(M_4)``. The
+  brentq root match is bit-for-bit, modulo the brentq
+  bracket and tolerance (the determinant magnitudes differ
+  by the ``det(E_form(b))`` factor; the *roots* are
+  invariant).
+
   This is the master-plan G''-equivalent of the G validation
   bullet 1 (two-formation-layers collapse to unlayered). The
-  determinant magnitudes will differ (different overall
-  scaling factors) but the brentq root is invariant.
+  algebra carries over directly to ``N >= 2`` formation-equal
+  layers: each ``P_j`` is built from the same ``E_form``, and
+  the inner / outer ``E_form`` factors telescope across layer
+  boundaries (``r_outer_{j-1} = r_inner_j``), leaving
+  ``P_total = E_form(b) E_form(a)^{-1}`` regardless of how
+  many formation-equal layers are stacked. The
+  ``v_layer(b) = E_form(b) c_layer`` step then reduces to the
+  same ``c_layer_I = 0``, ``c_layer_K = c_form_K`` solution.
 
 * **G''.a.7** — Self-check protocol:
   * (a) Identity propagator: ``r_outer = r_inner``.
@@ -493,8 +634,32 @@ Mirror of G.e / G'.e for the quadrupole cased-hole solver.
 * **LWD-quadrupole cement-bond physics**: stiffer cement gives
   a slowness shift in a measurable direction relative to softer
   cement at the same casing. Direct test of the LWD cement-bond
-  signature (qualitative; the direction is the empirical
-  observation pinned in the test).
+  signature.
+
+  **Predicted direction.** In a slow formation (``vs_form <
+  vf_borehole``) the LWD-quadrupole low-frequency asymptote is
+  the formation shear slowness; the cement layer mediates
+  acoustic coupling between casing and formation. Stiffer
+  cement (higher ``vs_cement``) couples the casing more
+  effectively to the formation, so the guided mode samples
+  more of the formation and its slowness moves *toward* the
+  formation-shear asymptote. Softer cement (lower
+  ``vs_cement``) acoustically decouples the casing from the
+  formation; the mode becomes more sensitive to the
+  faster-shear casing + fluid system and its slowness moves
+  *away* from the formation-shear asymptote (i.e., toward the
+  casing-shear-dominated regime, lower slowness).
+
+  Concretely, for a slow-sandstone formation
+  (``vs_form ~ 1600`` m/s, slowness ~625 us/m) at ~10-15 kHz:
+  cement at ``vs_cement ~ 1700`` m/s ("good cement") should
+  give a quadrupole slowness within a few % of the formation
+  asymptote, while ``vs_cement ~ 800`` m/s ("light cement /
+  partial bond") should give a noticeably lower slowness
+  (faster mode). The G''.e test pins the *sign* of
+  ``slow(stiff) - slow(soft) > 0`` and a magnitude window of a
+  few percent; the exact magnitude is the empirical
+  observation from the test, not a closed-form prediction.
 
 ## G''.f — Cross-cutting docs (~30 lines) ⏳ pending
 
