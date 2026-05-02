@@ -323,8 +323,8 @@ chain's self-consistency.
 - Update module docstring scope to mention multi-layer cased-hole
   support.
 - Commit pointers below.
-- Note that n=1 / n=2 cased-hole counterparts are deferred to
-  follow-up plans G' / G''.
+- Note that the n=1 (G') and n=2 (G'') cased-hole counterparts
+  follow this scaffolding; both have since shipped.
 
 ### Landing commits (branch `claude/plan-cylindrical-biot-f-JgjGH`)
 
@@ -378,9 +378,14 @@ Risk concentrated in:
   [`cylindrical_biot_G_prime.md`](cylindrical_biot_G_prime.md);
   the cased-hole flexural is the headline cement-bond / through-
   tubing evaluation tool.
-- **G'' — n=2 cased-hole quadrupole** (~550 lines + 20 tests).
-  Mirror of G' with 8×8 propagator blocks (stronger P / SV / SH
-  coupling at n=2). LWD relevance.
+- **G'' — n=2 cased-hole quadrupole** — ✅ DONE. Shipped via
+  [`cylindrical_biot_G_pp.md`](cylindrical_biot_G_pp.md);
+  6×6 per-layer propagators folded into the same 10×10 final
+  form as G' with the Bessel-index shift `(I_0, I_1) ->
+  (I_1, I_2)` and the explicit ``n = 2`` azimuthal factors.
+  LWD-quadrupole cement-bond physics direction pinned in
+  G''.e: stiffer cement → smaller slowness (faster phase
+  velocity).
 - **Knopoff / Kennett delta-matrix** for thick-layer / high-f
   conditioning (~200 lines + 6 tests). Only needed if G's user
   base hits the kz·thickness > 30 regime; defer indefinitely.
@@ -421,4 +426,5 @@ Risk concentrated in:
    distinction is the cement-bond logging signature.
 6. **G.e** (hardening + Tang & Cheng fig 7.1) — full external
    validation.
-7. **G.f** (docs) — close out plan G; flag G' / G'' follow-ups.
+7. **G.f** (docs) — close out plan G; G' / G'' follow-ups
+   subsequently shipped.

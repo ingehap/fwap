@@ -8,8 +8,8 @@ azimuthal order, F-G add radial layering, H adds anisotropy, and I
 is a cross-cutting validation deliverable.
 
 **Status snapshot.** A, B, C, D, E, F, G (n=0 Stoneley), G'
-(n=1 cased-hole flexural), H — ✅ DONE. Remaining: G'' (n=2
-cased-hole quadrupole; deferred), and I (validation notebook).
+(n=1 cased-hole flexural), G'' (n=2 cased-hole quadrupole),
+H — ✅ DONE. Remaining: I (validation notebook).
 
 ## Existing scaffolding to reuse
 
@@ -328,11 +328,15 @@ constraint (`layer.vs >= vs`) at validation time.
 
 **Deferred follow-ups** (separate plans, not yet scheduled):
 
-- **G'' — n=2 cased-hole quadrupole** (~550 lines + 20 tests):
-  LWD relevance.
 - **Tang & Cheng 2004 fig 7.1 digitised reproduction**:
-  flagged in the G.e plan; deferred to per-figure CSV ingestion
-  work.
+  flagged in the G.e / G'.e / G''.e plans; deferred to
+  per-figure CSV ingestion work (one figure per landed
+  solver, n=0 / n=1 / n=2).
+- **Fast-formation cased-hole quadrupole** (deferred from
+  G''): the n=2 quadrupole has both bound and leaky variants
+  in the unlayered case (E auto-dispatch); the cased-hole
+  leaky variant is a separate plan analogous to the future
+  fast-formation layered flexural follow-up to F.2.
 - **Knopoff / Kennett delta-matrix** for thick-layer / very-
   high-frequency conditioning: only needed if `kz · thickness >
   30` regime emerges.
@@ -429,13 +433,17 @@ incrementally per reference figure.
 The shortest viable path to a public leaky-mode product was
 A → C → B (about a week, shipped). The shortest path to LWD-
 grade processing was A → C → B → D → E (about two weeks,
-shipped). Layered and anisotropic work (F, G n=0, G' n=1, H)
-shipped independently of the leaky-mode chain. Remaining items:
+shipped). Layered and anisotropic work (F, G n=0, G' n=1,
+G'' n=2, H) shipped independently of the leaky-mode chain.
+Remaining items:
 
-- **G''** — n=2 cased-hole quadrupole (deferred follow-up to G,
-  D, G'). Mirrors G' scaffolding with 8×8 per-layer propagators
-  (n=2 has stronger P / SV / SH coupling). LWD relevance.
 - **I** — validation notebook against published dispersion
   figures (Tang & Cheng 2004 fig 7.1 reproduction in particular,
-  flagged in the G.e plan). Standalone deliverable; one figure
-  per landed solver. Smallest, most demo-friendly remaining item.
+  flagged in the G.e / G'.e / G''.e plans). Standalone
+  deliverable; one figure per landed solver. Smallest, most
+  demo-friendly remaining item.
+- **Fast-formation cased-hole quadrupole** (deferred follow-up
+  to G''). The unlayered n=2 already auto-dispatches between
+  the bound and leaky variants; the cased-hole leaky variant
+  needs the same complex-determinant treatment that B / D
+  applied to the unlayered solvers.
