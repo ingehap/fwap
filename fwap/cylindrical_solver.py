@@ -4921,10 +4921,12 @@ def quadrupole_dispersion_layered(
         or any layer fails the slow-formation constraint
         ``layer.vs >= vs`` (multi-layer only).
     NotImplementedError
-        If ``len(layers) >= 1`` (G''.c / G''.d not yet shipped),
-        or if the formation is fast (``V_S > V_f``) with a
-        non-empty layer (fast-formation cased-hole quadrupole is
-        a deferred follow-up).
+        If ``len(layers) >= 1`` (G''.d brentq loop not yet
+        shipped; the underlying ``_modal_determinant_n2_cased``
+        from G''.c is in place but unwired), or if the
+        formation is fast (``V_S > V_f``) with a non-empty layer
+        (fast-formation cased-hole quadrupole is a deferred
+        follow-up).
     """
     layers_tuple = tuple(layers)
     _validate_borehole_layers(layers_tuple)
@@ -4960,9 +4962,9 @@ def quadrupole_dispersion_layered(
     _validate_flexural_layers_stacked(layers_tuple, a, vs)
     raise NotImplementedError(
         "quadrupole_dispersion_layered with non-empty layers is "
-        "scheduled in plan items G''.c (stacked modal determinant "
-        "via the 6x6 Thomson-Haskell propagator matrix at n=2) "
-        "and G''.d (public-API hook + multi-layer regression); "
+        "scheduled in plan item G''.d (public-API hook + brentq "
+        "loop on top of the stacked modal determinant from "
+        "G''.c, which has shipped as ``_modal_determinant_n2_cased``); "
         "see docs/plans/cylindrical_biot_G_pp.md. Unlayered "
         "(``layers=()``) is supported via dispatch to "
         "``quadrupole_dispersion``."
@@ -11008,6 +11010,206 @@ def _layer_propagator_n2(
     if not (np.all(np.isfinite(E_inner)) and np.all(np.isfinite(E_outer))):
         return np.full((6, 6), np.nan)
     return np.linalg.solve(E_inner.T, E_outer.T).T
+
+
+# =====================================================================
+# Plan item G''.c -- 10x10 stacked modal determinant at n=2
+# =====================================================================
+#
+# Sister of ``_modal_determinant_n0_cased`` (n=0, 7x7) and
+# ``_modal_determinant_n1_cased`` (n=1, 10x10). The n=2 case has
+# the same 10x10 final-form structure as n=1 with the
+# Bessel-function index shift ``(I_0, I_1) -> (I_1, I_2)`` in the
+# fluid contribution and the n=2 ``E_n2`` block from G''.b.1 in
+# place of ``E_n1``.
+#
+# BC layout transcribed from substep G''.a.4 (see source-side
+# comment block earlier in this file). Column packing matches
+# the F.2 / G' convention:
+#
+#   [A | B_I, B_K, C_I, C_K | B_form, C_form | D_I, D_K | D_form]
+#
+# Layer = formation collapse identity (substep G''.a.6) is the
+# main floating-point oracle: at layer params equal to formation
+# params, the brentq root in k_z of this 10x10 determinant equals
+# the brentq root of the unlayered 4x4 ``_modal_determinant_n2``
+# (the magnitudes differ by a ``det(E_form(b))`` factor; the
+# *roots* are invariant). No F.3-equivalent hand-coded form
+# exists for n=2, so per-element pinning is via the G''.b.1
+# E_n2 transcription rather than a determinant-level
+# numerical-equality oracle.
+
+
+def _modal_determinant_n2_cased(
+    kz: float,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...],
+) -> float:
+    r"""
+    10x10 quadrupole modal determinant for a borehole with N
+    annular layers between fluid and formation, slow-formation
+    regime.
+
+    Generalises the unlayered :func:`_modal_determinant_n2` (4x4)
+    to arbitrary ``N >= 1`` via the Thomson-Haskell-style 6x6
+    propagator chain ``P_total = P_N ... P_2 P_1`` (substep
+    G''.a.3). Mirrors :func:`_modal_determinant_n1_cased`
+    structurally; the only differences are the Bessel-function
+    index shift in the fluid term (``I_1, I_2`` instead of
+    ``I_0, I_1``) and the n=2 ``_layer_e_matrix_n2`` /
+    ``_layer_propagator_n2`` helpers (G''.b.1, G''.b.2).
+
+    At ``layer == formation`` and ``N == 1`` the brentq root in
+    ``k_z`` matches the unlayered :func:`_modal_determinant_n2`
+    root (per the G''.a.6 collapse identity:
+    ``det(M_10) = det(E_form(b)) * det(M_4)``); the determinant
+    magnitudes differ by the ``det(E_form(b))`` scale factor,
+    but the root is invariant.
+
+    Parameters
+    ----------
+    kz, omega, vp, vs, rho, vf, rho_f, a : float
+        Same as :func:`_modal_determinant_n2`. ``vp``, ``vs``,
+        ``rho`` are the formation half-space (outermost side);
+        ``vf``, ``rho_f`` are the borehole fluid.
+    layers : tuple of BoreholeLayer
+        Annular layer stack ordered inside-out: ``layers[0]``
+        adjacent to fluid, ``layers[-1]`` adjacent to formation.
+        Must have at least one layer (``len(layers) >= 1``); the
+        unlayered case dispatches to :func:`_modal_determinant_n2`
+        in :func:`quadrupole_dispersion_layered`. Slow-formation
+        constraint ``layer.vs >= vs`` is enforced upstream by
+        :func:`_validate_flexural_layers_stacked` (the n=1 / n=2
+        constraint is identical).
+
+    Returns
+    -------
+    float
+        ``det(M)`` of the 10x10 cased-hole quadrupole modal
+        matrix, real-valued in the bound regime. ``NaN`` outside
+        the bound regime.
+
+    See Also
+    --------
+    _modal_determinant_n2 : Unlayered (4x4) reference.
+    _modal_determinant_n1_cased : The n=1 (flexural) sister.
+    _layer_e_matrix_n2 : G''.b.1 helper used at r=a and r=b.
+    _layer_propagator_n2 : G''.b.2 helper used to compose the
+        per-layer propagators.
+    """
+    F_f_sq = kz * kz - (omega / vf) ** 2
+    if F_f_sq <= 0.0:
+        return float("nan")
+    F_f = float(np.sqrt(F_f_sq))
+    radii = [a]
+    for L in layers:
+        radii.append(radii[-1] + L.thickness)
+    b = radii[-1]
+    L1 = layers[0]
+    E_1_a = _layer_e_matrix_n2(
+        kz=kz, omega=omega, vp=L1.vp, vs=L1.vs, rho=L1.rho, r=a,
+    )
+    if not np.all(np.isfinite(E_1_a)):
+        return float("nan")
+    P_total = np.eye(6)
+    for j, L in enumerate(layers):
+        P_j = _layer_propagator_n2(
+            kz=kz, omega=omega, vp=L.vp, vs=L.vs, rho=L.rho,
+            r_inner=radii[j], r_outer=radii[j + 1],
+        )
+        if not np.all(np.isfinite(P_j)):
+            return float("nan")
+        P_total = P_j @ P_total
+    E_form_b = _layer_e_matrix_n2(
+        kz=kz, omega=omega, vp=vp, vs=vs, rho=rho, r=b,
+    )
+    if not np.all(np.isfinite(E_form_b)):
+        return float("nan")
+    v_at_b = P_total @ E_1_a
+    # Bessel-index shift relative to the n=1 sister: the fluid
+    # pressure ansatz P = A I_n(F r) cos(n theta) at n=2 uses
+    # I_1 / I_2 in place of n=1's I_0 / I_1.
+    I1_Ff_a = float(special.iv(1, F_f * a))
+    I2_Ff_a = float(special.iv(2, F_f * a))
+
+    # Build M[10, 10] in the F.2 / G' column packing.
+    # Layer-amplitude blocks: cols 1-4 (P/SV) and cols 7-8 (SH)
+    # carry the layer's contribution; formation cols 5-6 and 9
+    # carry the formation half-space K-flavour contribution.
+    M = np.zeros((10, 10))
+
+    # ---- Rows 0-3 at r=a (4 BCs, fluid-solid interface). ----
+    # The layer cols use E_n2(a); formation cols are zero at r=a.
+
+    def _layer_at_a(state_row: int, sign: float) -> np.ndarray:
+        """Returns 6 layer-amplitude entries in the order
+        (B_I, B_K, C_I, C_K, D_I, D_K) for the given state row."""
+        return sign * E_1_a[state_row, :]
+
+    # Row 0: BC1, u_r^(f)(a) - u_r^(m)(a) = 0. Layer negated.
+    # Fluid u_r coefficient at n=2 is (F I_1(Fa) - 2 I_2(Fa)/a) /
+    # (rho_f omega^2) (n=2 instance of the general-n derivative
+    # I_n'(x) = I_{n-1}(x) - (n/x) I_n(x)).
+    M[0, 0] = (F_f * I1_Ff_a - 2.0 * I2_Ff_a / a) / (rho_f * omega ** 2)
+    layer0 = _layer_at_a(0, -1.0)  # u_r row, negated
+    M[0, 1:5] = layer0[0:4]   # B_I, B_K, C_I, C_K
+    M[0, 7:9] = layer0[4:6]   # D_I, D_K
+    # Row 1: BC2, -(sigma_rr^(m)(a) + P^(f)(a)) = 0. Layer negated;
+    # fluid pressure -P contributes -A I_n(Fa) at n=2 -> -I_2(Fa).
+    M[1, 0] = -I2_Ff_a
+    layer1 = _layer_at_a(3, -1.0)  # sigma_rr row, negated
+    M[1, 1:5] = layer1[0:4]
+    M[1, 7:9] = layer1[4:6]
+    # Row 2: BC3, sigma_rtheta^(m)(a) = 0. Layer positive (no
+    # fluid contribution; fluid is inviscid).
+    layer2 = _layer_at_a(5, +1.0)  # sigma_rtheta row
+    M[2, 1:5] = layer2[0:4]
+    M[2, 7:9] = layer2[4:6]
+    # Row 3: BC4, sigma_rz^(m)(a) = 0. Layer positive.
+    layer3 = _layer_at_a(4, +1.0)  # sigma_rz row
+    M[3, 1:5] = layer3[0:4]
+    M[3, 7:9] = layer3[4:6]
+
+    # ---- Rows 4-9 at r=b (6 BCs, layer-formation continuity). ----
+    # Layer cols use v_at_b (= P_total @ E_n2(a)); formation cols
+    # use E_form(b)'s K-flavour cols (1, 3, 5 in our state-vector
+    # E indexing) negated.
+
+    def _layer_at_b(state_row: int) -> np.ndarray:
+        """6 layer-amplitude entries (positive, m - s convention)
+        from v_at_b for the given state row."""
+        return v_at_b[state_row, :]
+
+    def _formation_at_b(state_row: int) -> tuple[float, float, float]:
+        """3 formation K-flavour entries (B_form_K = E[:,1],
+        C_form_K = E[:,3], D_form_K = E[:,5]); negated for the
+        m - s subtraction convention."""
+        return (
+            -E_form_b[state_row, 1],  # B_form
+            -E_form_b[state_row, 3],  # C_form
+            -E_form_b[state_row, 5],  # D_form
+        )
+
+    # State-row mapping at r=b: BC5..10 -> state rows 0, 2, 1, 3, 5, 4.
+    bc_to_state_b = [0, 2, 1, 3, 5, 4]
+    for i_bc, state_row in enumerate(bc_to_state_b):
+        i_M = 4 + i_bc
+        layer = _layer_at_b(state_row)
+        M[i_M, 1:5] = layer[0:4]
+        M[i_M, 7:9] = layer[4:6]
+        b_form, c_form, d_form = _formation_at_b(state_row)
+        M[i_M, 5] = b_form
+        M[i_M, 6] = c_form
+        M[i_M, 9] = d_form
+
+    return float(np.linalg.det(M))
 
 
 # =====================================================================
