@@ -338,11 +338,6 @@ constraint (`layer.vs >= vs`) at validation time.
   flagged in the G.e / G'.e / G''.e plans; deferred to
   per-figure CSV ingestion work (one figure per landed
   solver, n=0 / n=1 / n=2).
-- **Fast-formation cased-hole quadrupole** (deferred from
-  G''): the n=2 quadrupole has both bound and leaky variants
-  in the unlayered case (E auto-dispatch); the cased-hole
-  leaky variant is a separate plan analogous to the future
-  fast-formation layered flexural follow-up to F.2.
 - **Knopoff / Kennett delta-matrix** for thick-layer / very-
   high-frequency conditioning: only needed if `kz · thickness >
   30` regime emerges.
@@ -457,8 +452,11 @@ Remaining items:
   reference figures into `docs/notebooks/_data/*.csv` (and
   flipping each section's TODO cell into a real overlay) is the
   outstanding deliverable.
-- **Fast-formation cased-hole quadrupole** (deferred follow-up
-  to G''). The unlayered n=2 already auto-dispatches between
-  the bound and leaky variants; the cased-hole leaky variant
-  needs the same complex-determinant treatment that B / D
-  applied to the unlayered solvers.
+
+The previously-deferred **fast-formation cased-hole quadrupole**
+follow-up to G'' has shipped: ``quadrupole_dispersion_layered``
+now dispatches ``V_S > V_f`` to the complex-determinant path
+``_modal_determinant_n2_cased_complex`` +
+``_quadrupole_dispersion_fast_formation_layered``, mirroring the
+unlayered fast-formation auto-dispatch that already existed in
+``quadrupole_dispersion`` (plan E).

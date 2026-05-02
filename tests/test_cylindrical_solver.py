@@ -9097,22 +9097,31 @@ def test_quadrupole_dispersion_layered_rejects_softer_layer():
         )
 
 
-def test_quadrupole_dispersion_layered_fast_formation_with_layer_raises():
+def test_quadrupole_dispersion_layered_fast_formation_with_layer_dispatches_to_complex_path():
     """Fast-formation cased-hole quadrupole (``V_S > V_f`` with
-    a non-empty layer) is a deferred follow-up. Single-interface
-    fast-formation ``quadrupole_dispersion`` is supported via
-    auto-dispatch; the layered version requires the complex-
-    determinant path which is out of scope for plan G''."""
-    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+    a non-empty layer) dispatches to the complex-determinant
+    path via ``_modal_determinant_n2_cased_complex`` and
+    ``_quadrupole_dispersion_fast_formation_layered``. The
+    earlier ``NotImplementedError`` raise from G''.0 is gone --
+    fast-formation cased quadrupole is now a supported regime."""
+    from fwap.cylindrical_solver import (
+        BoreholeMode,
+        quadrupole_dispersion_layered,
+    )
     layer = BoreholeLayer(vp=4000.0, vs=3300.0, rho=2500.0, thickness=0.005)
     # Fast formation: V_S = 3100 > V_f = 1500.
-    with pytest.raises(NotImplementedError, match="fast formation"):
-        quadrupole_dispersion_layered(
-            np.array([10000.0]),
-            vp=5500.0, vs=3100.0, rho=2500.0,
-            vf=1500.0, rho_f=1000.0, a=0.1,
-            layers=(layer,),
-        )
+    res = quadrupole_dispersion_layered(
+        np.array([10000.0]),
+        vp=5500.0, vs=3100.0, rho=2500.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+        layers=(layer,),
+    )
+    assert isinstance(res, BoreholeMode)
+    assert res.name == "quadrupole"
+    assert res.azimuthal_order == 2
+    # Bound-mode result: real-valued slowness (or NaN if outside
+    # the geometric cutoff window). Either way no exception.
+    assert res.slowness.dtype == np.float64
 
 
 def test_quadrupole_dispersion_layered_rejects_invalid_inputs():
@@ -9997,3 +10006,230 @@ def test_quadrupole_dispersion_layered_cement_bond_stiffer_cement_makes_mode_fas
     rel_shift = (soft_sl - stiff_sl) / soft_sl
     assert np.all(rel_shift > 0.005)
     assert np.all(rel_shift < 0.30)
+
+
+# =====================================================================
+# Fast-formation cased-hole quadrupole (deferred follow-up to G'')
+# =====================================================================
+#
+# Tests for the complex-determinant cased-hole quadrupole dispatch in
+# ``quadrupole_dispersion_layered`` when ``V_S > V_f``. The path
+# uses ``_layer_e_matrix_n2_complex`` /
+# ``_layer_propagator_n2_complex`` /
+# ``_modal_determinant_n2_cased_complex`` to evaluate the modal
+# determinant at complex ``k_z``, and brentq's ``Im(det)`` along the
+# real-``k_z`` axis (mirroring the unlayered fast-formation auto-
+# dispatch in ``quadrupole_dispersion``).
+#
+# Per-layer slow-formation constraint does NOT apply in this regime
+# (a cement layer softer than a fast carbonate formation is
+# physically permissible); only the formation half-space is
+# required to be in the fast regime ``V_S > V_f``.
+
+
+def _typical_fast_formation_cased_geometry():
+    """Fast-formation cased-hole fixture for the n=2 complex-
+    determinant tests. Formation V_S = 2600 > V_f = 1500 puts the
+    bound regime in slowness ``(1/V_S, 1/V_R) = (~3.85e-4, ~4.18e-4)``;
+    layers carry typical casing + cement properties (no slow-
+    formation per-layer constraint at fast formation)."""
+    return dict(
+        vp=4500.0, vs=2600.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+        casing=BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01),
+        cement=BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05),
+    )
+
+
+def test_modal_determinant_n2_cased_complex_real_kz_slow_formation_matches_real_cased():
+    """Slow-formation regression: at real ``k_z`` and slow
+    formation, the complex cased determinant matches the real
+    one to floating-point precision (its imaginary part is
+    zero). Anchors the complex-extension correctness against the
+    G''.c real-valued path."""
+    from fwap.cylindrical_solver import (
+        _modal_determinant_n2_cased,
+        _modal_determinant_n2_cased_complex,
+    )
+
+    vp, vs, rho = 2200.0, 800.0, 2200.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.01)
+    omega = 2.0 * np.pi * 5000.0
+    kz = 1.05 * omega / vs
+    det_re = _modal_determinant_n2_cased(
+        kz, omega, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(layer,),
+    )
+    det_cx = _modal_determinant_n2_cased_complex(
+        complex(kz, 0.0), omega,
+        vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(layer,),
+    )
+    assert det_cx.real == pytest.approx(det_re, rel=1.0e-12)
+    # ``Im(det)`` is exactly zero when the matrix is real (slow
+    # formation, real ``k_z``, all layers / formation in the bound
+    # regime).
+    assert det_cx.imag == 0.0
+
+
+def test_modal_determinant_n2_cased_complex_layer_eq_formation_im_det_sign_matches_unlayered():
+    """G''.a.6 collapse identity in the fast-formation regime:
+    when ``layer == formation``, the cased determinant is the
+    unlayered determinant times a real-valued ``det(E_form(b))``
+    factor. The sign-change locations of ``Im(det_cas)`` along
+    real ``k_z`` therefore coincide with the sign-change
+    locations of ``Im(det_unl)`` -- i.e., the modal roots match
+    even though the brentq-picked specific value can differ
+    when there are multiple sign changes in the bracket."""
+    from fwap.cylindrical_solver import (
+        _modal_determinant_n2_cased_complex,
+        _modal_determinant_n2_complex,
+    )
+
+    g = _typical_fast_formation_cased_geometry()
+    layer = BoreholeLayer(vp=g["vp"], vs=g["vs"], rho=g["rho"], thickness=0.01)
+    omega = 2.0 * np.pi * 14000.0
+    vR = 0.92 * g["vs"]
+    slows = np.linspace(1.0/g["vs"] * 1.0001, 1.0/vR * 0.9999, 40)
+    sgn_unl = []
+    sgn_cas = []
+    for slow in slows:
+        kz = slow * omega
+        d_unl = _modal_determinant_n2_complex(
+            complex(kz, 0.0), omega,
+            g["vp"], g["vs"], g["rho"],
+            g["vf"], g["rho_f"], g["a"],
+        ).imag
+        d_cas = _modal_determinant_n2_cased_complex(
+            complex(kz, 0.0), omega,
+            vp=g["vp"], vs=g["vs"], rho=g["rho"],
+            vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+            layers=(layer,),
+        ).imag
+        sgn_unl.append(np.sign(d_unl))
+        sgn_cas.append(np.sign(d_cas))
+    sgn_unl = np.array(sgn_unl)
+    sgn_cas = np.array(sgn_cas)
+    # Sign-change indices must match exactly. The sign relationship
+    # between the two streams is uniformly opposite (the real
+    # ``det(E_form(b))`` scale factor is negative for this fixture)
+    # but a uniform sign flip preserves the zero-crossing locations.
+    changes_unl = np.where(np.diff(sgn_unl) != 0)[0]
+    changes_cas = np.where(np.diff(sgn_cas) != 0)[0]
+    np.testing.assert_array_equal(changes_unl, changes_cas)
+    # And both streams must have at least one sign change in the
+    # bound regime -- otherwise the test fixture would not exercise
+    # the modal-root topology.
+    assert changes_unl.size >= 1
+
+
+def test_quadrupole_dispersion_layered_fast_formation_layer_eq_formation_finite_in_bound_regime():
+    """Public-API end-to-end: with ``layer = formation`` in fast
+    formation, the cased dispatch returns at least one finite
+    slowness in the bound regime ``(1/V_S, 1/V_R)``. Soft
+    correctness oracle that doesn't depend on brentq's exact
+    multi-root pick."""
+    from fwap.cylindrical_solver import (
+        BoreholeMode,
+        quadrupole_dispersion_layered,
+    )
+
+    g = _typical_fast_formation_cased_geometry()
+    layer = BoreholeLayer(vp=g["vp"], vs=g["vs"], rho=g["rho"], thickness=0.01)
+    f = np.linspace(10000.0, 16000.0, 4)
+    res = quadrupole_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(layer,),
+    )
+    assert isinstance(res, BoreholeMode)
+    assert res.attenuation_per_meter is None  # bound mode
+    finite = np.isfinite(res.slowness)
+    assert finite.any()
+    # Bound regime: V in (V_R, V_S) where V_R ~= 0.92 V_S.
+    sl = res.slowness[finite]
+    assert np.all(sl > 1.0 / g["vs"] * 0.99)
+    assert np.all(sl < 1.0 / (g["vs"] * 0.85))
+
+
+def test_quadrupole_dispersion_layered_fast_formation_N2_runs_smoke():
+    """Multi-layer fast-formation smoke (casing + cement on a
+    fast carbonate formation): the brentq-on-Im(det) path runs
+    to completion at N=2 and returns the same return-type
+    contract as the slow-formation path."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+
+    g = _typical_fast_formation_cased_geometry()
+    f = np.linspace(8000.0, 18000.0, 6)
+    res = quadrupole_dispersion_layered(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"],
+        vf=g["vf"], rho_f=g["rho_f"], a=g["a"],
+        layers=(g["casing"], g["cement"]),
+    )
+    assert res.name == "quadrupole"
+    assert res.azimuthal_order == 2
+    assert res.attenuation_per_meter is None
+    np.testing.assert_array_equal(res.freq, f)
+    # Don't pin the slowness values themselves -- the cased fast-
+    # formation bound mode for casing+cement is in a narrow
+    # window and the brentq-on-Im(det) bracket can land on
+    # spurious sign changes outside the physical regime when
+    # the mode is cut off (same behaviour as the slow-formation
+    # sister; documented in PR #71). Just verify the path
+    # executes without exceptions.
+    assert res.slowness.shape == f.shape
+
+
+def test_quadrupole_dispersion_layered_fast_formation_does_not_break_slow_formation_path():
+    """Regression: adding the fast-formation dispatch did not
+    perturb the slow-formation cased-hole quadrupole brentq path
+    that landed in G''.d. With slow formation params (``V_S = 800
+    < V_f = 1500``), the dispatch goes through the real-valued
+    G''.c path and the result matches the unlayered
+    ``quadrupole_dispersion`` slowness when ``layer = formation``."""
+    from fwap.cylindrical_solver import (
+        quadrupole_dispersion,
+        quadrupole_dispersion_layered,
+    )
+
+    vp, vs, rho = 2200.0, 800.0, 2200.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.01)
+    f = np.linspace(4000.0, 12000.0, 9)
+    res_unl = quadrupole_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+    )
+    res_lyr = quadrupole_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a,
+        layers=(layer,),
+    )
+    finite = np.isfinite(res_unl.slowness) & np.isfinite(res_lyr.slowness)
+    assert finite.any()
+    np.testing.assert_allclose(
+        res_lyr.slowness[finite], res_unl.slowness[finite], rtol=1.0e-9,
+    )
+
+
+def test_quadrupole_dispersion_layered_fast_formation_does_not_apply_slow_formation_constraint():
+    """In fast formation, the per-layer ``layer.vs >= formation.vs``
+    constraint enforced by ``_validate_flexural_layers_stacked`` for
+    the slow-formation regime does NOT apply: a cement layer with
+    ``vs < formation.vs`` is physically permissible (e.g., soft
+    cement behind a fast-carbonate formation). The fast-formation
+    dispatch must accept such a configuration without raising."""
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+
+    # Fast formation V_S = 2600 > V_f = 1500.
+    # Cement V_S = 1300 < V_S = 2600 (would fail slow-formation
+    # constraint, but allowed in fast formation).
+    soft_layer = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.02)
+    res = quadrupole_dispersion_layered(
+        np.array([10000.0, 14000.0]),
+        vp=4500.0, vs=2600.0, rho=2400.0,
+        vf=1500.0, rho_f=1000.0, a=0.1,
+        layers=(soft_layer,),
+    )
+    # No exception; structural contract holds.
+    assert res.name == "quadrupole"
+    assert res.azimuthal_order == 2
