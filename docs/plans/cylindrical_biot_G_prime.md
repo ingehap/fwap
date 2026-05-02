@@ -29,9 +29,10 @@ modal determinant size). Slow-formation regime constraint
 
 This sub-plan covers **n=1 only** (flexural in cased holes), the
 highest-priority deferred follow-up after G. The n=2 (quadrupole)
-cased-hole counterpart is deferred to plan G''; it reuses the same
-6x6 propagator scaffolding with 8x8 per-layer blocks (the n=2
-problem has more potential coupling channels but the same
+cased-hole counterpart shipped via plan G''
+([`cylindrical_biot_G_pp.md`](cylindrical_biot_G_pp.md)) and reuses
+the same 6x6 propagator scaffolding (the n=2 problem has more
+potential coupling channels but the same
 Helmholtz decomposition).
 
 ## Parameterisation
@@ -354,10 +355,14 @@ Risk concentrated in:
 
 ## Deferred follow-ups (separate plans)
 
-- **G'' — n=2 cased-hole quadrupole** (~700 lines + 25 tests).
-  Sister of G' at azimuthal order 2; mirrors the G + G'
-  scaffolding with 8x8 per-layer propagators (n=2 has stronger
-  P / SV / SH coupling). LWD relevance.
+- **G'' — n=2 cased-hole quadrupole** — ✅ DONE. Shipped via
+  [`cylindrical_biot_G_pp.md`](cylindrical_biot_G_pp.md). Same
+  6×6 state vector and 10×10 final-form structure as G' with
+  the Bessel-function index shift `(I_0, I_1) -> (I_1, I_2)`
+  and the explicit ``n = 2`` azimuthal factors. End-to-end
+  pinning: at `layer = formation`, the multi-layer brentq
+  path returns the unlayered `quadrupole_dispersion` slowness
+  to `rtol=1e-6` (master-plan G'' validation bullet).
 - **Tang & Cheng 2004 fig 7.1 reproduction** for the cased-
   hole flexural (digitised CSV; deferred from G.e).
 

@@ -21,26 +21,31 @@ and G' (n=1).
 | G''.c — `_modal_determinant_n2_cased` | ✅ | `fwap/cylindrical_solver.py:11121` | 5 / 5 (one moved to G''.0) |
 | G''.d — public-API hook + brentq loop | ✅ | `fwap/cylindrical_solver.py:4865` (`_quadrupole_kz_bracket_cased`) and `:4896` (`quadrupole_dispersion_layered` brentq path) | 6 / 6 |
 | G''.e — n=2 hardening | ✅ | tests/test_cylindrical_solver.py (4 tests added; no production code) | 4 / 4 |
-| G''.f — cross-cutting docs | ⏳ | not yet shipped | n/a |
+| G''.f — cross-cutting docs | ✅ | this PR (master plan + G/G' plan + module docstring + plan-doc closure) | n/a |
 
-**Shipped so far:** G''.0 + G''.a + G''.b.1 + G''.b.2 + G''.c +
-G''.d + G''.e — 32 of the ~33 planned tests, covering the
-public API surface (`layers=()` dispatch + validation), the n=2
-math scaffolding, the per-layer `E_n2(r)` helper, the per-layer
-propagator, the 10x10 stacked modal determinant with the
-G''.a.6 layer = formation root-match oracle, the public-API
-brentq path, multi-frequency det-at-root self-consistency,
+**All G'' substeps shipped.** G''.0 + G''.a + G''.b.1 +
+G''.b.2 + G''.c + G''.d + G''.e + G''.f — 32 of the ~33
+planned tests landed (the planned "N=0 dispatch to unlayered"
+G''.c test was already covered by an existing G''.0 test and
+not duplicated). The plan covers the public API surface
+(`layers=()` dispatch + validation), the n=2 math scaffolding,
+the per-layer `E_n2(r)` helper, the per-layer propagator, the
+10x10 stacked modal determinant with the G''.a.6 layer =
+formation root-match oracle, the public-API brentq path,
+multi-frequency det-at-root self-consistency,
 thin-inner-layer continuity, two-formation-layers collapse to
 unlayered (the master-plan G'' validation bullet at
-`rtol=1e-6`), and the LWD-quadrupole cement-bond physics
-direction (stiffer cement → faster mode / smaller slowness;
-sign pinned at three frequencies).
+`rtol=1e-6`), the LWD-quadrupole cement-bond physics direction
+(stiffer cement → faster mode / smaller slowness; sign pinned
+at three frequencies), and the cross-cutting docs sweep that
+closes the plan.
 
-**Next up:** G''.f is the cross-cutting docs sweep (mark
-G/G'/G'' done in the master plan
-`docs/plans/cylindrical_biot.md`; refresh status snapshot;
-update module docstring scope to reflect the n=2 multi-layer
-cased-hole support).
+**Deferred to a separate plan** (not blocking on G''):
+fast-formation cased-hole quadrupole, Tang & Cheng 2004
+fig 7 / 8 reproduction (digitised CSV; deferred from G''.e
+analogous to the G.e / G'.e fig 7.1 deferrals), and an
+optional F.3 (single-extra-layer hand-coded n=2 with
+per-element oracles for G''.b.1).
 
 Plan G'' depends on the propagator-matrix scaffolding from plans
 G (4x4 at n=0) and G' (6x6 at n=1); it inherits the same
@@ -683,16 +688,36 @@ Mirror of G.e / G'.e for the quadrupole cased-hole solver.
   "stiffer annulus transmits faster" reading of the
   Thomson-Haskell propagator.
 
-## G''.f — Cross-cutting docs (~30 lines) ⏳ pending
+## G''.f — Cross-cutting docs (~30 lines) ✅ shipped
 
-- Mark plan G'' done in `docs/plans/cylindrical_biot.md`
-  (update G section status to "✅ DONE (n=0, n=1, n=2)";
-  refresh status snapshot).
-- Update plan G doc to point at G'' as completed.
-- Update plan G' doc similarly.
-- Update module docstring scope to mention multi-layer cased-
-  hole quadrupole support.
-- Commit pointers in this plan doc.
+- ✅ Marked plan G'' done in
+  `docs/plans/cylindrical_biot.md` (master-plan status
+  snapshot now lists G'' alongside G / G' as shipped; the
+  "Suggested order" final block no longer flags G'' as
+  remaining; the G-section deferred-follow-up bullet for G''
+  is replaced by the fast-formation cased-hole quadrupole
+  follow-up).
+- ✅ Updated plan G doc
+  ([`cylindrical_biot_G.md`](cylindrical_biot_G.md)): G''
+  bullet in the deferred-follow-up list flips to ✅ DONE; the
+  intra-doc "n=1 / n=2 cased-hole counterparts deferred"
+  comment is replaced by a "both have since shipped" note;
+  the suggested-order G.f bullet flags G' / G'' as
+  subsequently shipped.
+- ✅ Updated plan G' doc
+  ([`cylindrical_biot_G_prime.md`](cylindrical_biot_G_prime.md)):
+  G'' bullet in the deferred-follow-up list flips to ✅ DONE
+  (with a one-line summary of the structural deltas and the
+  G''.e end-to-end pinning); the intro-paragraph "deferred to
+  plan G''" line replaced by a shipped pointer.
+- ✅ Updated `fwap/cylindrical_solver.py` module docstring:
+  the "Cased-hole multi-layer extension" bullet now covers
+  n=0, n=1, *and* n=2 (`quadrupole_dispersion_layered`,
+  `_modal_determinant_n2_cased`); the deferred-follow-up
+  sentence is narrowed to the fast-formation cased-hole
+  quadrupole only.
+- ✅ Final consistency sweep on this plan doc (status table,
+  per-substep section headers, total-scope, execution-order).
 
 ## Total scope
 
@@ -703,10 +728,9 @@ bundled). Conservative estimate: 5-7 days of focused work
 (similar to G').
 
 **Shipped (G''.0 + G''.a + G''.b.1 + G''.b.2 + G''.c +
-G''.d + G''.e):** 32 of the ~33 planned tests; 7 of the 7 PRs
-*planned for solver code*. **Remaining (G''.f):** the
-cross-cutting docs sweep -- one small PR, no new code or
-tests.
+G''.d + G''.e + G''.f):** 32 of the ~33 planned tests, 7 / 7
+solver-code PRs, and the closing docs sweep. Plan G'' is
+complete.
 
 Risk concentrated in:
 
@@ -800,7 +824,6 @@ Done:
    cement-bond direction (stiffer cement → smaller slowness /
    faster phase velocity; *opposite* of the original plan-doc
    prediction, pinned at three frequencies).
-
-Remaining:
-
-8. ⏳ **G''.f** (docs).
+8. ✅ **G''.f** (docs) -- master plan, G plan, G' plan, and
+   `fwap/cylindrical_solver.py` module docstring updated to
+   reflect that n=2 cased-hole quadrupole is shipped.

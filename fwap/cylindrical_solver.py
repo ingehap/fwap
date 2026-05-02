@@ -52,25 +52,33 @@ Scope (this module)
   keep the wave bound in the annulus. Layer parameters are
   collected in :class:`BoreholeLayer`. See plan F in
   ``docs/plans/cylindrical_biot.md`` for the full decomposition.
-* **Cased-hole multi-layer extension** (n=0 and n=1, slow-
+* **Cased-hole multi-layer extension** (n=0, n=1, n=2; slow-
   formation): for an arbitrary ``N``-layer stack (typically
   ``fluid -> casing -> cement -> formation`` or ``fluid ->
-  casing -> cement -> mudcake -> formation``), both
-  :func:`stoneley_dispersion_layered` and
-  :func:`flexural_dispersion_layered` dispatch to Thomson-
+  casing -> cement -> mudcake -> formation``), all of
+  :func:`stoneley_dispersion_layered`,
+  :func:`flexural_dispersion_layered`, and
+  :func:`quadrupole_dispersion_layered` dispatch to Thomson-
   Haskell-style propagator-matrix paths
   (:func:`_modal_determinant_n0_cased` for n=0, 4x4 per-layer
   propagators folded into a 7x7 modal determinant;
   :func:`_modal_determinant_n1_cased` for n=1, 6x6 per-layer
-  propagators folded into a 10x10 modal determinant). The
-  ``N=0`` and ``N=1`` paths remain bit-equivalent to the
-  unlayered and hand-coded F.1 / F.2 solvers respectively.
-  The n=1 path additionally enforces the slow-formation per-
-  layer constraint (``layer.vs >= vs``) at validation time via
-  :func:`_validate_flexural_layers_stacked`. The n=2 (cased-
-  hole quadrupole) counterpart is a deferred follow-up to plan
-  G''; see plan G in ``docs/plans/cylindrical_biot.md`` and
-  the G / G' sub-plan docs for the full breakdown.
+  propagators folded into a 10x10 modal determinant;
+  :func:`_modal_determinant_n2_cased` for n=2, 6x6 per-layer
+  propagators folded into a 10x10 modal determinant with the
+  Bessel-function index shift ``(I_0, I_1) -> (I_1, I_2)`` and
+  the explicit ``n = 2`` azimuthal factors). The ``N=0`` paths
+  remain bit-equivalent to the unlayered solvers; the n=0
+  ``N=1`` path is bit-equivalent to F.1's hand-coded form and
+  the n=1 ``N=1`` path is bit-equivalent to F.2. The n=1 and
+  n=2 paths additionally enforce the slow-formation per-layer
+  constraint (``layer.vs >= vs``) at validation time via
+  :func:`_validate_flexural_layers_stacked` (same constraint
+  at both azimuthal orders). The fast-formation cased-hole
+  quadrupole (``V_S > V_f`` with non-empty layers) is a
+  deferred follow-up; see plan G in
+  ``docs/plans/cylindrical_biot.md`` and the G / G' / G''
+  sub-plan docs for the full breakdown.
 
 Sign conventions
 ----------------
