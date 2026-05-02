@@ -674,29 +674,40 @@ Mirror of G.e / G'.e for the quadrupole cased-hole solver.
 
 ## Total scope
 
-~1100 lines of solver code + ~700 lines of tests + ~33 tests,
-distributed across ~7 mergeable PRs (G''.0; G''.a; G''.b.1;
-G''.b.2; G''.c; G''.d; G''.e + G''.f bundled). Conservative
-estimate: 5-7 days of focused work (similar to G').
+Originally estimated: ~1100 lines of solver code + ~700 lines
+of tests + ~33 tests, distributed across ~7 mergeable PRs
+(G''.0; G''.a; G''.b.1; G''.b.2; G''.c; G''.d; G''.e + G''.f
+bundled). Conservative estimate: 5-7 days of focused work
+(similar to G').
+
+**Shipped (G''.0 + G''.a + G''.b.1 + G''.b.2):** 17 of the
+~33 planned tests; 4 of the 7 PRs. **Remaining (G''.c +
+G''.d + G''.e + G''.f bundled):** ~3 PRs, ~16 tests, 2-3
+days estimated based on G' / G actuals.
 
 Risk concentrated in:
 
 - **No F.3-equivalent per-element oracle for G''.b.1**. The
   six-test suite pins the matrix structurally (sparsity,
   finiteness, Bessel-scaling, layer=formation cross-check) but
-  not entry-by-entry as G/G' did. Mitigation: write the
-  transcription very carefully against `_modal_determinant_n2`'s
-  formulas; rely on G''.c / G''.d / G''.e for the
-  determinant-level checks. Optional follow-up: a F.3 plan that
-  hand-codes the single-extra-layer 10x10 with per-row
+  not entry-by-entry as G/G' did. Mitigation: the G''.a.2 row
+  map (cross-checked numerically against
+  ``_layer_e_matrix_n2``) and the G''.a.6 collapse-algebra
+  proof (``c_layer_I = 0``, ``c_layer_K = c_form_K``) give
+  paper-side oracles G/G' lacked; G''.c / G''.d / G''.e add
+  determinant-level checks. Optional follow-up: a F.3 plan
+  that hand-codes the single-extra-layer 10x10 with per-row
   builders, then retrofits G''.b.1 with per-element oracles
   (~600 lines + 25 tests).
-- **n=2 Bessel-function scaling at low frequencies**. ``I_2(p
-  r)`` is small near ``p r = 0`` (proportional to ``p r``
-  squared), making the I-flavour columns of E(r) small near
-  ``r = a``. Conditioning of ``E(r_inner)`` may degrade
-  slightly compared to n=0/1. The state-vector round-trip
-  oracle in G''.b.2 catches the practical impact.
+- **n=2 Bessel-function scaling at low frequencies.**
+  Quantified in G''.a.5: ``cond(E_n2)`` reaches ~3e18 at 1
+  kHz vs ~1e13 for ``cond(E_n0)`` (small-``p r`` blowup), and
+  ~3e17 at 20 kHz across all orders (large-``p r``
+  exponential split). The state-vector round-trip oracle in
+  G''.b.2 sidesteps the worst cases by working in the
+  well-conditioned coordinate system; the G''.b.2 ``rtol``
+  budget recommended in G''.a.5 is ``1e-8`` at <= 12 kHz and
+  ``1e-6`` at 12-20 kHz.
 - **LWD-band parameter selection**. The quadrupole cutoff
   shifts with the cased-hole geometry; the G''.d smoke band
   may need tuning to stay above the cased-cutoff while
@@ -732,18 +743,30 @@ Risk concentrated in:
 
 ## Execution order
 
-1. **G''.0** (foundation: introduce
+Done:
+
+1. ✅ **G''.0** (foundation: introduce
    `quadrupole_dispersion_layered` API surface) -- anchors the
    floating-point regression test (`layers=()` ≡ unlayered).
-2. **G''.a** (math scaffolding) -- comments only; pins the n=2
-   ansatz, Bessel-index shift, and 6x6 E_n2(r) transcription.
-3. **G''.b.1** (E_n2(r) helper) -- structural oracles plus
+2. ✅ **G''.a** (math scaffolding) -- comments only; pins the
+   n=2 ansatz, Bessel-index shift, and 6x6 E_n2(r)
+   transcription.
+3. ✅ **G''.b.1** (E_n2(r) helper) -- structural oracles plus
    layer=formation cross-check vs unlayered `_modal_determinant_n2`.
-4. **G''.b.2** (propagator) -- group-law oracles via state-
-   vector identities (mirrors G.b.2 / G'.b.2).
-5. **G''.c** (stacked determinant) -- N=0 dispatch + layer=
-   formation N=1 root match + multi-layer collapse oracles.
-6. **G''.d** (public-API hook + multi-layer regression) -- first
-   physically-meaningful G'' output.
-7. **G''.e** (hardening + LWD cement-bond physics).
-8. **G''.f** (docs).
+4. ✅ **G''.b.2** (propagator) -- group-law oracles via
+   state-vector identities (mirrors G.b.2 / G'.b.2).
+
+Remaining:
+
+5. ⏳ **G''.c** (stacked determinant) -- N=0 dispatch +
+   layer=formation N=1 root match + multi-layer collapse
+   oracles. Implements the 10x10 assembly per G''.a.4 and
+   verifies the determinant relation
+   ``det(M_10) = det(E_form(b)) * det(M_4)`` from G''.a.6.
+6. ⏳ **G''.d** (public-API hook + multi-layer regression) --
+   first physically-meaningful G'' output. Replaces the
+   `NotImplementedError` raise in
+   `quadrupole_dispersion_layered` with a brentq loop.
+7. ⏳ **G''.e** (hardening + LWD cement-bond physics --
+   directional prediction in the plan, sign pinned by test).
+8. ⏳ **G''.f** (docs).
