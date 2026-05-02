@@ -9,7 +9,13 @@ is a cross-cutting validation deliverable.
 
 **Status snapshot.** A, B, C, D, E, F, G (n=0 Stoneley), G'
 (n=1 cased-hole flexural), G'' (n=2 cased-hole quadrupole),
-H — ✅ DONE. Remaining: I (validation notebook).
+H — ✅ DONE. **I (validation notebook) — partial:** the
+notebook scaffolding ships at
+[`docs/notebooks/cylindrical_biot_validation.ipynb`](../notebooks/cylindrical_biot_validation.ipynb)
+with five sections producing the fwap dispersion curves, plus
+TODO overlay cells that auto-render once digitised reference
+CSVs land in `docs/notebooks/_data/`. The 5 % RMS-deviation
+gate activates only after the first CSV.
 
 ## Existing scaffolding to reuse
 
@@ -389,7 +395,14 @@ after F because the matrix-bookkeeping practice transfers.
 
 ---
 
-## I. Validation notebook against published dispersion figures
+## I. Validation notebook against published dispersion figures — ⚠ partial
+
+**Status.** Notebook scaffolding (option B) shipped at
+[`docs/notebooks/cylindrical_biot_validation.ipynb`](../notebooks/cylindrical_biot_validation.ipynb)
+with one section per planned reference figure, each producing
+the fwap dispersion curve. Digitised overlays remain `TODO` --
+the per-figure CSVs in `docs/notebooks/_data/` are the
+remaining deliverable.
 
 **Why tractable.** Standalone deliverable; once any of A, B, D
 ship, the notebook compares the fwap output to the digitised
@@ -438,10 +451,12 @@ G'' n=2, H) shipped independently of the leaky-mode chain.
 Remaining items:
 
 - **I** — validation notebook against published dispersion
-  figures (Tang & Cheng 2004 fig 7.1 reproduction in particular,
-  flagged in the G.e / G'.e / G''.e plans). Standalone
-  deliverable; one figure per landed solver. Smallest, most
-  demo-friendly remaining item.
+  figures. Notebook scaffolding (option B) shipped at
+  `docs/notebooks/cylindrical_biot_validation.ipynb` with the
+  five planned sections producing fwap curves; digitising the
+  reference figures into `docs/notebooks/_data/*.csv` (and
+  flipping each section's TODO cell into a real overlay) is the
+  outstanding deliverable.
 - **Fast-formation cased-hole quadrupole** (deferred follow-up
   to G''). The unlayered n=2 already auto-dispatches between
   the bound and leaky variants; the cased-hole leaky variant
