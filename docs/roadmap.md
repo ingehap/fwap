@@ -106,7 +106,7 @@ A second sweep (after the docx pair `Paillet1991.docx` and
   `thomsen_gamma_from_logs(s_dipole, s_stoneley, rho, ...)`
   returning a `ThomsenGammaResult` with C44, C66, gamma per depth.
 - **Slow-formation Vs from low-frequency Stoneley
-  (`fwap.rockphysics`)**: `vs_from_stoneley_slow_formation(...)` is
+  (`fwap.stoneley`)**: `vs_from_stoneley_slow_formation(...)` is
   the primary sonic-only V_S estimator for the case where the
   formation has no S head wave on a monopole gather and
   pseudo-Rayleigh does not exist (V_S < V_fluid; Paillet & Cheng
@@ -305,7 +305,7 @@ shift into formation permeability, from Tang–Cheng–Toksöz (1991).
 
 *Starting point*: the observed slowness shift ``α_ST`` (dimensionless
 fractional shift vs a tight reference, already computed by
-:func:`fwap.rockphysics.stoneley_permeability_indicator`) and a set
+:func:`fwap.stoneley.stoneley_permeability_indicator`) and a set
 of Biot / fluid parameters.
 
 *Tang–Cheng–Toksöz (1991) simplified Biot-Rosenbaum*: at angular
@@ -340,7 +340,7 @@ independent permeability information — the real part
 Public API target:
 
 ```python
-fwap.rockphysics.stoneley_permeability_tang_cheng(
+fwap.stoneley.stoneley_permeability_tang_cheng(
     slowness_observed: np.ndarray,
     slowness_reference: np.ndarray | float,
     *,

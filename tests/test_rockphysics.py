@@ -195,7 +195,7 @@ def test_mixing_law_rejects_shape_mismatch():
 
 def test_stoneley_indicator_zero_on_tight_reference():
     """Observed == reference gives indicator 0."""
-    from fwap.rockphysics import stoneley_permeability_indicator
+    from fwap.stoneley import stoneley_permeability_indicator
 
     s_ref = 1.0 / 1400.0
     ind = stoneley_permeability_indicator(s_ref, s_ref)
@@ -204,7 +204,7 @@ def test_stoneley_indicator_zero_on_tight_reference():
 
 def test_stoneley_indicator_positive_for_slower_stoneley():
     """Permeable zone (larger observed slowness) gives positive indicator."""
-    from fwap.rockphysics import stoneley_permeability_indicator
+    from fwap.stoneley import stoneley_permeability_indicator
 
     s_ref = 1.0 / 1400.0
     s_perm = 1.05 * s_ref  # 5% slower = more permeable
@@ -214,7 +214,7 @@ def test_stoneley_indicator_positive_for_slower_stoneley():
 
 def test_stoneley_indicator_vector_input():
     """Array input produces a same-shape array output."""
-    from fwap.rockphysics import stoneley_permeability_indicator
+    from fwap.stoneley import stoneley_permeability_indicator
 
     s_ref = 1.0 / 1400.0
     observed = np.array([s_ref, 1.02 * s_ref, 1.1 * s_ref])
@@ -225,7 +225,7 @@ def test_stoneley_indicator_vector_input():
 
 def test_stoneley_indicator_per_depth_reference():
     """A per-depth reference baseline broadcasts elementwise."""
-    from fwap.rockphysics import stoneley_permeability_indicator
+    from fwap.stoneley import stoneley_permeability_indicator
 
     observed = np.array([7.0e-4, 7.1e-4, 7.2e-4])
     reference = np.array([7.0e-4, 7.0e-4, 7.0e-4])
@@ -237,7 +237,7 @@ def test_stoneley_indicator_rejects_non_positive():
     """Zero or negative slownesses raise ValueError."""
     import pytest
 
-    from fwap.rockphysics import stoneley_permeability_indicator
+    from fwap.stoneley import stoneley_permeability_indicator
 
     with pytest.raises(ValueError, match="observed"):
         stoneley_permeability_indicator(0.0, 7.0e-4)
@@ -287,7 +287,7 @@ def test_tc_round_trip_recovers_known_permeability():
     recovery to high precision. Profile mimics Tang & Cheng (2004)
     fig 5.3: tight limestone (~0.01-0.1 mD) bracketing a permeable
     bed (~1-2 darcy)."""
-    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    from fwap.stoneley import stoneley_permeability_tang_cheng
 
     s_ref = 1.0 / 1500.0
     phi = np.array([0.05, 0.05, 0.20, 0.30, 0.20, 0.05, 0.05])
@@ -324,7 +324,7 @@ def test_tc_recovers_tang_cheng_fig_5_3_orders_of_magnitude():
     """Recovered permeabilities span the expected darcy ranges from
     Tang & Cheng (2004) fig 5.3: tight ~0.01-0.1 mD, permeable
     ~1-2 darcy."""
-    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    from fwap.stoneley import stoneley_permeability_tang_cheng
 
     s_ref = 1.0 / 1500.0
     phi = np.array([0.05, 0.30, 0.05])
@@ -356,7 +356,7 @@ def test_tc_recovers_tang_cheng_fig_5_3_orders_of_magnitude():
 
 def test_tc_zero_shift_gives_zero_permeability():
     """Tight zone (s_obs = s_ref, alpha_ST = 0) gives kappa = 0."""
-    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    from fwap.stoneley import stoneley_permeability_tang_cheng
 
     s_ref = 1.0 / 1500.0
     kappa = stoneley_permeability_tang_cheng(
@@ -376,7 +376,7 @@ def test_tc_negative_shift_clipped_to_zero():
     """Negative slowness shift (observed faster than reference;
     noise-driven or imperfect tight-reference) clipped to kappa = 0
     rather than raising or returning negative permeability."""
-    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    from fwap.stoneley import stoneley_permeability_tang_cheng
 
     s_ref = 1.0 / 1500.0
     s_obs = s_ref * 0.99  # 1% faster than reference
@@ -397,7 +397,7 @@ def test_tc_out_of_model_returns_nan():
     """Slowness shift exceeding the model upper bound A = K_f/(2 K_phi)
     returns NaN (typical cause: open fractures requiring the Hornby
     aperture model rather than the Biot-Rosenbaum matrix model)."""
-    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    from fwap.stoneley import stoneley_permeability_tang_cheng
 
     s_ref = 1.0 / 1500.0
     A = TC_K_F / (2.0 * TC_K_PHI)
@@ -423,7 +423,7 @@ def test_tc_recovered_kappa_monotonic_in_shift():
     """Larger fractional slowness shift produces larger recovered
     permeability across a representative band (within the model's
     valid alpha_ST range)."""
-    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    from fwap.stoneley import stoneley_permeability_tang_cheng
 
     s_ref = 1.0 / 1500.0
     A = TC_K_F / (2.0 * TC_K_PHI)
@@ -453,7 +453,7 @@ def test_tc_rejects_non_positive_scalar_inputs():
     """Each of frequency, K_f, eta, rho_f rejected when non-positive."""
     import pytest
 
-    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    from fwap.stoneley import stoneley_permeability_tang_cheng
 
     base = dict(
         slowness_observed=np.array([1.0e-3]),
@@ -479,7 +479,7 @@ def test_tc_rejects_unphysical_porosity():
     """Porosity must be strictly in (0, 1)."""
     import pytest
 
-    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    from fwap.stoneley import stoneley_permeability_tang_cheng
 
     s_obs = np.array([1.0e-3])
     s_ref = 1.0 / 1500.0
@@ -512,7 +512,7 @@ def test_tc_rejects_non_positive_slowness():
     """Slowness inputs must be strictly positive."""
     import pytest
 
-    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    from fwap.stoneley import stoneley_permeability_tang_cheng
 
     base_kwargs = dict(
         frequency=TC_FREQ,
@@ -534,7 +534,7 @@ def test_tc_rejects_non_positive_slowness():
 
 def test_tc_output_shape_matches_input():
     """Output array shape matches the (broadcast) input shape."""
-    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    from fwap.stoneley import stoneley_permeability_tang_cheng
 
     s_obs = np.array([1.05, 1.10, 1.15, 1.20]) / 1500.0
     s_ref = 1.0 / 1500.0
@@ -556,7 +556,7 @@ def test_tc_output_shape_matches_input():
 def test_tc_returns_si_units_m_squared():
     """Output should be in m^2 (SI), with magnitudes in the 1e-17
     to 1e-12 range for typical sonic Stoneley measurements."""
-    from fwap.rockphysics import stoneley_permeability_tang_cheng
+    from fwap.stoneley import stoneley_permeability_tang_cheng
 
     s_ref = 1.0 / 1500.0
     A = TC_K_F / (2.0 * TC_K_PHI)
@@ -582,7 +582,7 @@ def test_tc_returns_si_units_m_squared():
 
 def test_stoneley_amplitude_indicator_zero_at_reference_amplitude():
     """A_obs == A_ref gives indicator = 0 (no fracture/permeability flagged)."""
-    from fwap.rockphysics import stoneley_amplitude_fracture_indicator
+    from fwap.stoneley import stoneley_amplitude_fracture_indicator
 
     a_ref = 1.2
     ind = stoneley_amplitude_fracture_indicator(a_ref, a_ref)
@@ -591,7 +591,7 @@ def test_stoneley_amplitude_indicator_zero_at_reference_amplitude():
 
 def test_stoneley_amplitude_indicator_positive_when_observed_attenuated():
     """Lower observed amplitude -> positive indicator (fractured / permeable)."""
-    from fwap.rockphysics import stoneley_amplitude_fracture_indicator
+    from fwap.stoneley import stoneley_amplitude_fracture_indicator
 
     ind = stoneley_amplitude_fracture_indicator(
         amplitude_observed=0.6, amplitude_reference=1.0
@@ -602,7 +602,7 @@ def test_stoneley_amplitude_indicator_positive_when_observed_attenuated():
 
 def test_stoneley_amplitude_indicator_negative_when_amplified():
     """A_obs > A_ref gives a negative indicator (rare; resonance / SNR)."""
-    from fwap.rockphysics import stoneley_amplitude_fracture_indicator
+    from fwap.stoneley import stoneley_amplitude_fracture_indicator
 
     ind = stoneley_amplitude_fracture_indicator(
         amplitude_observed=1.2, amplitude_reference=1.0
@@ -612,7 +612,7 @@ def test_stoneley_amplitude_indicator_negative_when_amplified():
 
 def test_stoneley_amplitude_indicator_handles_zero_observed():
     """A_obs = 0 (total attenuation) -> indicator = 1 (max fracture flag)."""
-    from fwap.rockphysics import stoneley_amplitude_fracture_indicator
+    from fwap.stoneley import stoneley_amplitude_fracture_indicator
 
     ind = stoneley_amplitude_fracture_indicator(0.0, 1.0)
     assert ind == 1.0
@@ -622,7 +622,7 @@ def test_stoneley_amplitude_indicator_vector_input():
     """Vectorised: same shape, element-wise formula."""
     import numpy as np
 
-    from fwap.rockphysics import stoneley_amplitude_fracture_indicator
+    from fwap.stoneley import stoneley_amplitude_fracture_indicator
 
     observed = np.array([1.0, 0.8, 0.5, 0.2])
     ref = 1.0
@@ -634,7 +634,7 @@ def test_stoneley_amplitude_indicator_per_depth_reference():
     """A per-depth reference baseline gives an element-wise fractional deficit."""
     import numpy as np
 
-    from fwap.rockphysics import stoneley_amplitude_fracture_indicator
+    from fwap.stoneley import stoneley_amplitude_fracture_indicator
 
     observed = np.array([1.0, 0.7, 0.4])
     reference = np.array([1.0, 1.0, 0.8])
@@ -644,7 +644,7 @@ def test_stoneley_amplitude_indicator_per_depth_reference():
 
 def test_stoneley_amplitude_indicator_rejects_negative_observed():
     """Negative observed amplitude is not physical."""
-    from fwap.rockphysics import stoneley_amplitude_fracture_indicator
+    from fwap.stoneley import stoneley_amplitude_fracture_indicator
 
     with pytest.raises(ValueError, match="observed"):
         stoneley_amplitude_fracture_indicator(-0.1, 1.0)
@@ -652,7 +652,7 @@ def test_stoneley_amplitude_indicator_rejects_negative_observed():
 
 def test_stoneley_amplitude_indicator_rejects_non_positive_reference():
     """Zero or negative reference would divide-by-zero or flip the sign."""
-    from fwap.rockphysics import stoneley_amplitude_fracture_indicator
+    from fwap.stoneley import stoneley_amplitude_fracture_indicator
 
     with pytest.raises(ValueError, match="reference"):
         stoneley_amplitude_fracture_indicator(0.5, 0.0)
@@ -667,7 +667,7 @@ def test_stoneley_amplitude_indicator_rejects_non_positive_reference():
 
 def test_stoneley_reflection_coefficient_basic():
     """|R| = |A_r| / |A_i|, clipped to [0, 1]."""
-    from fwap.rockphysics import stoneley_reflection_coefficient
+    from fwap.stoneley import stoneley_reflection_coefficient
 
     R = stoneley_reflection_coefficient(amplitude_incident=1.0, amplitude_reflected=0.3)
     assert R == pytest.approx(0.3)
@@ -675,7 +675,7 @@ def test_stoneley_reflection_coefficient_basic():
 
 def test_stoneley_reflection_coefficient_clips_to_unit_interval():
     """Noisy estimates can drift > 1; clip to keep |R| physical."""
-    from fwap.rockphysics import stoneley_reflection_coefficient
+    from fwap.stoneley import stoneley_reflection_coefficient
 
     R = stoneley_reflection_coefficient(1.0, 1.05)
     assert R == 1.0
@@ -685,7 +685,7 @@ def test_stoneley_reflection_coefficient_takes_absolute_value():
     """Sign of incident / reflected is irrelevant."""
     import numpy as np
 
-    from fwap.rockphysics import stoneley_reflection_coefficient
+    from fwap.stoneley import stoneley_reflection_coefficient
 
     R = stoneley_reflection_coefficient(np.array([-1.0, 1.0]), np.array([0.4, -0.4]))
     np.testing.assert_allclose(R, [0.4, 0.4])
@@ -693,7 +693,7 @@ def test_stoneley_reflection_coefficient_takes_absolute_value():
 
 def test_stoneley_reflection_coefficient_rejects_zero_incident():
     """Division by zero is not allowed."""
-    from fwap.rockphysics import stoneley_reflection_coefficient
+    from fwap.stoneley import stoneley_reflection_coefficient
 
     with pytest.raises(ValueError, match="amplitude_incident"):
         stoneley_reflection_coefficient(0.0, 0.5)
@@ -701,7 +701,7 @@ def test_stoneley_reflection_coefficient_rejects_zero_incident():
 
 def test_hornby_aperture_zero_R_gives_zero_aperture():
     """A non-reflecting depth has no fracture, so aperture = 0."""
-    from fwap.rockphysics import hornby_fracture_aperture
+    from fwap.stoneley import hornby_fracture_aperture
 
     L = hornby_fracture_aperture(
         reflection_coefficient=0.0, frequency_hz=2000.0, stoneley_velocity=1400.0
@@ -713,7 +713,7 @@ def test_hornby_aperture_round_trips_through_forward_model():
     """Plant L0, build |R|, recover L0 to floating-point precision."""
     import numpy as np
 
-    from fwap.rockphysics import hornby_fracture_aperture
+    from fwap.stoneley import hornby_fracture_aperture
 
     f = 2000.0
     Vt = 1400.0
@@ -729,7 +729,7 @@ def test_hornby_aperture_small_amplitude_matches_full_for_small_R():
     """Small-amplitude approximation < 5% off the full form for |R| <= 0.3."""
     import numpy as np
 
-    from fwap.rockphysics import hornby_fracture_aperture
+    from fwap.stoneley import hornby_fracture_aperture
 
     R = np.linspace(0.01, 0.30, 10)
     f, Vt = 2000.0, 1400.0
@@ -745,7 +745,7 @@ def test_hornby_aperture_diverges_at_unit_reflection():
     """|R| -> 1 saturates the inversion at +inf."""
     import numpy as np
 
-    from fwap.rockphysics import hornby_fracture_aperture
+    from fwap.stoneley import hornby_fracture_aperture
 
     L = hornby_fracture_aperture(1.0, 2000.0, 1400.0)
     assert np.isinf(L)
@@ -755,7 +755,7 @@ def test_hornby_aperture_vector_inputs_broadcast():
     """Per-fracture |R| array gives a per-fracture aperture array."""
     import numpy as np
 
-    from fwap.rockphysics import hornby_fracture_aperture
+    from fwap.stoneley import hornby_fracture_aperture
 
     R = np.array([0.0, 0.1, 0.2, 0.3])
     L = hornby_fracture_aperture(R, frequency_hz=2000.0, stoneley_velocity=1400.0)
@@ -767,7 +767,7 @@ def test_hornby_aperture_vector_inputs_broadcast():
 
 def test_hornby_aperture_rejects_R_out_of_range():
     """Reflection coefficient outside [0, 1] is unphysical."""
-    from fwap.rockphysics import hornby_fracture_aperture
+    from fwap.stoneley import hornby_fracture_aperture
 
     with pytest.raises(ValueError, match="reflection_coefficient"):
         hornby_fracture_aperture(-0.1, 2000.0, 1400.0)
@@ -777,7 +777,7 @@ def test_hornby_aperture_rejects_R_out_of_range():
 
 def test_hornby_aperture_rejects_non_positive_frequency_or_velocity():
     """f and V_T must be strictly positive."""
-    from fwap.rockphysics import hornby_fracture_aperture
+    from fwap.stoneley import hornby_fracture_aperture
 
     with pytest.raises(ValueError, match="frequency_hz"):
         hornby_fracture_aperture(0.3, 0.0, 1400.0)
@@ -790,7 +790,7 @@ def test_hornby_aperture_round_trips_through_write_las(tmp_path):
     import numpy as np
 
     from fwap.io import read_las, write_las
-    from fwap.rockphysics import hornby_fracture_aperture
+    from fwap.stoneley import hornby_fracture_aperture
 
     n = 5
     depth = np.linspace(1000.0, 1004.0, n)
@@ -808,7 +808,7 @@ def test_stoneley_amplitude_indicator_complements_slowness_indicator():
     """Both indicators agree on which depths are fractured / permeable."""
     import numpy as np
 
-    from fwap.rockphysics import (
+    from fwap.stoneley import (
         stoneley_amplitude_fracture_indicator,
         stoneley_permeability_indicator,
     )
@@ -1022,7 +1022,7 @@ def test_gassmann_rejects_dry_stiffer_than_mineral():
 
 def test_vs_from_stoneley_round_trips_through_white_formula():
     """Plant V_S, build matching Stoneley slowness, recover V_S exactly."""
-    from fwap.rockphysics import vs_from_stoneley_slow_formation
+    from fwap.stoneley import vs_from_stoneley_slow_formation
 
     rho_f, v_f = 1000.0, 1500.0
     rho = 2200.0
@@ -1037,7 +1037,7 @@ def test_vs_from_stoneley_works_in_fast_formation_too():
     """Formula is general; the 'slow_formation' name is a use-case label.
     A planted fast-formation V_S round-trips just as cleanly.
     """
-    from fwap.rockphysics import vs_from_stoneley_slow_formation
+    from fwap.stoneley import vs_from_stoneley_slow_formation
 
     rho_f, v_f = 1000.0, 1500.0
     rho = 2400.0
@@ -1050,7 +1050,7 @@ def test_vs_from_stoneley_works_in_fast_formation_too():
 
 def test_vs_from_stoneley_vector_input_broadcasts():
     """Per-depth Stoneley slowness + density -> per-depth V_S."""
-    from fwap.rockphysics import vs_from_stoneley_slow_formation
+    from fwap.stoneley import vs_from_stoneley_slow_formation
 
     rho_f, v_f = 1000.0, 1500.0
     Vs_planted = np.array([800.0, 1100.0, 1400.0])
@@ -1065,7 +1065,7 @@ def test_vs_from_stoneley_vector_input_broadcasts():
 def test_vs_from_stoneley_consistent_with_c66_helper():
     """Vs == sqrt(C66 / rho) with C66 from anisotropy.stoneley_horizontal_shear_modulus."""
     from fwap.anisotropy import stoneley_horizontal_shear_modulus
-    from fwap.rockphysics import vs_from_stoneley_slow_formation
+    from fwap.stoneley import vs_from_stoneley_slow_formation
 
     rho_f, v_f = 1000.0, 1500.0
     rho = 2200.0
@@ -1079,7 +1079,7 @@ def test_vs_from_stoneley_consistent_with_c66_helper():
 
 def test_vs_from_stoneley_rejects_slowness_below_fluid_slowness():
     """Stoneley slowness <= fluid slowness is unphysical."""
-    from fwap.rockphysics import vs_from_stoneley_slow_formation
+    from fwap.stoneley import vs_from_stoneley_slow_formation
 
     rho_f, v_f = 1000.0, 1500.0
     s_f = 1.0 / v_f
@@ -1091,7 +1091,7 @@ def test_vs_from_stoneley_rejects_slowness_below_fluid_slowness():
 
 def test_vs_from_stoneley_rejects_non_positive_inputs():
     """All inputs must be strictly positive."""
-    from fwap.rockphysics import vs_from_stoneley_slow_formation
+    from fwap.stoneley import vs_from_stoneley_slow_formation
 
     with pytest.raises(ValueError, match="rho_fluid"):
         vs_from_stoneley_slow_formation(8.0e-4, 2200.0, rho_fluid=0.0, v_fluid=1500.0)
@@ -1105,7 +1105,7 @@ def test_vs_from_stoneley_rejects_non_positive_inputs():
 
 def test_vs_from_stoneley_lower_when_formation_softer():
     """At fixed Stoneley slowness, lower density -> higher Vs (mu fixed)."""
-    from fwap.rockphysics import vs_from_stoneley_slow_formation
+    from fwap.stoneley import vs_from_stoneley_slow_formation
 
     rho_f, v_f = 1000.0, 1500.0
     s_st = 8.0e-4  # 1250 m/s tube wave -- typical slow formation
@@ -1126,7 +1126,7 @@ def test_vs_from_stoneley_lower_when_formation_softer():
 
 def test_fd_zero_indicators_give_zero_score():
     """Tight zone (all indicators at zero) gives score = 0."""
-    from fwap.rockphysics import stoneley_fracture_density
+    from fwap.stoneley import stoneley_fracture_density
 
     fi = stoneley_fracture_density(
         slowness_indicator=np.zeros(5),
@@ -1137,7 +1137,7 @@ def test_fd_zero_indicators_give_zero_score():
 
 def test_fd_score_in_unit_interval():
     """Score is always clipped to [0, 1]."""
-    from fwap.rockphysics import stoneley_fracture_density
+    from fwap.stoneley import stoneley_fracture_density
 
     rng = np.random.default_rng(0)
     n = 30
@@ -1151,7 +1151,7 @@ def test_fd_score_in_unit_interval():
 def test_fd_slowness_only_contributes_with_default_weights():
     """With default weights and only slowness_indicator supplied,
     the score reduces to ``clip(0.5 * alpha_s / 0.1, 0, 1)``."""
-    from fwap.rockphysics import stoneley_fracture_density
+    from fwap.stoneley import stoneley_fracture_density
 
     alpha_s = np.array([0.0, 0.05, 0.10, 0.20, 0.30])
     fi = stoneley_fracture_density(alpha_s)
@@ -1162,7 +1162,7 @@ def test_fd_slowness_only_contributes_with_default_weights():
 def test_fd_amplitude_only_path():
     """Score is ``0.5 * alpha_a`` clipped when only amplitude
     indicator is supplied (slowness defaulted to zeros)."""
-    from fwap.rockphysics import stoneley_fracture_density
+    from fwap.stoneley import stoneley_fracture_density
 
     alpha_a = np.array([0.0, 0.2, 0.5, 0.8, 1.0])
     fi = stoneley_fracture_density(
@@ -1178,7 +1178,7 @@ def test_fd_matrix_partitioning_suppresses_matrix_only_zones():
     kappa (matrix-explained) get the slowness contribution
     suppressed; depths with NaN kappa (matrix model failed) keep
     the full slowness contribution."""
-    from fwap.rockphysics import stoneley_fracture_density
+    from fwap.stoneley import stoneley_fracture_density
 
     alpha_s = np.array([0.05, 0.05, 0.05])
     alpha_a = np.array([0.0, 0.0, 0.0])
@@ -1199,7 +1199,7 @@ def test_fd_aperture_term_saturates_with_tanh():
     """Aperture contribution saturates via tanh: a 1 mm aperture
     contributes ~0.5*tanh(1) ~ 0.38 with default settings; 5 mm
     saturates near 0.5*tanh(5) ~ 0.5."""
-    from fwap.rockphysics import stoneley_fracture_density
+    from fwap.stoneley import stoneley_fracture_density
 
     alpha_s = np.zeros(3)
     alpha_a = np.zeros(3)
@@ -1217,7 +1217,7 @@ def test_fd_aperture_term_saturates_with_tanh():
 def test_fd_aperture_default_weight_zero_means_no_contribution():
     """Default ``aperture_weight=0.0`` means the aperture term
     contributes zero, even when ``fracture_aperture`` is supplied."""
-    from fwap.rockphysics import stoneley_fracture_density
+    from fwap.stoneley import stoneley_fracture_density
 
     alpha_s = np.zeros(2)
     alpha_a = np.zeros(2)
@@ -1232,7 +1232,7 @@ def test_fd_aperture_default_weight_zero_means_no_contribution():
 def test_fd_aperture_with_nan_treated_as_no_contribution():
     """NaN apertures (no Hornby reflection coefficient available)
     contribute zero; finite apertures contribute via tanh."""
-    from fwap.rockphysics import stoneley_fracture_density
+    from fwap.stoneley import stoneley_fracture_density
 
     fi = stoneley_fracture_density(
         slowness_indicator=np.zeros(2),
@@ -1248,7 +1248,7 @@ def test_fd_aperture_with_nan_treated_as_no_contribution():
 def test_fd_combined_score_increases_with_each_indicator():
     """Increasing any one indicator (others held fixed) must not
     decrease the score. Partial-monotonicity check."""
-    from fwap.rockphysics import stoneley_fracture_density
+    from fwap.stoneley import stoneley_fracture_density
 
     base = stoneley_fracture_density(
         slowness_indicator=np.array([0.05]),
@@ -1270,7 +1270,7 @@ def test_fd_rejects_negative_weights():
     """Negative weights raise ValueError."""
     import pytest
 
-    from fwap.rockphysics import stoneley_fracture_density
+    from fwap.stoneley import stoneley_fracture_density
 
     alpha_s = np.array([0.05])
     with pytest.raises(ValueError, match="slowness_weight"):
@@ -1285,7 +1285,7 @@ def test_fd_rejects_non_positive_scales():
     """Zero or negative scales raise ValueError."""
     import pytest
 
-    from fwap.rockphysics import stoneley_fracture_density
+    from fwap.stoneley import stoneley_fracture_density
 
     alpha_s = np.array([0.05])
     with pytest.raises(ValueError, match="slowness_scale"):
@@ -1299,7 +1299,7 @@ def test_fd_rejects_shape_mismatch():
     raise ValueError."""
     import pytest
 
-    from fwap.rockphysics import stoneley_fracture_density
+    from fwap.stoneley import stoneley_fracture_density
 
     alpha_s = np.array([0.05, 0.10])
     with pytest.raises(ValueError, match="amplitude_indicator"):

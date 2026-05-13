@@ -35,14 +35,15 @@ the book.
 +---------------------+----------------------------------------------------+--------------------------------+
 | (extension)         | Elastic moduli from Vp, Vs, rho;                   | :mod:`fwap.rockphysics`        |
 |                     | Reuss / Voigt / Hill mixing; Gassmann fluid        |                                |
-|                     | substitution; **four-tool Stoneley fracture /      |                                |
-|                     | permeability suite**: slowness indicator,          |                                |
-|                     | amplitude indicator, Tang-Cheng-Toksoz quantitative|                                |
-|                     | matrix-permeability inversion, Hornby (1989)       |                                |
-|                     | aperture inversion + a unified                     |                                |
-|                     | :func:`stoneley_fracture_density` combiner;        |                                |
-|                     | slow-formation Vs from low-frequency Stoneley      |                                |
-|                     | phase velocity                                     |                                |
+|                     | substitution                                       |                                |
++---------------------+----------------------------------------------------+--------------------------------+
+| (extension)         | **Four-tool Stoneley fracture / permeability       | :mod:`fwap.stoneley`           |
+|                     | suite**: slowness indicator, amplitude indicator,  |                                |
+|                     | Tang-Cheng-Toksoz quantitative matrix-permeability |                                |
+|                     | inversion, Hornby (1989) aperture inversion + a    |                                |
+|                     | unified :func:`stoneley_fracture_density`          |                                |
+|                     | combiner; slow-formation Vs from low-frequency     |                                |
+|                     | Stoneley phase velocity                            |                                |
 +---------------------+----------------------------------------------------+--------------------------------+
 | (extension)         | **Geomechanics drilling-decision pipeline** on top | :mod:`fwap.geomechanics`       |
 |                     | of :class:`~fwap.rockphysics.ElasticModuli`:       |                                |

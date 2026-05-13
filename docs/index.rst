@@ -32,10 +32,10 @@ literature:
   (slowness indicator, amplitude indicator, Tang-Cheng-Toksoz
   quantitative matrix-permeability inversion, Hornby et al. (1989)
   reflection-coefficient fracture-aperture inversion) plus a
-  :func:`~fwap.rockphysics.stoneley_fracture_density` combiner that
+  :func:`~fwap.stoneley.stoneley_fracture_density` combiner that
   mixes them into a unified per-depth fracture-intensity score, and
   a slow-formation Vs estimator from the low-frequency Stoneley
-  phase velocity (:mod:`fwap.rockphysics`);
+  phase velocity (:mod:`fwap.rockphysics`, :mod:`fwap.stoneley`);
 * a complete geomechanics layer on top of
   :class:`~fwap.rockphysics.ElasticModuli`: Rickman brittleness /
   fracability index, Eaton uniaxial-strain closure stress, Lacy
