@@ -130,6 +130,50 @@ A second sweep (after the docx pair `Paillet1991.docx` and
   worked-example demo. **Not** a layered cylindrical-Biot solver
   (still flagged as Open item A below).
 
+A third sweep was a maintenance pass: behaviour-preserving module
+splits and helper consolidations driven by the in-repo
+`IMPROVEMENTS.md` and a code-quality review. No public-API changes;
+every `from fwap import …` resolves to the same object as before.
+
+- **`fwap.stoneley` split out of `fwap.rockphysics`**: the seven
+  Stoneley-wave petrophysical estimators (the four-tool fracture /
+  permeability suite plus `vs_from_stoneley_slow_formation`) move
+  into a dedicated module. `fwap.rockphysics` shrinks from 1374 to
+  428 LoC and now contains only elastic-moduli core +
+  Gassmann / Reuss / Voigt / Hill mixing.
+- **`fwap.picker` becomes a package**: 2260-LoC monolith → six
+  submodules (`_types`, `greedy`, `viterbi`, `posterior`, `shape`,
+  `quality`) with the joint-Viterbi trellis primitives shared
+  between `viterbi.py` and `posterior.py`. Largest submodule is
+  676 LoC.
+- **`fwap.geomechanics` becomes a package**: 2197-LoC monolith →
+  four submodules (`indices`, `pressures`, `vertical`, `inclined`).
+  Sole cross-submodule dependency is `inclined.py` importing
+  `MudWeightWindow` from `vertical.py`.
+- **Helper consolidations**: `m_per_s_to_us_per_ft(v)` in
+  `fwap._common` replaces six inline `1.0e6 / v * 0.3048`
+  expressions in `cli.py` / `demos.py`; private `_mohr_coulomb_q`
+  (in `fwap.geomechanics.vertical`) labels the
+  `(1+sin(phi))/(1-sin(phi))` stress ratio used by both the
+  vertical and inclined breakout calculators; private
+  `_principal_stresses_at_pw` (in `fwap.geomechanics.inclined`)
+  composes `inclined_wellbore_wall_stresses` with
+  `_wall_principal_stresses` for a single candidate mud pressure,
+  shared by both `inclined_breakout_pressure` and
+  `inclined_breakdown_pressure`.
+- **Test repairs**: the six `test_dispersion_matches_golden[…]`
+  characterisation cases were drifting 1-5 ULPs against goldens
+  captured on an older SciPy; the comparison is now `rtol=1e-12`
+  with the NaN-mask still checked exactly (a real refactor
+  regression would show drift orders of magnitude larger). The
+  `test_semblance_scale_invariant` hypothesis strategy no longer
+  explores inputs whose squares flush to subnormal float64. Both
+  fixes are in the test layer; no implementation behaviour
+  changed.
+- **`.gitignore`**: the standard Python build / cache artifact
+  set, which an editable install + `pytest` run would otherwise
+  leave as untracked noise in `git status`.
+
 ## Open items
 
 ### A. Full cylindrical-Biot dispersion solver

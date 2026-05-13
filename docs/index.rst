@@ -77,7 +77,7 @@ literature:
 
    quickstart
    chapter_map
-   notebooks/workflow
+   notebooks/cylindrical_biot_validation
    api
    roadmap
    changelog

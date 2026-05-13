@@ -6,6 +6,55 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Refactored
+- **``fwap.rockphysics`` split**: the seven Stoneley-wave petrophysical
+  estimators (slowness / amplitude permeability indicators,
+  Tang-Cheng-Toksoz inversion, Hornby aperture, the
+  ``stoneley_fracture_density`` combiner, and the slow-formation
+  ``vs_from_stoneley_slow_formation``) move into a new
+  :mod:`fwap.stoneley` module. ``fwap.rockphysics`` shrinks from
+  1374 to 428 LoC and now contains only elastic-moduli core plus
+  Gassmann / Reuss / Voigt / Hill. Public API is preserved via the
+  package re-exports in ``fwap/__init__.py``; ``from fwap import
+  stoneley_permeability_indicator`` etc. still resolves.
+- **``fwap.picker`` package**: the 2260-LoC monolith becomes a
+  six-submodule package (``_types``, ``greedy``, ``viterbi``,
+  ``posterior``, ``shape``, ``quality``) with the shared trellis
+  primitives in ``viterbi.py`` and ``posterior.py`` importing them.
+  Largest submodule is 676 LoC.
+- **``fwap.geomechanics`` package**: the 2197-LoC monolith becomes
+  a four-submodule package (``indices``, ``pressures``, ``vertical``,
+  ``inclined``); the sole cross-submodule dependency is
+  ``inclined.py`` importing ``MudWeightWindow`` from ``vertical.py``.
+- **Helper consolidations**: new ``m_per_s_to_us_per_ft`` in
+  :mod:`fwap._common` replaces six inline ``1.0e6 / v * 0.3048``
+  expressions in ``cli.py`` / ``demos.py``. New private
+  ``_mohr_coulomb_q`` (in ``fwap.geomechanics.vertical``) labels the
+  ``(1+sin(phi))/(1-sin(phi))`` stress ratio used by both the
+  vertical and inclined breakout calculators. New private
+  ``_principal_stresses_at_pw`` (in ``fwap.geomechanics.inclined``)
+  composes ``inclined_wellbore_wall_stresses`` with
+  ``_wall_principal_stresses`` for a single candidate mud pressure,
+  shared by ``inclined_breakout_pressure`` and
+  ``inclined_breakdown_pressure``.
+
+### Fixed
+- **Cylindrical-solver characterisation test now tolerates SciPy
+  rounding**: the six ``test_dispersion_matches_golden[…]`` cases
+  were drifting 1-5 ULPs (max relative error ~1e-15) on
+  SciPy 1.17 against goldens captured on an older SciPy -- pure
+  IEEE round-off in ``scipy.optimize.brentq`` /
+  ``scipy.special``, not a regression. Loosened the comparison
+  from ``np.array_equal`` to ``np.allclose(rtol=1e-12)`` while
+  still asserting the NaN-mask is preserved exactly.
+- **``test_semblance_scale_invariant`` hypothesis strategy** no
+  longer explores inputs whose squares flush to subnormal
+  float64. Below ~1.5e-150 the squared sums in
+  :func:`fwap.coherence.semblance` underflow and the scale
+  identity ``semblance(alpha * x) == semblance(x)`` breaks for
+  purely numerical reasons; the strategy now keeps ``|x|`` above
+  that threshold (with zero still explicitly allowed).
+
 ### Changed
 - **``quadrupole_dispersion`` now auto-dispatches to a fast-formation
   path when ``V_S > V_f``** (Roadmap A, plan item E in
