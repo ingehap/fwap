@@ -28,7 +28,13 @@ Modules outside the scope of the 1994 book (added for completeness):
 * :mod:`fwap.attenuation` -- Q from array sonic (Quan & Harris, 1997;
                               Bath, 1974)
 * :mod:`fwap.rockphysics` -- elastic moduli (K, mu, E, nu) from
-                              Vp, Vs, rho
+                              Vp, Vs, rho; Gassmann fluid
+                              substitution; Reuss/Voigt/Hill averages
+* :mod:`fwap.stoneley`    -- Stoneley-wave estimators: permeability
+                              indicators (Tang & Cheng 1996),
+                              fracture indicators / aperture (Hornby
+                              et al. 1989), slow-formation V_S
+                              inversion
 * :mod:`fwap.cylindrical` -- Rayleigh-speed surface-wave
                               calculation and a physics-grounded
                               flexural-mode dispersion law
@@ -204,15 +210,21 @@ from fwap.rockphysics import (
     elastic_moduli,
     gassmann_fluid_substitution,
     hill_average,
-    hornby_fracture_aperture,
     reuss_average,
+    voigt_average,
+    vp_vs_ratio,
+)
+
+# Stoneley-wave petrophysical estimators (permeability, fracture,
+# slow-formation V_S). Split out of fwap.rockphysics because they form
+# a self-contained sub-workflow distinct from the elastic-moduli core.
+from fwap.stoneley import (
+    hornby_fracture_aperture,
     stoneley_amplitude_fracture_indicator,
     stoneley_fracture_density,
     stoneley_permeability_indicator,
     stoneley_permeability_tang_cheng,
     stoneley_reflection_coefficient,
-    voigt_average,
-    vp_vs_ratio,
     vs_from_stoneley_slow_formation,
 )
 

@@ -55,6 +55,31 @@ def test_semblance_in_unit_interval(window):
     assert -1.0e-9 <= rho <= 1.0 + 1.0e-9
 
 
+# Floor on |x| that keeps x**2 above the float64 underflow threshold
+# (smallest normal ~2.2e-308, so |x| >= ~1.5e-154 is safe). Below this
+# the squared sums in ``semblance`` flush to subnormals and the
+# stack-power / trace-power ratio loses scale invariance for purely
+# numerical reasons. Zero is still allowed: an all-zero window is
+# documented to return NaN, which the test already handles.
+_SEMBLANCE_UNDERFLOW_FLOOR = 1.0e-150
+
+_semblance_safe_floats = st.one_of(
+    st.just(0.0),
+    st.floats(
+        min_value=_SEMBLANCE_UNDERFLOW_FLOOR,
+        max_value=100.0,
+        allow_nan=False,
+        allow_infinity=False,
+    ),
+    st.floats(
+        min_value=-100.0,
+        max_value=-_SEMBLANCE_UNDERFLOW_FLOOR,
+        allow_nan=False,
+        allow_infinity=False,
+    ),
+)
+
+
 @_FAST
 @given(
     window=arrays(
@@ -63,12 +88,7 @@ def test_semblance_in_unit_interval(window):
             st.integers(min_value=2, max_value=8),
             st.integers(min_value=4, max_value=32),
         ),
-        elements=st.floats(
-            min_value=-100.0,
-            max_value=100.0,
-            allow_nan=False,
-            allow_infinity=False,
-        ),
+        elements=_semblance_safe_floats,
     ),
     alpha=st.floats(
         min_value=1.0e-3,

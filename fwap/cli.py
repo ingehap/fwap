@@ -32,7 +32,7 @@ from typing import Callable
 import numpy as np
 
 from fwap import demos as _demos
-from fwap._common import US_PER_FT, logger
+from fwap._common import US_PER_FT, logger, m_per_s_to_us_per_ft
 
 _DEMOS: dict[str, Callable[..., None]] = {
     "stc": _demos.demo_stc_picker,
@@ -309,9 +309,9 @@ def _cmd_process(argv: list[str]) -> int:
     from fwap.rockphysics import elastic_moduli
 
     curves = {
-        "DTP": 1.0e6 / vp * 0.3048,
-        "DTS": 1.0e6 / vs * 0.3048,
-        "DTST": 1.0e6 / vst * 0.3048,
+        "DTP": m_per_s_to_us_per_ft(vp),
+        "DTS": m_per_s_to_us_per_ft(vs),
+        "DTST": m_per_s_to_us_per_ft(vst),
         "VPVS": vp / vs,
         "COHP": cohp,
         "COHS": cohs,

@@ -9,6 +9,18 @@ import numpy as np
 # 1 microsecond per foot in seconds per metre (exact).
 US_PER_FT: float = 1.0e-6 / 0.3048
 
+
+def m_per_s_to_us_per_ft(v: np.ndarray | float) -> np.ndarray | float:
+    """Convert a velocity in m/s to a slowness in us/ft.
+
+    Inverse of multiplying by :data:`US_PER_FT`. Used by the LAS / DLIS
+    writers (CLI + demos) which emit slowness logs in the borehole-
+    acoustic unit ``us/ft`` while every other interface in the package
+    speaks SI seconds per metre.
+    """
+    return 1.0 / (v * US_PER_FT)
+
+
 # Package-wide logger. Every module that wants to log should import
 # this rather than calling ``logging.getLogger("fwap")`` directly, so
 # that the name is fixed in one place.

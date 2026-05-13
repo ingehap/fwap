@@ -18,6 +18,7 @@ book.
    fwap.anisotropy
    fwap.attenuation
    fwap.rockphysics
+   fwap.stoneley
    fwap.geomechanics
    fwap.cylindrical
    fwap.cylindrical_solver

@@ -189,7 +189,7 @@ _FWAP_UNITS: Mapping[str, str] = {
     "VSV": "m/s",  # Vertical shear velocity
     "VSH": "m/s",  # Horizontal shear velocity (Stoneley-derived)
     # Stoneley reflection / fracture-aperture inversion
-    # (fwap.rockphysics.hornby_fracture_aperture).
+    # (fwap.stoneley.hornby_fracture_aperture).
     "RFRAC": "",  # Stoneley reflection coefficient |R|
     "FAPER": "m",  # Hornby et al. 1989 fracture aperture
 }
