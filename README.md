@@ -1,7 +1,5 @@
 # fwap -- Full-Waveform Acoustic Processing
 
-[![CI](https://github.com/ingehap/B_Mari_Full-Waveform-Acoustic-Data-Processing/actions/workflows/ci.yml/badge.svg)](https://github.com/ingehap/B_Mari_Full-Waveform-Acoustic-Data-Processing/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/ingehap/B_Mari_Full-Waveform-Acoustic-Data-Processing/branch/main/graph/badge.svg)](https://codecov.io/gh/ingehap/B_Mari_Full-Waveform-Acoustic-Data-Processing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Python implementation of the algorithms described in
@@ -15,25 +13,28 @@ Python implementation of the algorithms described in
 The book picks four borehole-acoustic problems and works each one
 through from a raw multichannel waveform to a log curve a petrophysicist
 can actually use. This repository provides a modern NumPy/SciPy
-implementation of the four chapter algorithms, plus two extensions
-(cross-dipole anisotropy and Q attenuation).
+implementation of the four chapter algorithms plus an extension layer
+covering the post-1994 borehole-acoustic literature: cross-dipole and
+VTI anisotropy, Stoneley-derived petrophysics, a geomechanics
+drilling-decision pipeline, the cylindrical-Biot modal solver, an LWD
+acquisition layer, and LAS / DLIS / SEG-Y log-format I/O.
 
 ## Chapter-to-module map
 
 | Book part | Topic | Module(s) |
 |-----------|-------|-----------|
-| Part 1 | AI picking of waves on full-waveform acoustic data | [`fwap.coherence`](fwap/coherence.py), [`fwap.picker`](fwap/picker.py) |
+| Part 1 | AI picking of waves on full-waveform acoustic data | [`fwap.coherence`](fwap/coherence.py), [`fwap.picker`](fwap/picker/) |
 | Part 2 | Wave separation in acoustic well logging            | [`fwap.wavesep`](fwap/wavesep.py) |
 | Part 3 | Intercept-time inversion + dipole-flexural processing | [`fwap.tomography`](fwap/tomography.py), [`fwap.dispersion`](fwap/dispersion.py) |
 | Part 4 | Dip measurement based on acoustic data               | [`fwap.dip`](fwap/dip.py) |
-| (extension) | Cross-dipole Alford rotation + Thomsen γ        | [`fwap.anisotropy`](fwap/anisotropy.py) |
+| (extension) | Cross-dipole Alford rotation, Thomsen γ, Backus average, qP / qSV / SH velocity surfaces | [`fwap.anisotropy`](fwap/anisotropy.py) |
 | (extension) | Q from array sonic                              | [`fwap.attenuation`](fwap/attenuation.py) |
-| (extension) | Elastic moduli from Vp, Vs, rho + Stoneley indicators / Hornby aperture | [`fwap.rockphysics`](fwap/rockphysics.py) |
-| (extension) | Geomechanics indices (BI / fracability / UCS / closure stress) | [`fwap.geomechanics`](fwap/geomechanics.py) |
-| (extension) | LWD collar rejection + quadrupole stack         | [`fwap.lwd`](fwap/lwd.py) |
-| (extension) | LAS read / write                                | [`fwap.io.read_las` / `write_las`](fwap/io.py) |
-| (extension) | DLIS read / write                               | [`fwap.io.read_dlis` / `write_dlis`](fwap/io.py) |
-| (extension) | SEG-Y waveform read                             | [`fwap.io.read_segy`](fwap/io.py) |
+| (extension) | Elastic moduli (K, μ, E, ν), Reuss / Voigt / Hill mixing, Gassmann fluid substitution | [`fwap.rockphysics`](fwap/rockphysics.py) |
+| (extension) | Stoneley-wave permeability / fracture indicators, Tang-Cheng-Toksoz inversion, Hornby aperture, slow-formation V<sub>s</sub> | [`fwap.stoneley`](fwap/stoneley.py) |
+| (extension) | Geomechanics drilling-decision pipeline: indices, pore pressure (Eaton / Bowers), vertical and inclined wellbore stability | [`fwap.geomechanics`](fwap/geomechanics/) |
+| (extension) | Cylindrical-Biot modal solver: n=0 Stoneley, n=1 flexural, n=2 quadrupole (bound + leaky) | [`fwap.cylindrical`](fwap/cylindrical.py), [`fwap.cylindrical_solver`](fwap/cylindrical_solver/) |
+| (extension) | LWD collar rejection + quadrupole-ring stack    | [`fwap.lwd`](fwap/lwd.py) |
+| (extension) | LAS / DLIS / SEG-Y log-format I/O               | [`fwap.io`](fwap/io.py) |
 
 Helpers: [`fwap.synthetic`](fwap/synthetic.py) (canonical test gathers),
 [`fwap.demos`](fwap/demos.py) (one worked example per chapter),
@@ -96,7 +97,7 @@ geom = ArrayGeometry(n_rec=8, tr_offset=3.0, dr=0.1524, dt=1.0e-5)
 data = synthesize_gather(geom, monopole_formation_modes())
 surface = stc(data, dt=geom.dt, offsets=geom.offsets,
               window_length=4.0e-4)
-picks = pick_modes(surface)           # {"P": ..., "S": ..., "Stoneley": ...}
+picks = pick_modes(surface)   # dict keyed by mode name (P / S / PseudoRayleigh / Stoneley)
 ```
 
 ## Documentation
@@ -108,15 +109,11 @@ pip install -e .[docs]
 sphinx-build -b html docs docs/_build/html
 ```
 
-The docs include an end-to-end Jupyter notebook
-([`docs/notebooks/workflow.ipynb`](docs/notebooks/workflow.ipynb))
-that walks through synthesise → process → pick → derive moduli →
-write LAS → read back in ~30 lines of library code.
-
-The CI workflow builds the same docs on every push; a `docs-html`
-artifact is uploaded on the Actions page. A `.readthedocs.yaml` is
-included so the repository can be connected to ReadTheDocs without
-further configuration.
+Pre-built PDF snapshots of the full manual and per-section subsets
+live in [`docs/`](docs/); see [`docs/quickstart.rst`](docs/quickstart.rst)
+for the list. A Jupyter notebook validating the cylindrical-Biot
+modal solver against published oracle values lives at
+[`docs/notebooks/cylindrical_biot_validation.ipynb`](docs/notebooks/cylindrical_biot_validation.ipynb).
 
 ## Tests
 
