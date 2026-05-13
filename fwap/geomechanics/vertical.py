@@ -25,6 +25,19 @@ from dataclasses import dataclass
 import numpy as np
 
 
+def _mohr_coulomb_q(friction_angle_deg: float) -> float:
+    r"""Mohr-Coulomb stress-ratio :math:`q = (1+\sin\phi)/(1-\sin\phi)`.
+
+    Shared by :func:`mohr_coulomb_breakout_pressure` and
+    :func:`fwap.geomechanics.inclined.inclined_breakout_pressure`.
+    Caller is responsible for validating ``friction_angle_deg`` is in
+    ``(-90, 90)``.
+    """
+    phi = np.deg2rad(friction_angle_deg)
+    sin_phi = np.sin(phi)
+    return float((1.0 + sin_phi) / (1.0 - sin_phi))
+
+
 def kirsch_wall_stresses(
     sigma_v: np.ndarray,
     sigma_H: np.ndarray,
@@ -285,9 +298,7 @@ def mohr_coulomb_breakout_pressure(
     Pp = np.asarray(pore_pressure, dtype=float)
     UCS = np.asarray(ucs, dtype=float)
 
-    phi = np.deg2rad(friction_angle_deg)
-    sin_phi = np.sin(phi)
-    q = (1.0 + sin_phi) / (1.0 - sin_phi)
+    q = _mohr_coulomb_q(friction_angle_deg)
 
     return (3.0 * sH - sh + (q - 1.0) * biot_alpha * Pp - UCS) / (1.0 + q)
 

@@ -29,7 +29,7 @@ from typing import Callable
 
 import numpy as np
 
-from fwap._common import US_PER_FT, logger
+from fwap._common import US_PER_FT, logger, m_per_s_to_us_per_ft
 from fwap.anisotropy import alford_rotation
 from fwap.attenuation import centroid_frequency_shift_Q, spectral_ratio_Q
 from fwap.coherence import STCResult, stc
@@ -1290,9 +1290,9 @@ def demo_las_roundtrip(figdir: str = "figures", show: bool = False) -> None:
     moduli = elastic_moduli(vp=vp, vs=vs, rho=rho)
 
     curves = {
-        "DTP": 1.0e6 / vp * 0.3048,  # us/ft
-        "DTS": 1.0e6 / vs * 0.3048,
-        "DTST": 1.0e6 / vst * 0.3048,
+        "DTP": m_per_s_to_us_per_ft(vp),
+        "DTS": m_per_s_to_us_per_ft(vs),
+        "DTST": m_per_s_to_us_per_ft(vst),
         "VPVS": vp / vs,
         "K": moduli.k,
         "MU": moduli.mu,
@@ -1389,9 +1389,9 @@ def demo_dlis_roundtrip(figdir: str = "figures", show: bool = False) -> None:
     moduli = elastic_moduli(vp=vp, vs=vs, rho=rho)
 
     curves = {
-        "DTP": 1.0e6 / vp * 0.3048,  # us/ft
-        "DTS": 1.0e6 / vs * 0.3048,
-        "DTST": 1.0e6 / vst * 0.3048,
+        "DTP": m_per_s_to_us_per_ft(vp),
+        "DTS": m_per_s_to_us_per_ft(vs),
+        "DTST": m_per_s_to_us_per_ft(vst),
         "VPVS": vp / vs,
         "K": moduli.k,
         "MU": moduli.mu,

@@ -26,7 +26,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.optimize import brentq
 
-from fwap.geomechanics.vertical import MudWeightWindow
+from fwap.geomechanics.vertical import MudWeightWindow, _mohr_coulomb_q
 
 
 def _stress_rotation_to_well_frame(
@@ -241,6 +241,41 @@ def _wall_principal_stresses(
     return sigma_r, half_sum + disc, half_sum - disc
 
 
+def _principal_stresses_at_pw(
+    P_w: float,
+    *,
+    sigma_v: float,
+    sigma_H: float,
+    sigma_h: float,
+    well_inclination_deg: float,
+    well_azimuth_deg: float,
+    azimuth_around_wall_deg: np.ndarray,
+    poisson: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compose :func:`inclined_wellbore_wall_stresses` with
+    :func:`_wall_principal_stresses` for a single candidate mud
+    pressure.
+
+    Returned arrays are ``(sigma_r, lambda_plus, lambda_minus)`` at
+    each wall azimuth, before any effective-stress correction; the
+    caller applies ``- alpha * P_p`` itself. Shared by
+    :func:`inclined_breakout_pressure` (which uses all three
+    eigenvalues) and :func:`inclined_breakdown_pressure` (which
+    needs only ``lambda_minus``).
+    """
+    s_t, s_z, s_tz, s_r = inclined_wellbore_wall_stresses(
+        sigma_v,
+        sigma_H,
+        sigma_h,
+        well_inclination_deg=well_inclination_deg,
+        well_azimuth_deg=well_azimuth_deg,
+        azimuth_around_wall_deg=azimuth_around_wall_deg,
+        mud_pressure=P_w,
+        poisson=poisson,
+    )
+    return _wall_principal_stresses(s_t, s_z, s_tz, s_r)
+
+
 def inclined_breakout_pressure(
     sigma_v: float,
     sigma_H: float,
@@ -339,24 +374,21 @@ def inclined_breakout_pressure(
     if n_azimuth < 8:
         raise ValueError("n_azimuth must be at least 8")
 
-    phi = np.deg2rad(friction_angle_deg)
-    sin_phi = np.sin(phi)
-    q = (1.0 + sin_phi) / (1.0 - sin_phi)
+    q = _mohr_coulomb_q(friction_angle_deg)
     alpha_Pp = biot_alpha * pore_pressure
     azimuths = np.linspace(0.0, 360.0, n_azimuth, endpoint=False)
 
     def phi_max(P_w: float) -> float:
-        s_t, s_z, s_tz, s_r = inclined_wellbore_wall_stresses(
-            sigma_v,
-            sigma_H,
-            sigma_h,
+        sr, l_p, l_m = _principal_stresses_at_pw(
+            P_w,
+            sigma_v=sigma_v,
+            sigma_H=sigma_H,
+            sigma_h=sigma_h,
             well_inclination_deg=well_inclination_deg,
             well_azimuth_deg=well_azimuth_deg,
             azimuth_around_wall_deg=azimuths,
-            mud_pressure=P_w,
             poisson=poisson,
         )
-        sr, l_p, l_m = _wall_principal_stresses(s_t, s_z, s_tz, s_r)
         principal = np.stack([sr - alpha_Pp, l_p - alpha_Pp, l_m - alpha_Pp])
         sigma_1 = np.max(principal, axis=0)
         sigma_3 = np.min(principal, axis=0)
@@ -494,17 +526,16 @@ def inclined_breakdown_pressure(
         easily negative) and would not match the standard
         Hubbert-Willis fracture-initiation interpretation.
         """
-        s_t, s_z, s_tz, s_r = inclined_wellbore_wall_stresses(
-            sigma_v,
-            sigma_H,
-            sigma_h,
+        _, _, l_m = _principal_stresses_at_pw(
+            P_w,
+            sigma_v=sigma_v,
+            sigma_H=sigma_H,
+            sigma_h=sigma_h,
             well_inclination_deg=well_inclination_deg,
             well_azimuth_deg=well_azimuth_deg,
             azimuth_around_wall_deg=azimuths,
-            mud_pressure=P_w,
             poisson=poisson,
         )
-        _, _, l_m = _wall_principal_stresses(s_t, s_z, s_tz, s_r)
         # Worst-azimuth most-tensile eigenvalue of the (theta, z)
         # sub-block, after effective-stress correction.
         sigma_3 = float(np.min(l_m)) - alpha_Pp
