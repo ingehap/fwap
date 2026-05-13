@@ -1,5 +1,5 @@
 """
-Bit-exact characterisation regression for ``fwap.cylindrical_solver``.
+Numerical-characterisation regression for ``fwap.cylindrical_solver``.
 
 This test pins the numerical output of every public dispersion
 function on a small canonical fixture grid (slow & fast formation,
@@ -8,12 +8,20 @@ The expected outputs live in ``tests/data/cylindrical_solver_golden.npz``
 and were captured from the pre-refactor monolithic
 ``fwap/cylindrical_solver.py``.
 
-The test is the bit-exactness gate for the cylindrical_solver
-refactoring sequence laid out in the plan that introduced this
-file (Phase 0). Phase 1 splits the 14 kLoC monolith into a
-package; Phases 2-4 unify duplicated row-builder, E-matrix /
+The test is the near-bit-exact regression gate for the
+cylindrical_solver refactoring sequence laid out in the plan that
+introduced this file (Phase 0). Phase 1 splits the 14 kLoC monolith
+into a package; Phases 2-4 unify duplicated row-builder, E-matrix /
 propagator, and modal-determinant families. None of those phases
-may change the values pinned here.
+may change the values pinned here beyond a few ULPs.
+
+Comparison is ``rtol=1e-12`` with the NaN mask checked exactly. The
+slack (vs. bit-identity) absorbs last-ULP round-off differences
+between SciPy releases inside the declared dependency range -- the
+root-finders (``brentq`` / Mueller) and Bessel routines in
+``scipy.special`` are not guaranteed to be bit-stable across minor
+versions. A real refactor regression would be orders of magnitude
+above this tolerance.
 
 To regenerate the golden file (do this only when the change is
 genuinely physics-modifying and intentional, e.g. a bug fix in a
@@ -178,31 +186,47 @@ def golden() -> dict[str, np.ndarray]:
         return {key: data[key].copy() for key in data.files}
 
 
+# Refactor regressions show up orders of magnitude above this; the
+# slack only absorbs last-ULP differences between SciPy releases.
+_GOLDEN_RTOL = 1.0e-12
+
+
+def _assert_matches_golden(
+    label: str, actual: np.ndarray, expected: np.ndarray
+) -> None:
+    """Compare an array against its golden, preserving the NaN mask exactly."""
+    assert actual.shape == expected.shape, (
+        f"{label}: shape changed ({actual.shape} vs {expected.shape})"
+    )
+    nan_actual = np.isnan(actual)
+    nan_expected = np.isnan(expected)
+    assert np.array_equal(nan_actual, nan_expected), (
+        f"{label}: NaN mask changed (cutoff structure of the mode drifted)"
+    )
+    finite = ~nan_expected
+    assert np.allclose(actual[finite], expected[finite], rtol=_GOLDEN_RTOL, atol=0.0), (
+        f"{label}: array drifted beyond rtol={_GOLDEN_RTOL:.0e}; "
+        "either the refactor changed numerical behaviour (forbidden) "
+        "or the golden file needs an intentional regeneration."
+    )
+
+
 @pytest.mark.parametrize("label", list(_CASES))
 def test_dispersion_matches_golden(label: str, golden: dict[str, np.ndarray]) -> None:
-    """Each public dispersion function reproduces its golden output exactly.
+    """Each public dispersion function reproduces its golden output.
 
-    Bit-exact comparison via ``np.array_equal`` (NaN-aware), to make
-    this the strictest possible regression gate for the upcoming
-    refactoring phases. NaN entries (frequencies where the bracket
-    failed) are intentionally part of the contract -- they encode
-    the cutoff structure of each mode.
+    NaN entries (frequencies where the bracket failed) are part of the
+    contract -- they encode the cutoff structure of each mode -- so the
+    NaN mask is compared exactly. Finite entries are compared with
+    ``rtol=1e-12`` to absorb last-ULP round-off variation between SciPy
+    releases inside the declared dependency range.
     """
     expected_slow = golden[f"{label}__slowness"]
     expected_atten = golden.get(f"{label}__atten")
 
     mode = _CASES[label]()
     actual_slow = np.asarray(mode.slowness, dtype=float)
-
-    assert actual_slow.shape == expected_slow.shape, (
-        f"{label}: slowness shape changed "
-        f"({actual_slow.shape} vs {expected_slow.shape})"
-    )
-    assert np.array_equal(actual_slow, expected_slow, equal_nan=True), (
-        f"{label}: slowness array drifted from golden values; "
-        "either the refactor changed numerical behaviour (forbidden) "
-        "or the golden file needs an intentional regeneration."
-    )
+    _assert_matches_golden(f"{label} slowness", actual_slow, expected_slow)
 
     if expected_atten is None:
         assert mode.attenuation_per_meter is None, (
@@ -213,9 +237,7 @@ def test_dispersion_matches_golden(label: str, golden: dict[str, np.ndarray]) ->
             f"{label}: lost an attenuation array that was present in the golden file"
         )
         actual_atten = np.asarray(mode.attenuation_per_meter, dtype=float)
-        assert np.array_equal(actual_atten, expected_atten, equal_nan=True), (
-            f"{label}: attenuation array drifted from golden values"
-        )
+        _assert_matches_golden(f"{label} attenuation", actual_atten, expected_atten)
 
 
 def test_golden_covers_all_public_dispersion_functions() -> None:
