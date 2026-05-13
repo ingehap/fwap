@@ -1,0 +1,44 @@
+# Byte-compiled / packaged Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# Tooling caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.tox/
+.nox/
+.hypothesis/
+
+# Coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Demo output directory referenced by the README
+figures/
+
+# Sphinx build artifacts
+docs/_build/
+docs/generated/
