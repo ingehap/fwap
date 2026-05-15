@@ -6,6 +6,26 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Continuous integration**: ``.github/workflows/ci.yml`` runs ruff
+  (lint + format check), mypy, the public-API guard, and pytest on
+  Python 3.11 and 3.12 for every push to ``main`` and every pull
+  request. Concurrent runs on the same ref are cancelled.
+- **Public-API guard**: ``scripts/check_public_api.py`` asserts that
+  every name in a sealed frozen list is still exposed on the top-level
+  ``fwap`` package. Step 0 of the planned module-splitting refactor;
+  it catches accidental drops from ``fwap/__init__.py``'s re-export
+  list when modules move into subpackages. Update the
+  ``FROZEN_PUBLIC_API`` tuple in the same commit when a public name is
+  intentionally added or removed.
+
+### Fixed
+- **``CONTRIBUTING.md``** referenced the wrong clone URL and non-existent
+  ``[io,segy]`` install extras; the documented ``pip install -e
+  ".[dev,docs]"`` invocation now matches what ``pyproject.toml``
+  actually defines. The "CI runs..." paragraph now matches the
+  workflow that just landed.
+
 ### Refactored
 - **``fwap.rockphysics`` split**: the seven Stoneley-wave petrophysical
   estimators (slowness / amplitude permeability indicators,

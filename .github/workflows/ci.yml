@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same PR / branch to save minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The package declares `requires-python = ">=3.9"`, but 3.9 is past
+        # upstream EOL (Oct 2025) and IMPROVEMENTS.md plans dropping it.
+        # CI exercises the versions we actually intend to support; the 3.9
+        # drop happens in its own PR.
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff lint
+        run: ruff check fwap/ tests/ scripts/
+
+      - name: Ruff format check
+        run: ruff format --check fwap/ tests/ scripts/
+
+      - name: Mypy
+        run: mypy fwap
+
+      - name: Public-API guard
+        run: python scripts/check_public_api.py
+
+      - name: Pytest
+        # The bench suite is excluded by pyproject.toml's addopts.
+        run: pytest -x
