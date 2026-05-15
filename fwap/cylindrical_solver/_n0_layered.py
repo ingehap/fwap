@@ -520,7 +520,7 @@ def _layered_n0_row1_at_a(
     I1_sm_a = float(special.iv(1, s_m * a))
     K1_sm_a = float(special.kv(1, s_m * a))
 
-    row = np.zeros(7, dtype=complex)
+    row: np.ndarray = np.zeros(7, dtype=complex)
     row[0] = F_f * I1_Ff_a / (rho_f * omega**2)  # A column
     row[1] = -p_m * I1_pm_a  # B_I column
     row[2] = +p_m * K1_pm_a  # B_K column
@@ -648,7 +648,7 @@ def _layered_n0_row2_at_a(
     kSm2 = (omega / layer.vs) ** 2
     two_kz2_minus_kSm2 = 2.0 * kz * kz - kSm2
 
-    row = np.zeros(7, dtype=complex)
+    row: np.ndarray = np.zeros(7, dtype=complex)
     # A column: fluid pressure -P^{(f)}(a) = -A I_0(F_f a).
     row[0] = -I0_Ff_a
     # B_I column: annulus P, regular branch. Sign on the I_1 term
@@ -803,7 +803,7 @@ def _layered_n0_row3_at_a(
     kSm2 = (omega / layer.vs) ** 2
     two_kz2_minus_kSm2 = 2.0 * kz * kz - kSm2
 
-    row = np.zeros(7, dtype=complex)
+    row: np.ndarray = np.zeros(7, dtype=complex)
     # A column: fluid carries no shear; identically zero.
     row[0] = 0.0
     # B_I column (post-rescale; row-by-i flips the +i*R to -R).
@@ -944,7 +944,7 @@ def _layered_n0_row4_at_b(
     K1_p_b = float(special.kv(1, p * b))
     K1_s_b = float(special.kv(1, s * b))
 
-    row = np.zeros(7, dtype=complex)
+    row: np.ndarray = np.zeros(7, dtype=complex)
     # A column: fluid is at r < a; doesn't reach r = b.
     row[0] = 0.0
     # B_I column (annulus P, regular branch).
@@ -1091,7 +1091,7 @@ def _layered_n0_row5_at_b(
     K0_p_b = float(special.kv(0, p * b))
     K0_s_b = float(special.kv(0, s * b))
 
-    row = np.zeros(7, dtype=complex)
+    row: np.ndarray = np.zeros(7, dtype=complex)
     # A column: fluid is at r < a; doesn't reach r = b.
     row[0] = 0.0
     # B_I column (post-rescale; row*i flips +i*R to -R).
@@ -1242,7 +1242,7 @@ def _layered_n0_row6_at_b(
     kS2 = (omega / vs) ** 2
     two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
 
-    row = np.zeros(7, dtype=complex)
+    row: np.ndarray = np.zeros(7, dtype=complex)
     # A column: fluid is at r < a; doesn't reach r = b.
     row[0] = 0.0
     # B_I column (annulus P, regular branch).
@@ -1390,7 +1390,7 @@ def _layered_n0_row7_at_b(
     kS2 = (omega / vs) ** 2
     two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
 
-    row = np.zeros(7, dtype=complex)
+    row: np.ndarray = np.zeros(7, dtype=complex)
     # A column: fluid carries no shear and doesn't reach r = b.
     row[0] = 0.0
     # B_I column (post-rescale; row*i flips +i*R to -R).

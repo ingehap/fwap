@@ -1447,11 +1447,13 @@ def _modal_determinant_n1_cased(
     def _formation_at_b(state_row: int) -> tuple[float, float, float]:
         """3 formation K-flavour entries (B_form_K = E[:,1],
         C_form_K = E[:,3], D_form_K = E[:,5]); negated for the
-        m - s subtraction convention."""
+        m - s subtraction convention. The destination matrix ``M`` is
+        real-dtype and the values are real-valued by physics, so the
+        ``.real`` extraction is safe and silences ``ComplexWarning``."""
         return (
-            -E_form_b[state_row, 1],  # B_form
-            -E_form_b[state_row, 3],  # C_form
-            -E_form_b[state_row, 5],  # D_form
+            -float(E_form_b[state_row, 1].real),  # B_form
+            -float(E_form_b[state_row, 3].real),  # C_form
+            -float(E_form_b[state_row, 5].real),  # D_form
         )
 
     # State-row mapping at r=b: BC5..10 -> state rows 0, 2, 1, 3, 5, 4.
@@ -2155,11 +2157,13 @@ def _modal_determinant_n2_cased(
     def _formation_at_b(state_row: int) -> tuple[float, float, float]:
         """3 formation K-flavour entries (B_form_K = E[:,1],
         C_form_K = E[:,3], D_form_K = E[:,5]); negated for the
-        m - s subtraction convention."""
+        m - s subtraction convention. The destination matrix ``M`` is
+        real-dtype and the values are real-valued by physics, so the
+        ``.real`` extraction is safe and silences ``ComplexWarning``."""
         return (
-            -E_form_b[state_row, 1],  # B_form
-            -E_form_b[state_row, 3],  # C_form
-            -E_form_b[state_row, 5],  # D_form
+            -float(E_form_b[state_row, 1].real),  # B_form
+            -float(E_form_b[state_row, 3].real),  # C_form
+            -float(E_form_b[state_row, 5].real),  # D_form
         )
 
     # State-row mapping at r=b: BC5..10 -> state rows 0, 2, 1, 3, 5, 4.
@@ -2251,7 +2255,7 @@ def _layer_e_matrix_n2_complex(
     kS2 = (omega / vs) ** 2
     two_kz2_minus_kS2 = 2.0 * kz_c * kz_c - kS2
 
-    E = np.zeros((6, 6), dtype=complex)
+    E: np.ndarray = np.zeros((6, 6), dtype=complex)
     # Row 0: u_r
     E[0, 0] = +p * I1_p - 2.0 * I2_p / r
     E[0, 1] = -p * K1_p - 2.0 * K2_p / r
@@ -2450,7 +2454,7 @@ def _modal_determinant_n2_cased_complex(
     # sigma_r_theta; cols B_form, C_form, D_form). Mirrors the
     # K-flavour cols of _layer_e_matrix_n2 with the layer's
     # ``r=b``, ``vp_form, vs_form, rho_form``.
-    E_form_b = np.zeros((6, 3), dtype=complex)
+    E_form_b: np.ndarray = np.zeros((6, 3), dtype=complex)
     # Col 0: B_form (P scalar, K-flavour)
     E_form_b[0, 0] = -p_form * K1pb - 2.0 * K2pb / b
     E_form_b[1, 0] = -kz_c * K2pb
@@ -2484,7 +2488,7 @@ def _modal_determinant_n2_cased_complex(
     I1_Ff_a = complex(special.iv(1, F * a))
     I2_Ff_a = complex(special.iv(2, F * a))
 
-    M = np.zeros((10, 10), dtype=complex)
+    M: np.ndarray = np.zeros((10, 10), dtype=complex)
 
     # Rows 0-3 at r=a, fluid-layer interface.
     def _layer_at_a_c(state_row: int, sign: float) -> np.ndarray:

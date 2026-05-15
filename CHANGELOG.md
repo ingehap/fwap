@@ -25,6 +25,30 @@ the project uses [Semantic Versioning](https://semver.org/).
   ".[dev,docs]"`` invocation now matches what ``pyproject.toml``
   actually defines. The "CI runs..." paragraph now matches the
   workflow that just landed.
+- **Mypy backfill for the numpy-2.x stub migration**: the new CI
+  surfaced 45 latent mypy errors that the local "host" mypy had been
+  hiding (it ran in an isolated tool environment with no numpy
+  installed, so imports silently degraded to ``Any``). Fixed without
+  any runtime behaviour change:
+    - 37 ``[var-annotated]`` sites in ``fwap/cylindrical_solver/``
+      (``_cased.py``, ``_vti.py``, ``_n0_layered.py``,
+      ``_n1_layered.py``), ``fwap/lwd.py``, ``fwap/picker/quality.py``,
+      and ``fwap/demos.py`` get explicit ``np.ndarray`` annotations on
+      ``np.zeros``/``np.empty``/``np.full`` initializations.
+    - 6 ``[assignment]`` errors in ``fwap.geomechanics.vertical`` and
+      ``fwap.geomechanics.indices`` come from signatures like
+      ``mud_pressure: np.ndarray = 0.0`` that have always accepted
+      scalars or arrays; the annotation widens to ``float |
+      np.ndarray`` to match.
+    - 2 ``[return-value]`` errors in
+      ``fwap.cylindrical_solver._cased._formation_at_b`` come from a
+      ``-> tuple[float, float, float]`` annotation on a function that
+      indexes into a complex-dtype matrix. The matrix entries are
+      real-valued by physics and the destination matrix ``M`` is
+      real-dtype, so each value is wrapped in ``float(... .real)`` to
+      drop the zero imaginary part explicitly. This silences the
+      ``ComplexWarning`` that numpy previously emitted on each
+      assignment into ``M``.
 
 ### Refactored
 - **``fwap.rockphysics`` split**: the seven Stoneley-wave petrophysical

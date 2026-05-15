@@ -1101,7 +1101,7 @@ def _layered_n1_row3_at_a(
 
     mu_m = layer.rho * layer.vs * layer.vs
 
-    row = np.zeros(10, dtype=complex)
+    row: np.ndarray = np.zeros(10, dtype=complex)
     # A column: fluid carries no shear.
     row[0] = 0.0
     # B_I column (sign-flipped d_r-induced term).
@@ -1257,7 +1257,7 @@ def _layered_n1_row6_at_b(
     K1_p_b = float(special.kv(1, p * b))
     K1_s_b = float(special.kv(1, s * b))
 
-    row = np.zeros(10, dtype=complex)
+    row: np.ndarray = np.zeros(10, dtype=complex)
     # A column: fluid r<a; doesn't reach r=b.
     row[0] = 0.0
     # B_I column (annulus P, regular branch).
@@ -1400,7 +1400,7 @@ def _layered_n1_row9_at_b(
     mu_m = layer.rho * layer.vs * layer.vs
     mu = rho * vs * vs
 
-    row = np.zeros(10, dtype=complex)
+    row: np.ndarray = np.zeros(10, dtype=complex)
     # A column: fluid carries no shear; doesn't reach r=b.
     row[0] = 0.0
     # B_I (sign-flipped d_r-induced ``p_m I_0/b`` term).
@@ -1551,7 +1551,7 @@ def _layered_n1_row1_at_a(
     I1_sm_a = float(special.iv(1, s_m * a))
     K1_sm_a = float(special.kv(1, s_m * a))
 
-    row = np.zeros(10, dtype=complex)
+    row: np.ndarray = np.zeros(10, dtype=complex)
     # A column (matches M11 at layer=formation).
     row[0] = (F_f * I0_Ff_a - I1_Ff_a / a) / (rho_f * omega**2)
     # B_I column (sign-flipped d_r-induced ``p_m I_0`` term).
@@ -1690,7 +1690,7 @@ def _layered_n1_row2_at_a(
     kSm2 = (omega / layer.vs) ** 2
     two_kz2_minus_kSm2 = 2.0 * kz * kz - kSm2
 
-    row = np.zeros(10, dtype=complex)
+    row: np.ndarray = np.zeros(10, dtype=complex)
     # A column: -P^{(f)}(a) coefficient (matches M21 at layer=formation).
     row[0] = -I1_Ff_a
     # B_I column (sign-flipped d_r-induced ``2 p_m I_0/a`` term).
@@ -1856,7 +1856,7 @@ def _layered_n1_row4_at_a(
     kSm2 = (omega / layer.vs) ** 2
     two_kz2_minus_kSm2 = 2.0 * kz * kz - kSm2
 
-    row = np.zeros(10, dtype=complex)
+    row: np.ndarray = np.zeros(10, dtype=complex)
     # A column: fluid carries no shear.
     row[0] = 0.0
     # B_I column (post-rescale; sign-flipped bracket from I_1' = +I_0 - I_1/(p_m r)).
@@ -1993,7 +1993,7 @@ def _layered_n1_row5_at_b(
     K1_p_b = float(special.kv(1, p * b))
     K1_s_b = float(special.kv(1, s * b))
 
-    row = np.zeros(10, dtype=complex)
+    row: np.ndarray = np.zeros(10, dtype=complex)
     # A column: fluid r<a; doesn't reach r=b.
     row[0] = 0.0
     # B_I column (annulus; sign flip on p_m I_0 vs B_K's p_m K_0).
@@ -2148,7 +2148,7 @@ def _layered_n1_row7_at_b(
     K0_s_b = float(special.kv(0, s * b))
     K1_p_b = float(special.kv(1, p * b))
 
-    row = np.zeros(10, dtype=complex)
+    row: np.ndarray = np.zeros(10, dtype=complex)
     # A column: fluid r<a; doesn't reach r=b.
     row[0] = 0.0
     # B_I column (post-rescale; row * i flips +i k_z I_1 to -k_z I_1).
@@ -2304,7 +2304,7 @@ def _layered_n1_row8_at_b(
     kS2 = (omega / vs) ** 2
     two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
 
-    row = np.zeros(10, dtype=complex)
+    row: np.ndarray = np.zeros(10, dtype=complex)
     # A column: fluid r<a doesn't reach r=b.
     row[0] = 0.0
     # B_I (sign-flipped d_r-induced ``2 p_m I_0/b`` term).
@@ -2457,7 +2457,7 @@ def _layered_n1_row10_at_b(
     kS2 = (omega / vs) ** 2
     two_kz2_minus_kS2 = 2.0 * kz * kz - kS2
 
-    row = np.zeros(10, dtype=complex)
+    row: np.ndarray = np.zeros(10, dtype=complex)
     # A column: fluid carries no shear and doesn't reach r=b.
     row[0] = 0.0
     # B_I column (post-rescale; sign-flipped bracket from F.1.a.2).

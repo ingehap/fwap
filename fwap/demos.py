@@ -1156,7 +1156,7 @@ def demo_lwd(figdir: str = "figures", show: bool = False) -> None:
     tr_offset0 = 3.0
     n_samples = 2048
     dt = 1.0e-5
-    axial_traces = np.empty((n_axial, n_samples), dtype=float)
+    axial_traces: np.ndarray = np.empty((n_axial, n_samples), dtype=float)
     rings = []
     for k in range(n_axial):
         offset_k = tr_offset0 + k * dr

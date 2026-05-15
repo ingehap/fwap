@@ -303,7 +303,7 @@ def notch_slowness_band(
     # Cosine-tapered band-PASS mask (1 inside the notch, 0 outside).
     # We reconstruct the in-band component and subtract it from the
     # original data so out-of-grid slownesses pass through unchanged.
-    mask = np.zeros(n_slowness, dtype=float)
+    mask: np.ndarray = np.zeros(n_slowness, dtype=float)
     in_band = (slownesses >= slow_min) & (slownesses <= slow_max)
     mask[in_band] = 1.0
     if taper_width > 0:
@@ -464,7 +464,7 @@ def synthesize_quadrupole_lwd_gather(
     rng = np.random.default_rng(seed)
     t = np.arange(n_samples) * dt
     azimuths = np.linspace(0.0, 2.0 * np.pi, n_rec, endpoint=False)
-    axial_offsets = np.full(n_rec, tool_offset, dtype=float)
+    axial_offsets: np.ndarray = np.full(n_rec, tool_offset, dtype=float)
 
     # Per-receiver quadrupole modulation: amplitude = cos(2(theta - phi)).
     quadrupole_pattern = np.cos(2.0 * (azimuths - source_azimuth))
