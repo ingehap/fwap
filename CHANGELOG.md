@@ -51,6 +51,23 @@ the project uses [Semantic Versioning](https://semver.org/).
       assignment into ``M``.
 
 ### Refactored
+- **``fwap.io`` package**: the 762-LoC monolith splits cleanly by
+  file format into a four-submodule package. Public surface is
+  preserved via re-exports from ``fwap/io/__init__.py`` (and the
+  ``from fwap import read_las`` aliases continue to work unchanged).
+    - ``_common`` -- the ``_FWAP_UNITS`` mnemonic-to-unit map shared
+      by the LAS and DLIS writers.
+    - ``_las``    -- ``LasCurves``, ``read_las``, ``write_las``
+      (``lasio``).
+    - ``_dlis``   -- ``DlisCurves``, ``read_dlis``, ``write_dlis``
+      plus the DLIS-only helpers ``_suppress_fd``,
+      ``_DLIS_TO_LAS_WELL``, ``_LAS_TO_DLIS_WELL`` (``dlisio`` +
+      ``dliswriter``).
+    - ``_segy``   -- ``SegyGather``, ``read_segy``, ``write_segy``
+      (``segyio``).
+  Per-submodule import block pruned via ``ruff check --fix`` (32
+  unused imports auto-removed). Largest submodule is ``_dlis`` at
+  327 LoC.
 - **``fwap.demos`` package**: the 1550-LoC monolith becomes a
   five-submodule package, grouped by book-chapter theme. The package
   ``__init__`` re-exports all 13 ``demo_*`` functions so
