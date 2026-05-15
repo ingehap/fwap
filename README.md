@@ -27,17 +27,17 @@ acquisition layer, and LAS / DLIS / SEG-Y log-format I/O.
 | Part 2 | Wave separation in acoustic well logging            | [`fwap.wavesep`](fwap/wavesep.py) |
 | Part 3 | Intercept-time inversion + dipole-flexural processing | [`fwap.tomography`](fwap/tomography.py), [`fwap.dispersion`](fwap/dispersion.py) |
 | Part 4 | Dip measurement based on acoustic data               | [`fwap.dip`](fwap/dip.py) |
-| (extension) | Cross-dipole Alford rotation, Thomsen γ, Backus average, qP / qSV / SH velocity surfaces | [`fwap.anisotropy`](fwap/anisotropy.py) |
+| (extension) | Cross-dipole Alford rotation, Thomsen γ, Backus average, qP / qSV / SH velocity surfaces | [`fwap.anisotropy`](fwap/anisotropy/) |
 | (extension) | Q from array sonic                              | [`fwap.attenuation`](fwap/attenuation.py) |
 | (extension) | Elastic moduli (K, μ, E, ν), Reuss / Voigt / Hill mixing, Gassmann fluid substitution | [`fwap.rockphysics`](fwap/rockphysics.py) |
 | (extension) | Stoneley-wave permeability / fracture indicators, Tang-Cheng-Toksoz inversion, Hornby aperture, slow-formation V<sub>s</sub> | [`fwap.stoneley`](fwap/stoneley.py) |
 | (extension) | Geomechanics drilling-decision pipeline: indices, pore pressure (Eaton / Bowers), vertical and inclined wellbore stability | [`fwap.geomechanics`](fwap/geomechanics/) |
 | (extension) | Cylindrical-Biot modal solver: n=0 Stoneley, n=1 flexural, n=2 quadrupole (bound + leaky) | [`fwap.cylindrical`](fwap/cylindrical.py), [`fwap.cylindrical_solver`](fwap/cylindrical_solver/) |
 | (extension) | LWD collar rejection + quadrupole-ring stack    | [`fwap.lwd`](fwap/lwd.py) |
-| (extension) | LAS / DLIS / SEG-Y log-format I/O               | [`fwap.io`](fwap/io.py) |
+| (extension) | LAS / DLIS / SEG-Y log-format I/O               | [`fwap.io`](fwap/io/) |
 
 Helpers: [`fwap.synthetic`](fwap/synthetic.py) (canonical test gathers),
-[`fwap.demos`](fwap/demos.py) (one worked example per chapter),
+[`fwap.demos`](fwap/demos/) (one worked example per chapter),
 [`fwap.cli`](fwap/cli.py) (command-line demo runner).
 
 ## Installation
