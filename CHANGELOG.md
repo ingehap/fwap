@@ -51,6 +51,28 @@ the project uses [Semantic Versioning](https://semver.org/).
       assignment into ``M``.
 
 ### Refactored
+- **``fwap.demos`` package**: the 1550-LoC monolith becomes a
+  five-submodule package, grouped by book-chapter theme. The package
+  ``__init__`` re-exports all 13 ``demo_*`` functions so
+  ``fwap.cli``'s ``_DEMOS`` dispatch table (``_demos.demo_X``) and
+  ``tests/test_demos.py`` keep working unchanged. Submodules:
+    - ``_common``       -- canonical synthetic gather shared by the
+      picker, separation, tau-p, and SEG-Y round-trip demos
+      (``_CANONICAL_VP/VS/VST``, ``_canonical_monopole_gather``).
+    - ``_signal``       -- Part 1 + 2 demos (``demo_stc_picker``,
+      ``demo_pseudo_rayleigh``, ``demo_wave_separation``,
+      ``demo_tau_p_separation``); imports the canonical-gather
+      helper from ``_common``.
+    - ``_inversion``    -- Part 3 + 4 demos (``demo_intercept_time``,
+      ``demo_dipole``, ``demo_dip``).
+    - ``_extensions``   -- Q / anisotropy / LWD demos
+      (``demo_attenuation``, ``demo_alford``, ``demo_lwd``).
+    - ``_io_roundtrip`` -- LAS / DLIS / SEG-Y round-trip demos
+      (``demo_las_roundtrip``, ``demo_dlis_roundtrip``,
+      ``demo_segy_roundtrip``); imports the canonical-gather helper
+      from ``_common``. Largest submodule is ``_extensions`` at 521
+      LoC; the per-submodule import block was pruned via ``ruff
+      --fix`` (108 unused imports auto-removed).
 - **``fwap.anisotropy`` package**: the 1867-LoC monolith becomes a
   four-submodule package with the public surface re-exported by
   ``fwap/anisotropy/__init__.py`` (so ``from fwap.anisotropy import
