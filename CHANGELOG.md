@@ -51,6 +51,35 @@ the project uses [Semantic Versioning](https://semver.org/).
       assignment into ``M``.
 
 ### Refactored
+- **``fwap.anisotropy`` package**: the 1867-LoC monolith becomes a
+  four-submodule package with the public surface re-exported by
+  ``fwap/anisotropy/__init__.py`` (so ``from fwap.anisotropy import
+  alford_rotation`` and the ``fwap.anisotropy.X``-style ``:func:``
+  cross-references in other modules' docstrings keep resolving).
+  Submodules:
+    - ``_alford`` (cross-dipole rotation: :class:`AlfordResult`,
+      :func:`alford_rotation`, :func:`alford_rotation_from_tensor`,
+      :class:`StressAnisotropyEstimate`,
+      :func:`stress_anisotropy_from_alford`);
+    - ``_thomsen`` (Thomsen :math:`\gamma` and Stoneley
+      :math:`\to C_{66}`: :class:`ThomsenGammaResult`,
+      :func:`stoneley_horizontal_shear_modulus[_corrected]`,
+      :func:`thomsen_gamma`, :func:`thomsen_gamma_from_logs`);
+    - ``_vti_inversion`` (vertical-well VTI moduli summary + walkaway-
+      VSP :math:`\epsilon, \delta` inversion: :func:`c33_from_p_pick`,
+      :class:`VtiModuli`, :func:`vti_moduli_from_logs`,
+      :class:`ThomsenEpsilonDeltaResult`,
+      :func:`thomsen_epsilon_delta_from_walkaway_vsp`; depends on
+      ``_thomsen`` for :func:`thomsen_gamma`,
+      :func:`thomsen_gamma_from_logs`, and
+      :func:`stoneley_horizontal_shear_modulus_corrected`);
+    - ``_vti_dispersion`` (Backus averaging + Christoffel phase / group
+      velocities: :class:`BackusResult`, :func:`backus_average`,
+      :func:`vti_phase_velocities`, :class:`VtiGroupVelocities`,
+      :func:`vti_group_velocities`).
+  Largest submodule is ``_vti_dispersion`` at 615 LoC. All 21 public
+  names ride out of the package ``__init__`` so the public-API guard
+  (``scripts/check_public_api.py``) passes unchanged.
 - **``fwap.rockphysics`` split**: the seven Stoneley-wave petrophysical
   estimators (slowness / amplitude permeability indicators,
   Tang-Cheng-Toksoz inversion, Hornby aperture, the
