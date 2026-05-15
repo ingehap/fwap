@@ -6,7 +6,119 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Continuous integration**: ``.github/workflows/ci.yml`` runs ruff
+  (lint + format check), mypy, the public-API guard, and pytest on
+  Python 3.11 and 3.12 for every push to ``main`` and every pull
+  request. Concurrent runs on the same ref are cancelled.
+- **Public-API guard**: ``scripts/check_public_api.py`` asserts that
+  every name in a sealed frozen list is still exposed on the top-level
+  ``fwap`` package. Step 0 of the planned module-splitting refactor;
+  it catches accidental drops from ``fwap/__init__.py``'s re-export
+  list when modules move into subpackages. Update the
+  ``FROZEN_PUBLIC_API`` tuple in the same commit when a public name is
+  intentionally added or removed.
+
+### Fixed
+- **``CONTRIBUTING.md``** referenced the wrong clone URL and non-existent
+  ``[io,segy]`` install extras; the documented ``pip install -e
+  ".[dev,docs]"`` invocation now matches what ``pyproject.toml``
+  actually defines. The "CI runs..." paragraph now matches the
+  workflow that just landed.
+- **Mypy backfill for the numpy-2.x stub migration**: the new CI
+  surfaced 45 latent mypy errors that the local "host" mypy had been
+  hiding (it ran in an isolated tool environment with no numpy
+  installed, so imports silently degraded to ``Any``). Fixed without
+  any runtime behaviour change:
+    - 37 ``[var-annotated]`` sites in ``fwap/cylindrical_solver/``
+      (``_cased.py``, ``_vti.py``, ``_n0_layered.py``,
+      ``_n1_layered.py``), ``fwap/lwd.py``, ``fwap/picker/quality.py``,
+      and ``fwap/demos.py`` get explicit ``np.ndarray`` annotations on
+      ``np.zeros``/``np.empty``/``np.full`` initializations.
+    - 6 ``[assignment]`` errors in ``fwap.geomechanics.vertical`` and
+      ``fwap.geomechanics.indices`` come from signatures like
+      ``mud_pressure: np.ndarray = 0.0`` that have always accepted
+      scalars or arrays; the annotation widens to ``float |
+      np.ndarray`` to match.
+    - 2 ``[return-value]`` errors in
+      ``fwap.cylindrical_solver._cased._formation_at_b`` come from a
+      ``-> tuple[float, float, float]`` annotation on a function that
+      indexes into a complex-dtype matrix. The matrix entries are
+      real-valued by physics and the destination matrix ``M`` is
+      real-dtype, so each value is wrapped in ``float(... .real)`` to
+      drop the zero imaginary part explicitly. This silences the
+      ``ComplexWarning`` that numpy previously emitted on each
+      assignment into ``M``.
+
 ### Refactored
+- **``fwap.io`` package**: the 762-LoC monolith splits cleanly by
+  file format into a four-submodule package. Public surface is
+  preserved via re-exports from ``fwap/io/__init__.py`` (and the
+  ``from fwap import read_las`` aliases continue to work unchanged).
+    - ``_common`` -- the ``_FWAP_UNITS`` mnemonic-to-unit map shared
+      by the LAS and DLIS writers.
+    - ``_las``    -- ``LasCurves``, ``read_las``, ``write_las``
+      (``lasio``).
+    - ``_dlis``   -- ``DlisCurves``, ``read_dlis``, ``write_dlis``
+      plus the DLIS-only helpers ``_suppress_fd``,
+      ``_DLIS_TO_LAS_WELL``, ``_LAS_TO_DLIS_WELL`` (``dlisio`` +
+      ``dliswriter``).
+    - ``_segy``   -- ``SegyGather``, ``read_segy``, ``write_segy``
+      (``segyio``).
+  Per-submodule import block pruned via ``ruff check --fix`` (32
+  unused imports auto-removed). Largest submodule is ``_dlis`` at
+  327 LoC.
+- **``fwap.demos`` package**: the 1550-LoC monolith becomes a
+  five-submodule package, grouped by book-chapter theme. The package
+  ``__init__`` re-exports all 13 ``demo_*`` functions so
+  ``fwap.cli``'s ``_DEMOS`` dispatch table (``_demos.demo_X``) and
+  ``tests/test_demos.py`` keep working unchanged. Submodules:
+    - ``_common``       -- canonical synthetic gather shared by the
+      picker, separation, tau-p, and SEG-Y round-trip demos
+      (``_CANONICAL_VP/VS/VST``, ``_canonical_monopole_gather``).
+    - ``_signal``       -- Part 1 + 2 demos (``demo_stc_picker``,
+      ``demo_pseudo_rayleigh``, ``demo_wave_separation``,
+      ``demo_tau_p_separation``); imports the canonical-gather
+      helper from ``_common``.
+    - ``_inversion``    -- Part 3 + 4 demos (``demo_intercept_time``,
+      ``demo_dipole``, ``demo_dip``).
+    - ``_extensions``   -- Q / anisotropy / LWD demos
+      (``demo_attenuation``, ``demo_alford``, ``demo_lwd``).
+    - ``_io_roundtrip`` -- LAS / DLIS / SEG-Y round-trip demos
+      (``demo_las_roundtrip``, ``demo_dlis_roundtrip``,
+      ``demo_segy_roundtrip``); imports the canonical-gather helper
+      from ``_common``. Largest submodule is ``_extensions`` at 521
+      LoC; the per-submodule import block was pruned via ``ruff
+      --fix`` (108 unused imports auto-removed).
+- **``fwap.anisotropy`` package**: the 1867-LoC monolith becomes a
+  four-submodule package with the public surface re-exported by
+  ``fwap/anisotropy/__init__.py`` (so ``from fwap.anisotropy import
+  alford_rotation`` and the ``fwap.anisotropy.X``-style ``:func:``
+  cross-references in other modules' docstrings keep resolving).
+  Submodules:
+    - ``_alford`` (cross-dipole rotation: :class:`AlfordResult`,
+      :func:`alford_rotation`, :func:`alford_rotation_from_tensor`,
+      :class:`StressAnisotropyEstimate`,
+      :func:`stress_anisotropy_from_alford`);
+    - ``_thomsen`` (Thomsen :math:`\gamma` and Stoneley
+      :math:`\to C_{66}`: :class:`ThomsenGammaResult`,
+      :func:`stoneley_horizontal_shear_modulus[_corrected]`,
+      :func:`thomsen_gamma`, :func:`thomsen_gamma_from_logs`);
+    - ``_vti_inversion`` (vertical-well VTI moduli summary + walkaway-
+      VSP :math:`\epsilon, \delta` inversion: :func:`c33_from_p_pick`,
+      :class:`VtiModuli`, :func:`vti_moduli_from_logs`,
+      :class:`ThomsenEpsilonDeltaResult`,
+      :func:`thomsen_epsilon_delta_from_walkaway_vsp`; depends on
+      ``_thomsen`` for :func:`thomsen_gamma`,
+      :func:`thomsen_gamma_from_logs`, and
+      :func:`stoneley_horizontal_shear_modulus_corrected`);
+    - ``_vti_dispersion`` (Backus averaging + Christoffel phase / group
+      velocities: :class:`BackusResult`, :func:`backus_average`,
+      :func:`vti_phase_velocities`, :class:`VtiGroupVelocities`,
+      :func:`vti_group_velocities`).
+  Largest submodule is ``_vti_dispersion`` at 615 LoC. All 21 public
+  names ride out of the package ``__init__`` so the public-API guard
+  (``scripts/check_public_api.py``) passes unchanged.
 - **``fwap.rockphysics`` split**: the seven Stoneley-wave petrophysical
   estimators (slowness / amplitude permeability indicators,
   Tang-Cheng-Toksoz inversion, Hornby aperture, the

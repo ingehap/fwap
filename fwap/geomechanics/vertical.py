@@ -44,8 +44,8 @@ def kirsch_wall_stresses(
     sigma_h: np.ndarray,
     *,
     azimuth_deg: np.ndarray,
-    mud_pressure: np.ndarray = 0.0,
-    poisson: np.ndarray = 0.25,
+    mud_pressure: float | np.ndarray = 0.0,
+    poisson: float | np.ndarray = 0.25,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     r"""
     Kirsch (1898) borehole-wall stresses for a vertical well.
@@ -308,7 +308,7 @@ def tensile_breakdown_pressure(
     sigma_h: np.ndarray,
     pore_pressure: np.ndarray,
     *,
-    tensile_strength: np.ndarray = 0.0,
+    tensile_strength: float | np.ndarray = 0.0,
     biot_alpha: float = 1.0,
 ) -> np.ndarray:
     r"""
@@ -460,7 +460,7 @@ def safe_mud_weight_window(
     pore_pressure: np.ndarray,
     ucs: np.ndarray,
     *,
-    tensile_strength: np.ndarray = 0.0,
+    tensile_strength: float | np.ndarray = 0.0,
     friction_angle_deg: float = 30.0,
     biot_alpha: float = 1.0,
 ) -> MudWeightWindow:

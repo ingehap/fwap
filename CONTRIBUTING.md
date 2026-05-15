@@ -6,9 +6,9 @@ unclear, open an issue asking for clarification.
 ## Quick start
 
 ```bash
-git clone https://github.com/ingehap/B_Mari_Full-Waveform-Acoustic-Data-Processing
-cd B_Mari_Full-Waveform-Acoustic-Data-Processing
-pip install -e ".[dev,io,segy,docs]"
+git clone https://github.com/ingehap/fwap
+cd fwap
+pip install -e ".[dev,docs]"
 pre-commit install          # optional but recommended
 pytest                      # main test suite (excludes benchmarks)
 pytest tests/test_bench.py  # perf benches, separately
@@ -50,8 +50,9 @@ issue before you start writing.
 - **Tests**: add a test for every new function. The core algorithm
   modules should also have one end-to-end `demo_*` invocation
   covered by `tests/test_demos.py`.
-- **Lint**: `ruff check fwap/ tests/` must pass. `pre-commit install`
-  hooks this in automatically.
+- **Lint**: `ruff check fwap/ tests/ scripts/` and
+  `ruff format --check fwap/ tests/ scripts/` must pass.
+  `pre-commit install` hooks this in automatically.
 
 ## Pull requests
 
@@ -59,10 +60,14 @@ issue before you start writing.
 - Keep diffs focused -- one feature or fix per PR.
 - Update `CHANGELOG.md` under the `## [Unreleased]` header.
 - If you add a new public API, update `fwap/__init__.py`'s
-  chapter-to-module map and add it to the autosummary list in
-  `docs/api.rst`.
-- CI runs pytest on Linux / macOS / Windows + Python 3.9 / 3.11 /
-  3.12 / 3.13 and builds the docs. All jobs must go green.
+  chapter-to-module map, add it to the autosummary list in
+  `docs/api.rst`, and append it to the `FROZEN_PUBLIC_API` tuple in
+  `scripts/check_public_api.py` so the guard recognises the new
+  name. Removing or renaming a public name needs the same edit in
+  the opposite direction.
+- CI runs ruff (lint + format), mypy, the public-API guard, and
+  pytest on Python 3.11 and 3.12 (see `.github/workflows/ci.yml`).
+  All jobs must go green.
 
 ## Bug reports and feature requests
 

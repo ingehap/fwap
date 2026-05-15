@@ -1052,7 +1052,7 @@ def _modal_row1_at_a_vti(
     K1_qP_a = float(special.kv(1, alpha_qP * a))
     K1_qSV_a = float(special.kv(1, alpha_qSV * a))
 
-    row = np.zeros(3, dtype=complex)
+    row: np.ndarray = np.zeros(3, dtype=complex)
     # A column: fluid u_r contribution (matches M11 at any C-matrix).
     row[0] = F_f * I1_Ff_a / (rho_f * omega**2)
     # B_qP column (matches M12 at isotropic limit alpha_qP -> p).
@@ -1257,7 +1257,7 @@ def _modal_row2_at_a_vti(
         c44 * (c11 * alpha_qSV * alpha_qSV + c13 * kz * kz) - c13 * rho_omega_sq
     ) / (c13 + c44)
 
-    row = np.zeros(3, dtype=complex)
+    row: np.ndarray = np.zeros(3, dtype=complex)
     # A column: -P^{(f)}(a) = -A I_0(F_f a) (same as isotropic).
     row[0] = -I0_Ff_a
     # B_qP column: -Q_qP K_0 - 2 C66 alpha_qP K_1/a.
@@ -1390,7 +1390,7 @@ def _modal_row3_at_a_vti(
     p_qP = c11 * alpha_qP * alpha_qP + c13 * kz * kz + rho_omega_sq
     p_qSV = c11 * alpha_qSV * alpha_qSV + c13 * kz * kz + rho_omega_sq
 
-    row = np.zeros(3, dtype=complex)
+    row: np.ndarray = np.zeros(3, dtype=complex)
     # A column: fluid carries no shear; sigma_rz from A is zero.
     row[0] = 0.0
     # B_qP column (post-rescale via row * i):
@@ -1651,7 +1651,7 @@ def _modal_row1_at_a_n1_vti(
     K1_qSV_a = float(special.kv(1, alpha_qSV * a))
     K1_SH_a = float(special.kv(1, alpha_SH * a))
 
-    row = np.zeros(4, dtype=complex)
+    row: np.ndarray = np.zeros(4, dtype=complex)
     # A column: fluid u_r contribution (matches M11 at any C-matrix).
     row[0] = (F_f * I0_Ff_a - I1_Ff_a / a) / (rho_f * omega**2)
     # B_qP column: qP scalar's two-term radial derivative
@@ -1822,7 +1822,7 @@ def _modal_row2_at_a_n1_vti(
         c44 * (c11 * alpha_qSV * alpha_qSV + c13 * kz * kz) - c13 * rho_omega_sq
     ) / (c13 + c44)
 
-    row = np.zeros(4, dtype=complex)
+    row: np.ndarray = np.zeros(4, dtype=complex)
     # A column: matches M21 at any C-matrix.
     row[0] = -I1_Ff_a
     # B_qP column: three-term entry with Q_qP, 2 C66 azimuthal-deriv
@@ -1965,7 +1965,7 @@ def _modal_row3_at_a_n1_vti(
     K0_SH_a = float(special.kv(0, alpha_SH * a))
     K1_SH_a = float(special.kv(1, alpha_SH * a))
 
-    row = np.zeros(4, dtype=complex)
+    row: np.ndarray = np.zeros(4, dtype=complex)
     # A column: fluid carries no shear at the wall.
     row[0] = 0.0
     # B_qP column: 2 C66 (alpha_qP K_0/a + 2 K_1/a^2). At isotropic
@@ -2119,7 +2119,7 @@ def _modal_row4_at_a_n1_vti(
     p_qP = c11 * alpha_qP * alpha_qP + c13 * kz * kz + rho_omega_sq
     p_qSV = c11 * alpha_qSV * alpha_qSV + c13 * kz * kz + rho_omega_sq
 
-    row = np.zeros(4, dtype=complex)
+    row: np.ndarray = np.zeros(4, dtype=complex)
     # A column: fluid carries no shear at the wall.
     row[0] = 0.0
     # B_qP column: C44 P_qP / [(C13+C44) kz] times the two-term

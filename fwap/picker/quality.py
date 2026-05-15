@@ -518,10 +518,10 @@ def track_to_log_curves(
     curves: dict[str, np.ndarray] = {}
     for mode in modes:
         suffix = _MODE_MNEMONIC_SUFFIX.get(mode, mode.upper())
-        slow_arr = np.full(n_depth, nan, dtype=float)
-        coh_arr = np.full(n_depth, nan, dtype=float)
-        amp_arr = np.full(n_depth, nan, dtype=float)
-        time_arr = np.full(n_depth, nan, dtype=float)
+        slow_arr: np.ndarray = np.full(n_depth, nan, dtype=float)
+        coh_arr: np.ndarray = np.full(n_depth, nan, dtype=float)
+        amp_arr: np.ndarray = np.full(n_depth, nan, dtype=float)
+        time_arr: np.ndarray = np.full(n_depth, nan, dtype=float)
         any_amp = False
         any_pick = False
         for d, dp in enumerate(track):
@@ -583,9 +583,9 @@ def track_to_log_curves(
             raise ValueError("rho must be strictly positive everywhere")
 
         # Per-depth slownesses in s/m (NaN where the pick is missing).
-        s_p_arr = np.full(n_depth, nan, dtype=float)
-        s_s_arr = np.full(n_depth, nan, dtype=float)
-        s_st_arr = np.full(n_depth, nan, dtype=float)
+        s_p_arr: np.ndarray = np.full(n_depth, nan, dtype=float)
+        s_s_arr: np.ndarray = np.full(n_depth, nan, dtype=float)
+        s_st_arr: np.ndarray = np.full(n_depth, nan, dtype=float)
         for d, dp in enumerate(track):
             p = dp.picks.get("P")
             if p is not None:

@@ -156,7 +156,7 @@ def closure_stress(
     poisson: np.ndarray,
     sigma_v_pa: np.ndarray,
     *,
-    pore_pressure_pa: np.ndarray = 0.0,
+    pore_pressure_pa: float | np.ndarray = 0.0,
     biot_alpha: float = 1.0,
 ) -> np.ndarray:
     r"""
@@ -375,7 +375,7 @@ def geomechanics_indices(
     moduli: ElasticModuli,
     *,
     sigma_v_pa: np.ndarray | None = None,
-    pore_pressure_pa: np.ndarray = 0.0,
+    pore_pressure_pa: float | np.ndarray = 0.0,
     biot_alpha: float = 1.0,
     ucs_model: UCSModel = "lacy_sandstone",
     sand_threshold_pa: float = SAND_STABILITY_SHEAR_THRESHOLD_PA,
