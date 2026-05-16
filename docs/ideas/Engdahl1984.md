@@ -55,7 +55,3 @@ Lomax, A., Virieux, J., Volant, P., & Berge-Thierry, C. (2000). Probabilistic ea
 Waldhauser, F., & Ellsworth, W. L. (2000). A double-difference earthquake location algorithm: Method and application to the northern Hayward fault, California. *Bulletin of the Seismological Society of America*, 90, 1353–1368. (HypoDD; modern relative-relocation successor.)
 
 Beyreuther, M., Barsch, R., Krischer, L., Megies, T., Behr, Y., & Wassermann, J. (2010). ObsPy: A Python toolbox for seismology. *Seismological Research Letters*, 81, 530–533. (Modern Python-toolkit successor to the FORTRAN compendium of the 1984 volume.)
-
-Červený, V. (2001). *Seismic Ray Theory.* Cambridge University Press. (Modern monograph on ray theory; the theoretical complement to the SEIS83 documentation in the present volume.)
-
-Aki, K., & Richards, P. G. (1980). *Quantitative Seismology: Theory and Methods.* W. H. Freeman. (Theoretical foundation for the algorithms documented in the present volume.)
