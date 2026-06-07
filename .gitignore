@@ -42,3 +42,9 @@ figures/
 # Sphinx build artifacts
 docs/_build/
 docs/generated/
+
+# Claude Code — personal / local memory & settings (do not commit).
+# Shared memory (CLAUDE.md, .claude/rules, .claude/skills, .claude/settings.json)
+# IS committed; only the per-developer overrides below are ignored.
+CLAUDE.local.md
+.claude/settings.local.json
