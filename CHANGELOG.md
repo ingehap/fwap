@@ -31,6 +31,15 @@ the project uses [Semantic Versioning](https://semver.org/).
   intentionally added or removed.
 
 ### Fixed
+- **CI mypy break from matplotlib 3.11**: matplotlib began shipping a
+  ``py.typed`` marker, so ``ignore_missing_imports`` no longer stopped
+  mypy from following into its source, whose 3.10+ ``match`` statements
+  cannot be parsed under the configured ``python_version = "3.9"`` (the
+  run aborted with a ``[syntax]`` error in ``matplotlib/_afm.py``). A
+  ``[[tool.mypy.overrides]]`` entry now sets ``follow_imports = "skip"``
+  for ``matplotlib.*``, restoring the intended "don't type-check
+  third-party plotting libs" behaviour without touching fwap's own
+  3.9 target.
 - **``CONTRIBUTING.md``** referenced the wrong clone URL and non-existent
   ``[io,segy]`` install extras; the documented ``pip install -e
   ".[dev,docs]"`` invocation now matches what ``pyproject.toml``

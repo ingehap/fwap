@@ -73,6 +73,18 @@ warn_unreachable = true
 # requires backfilling a few dozen variable annotations first.
 ignore_missing_imports = true
 
+# matplotlib ships a ``py.typed`` marker as of 3.11, so
+# ``ignore_missing_imports`` no longer stops mypy from *following* into
+# its source -- and that source uses 3.10+ ``match`` syntax which our
+# ``python_version = "3.9"`` target cannot parse, aborting the run with
+# a spurious "[syntax]" error in ``matplotlib/_afm.py``. fwap only uses
+# matplotlib in the demos / plotting helpers and never type-checks
+# against it, so skip following it entirely (restores the pre-3.11
+# behaviour the global ``ignore_missing_imports`` used to give).
+[[tool.mypy.overrides]]
+module = ["matplotlib.*"]
+follow_imports = "skip"
+
 [tool.pytest.ini_options]
 # By default exclude the perf-regression suite: those assertions are
 # wall-clock budgets tuned on a developer laptop, so they belong in
