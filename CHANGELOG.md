@@ -7,6 +7,17 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Surrogate-model data generator**: ``scripts/gen_surrogate_dataset.py``
+  wraps the cylindrical-Biot forward modal solver
+  (``stoneley_dispersion`` / ``flexural_dispersion``) as a labelled-pair
+  factory for machine-learning surrogate and inverse models -- the
+  borehole-acoustic analog of the seismic DL-FWI / neural-operator
+  training loop. Each sample carries the per-mode phase-slowness curve
+  (forward-surrogate label) and a synthetic multi-receiver gather from
+  ``synthesize_gather`` (inverse-net input), with formation parameters
+  drawn from a ``FormationPriors`` prior. NumPy/SciPy-only (no ML
+  dependencies); a CLI writes a compressed ``.npz``. Model training
+  stays out of the core package by design.
 - **Continuous integration**: ``.github/workflows/ci.yml`` runs ruff
   (lint + format check), mypy, the public-API guard, and pytest on
   Python 3.11 and 3.12 for every push to ``main`` and every pull
