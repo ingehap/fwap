@@ -60,7 +60,14 @@ docs = [
 fwap = "fwap.cli:main"
 
 [tool.mypy]
-python_version = "3.9"
+# Target the newest version CI exercises. The runtime floor is still
+# 3.9 (see ``requires-python``), but mypy parses installed third-party
+# stubs against this target, and modern deps ship stubs using syntax
+# from newer Pythons -- numpy 2.5's ``__init__.pyi`` uses PEP 695
+# ``type`` statements (3.12+), which abort the run under an older
+# target. 3.9 is upstream-EOL and slated for removal, so aligning the
+# mypy target with the CI matrix is the intended direction.
+python_version = "3.12"
 # Strict enough to catch real bugs, permissive enough to not demand
 # stubs for every external call site.
 warn_unused_ignores = true
@@ -72,6 +79,18 @@ warn_unreachable = true
 # checking on fwap/*) is tracked as future work -- doing it cleanly
 # requires backfilling a few dozen variable annotations first.
 ignore_missing_imports = true
+
+# matplotlib ships a ``py.typed`` marker as of 3.11, so
+# ``ignore_missing_imports`` no longer stops mypy from *following* into
+# its source -- and that source uses 3.10+ ``match`` syntax which our
+# ``python_version = "3.9"`` target cannot parse, aborting the run with
+# a spurious "[syntax]" error in ``matplotlib/_afm.py``. fwap only uses
+# matplotlib in the demos / plotting helpers and never type-checks
+# against it, so skip following it entirely (restores the pre-3.11
+# behaviour the global ``ignore_missing_imports`` used to give).
+[[tool.mypy.overrides]]
+module = ["matplotlib.*"]
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 # By default exclude the perf-regression suite: those assertions are
