@@ -60,7 +60,14 @@ docs = [
 fwap = "fwap.cli:main"
 
 [tool.mypy]
-python_version = "3.9"
+# Target the newest version CI exercises. The runtime floor is still
+# 3.9 (see ``requires-python``), but mypy parses installed third-party
+# stubs against this target, and modern deps ship stubs using syntax
+# from newer Pythons -- numpy 2.5's ``__init__.pyi`` uses PEP 695
+# ``type`` statements (3.12+), which abort the run under an older
+# target. 3.9 is upstream-EOL and slated for removal, so aligning the
+# mypy target with the CI matrix is the intended direction.
+python_version = "3.12"
 # Strict enough to catch real bugs, permissive enough to not demand
 # stubs for every external call site.
 warn_unused_ignores = true

@@ -3,11 +3,26 @@
 from __future__ import annotations
 
 import logging
+from typing import overload
 
 import numpy as np
 
 # 1 microsecond per foot in seconds per metre (exact).
 US_PER_FT: float = 1.0e-6 / 0.3048
+
+
+# Overloaded so an array in yields an array out (and a scalar in a
+# scalar out): callers that build ``dict[str, np.ndarray]`` log-curve
+# maps from array velocities (the LAS/DLIS writers) then type-check
+# cleanly. Without the overload the plain ``np.ndarray | float`` return
+# leaks a ``float`` into those dicts, which recent numpy stubs reject
+# against the writers' ``Mapping[str, np.ndarray]`` signature.
+@overload
+def m_per_s_to_us_per_ft(v: float) -> float: ...
+
+
+@overload
+def m_per_s_to_us_per_ft(v: np.ndarray) -> np.ndarray: ...
 
 
 def m_per_s_to_us_per_ft(v: np.ndarray | float) -> np.ndarray | float:
