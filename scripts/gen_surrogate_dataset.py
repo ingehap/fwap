@@ -72,6 +72,16 @@ from fwap.cylindrical_solver import BoreholeMode
 # solvers accept.
 PARAM_NAMES: tuple[str, ...] = ("vp", "vs", "rho", "vf", "rho_f", "a")
 
+# Version of the ``.npz`` on-disk contract (key set, ``PARAM_NAMES``
+# order, per-array dtypes and shapes) written by :func:`stack_dataset` /
+# :func:`save_npz`. Bump this whenever that layout changes in a way a
+# downstream consumer must notice (a reordered/renamed key or column, a
+# changed dtype, an added axis). Consumers should read it back and refuse
+# a version they do not understand; ``tests/test_npz_schema_contract.py``
+# pins the layout so a breaking change fails CI here rather than silently
+# mislabelling data downstream.
+SCHEMA_VERSION: int = 1
+
 SlownessOfF = Callable[[np.ndarray], np.ndarray]
 
 
@@ -509,6 +519,8 @@ def stack_dataset(samples: Sequence[SurrogateSample]) -> dict[str, np.ndarray]:
         * ``freq`` -- ``(n_f,)``
         * ``param_names`` -- ``(len(PARAM_NAMES),)`` str
         * ``mode_names`` -- ``(M,)`` str
+        * ``schema_version`` -- ``()`` int (0-d), the :data:`SCHEMA_VERSION`
+          of this on-disk layout
 
     Raises
     ------
@@ -525,6 +537,7 @@ def stack_dataset(samples: Sequence[SurrogateSample]) -> dict[str, np.ndarray]:
         "freq": np.asarray(samples[0].freq, dtype=float),
         "param_names": np.array(PARAM_NAMES),
         "mode_names": np.array(samples[0].mode_names),
+        "schema_version": np.asarray(SCHEMA_VERSION, dtype=np.int64),
     }
 
 
