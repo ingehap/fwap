@@ -7,6 +7,23 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`sonic_ml` DL-FWI inverse net (M3)** -- the headline: a 1-D CNN over the
+  multi-receiver ``gather`` (receivers as channels) that regresses the varying
+  formation parameters with a **heteroscedastic head** (mean + log-variance per
+  parameter, Gaussian NLL), so weakly identifiable parameters get calibrated
+  error bars rather than false precision. Adds ``InverseNet`` /
+  ``TrainedInverseNet`` (weights-only-safe checkpoints), an ``InverseDataset``
+  with per-gather amplitude normalization (gather-only input -- the dispersion
+  label is never fed in), a reproducible ``train_inverse`` loop, and an
+  ``InversePredictor`` that satisfies the M1 ``Predictor`` protocol so the
+  inverse net is scored by the *same* benchmark harness as the classical
+  baselines. On a held-out set the inverse net beats the classical STC baseline
+  by ~an order of magnitude on Vs (with non-overlapping bootstrap CIs),
+  including the fast-formation regime where classical processing fails. Tests
+  ``importorskip`` torch and cover shapes, checkpoint round-trip,
+  overfit-a-batch, reproducibility, harness integration, and an anti-leakage
+  check that the prediction is invariant to the slowness label. Runs in the
+  non-required ``ml.yml`` job; the pure-NumPy spine stays torch-free.
 - **`sonic_ml` forward dispersion surrogate (M2)**: the first ML model in the
   layer -- a residual-MLP surrogate mapping the varying standardized formation
   parameters to per-mode slowness curves and per-mode presence logits (a fast,
