@@ -14,7 +14,17 @@ later milestones.
 
 from __future__ import annotations
 
-from sonic_ml import determinism, gen_shim, mask, provenance
+from sonic_ml import baselines, bench, determinism, gen_shim, mask, oracles, provenance
+from sonic_ml.baselines import ClassicalSTCBaseline, FKDispersionBaseline
+from sonic_ml.bench import (
+    Predictor,
+    RegimeScore,
+    Scorecard,
+    StubPredictor,
+    evaluate,
+    format_scorecard,
+)
+from sonic_ml.geometry import default_geometry
 from sonic_ml.loader import (
     SUPPORTED_SCHEMA_VERSIONS,
     DatasetBundle,
@@ -44,9 +54,24 @@ __all__ = [
     "Standardizer",
     # provenance
     "Provenance",
+    # geometry
+    "default_geometry",
+    # benchmark harness (M1)
+    "Predictor",
+    "Scorecard",
+    "RegimeScore",
+    "StubPredictor",
+    "evaluate",
+    "format_scorecard",
+    # classical baselines (M1)
+    "ClassicalSTCBaseline",
+    "FKDispersionBaseline",
     # submodules
     "gen_shim",
     "mask",
     "provenance",
     "determinism",
+    "oracles",
+    "baselines",
+    "bench",
 ]

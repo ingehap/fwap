@@ -27,3 +27,19 @@ def npz_path(tmp_path_factory: pytest.TempPathFactory, freq: np.ndarray) -> str:
     p = tmp_path_factory.mktemp("data") / "ds.npz"
     gen_shim.build_npz(str(p), n=40, seed=0, freq=freq)
     return str(p)
+
+
+@pytest.fixture(scope="session")
+def bundle(npz_path: str):
+    """The shared dataset loaded into a DatasetBundle."""
+    from sonic_ml import load_npz
+
+    return load_npz(npz_path)
+
+
+@pytest.fixture(scope="session")
+def geom(bundle):
+    """Default acquisition geometry reconstructed for the shared dataset."""
+    from sonic_ml import default_geometry
+
+    return default_geometry(bundle)
