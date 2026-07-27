@@ -20,6 +20,15 @@ from sonic_ml.models.inverse_train import (
     train_inverse,
 )
 from sonic_ml.models.losses import gaussian_nll, masked_slowness_loss, presence_bce
+from sonic_ml.models.lwd import (
+    LatencyAccuracy,
+    build_lwd_inverse_net,
+    count_parameters,
+    format_latency_accuracy,
+    latency_accuracy_report,
+    measure_latency_ms,
+    train_lwd_inverse,
+)
 from sonic_ml.models.train import (
     presence_auc,
     slowness_rmse,
@@ -60,4 +69,12 @@ __all__ = [
     "card_for",
     "save_with_card",
     "read_card",
+    # low-latency LWD inverse variant (M4f)
+    "build_lwd_inverse_net",
+    "train_lwd_inverse",
+    "count_parameters",
+    "measure_latency_ms",
+    "LatencyAccuracy",
+    "latency_accuracy_report",
+    "format_latency_accuracy",
 ]
