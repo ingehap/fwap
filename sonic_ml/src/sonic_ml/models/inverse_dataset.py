@@ -19,6 +19,7 @@ import torch
 from torch.utils.data import Dataset
 
 from sonic_ml.loader import DatasetBundle
+from sonic_ml.models.augment import GatherAugmentation
 from sonic_ml.normalize import Standardizer
 
 
@@ -63,6 +64,13 @@ class InverseDataset(Dataset):
         Sample indices to include.
     param_std : Standardizer
         Fitted on the *training* parameters.
+    augment : GatherAugmentation or None, default None
+        If set, each ``__getitem__`` returns a freshly augmented+normalized
+        gather (stochastic per access); ``None`` returns the deterministic
+        normalized gather. Use only for the *training* split.
+    augment_seed : int, default 0
+        Seed for the augmentation RNG (reproducible given a fixed access
+        order, e.g. a seeded ``DataLoader``).
     """
 
     def __init__(
@@ -70,15 +78,26 @@ class InverseDataset(Dataset):
         bundle: DatasetBundle,
         indices: np.ndarray,
         param_std: Standardizer,
+        *,
+        augment: GatherAugmentation | None = None,
+        augment_seed: int = 0,
     ) -> None:
         idx = np.asarray(indices, dtype=int)
-        x = normalize_gathers(bundle.gather[idx])
-        y = param_std.transform(bundle.params[idx])
-        self.x = torch.as_tensor(x, dtype=torch.float32)
-        self.y = torch.as_tensor(y, dtype=torch.float32)
+        self._raw = np.asarray(bundle.gather[idx], dtype=float)
+        # Precompute the non-augmented normalized view (fast path + ``.x`` API).
+        self.x = torch.as_tensor(normalize_gathers(self._raw), dtype=torch.float32)
+        self.y = torch.as_tensor(
+            param_std.transform(bundle.params[idx]), dtype=torch.float32
+        )
+        self.augment = augment
+        self._rng = np.random.default_rng(augment_seed)
 
     def __len__(self) -> int:
         return int(self.x.shape[0])
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
-        return self.x[index], self.y[index]
+        if self.augment is None:
+            return self.x[index], self.y[index]
+        g = self.augment.apply(self._raw[index], self._rng)
+        g = normalize_gathers(g[None, ...])[0]
+        return torch.as_tensor(g, dtype=torch.float32), self.y[index]

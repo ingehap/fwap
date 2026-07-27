@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader
 
 from sonic_ml.determinism import seed_everything
 from sonic_ml.loader import DatasetBundle, load_npz
+from sonic_ml.models.augment import GatherAugmentation
 from sonic_ml.models.inverse import InverseNet, TrainedInverseNet
 from sonic_ml.models.inverse_dataset import InverseDataset
 from sonic_ml.models.losses import gaussian_nll
@@ -37,6 +38,7 @@ def train_inverse(
     kernel: int = 7,
     hidden: int = 128,
     dropout: float = 0.0,
+    augment: GatherAugmentation | None = None,
     seed: int = 0,
     device: str = "cpu",
 ) -> tuple[TrainedInverseNet, list[float]]:
@@ -49,6 +51,9 @@ def train_inverse(
     split : DataSplit or None
         Train/val/test split; ``None`` builds a regime-stratified one.
     epochs, batch_size, lr, channels, kernel, hidden, dropout : hyperparameters
+    augment : GatherAugmentation or None, default None
+        Training-time waveform augmentation (SNR sweep / amplitude jitter) for
+        sim-to-real robustness. Applied to the *training* split only.
     seed : int, default 0
         Master seed.
     device : str, default "cpu"
@@ -64,7 +69,9 @@ def train_inverse(
         split = stratified_split(bundle, seed=seed)
 
     param_std = Standardizer.fit(bundle.params[split.train], bundle.param_names)
-    train_ds = InverseDataset(bundle, split.train, param_std)
+    train_ds = InverseDataset(
+        bundle, split.train, param_std, augment=augment, augment_seed=seed
+    )
 
     dev = torch.device(device)
     model = InverseNet(

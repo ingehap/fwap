@@ -7,6 +7,17 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`sonic_ml` waveform augmentation for sim-to-real robustness (M4a)**:
+  ``GatherAugmentation`` perturbs each *training* gather on the fly -- an SNR
+  sweep (additive noise to a random signal-to-noise ratio) plus optional
+  amplitude jitter -- wired into ``InverseDataset`` (stochastic per access,
+  training split only) and ``train_inverse`` via an ``augment=`` argument. On a
+  noise-shifted held-out set the augmented inverse net degrades far less than
+  the un-augmented one (Vs MAE ~164 vs ~934 m/s) at no cost to clean accuracy.
+  Carries an explicit caveat that this narrows the *synthetic* generalization
+  gap and is not a real-world deployment claim. Non-augmented behaviour (and
+  the ``InverseDataset.x`` view) is unchanged; torch-gated, spine stays
+  torch-free.
 - **`sonic_ml` DL-FWI inverse net (M3)** -- the headline: a 1-D CNN over the
   multi-receiver ``gather`` (receivers as channels) that regresses the varying
   formation parameters with a **heteroscedastic head** (mean + log-variance per
