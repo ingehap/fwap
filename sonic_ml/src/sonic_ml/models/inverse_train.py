@@ -38,6 +38,7 @@ def train_inverse(
     kernel: int = 7,
     hidden: int = 128,
     dropout: float = 0.0,
+    separable: bool = False,
     augment: GatherAugmentation | None = None,
     seed: int = 0,
     device: str = "cpu",
@@ -51,6 +52,9 @@ def train_inverse(
     split : DataSplit or None
         Train/val/test split; ``None`` builds a regime-stratified one.
     epochs, batch_size, lr, channels, kernel, hidden, dropout : hyperparameters
+    separable : bool, default False
+        Use depthwise-separable conv blocks (the low-latency LWD variant; see
+        :mod:`sonic_ml.models.lwd`).
     augment : GatherAugmentation or None, default None
         Training-time waveform augmentation (SNR sweep / amplitude jitter) for
         sim-to-real robustness. Applied to the *training* split only.
@@ -81,6 +85,7 @@ def train_inverse(
         kernel=kernel,
         hidden=hidden,
         dropout=dropout,
+        separable=separable,
     ).to(dev)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 

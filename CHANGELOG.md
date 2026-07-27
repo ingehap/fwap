@@ -7,6 +7,26 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`sonic_ml` low-latency LWD inverse variant (M4f)**: a compact,
+  depthwise-separable configuration of the M3 inverse net for logging-while-
+  drilling latency/power budgets. ``InverseNet`` gains a backward-compatible
+  ``separable=True`` flag that swaps its dense conv blocks for
+  depthwise-separable ones (``O(in*out*kernel)`` conv weights ->
+  ``O(in*kernel + in*out)``); ``train_inverse`` and the checkpoint round-trip
+  thread it through (older checkpoints without the key load as dense). A new
+  ``sonic_ml.models.lwd`` packages the compact preset
+  (``build_lwd_inverse_net`` / ``train_lwd_inverse`` -- two separable blocks, a
+  narrow head; ~40x fewer parameters than the full default net) and a benchmark
+  (``count_parameters``, ``measure_latency_ms``, ``latency_accuracy_report`` /
+  ``format_latency_accuracy``) that *measures* the parameter / latency /
+  accuracy trade-off rather than asserting it. The compact net is a plain
+  ``InverseNet``, so it reuses ``TrainedInverseNet`` and the ``InversePredictor``
+  harness adapter unchanged. Honest framing: the hardware-independent win is the
+  parameter/FLOP reduction (power/latency on a downhole DSP); desktop-CPU
+  wall-clock latency for models this small is runtime-dependent and can even
+  favour the dense net, so the report shows both numbers. Collar-mode
+  contamination stays the domain of the phenomenological ``fwap.lwd`` layer;
+  pairing it with this net is future work. Torch-gated; spine stays torch-free.
 - **`sonic_ml` tutorial notebook (M4e)**:
   ``docs/notebooks/sonic_ml_tutorial.ipynb`` walks the full ML loop end-to-end
   on a small synthetic dataset -- generate a surrogate dataset from the fwap

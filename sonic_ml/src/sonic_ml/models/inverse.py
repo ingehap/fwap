@@ -46,6 +46,33 @@ class _ConvBlock(nn.Module):
         return self.drop(self.act(self.norm(self.conv(x))))
 
 
+class _SeparableConvBlock(nn.Module):
+    """
+    Depthwise-separable strided conv block (halves the time axis).
+
+    A depthwise ``Conv1d`` (one spatial filter per input channel, ``groups =
+    in_ch``) followed by a pointwise ``1x1`` ``Conv1d`` that mixes channels,
+    then the same GroupNorm -> GELU -> Dropout tail as :class:`_ConvBlock`. The
+    factorization replaces the dense block's ``O(in * out * kernel)`` conv
+    weights with ``O(in * kernel + in * out)`` -- the standard MobileNet
+    efficiency lever -- which is what makes the inverse net cheap enough for a
+    downhole / while-drilling latency budget (see :mod:`sonic_ml.models.lwd`).
+    """
+
+    def __init__(self, in_ch: int, out_ch: int, kernel: int, dropout: float) -> None:
+        super().__init__()
+        self.depthwise = nn.Conv1d(
+            in_ch, in_ch, kernel, stride=2, padding=kernel // 2, groups=in_ch
+        )
+        self.pointwise = nn.Conv1d(in_ch, out_ch, 1)
+        self.norm = nn.GroupNorm(_num_groups(out_ch), out_ch)
+        self.act = nn.GELU()
+        self.drop = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.drop(self.act(self.norm(self.pointwise(self.depthwise(x)))))
+
+
 class InverseNet(nn.Module):
     """
     1-D CNN inverse net with a heteroscedastic parameter head.
@@ -64,6 +91,11 @@ class InverseNet(nn.Module):
         Width of the post-pool MLP.
     dropout : float, default 0.0
         Dropout in the conv blocks and the MLP.
+    separable : bool, default False
+        Use depthwise-separable conv blocks (:class:`_SeparableConvBlock`)
+        instead of dense ones. Cuts the conv parameter count / FLOPs
+        substantially at a small accuracy cost -- the low-latency LWD
+        configuration (see :mod:`sonic_ml.models.lwd`).
     """
 
     def __init__(
@@ -75,6 +107,7 @@ class InverseNet(nn.Module):
         kernel: int = 7,
         hidden: int = 128,
         dropout: float = 0.0,
+        separable: bool = False,
     ) -> None:
         super().__init__()
         self.hparams: dict[str, Any] = {
@@ -84,12 +117,14 @@ class InverseNet(nn.Module):
             "kernel": kernel,
             "hidden": hidden,
             "dropout": dropout,
+            "separable": separable,
         }
         self.n_targets = n_targets
+        block_cls = _SeparableConvBlock if separable else _ConvBlock
         blocks: list[nn.Module] = []
         in_ch = n_rec
         for out_ch in channels:
-            blocks.append(_ConvBlock(in_ch, out_ch, kernel, dropout))
+            blocks.append(block_cls(in_ch, out_ch, kernel, dropout))
             in_ch = out_ch
         self.conv = nn.Sequential(*blocks)
         self.pool = nn.AdaptiveAvgPool1d(1)
@@ -188,6 +223,8 @@ class TrainedInverseNet:
             kernel=int(hp["kernel"]),
             hidden=int(hp["hidden"]),
             dropout=float(hp["dropout"]),
+            # Older checkpoints (pre-separable) omit the key -> dense net.
+            separable=bool(hp.get("separable", False)),
         )
         model.load_state_dict(ckpt["model_state"])
         model.eval()
