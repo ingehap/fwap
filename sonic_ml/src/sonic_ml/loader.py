@@ -21,7 +21,7 @@ from fwap import ArrayGeometry
 
 #: Schema versions this loader understands. Extend (do not silently widen)
 #: when the generator bumps ``SCHEMA_VERSION`` in a backward-compatible way.
-SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, 2})
+SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, 2, 3})
 
 #: Keys every conformant ``.npz`` must contain (all schema versions).
 REQUIRED_KEYS: frozenset[str] = frozenset(
@@ -39,6 +39,9 @@ REQUIRED_KEYS: frozenset[str] = frozenset(
 
 #: Acquisition-geometry scalars added in schema v2 (required for v2+).
 GEOMETRY_KEYS: frozenset[str] = frozenset({"dt", "tr_offset", "dr"})
+
+#: Leaky-mode attenuation label added in schema v3 (required for v3+).
+ATTENUATION_KEY: str = "attenuation"
 
 
 class SchemaError(ValueError):
@@ -82,6 +85,10 @@ class DatasetBundle:
         reconstructed from the stored ``dt`` / ``tr_offset`` / ``dr``
         scalars plus the gather's ``(n_rec, n_samples)``. ``None`` for
         schema v1 files (which did not persist geometry).
+    attenuation : ndarray or None, shape (N, M, F)
+        Per-mode spatial attenuation rate (1/m) for leaky modes; ``NaN``
+        for bound modes / absent frequencies. ``None`` for schema v1/v2
+        files (which did not persist attenuation).
     """
 
     params: np.ndarray
@@ -93,6 +100,7 @@ class DatasetBundle:
     mode_names: tuple[str, ...]
     schema_version: int
     geometry: ArrayGeometry | None = None
+    attenuation: np.ndarray | None = None
 
     @property
     def n_samples(self) -> int:
@@ -210,6 +218,15 @@ def load_npz(path: str) -> DatasetBundle:
                 n_samples=int(gather.shape[2]),
             )
 
+        attenuation: np.ndarray | None = None
+        if schema_version >= 3:
+            if ATTENUATION_KEY not in keys:
+                raise SchemaError(
+                    f"{path}: schema_version {schema_version} requires an "
+                    f"'{ATTENUATION_KEY}' key"
+                )
+            attenuation = np.asarray(data[ATTENUATION_KEY])
+
     n = params.shape[0]
     n_params = len(param_names)
     n_modes = len(mode_names)
@@ -233,6 +250,12 @@ def load_npz(path: str) -> DatasetBundle:
         f"gather must be (N, R, T) with N={n}, got shape {gather.shape}",
     )
     _check(freq.ndim == 1, f"freq must be 1-D, got shape {freq.shape}")
+    if attenuation is not None:
+        _check(
+            attenuation.shape == (n, n_modes, n_freq),
+            f"attenuation shape {attenuation.shape} != slowness shape "
+            f"(N={n}, M={n_modes}, F={n_freq})",
+        )
 
     return DatasetBundle(
         params=params,
@@ -244,6 +267,7 @@ def load_npz(path: str) -> DatasetBundle:
         mode_names=mode_names,
         schema_version=schema_version,
         geometry=geometry,
+        attenuation=attenuation,
     )
 
 

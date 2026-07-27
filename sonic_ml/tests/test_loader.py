@@ -93,7 +93,7 @@ def test_allow_pickle_false_is_used(tmp_path):
 
 def test_v2_bundle_carries_geometry(npz_path):
     b = load_npz(npz_path)
-    assert b.schema_version == 2
+    assert b.schema_version >= 2  # geometry present since v2
     assert b.geometry is not None
     assert b.geometry.n_rec == b.gather.shape[1]
     assert b.geometry.n_samples == b.gather.shape[2]
@@ -113,8 +113,40 @@ def test_v1_file_loads_with_none_geometry(tmp_path, stacked):
 
 
 def test_v2_missing_geometry_key_raises(tmp_path, stacked):
-    bad = {k: v for k, v in stacked.items() if k != "dr"}  # keep schema_version=2
+    bad = {k: v for k, v in stacked.items() if k != "dr"}  # keep schema v3
     p = tmp_path / "v2_nogeom.npz"
+    np.savez_compressed(p, **bad)
+    with pytest.raises(SchemaError):
+        load_npz(str(p))
+
+
+# ------------------------------------------------------------------
+# Schema v3: leaky-mode attenuation
+# ------------------------------------------------------------------
+
+
+def test_v3_bundle_carries_attenuation(npz_path):
+    b = load_npz(npz_path)
+    assert b.schema_version == 3
+    assert b.attenuation is not None
+    assert b.attenuation.shape == b.slowness.shape
+
+
+def test_v2_file_loads_with_none_attenuation(tmp_path, stacked):
+    # A v2 file (geometry present, no attenuation) still loads.
+    legacy = {k: v for k, v in stacked.items() if k != "attenuation"}
+    legacy["schema_version"] = np.asarray(2, dtype=np.int64)
+    p = tmp_path / "v2.npz"
+    np.savez_compressed(p, **legacy)
+    b = load_npz(str(p))
+    assert b.schema_version == 2
+    assert b.attenuation is None
+    assert b.geometry is not None  # v2 still carries geometry
+
+
+def test_v3_missing_attenuation_raises(tmp_path, stacked):
+    bad = {k: v for k, v in stacked.items() if k != "attenuation"}  # keep v3
+    p = tmp_path / "v3_noatt.npz"
     np.savez_compressed(p, **bad)
     with pytest.raises(SchemaError):
         load_npz(str(p))
