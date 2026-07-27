@@ -7,6 +7,17 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Surrogate generator: optional n=2 quadrupole mode (M4b)**:
+  ``scripts/gen_surrogate_dataset.py`` gains a ``QUADRUPOLE_MODE`` -- a
+  signature-compatible ``ModeSpec`` wrapping ``fwap.quadrupole_dispersion``.
+  It is kept **out** of ``DEFAULT_MODES`` (the default dataset stays two-mode
+  and lean, so the schema is unchanged), but passing
+  ``modes=(*DEFAULT_MODES, QUADRUPOLE_MODE)`` to ``generate_dataset`` yields a
+  three-mode dataset. This exercises the mode-count-agnostic pipeline
+  end-to-end: the loader reads ``M`` from ``mode_names`` and both the forward
+  surrogate and the inverse net handle ``M = 3`` without change (the quadrupole
+  is bound mainly in slow formations; in fast formations it is largely leaky
+  and often absent from ``mode_in_gather``). No schema-version bump.
 - **`sonic_ml` waveform augmentation for sim-to-real robustness (M4a)**:
   ``GatherAugmentation`` perturbs each *training* gather on the fly -- an SNR
   sweep (additive noise to a random signal-to-noise ratio) plus optional
