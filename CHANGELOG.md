@@ -7,6 +7,25 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`sonic_ml` sibling package (M0 spine)**: a new in-repo, top-level
+  `sonic_ml/` package (its own `pyproject.toml`, depends on `fwap` + PyTorch)
+  that consumes the surrogate-dataset `.npz` and will host the ML surrogate /
+  inverse models tracked in issue #22. It is intentionally **not** part of the
+  `fwap` distribution -- the setuptools `include = ["fwap*"]` glob excludes the
+  non-`fwap` name, so `mypy fwap`, `ruff`, the public-API guard, and the core
+  wheel are all unaffected, and `import fwap` still needs no ML dependency.
+  This first drop is the pre-model spine: a defensive `.npz` loader
+  (`allow_pickle=False`, asserts `schema_version`, reads `N`/`M`/`F` from
+  metadata), a bridge to the core generator, provenance capture (fwap version +
+  git SHA + config + content hash, JSON sidecar), regime-stratified
+  train/val/test splitting with stored indices, a standardizer with a
+  zero-variance guard (drops constant `vf`/`rho_f`), masking helpers (finite
+  mask + authoritative `mode_in_gather` presence + imbalance weights), and
+  torch-guarded determinism helpers. A new non-required `.github/workflows/
+  ml.yml` (installs the in-PR core + a CPU torch wheel + `sonic_ml`, then runs
+  ruff/mypy/pytest scoped to `sonic_ml`) covers it without touching the core CI
+  gate. Install editable with `pip install -e ./sonic_ml`; a `fwap[ml]` alias
+  is deferred until `sonic_ml` is ever published to an index.
 - **Surrogate-dataset schema guard**: ``scripts/gen_surrogate_dataset.py``
   now stamps its ``.npz`` output with a ``schema_version`` key
   (``SCHEMA_VERSION = 1``), and a new ``tests/test_npz_schema_contract.py``

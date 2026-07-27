@@ -1,0 +1,62 @@
+name: ML
+
+# Runs on every push/PR (the ml layer is exercised against the in-PR fwap
+# engine, not a released one). This job is intended to be marked NON-REQUIRED
+# in branch protection: a torch/ML failure must never block a core fwap PR.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ml-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sonic-ml:
+    name: sonic_ml (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # torch>=2 wheels require 3.11+; mirror the core CI matrix otherwise.
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install core, CPU torch, and sonic_ml
+        run: |
+          python -m pip install --upgrade pip
+          # Install the in-PR fwap first so sonic_ml's `fwap` dependency is
+          # satisfied by this checkout rather than a released wheel -- this is
+          # what exercises a same-PR generator/schema change against sonic_ml.
+          pip install -e ".[dev]"
+          # CPU-only torch (GitHub runners have no GPU).
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e "./sonic_ml[dev]"
+
+      - name: Ruff lint
+        working-directory: sonic_ml
+        run: ruff check src tests
+
+      - name: Ruff format check
+        # Scope to Python source (mirrors the core gate's explicit dirs); `.`
+        # would drag README.md into ruff's Markdown code-block formatting,
+        # which is ruff-version-dependent.
+        working-directory: sonic_ml
+        run: ruff format --check src tests
+
+      - name: Mypy
+        working-directory: sonic_ml
+        run: mypy src
+
+      - name: Pytest
+        working-directory: sonic_ml
+        run: pytest
