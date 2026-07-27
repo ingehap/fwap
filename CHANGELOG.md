@@ -7,6 +7,17 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Surrogate schema v3: leaky-mode attenuation channel + pseudo-Rayleigh mode
+  (M4c)**: the generator now stores each mode's spatial attenuation rate
+  (1/m) in an ``attenuation`` array alongside ``slowness`` -- a free extra
+  label the modal solver already produces for leaky modes -- and bumps
+  ``SCHEMA_VERSION`` to ``3`` (``SurrogateSample`` gains an ``attenuation``
+  field; the core contract test updated in lockstep). Bound modes (Stoneley,
+  slow flexural) leave it ``NaN``; the new opt-in ``PSEUDO_RAYLEIGH_MODE`` (a
+  leaky ``fwap.pseudo_rayleigh_modal_dispersion`` mode, fast formations only)
+  populates it. ``sonic_ml``'s loader reads it into
+  ``DatasetBundle.attenuation`` (``None`` for schema v1/v2 files) and accepts
+  schema v1/v2/v3. Fully backward compatible.
 - **Surrogate generator: optional n=2 quadrupole mode (M4b)**:
   ``scripts/gen_surrogate_dataset.py`` gains a ``QUADRUPOLE_MODE`` -- a
   signature-compatible ``ModeSpec`` wrapping ``fwap.quadrupole_dispersion``.

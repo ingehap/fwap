@@ -230,3 +230,37 @@ def test_three_mode_dataset_generates_and_stacks(tmp_path):
     gen.save_npz(str(out), samples)
     with np.load(out, allow_pickle=False) as data:
         assert tuple(data["mode_names"]) == ("Stoneley", "flexural", "quadrupole")
+
+
+# ------------------------------------------------------------------
+# Leaky-mode attenuation channel (schema v3)
+# ------------------------------------------------------------------
+
+
+def test_pseudo_rayleigh_mode_is_optin():
+    assert gen.PSEUDO_RAYLEIGH_MODE.name == "pseudo_rayleigh"
+    assert "pseudo_rayleigh" not in [m.name for m in gen.DEFAULT_MODES]
+
+
+def test_attenuation_is_all_nan_for_bound_default_modes():
+    freq = gen.default_freq_grid(n_freq=48)
+    stacked = gen.stack_dataset(gen.generate_dataset(6, seed=0, freq=freq))
+    assert stacked["attenuation"].shape == stacked["slowness"].shape
+    # Stoneley + flexural are bound -> no attenuation anywhere.
+    assert not np.isfinite(stacked["attenuation"]).any()
+
+
+def test_leaky_mode_populates_attenuation():
+    freq = gen.default_freq_grid(n_freq=64)
+    priors = gen.FormationPriors(vs_min=1700.0, vs_max=3200.0)  # fast-only
+    modes = (*gen.DEFAULT_MODES, gen.PSEUDO_RAYLEIGH_MODE)
+    stacked = gen.stack_dataset(
+        gen.generate_dataset(12, seed=0, freq=freq, priors=priors, modes=modes)
+    )
+    names = list(stacked["mode_names"])
+    pr = names.index("pseudo_rayleigh")
+    att_pr = stacked["attenuation"][:, pr, :]
+    assert np.isfinite(att_pr).any()  # the leaky mode carries attenuation
+    assert np.nanmax(att_pr) > 0.0
+    # a bound mode's attenuation row stays NaN
+    assert not np.isfinite(stacked["attenuation"][:, names.index("Stoneley"), :]).any()

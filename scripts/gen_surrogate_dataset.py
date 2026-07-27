@@ -61,6 +61,7 @@ from fwap import (
     ArrayGeometry,
     Mode,
     flexural_dispersion,
+    pseudo_rayleigh_modal_dispersion,
     quadrupole_dispersion,
     stoneley_dispersion,
     synthesize_gather,
@@ -81,7 +82,7 @@ PARAM_NAMES: tuple[str, ...] = ("vp", "vs", "rho", "vf", "rho_f", "a")
 # a version they do not understand; ``tests/test_npz_schema_contract.py``
 # pins the layout so a breaking change fails CI here rather than silently
 # mislabelling data downstream.
-SCHEMA_VERSION: int = 2
+SCHEMA_VERSION: int = 3
 
 SlownessOfF = Callable[[np.ndarray], np.ndarray]
 
@@ -141,6 +142,15 @@ DEFAULT_MODES: tuple[ModeSpec, ...] = (
 # label but absent from ``mode_in_gather``.
 QUADRUPOLE_MODE: ModeSpec = ModeSpec(
     "quadrupole", quadrupole_dispersion, f0=4000.0, amplitude=1.0
+)
+
+# Opt-in leaky pseudo-Rayleigh mode. Unlike the bound modes it also carries a
+# non-trivial spatial attenuation (stored in the ``attenuation`` channel). It
+# exists only in fast formations (``vs > vf``); the solver raises for slow
+# draws, which ``generate_sample`` skips -- so pair it with a fast-only prior
+# (e.g. ``FormationPriors(vs_min=1600.0)``) to avoid rejecting most samples.
+PSEUDO_RAYLEIGH_MODE: ModeSpec = ModeSpec(
+    "pseudo_rayleigh", pseudo_rayleigh_modal_dispersion, f0=6000.0, amplitude=1.0
 )
 
 
@@ -231,6 +241,11 @@ class SurrogateSample:
         mode does not exist (below its geometric cutoff, or in the
         wrong regime for the solver). This is the forward-surrogate
         label.
+    attenuation : ndarray, shape (n_modes, n_f)
+        Per-mode spatial attenuation rate (1/m) for leaky modes (e.g.
+        pseudo-Rayleigh); ``NaN`` for bound modes (which have no
+        attenuation) and at frequencies where the mode is absent. A
+        free extra label the modal solver produces alongside slowness.
     gather : ndarray, shape (n_rec, n_samples)
         Synthetic multi-receiver waveform (the inverse-net input),
         summed over whichever modes cleared ``min_finite`` and had
@@ -253,6 +268,7 @@ class SurrogateSample:
     params: dict[str, float]
     freq: np.ndarray
     slowness: np.ndarray
+    attenuation: np.ndarray
     gather: np.ndarray
     mode_names: tuple[str, ...]
     mode_in_gather: np.ndarray
@@ -382,6 +398,7 @@ def generate_sample(
     params = priors.sample(rng)
     n_modes = len(modes)
     slowness = np.full((n_modes, freq.size), np.nan, dtype=float)
+    attenuation = np.full((n_modes, freq.size), np.nan, dtype=float)
     in_gather = np.zeros(n_modes, dtype=bool)
     disp_modes: list[Mode] = []
 
@@ -393,6 +410,10 @@ def generate_sample(
             # curve NaN and skip injection.
             continue
         slowness[i] = bm.slowness
+        # Leaky modes (e.g. pseudo-Rayleigh) also carry a spatial attenuation
+        # rate; bound modes leave it None -> the row stays NaN.
+        if bm.attenuation_per_meter is not None:
+            attenuation[i] = bm.attenuation_per_meter
         callable_s = dispersion_callable(bm, min_finite)
         if callable_s is None:
             continue
@@ -420,6 +441,7 @@ def generate_sample(
         params=params,
         freq=freq,
         slowness=slowness,
+        attenuation=attenuation,
         gather=gather,
         mode_names=tuple(spec.name for spec in modes),
         mode_in_gather=in_gather,
@@ -534,6 +556,8 @@ def stack_dataset(samples: Sequence[SurrogateSample]) -> dict[str, np.ndarray]:
 
         * ``params`` -- ``(N, len(PARAM_NAMES))``
         * ``slowness`` -- ``(N, M, n_f)`` (NaN where a mode is absent)
+        * ``attenuation`` -- ``(N, M, n_f)`` leaky-mode attenuation (1/m),
+          NaN for bound modes / absent frequencies
         * ``gather`` -- ``(N, n_rec, n_samples)``
         * ``mode_in_gather`` -- ``(N, M)`` bool
         * ``freq`` -- ``(n_f,)``
@@ -562,6 +586,7 @@ def stack_dataset(samples: Sequence[SurrogateSample]) -> dict[str, np.ndarray]:
     return {
         "params": np.stack([s.param_vector() for s in samples]),
         "slowness": np.stack([s.slowness for s in samples]),
+        "attenuation": np.stack([s.attenuation for s in samples]),
         "gather": np.stack([s.gather for s in samples]),
         "mode_in_gather": np.stack([s.mode_in_gather for s in samples]),
         "freq": np.asarray(samples[0].freq, dtype=float),

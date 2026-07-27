@@ -51,9 +51,11 @@ EXPECTED_KEYS = {
     "dt",
     "tr_offset",
     "dr",
+    # leaky-mode attenuation label (schema v3).
+    "attenuation",
 }
 EXPECTED_PARAM_NAMES = ("vp", "vs", "rho", "vf", "rho_f", "a")
-EXPECTED_SCHEMA_VERSION = 2
+EXPECTED_SCHEMA_VERSION = 3
 # Default fwap.ArrayGeometry scalars the generator stamps unless overridden.
 EXPECTED_DEFAULT_GEOMETRY = {"dt": 1.0e-5, "tr_offset": 3.0, "dr": 0.1524}
 
@@ -128,6 +130,7 @@ def test_npz_roundtrip_dtypes_and_shapes(tmp_path):
         # dtypes
         assert data["params"].dtype == np.float64
         assert data["slowness"].dtype == np.float64
+        assert data["attenuation"].dtype == np.float64
         assert data["gather"].dtype == np.float64
         assert data["freq"].dtype == np.float64
         assert data["mode_in_gather"].dtype == np.bool_
@@ -140,6 +143,7 @@ def test_npz_roundtrip_dtypes_and_shapes(tmp_path):
         # shapes
         assert data["params"].shape == (n, len(EXPECTED_PARAM_NAMES))
         assert data["slowness"].shape == (n, n_modes, n_f)
+        assert data["attenuation"].shape == (n, n_modes, n_f)
         assert data["gather"].shape[0] == n
         assert data["gather"].ndim == 3  # (N, n_rec, n_samples)
         assert data["mode_in_gather"].shape == (n, n_modes)
