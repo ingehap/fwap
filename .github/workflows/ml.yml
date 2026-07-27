@@ -44,11 +44,14 @@ jobs:
 
       - name: Ruff lint
         working-directory: sonic_ml
-        run: ruff check .
+        run: ruff check src tests
 
       - name: Ruff format check
+        # Scope to Python source (mirrors the core gate's explicit dirs); `.`
+        # would drag README.md into ruff's Markdown code-block formatting,
+        # which is ruff-version-dependent.
         working-directory: sonic_ml
-        run: ruff format --check .
+        run: ruff format --check src tests
 
       - name: Mypy
         working-directory: sonic_ml
