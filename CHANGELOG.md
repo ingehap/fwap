@@ -7,6 +7,21 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`sonic_ml` forward dispersion surrogate (M2)**: the first ML model in the
+  layer -- a residual-MLP surrogate mapping the varying standardized formation
+  parameters to per-mode slowness curves and per-mode presence logits (a fast,
+  differentiable stand-in for the modal-determinant root-finding). Lives in a
+  new torch-gated ``sonic_ml.models`` subpackage (not imported by the pure-NumPy
+  spine, so ``import fwap`` / ``import sonic_ml`` still need no torch):
+  ``ForwardSurrogate`` (model), ``ForwardDataset`` + ``SlownessNormalizer``
+  (tensor adapter with a finite-mask that keeps ``NaN`` slowness out of the
+  loss), a masked Huber slowness loss + presence BCE, ``train_forward`` with a
+  reproducible loop (determinism engaged up front) plus ``slowness_rmse`` /
+  ``presence_auc`` metrics, and a ``train`` CLI that checkpoints a
+  ``TrainedForwardSurrogate`` (weights + normalizers, weights-only-safe
+  round-trip). Covered by the non-required ``ml.yml`` job (torch present);
+  the tests ``importorskip`` torch so a torch-free dev install still runs the
+  spine suite.
 - **Surrogate-dataset schema v2 -- self-describing geometry**:
   ``scripts/gen_surrogate_dataset.py`` now persists the acquisition geometry
   in the ``.npz`` -- three 0-d scalars ``dt`` / ``tr_offset`` / ``dr`` which,
