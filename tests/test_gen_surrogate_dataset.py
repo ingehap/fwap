@@ -264,3 +264,89 @@ def test_leaky_mode_populates_attenuation():
     assert np.nanmax(att_pr) > 0.0
     # a bound mode's attenuation row stays NaN
     assert not np.isfinite(stacked["attenuation"][:, names.index("Stoneley"), :]).any()
+
+
+# ------------------------------------------------------------------
+# Cased-hole dataset (schema v4)
+# ------------------------------------------------------------------
+
+
+def test_open_hole_default_has_empty_layers_and_nan_bond():
+    # The default (open-hole) dataset is schema v4 but carries no annulus.
+    freq = _small_grid()
+    stacked = gen.stack_dataset(gen.generate_dataset(3, seed=0, freq=freq))
+    assert stacked["layer_params"].shape == (3, 0, len(gen.LAYER_PARAM_NAMES))
+    assert tuple(stacked["layer_names"]) == ()
+    assert not np.isfinite(stacked["bond_index"]).any()
+
+
+def test_casing_cement_priors_sample_ranges_and_bond():
+    priors = gen.CasingCementPriors()
+    rng = np.random.default_rng(0)
+    for _ in range(50):
+        (casing, cement), bond = priors.sample(rng)
+        assert priors.casing_vp[0] <= casing.vp <= priors.casing_vp[1]
+        assert priors.cement_vs[0] <= cement.vs <= priors.cement_vs[1]
+        assert cement.vs >= priors.vf  # stays in the bound Stoneley regime
+        assert 0.0 <= bond <= 1.0
+        assert casing.thickness > 0.0 and cement.thickness > 0.0
+    assert priors.layer_names == ("casing", "cement")
+
+
+def test_casing_cement_priors_reproducible():
+    priors = gen.CasingCementPriors()
+    a = priors.sample(np.random.default_rng(3))
+    b = priors.sample(np.random.default_rng(3))
+    assert a[1] == b[1]  # same bond index
+    assert a[0][0].vp == b[0][0].vp and a[0][1].vs == b[0][1].vs
+
+
+def test_generate_cased_dataset_shapes_and_finite_stoneley():
+    freq = gen.default_freq_grid(n_freq=48)
+    samples = gen.generate_cased_dataset(6, seed=0, freq=freq)
+    assert len(samples) == 6
+    stacked = gen.stack_dataset(samples)
+    # Single bound Stoneley mode, two-layer annulus.
+    assert tuple(stacked["mode_names"]) == ("Stoneley",)
+    assert stacked["layer_params"].shape == (6, 2, len(gen.LAYER_PARAM_NAMES))
+    assert tuple(stacked["layer_names"]) == ("casing", "cement")
+    # The Stoneley curve is bound (finite) across the band in this regime.
+    assert np.isfinite(stacked["slowness"]).mean() > 0.9
+    # Every cased sample carries a finite bond index and was injected.
+    assert np.all(np.isfinite(stacked["bond_index"]))
+    assert stacked["mode_in_gather"].all()
+
+
+def test_generate_cased_dataset_reproducible():
+    freq = gen.default_freq_grid(n_freq=48)
+    a = gen.generate_cased_dataset(4, seed=1, freq=freq)
+    b = gen.generate_cased_dataset(4, seed=1, freq=freq)
+    for sa, sb in zip(a, b):
+        assert sa.params == sb.params
+        assert sa.bond_index == sb.bond_index
+        np.testing.assert_array_equal(sa.layer_params, sb.layer_params)
+        np.testing.assert_array_equal(sa.gather, sb.gather)
+
+
+def test_cased_dataset_round_trips_through_npz(tmp_path):
+    freq = gen.default_freq_grid(n_freq=48)
+    samples = gen.generate_cased_dataset(4, seed=2, freq=freq)
+    out = tmp_path / "cased.npz"
+    gen.save_npz(str(out), samples)
+    with np.load(out, allow_pickle=False) as data:
+        assert data["layer_params"].shape == (4, 2, 4)
+        assert tuple(data["layer_names"]) == ("casing", "cement")
+        assert np.all(np.isfinite(data["bond_index"]))
+
+
+def test_main_cased_flag_writes_cased_file(tmp_path, capsys):
+    out = tmp_path / "cli_cased.npz"
+    rc = gen.main(
+        ["--n", "2", "--seed", "0", "--out", str(out), "--n-freq", "48", "--cased"]
+    )
+    assert rc == 0
+    with np.load(out, allow_pickle=False) as data:
+        assert tuple(data["mode_names"]) == ("Stoneley",)
+        assert tuple(data["layer_names"]) == ("casing", "cement")
+        assert data["layer_params"].shape == (2, 2, 4)
+        assert np.all(np.isfinite(data["bond_index"]))

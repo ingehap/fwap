@@ -53,9 +53,15 @@ EXPECTED_KEYS = {
     "dr",
     # leaky-mode attenuation label (schema v3).
     "attenuation",
+    # cased-hole annulus + bond label (schema v4). Present in every dataset:
+    # an open-hole dataset carries an empty (N, 0, 4) layer stack and NaN bond.
+    "layer_params",
+    "layer_names",
+    "bond_index",
 }
 EXPECTED_PARAM_NAMES = ("vp", "vs", "rho", "vf", "rho_f", "a")
-EXPECTED_SCHEMA_VERSION = 3
+EXPECTED_LAYER_PARAM_NAMES = ("vp", "vs", "rho", "thickness")
+EXPECTED_SCHEMA_VERSION = 4
 # Default fwap.ArrayGeometry scalars the generator stamps unless overridden.
 EXPECTED_DEFAULT_GEOMETRY = {"dt": 1.0e-5, "tr_offset": 3.0, "dr": 0.1524}
 
@@ -79,6 +85,7 @@ def _dataset(n: int = 3):
 def test_module_constants_match_contract():
     """The generator's own constants equal the frozen expectations."""
     assert gen.PARAM_NAMES == EXPECTED_PARAM_NAMES
+    assert gen.LAYER_PARAM_NAMES == EXPECTED_LAYER_PARAM_NAMES
     assert gen.SCHEMA_VERSION == EXPECTED_SCHEMA_VERSION
 
 
@@ -139,6 +146,10 @@ def test_npz_roundtrip_dtypes_and_shapes(tmp_path):
         assert np.issubdtype(data["schema_version"].dtype, np.integer)
         for key in EXPECTED_DEFAULT_GEOMETRY:
             assert np.issubdtype(data[key].dtype, np.floating)
+        # cased-hole arrays (schema v4)
+        assert data["layer_params"].dtype == np.float64
+        assert data["layer_names"].dtype.kind in ("U", "S")
+        assert data["bond_index"].dtype == np.float64
 
         # shapes
         assert data["params"].shape == (n, len(EXPECTED_PARAM_NAMES))
@@ -153,6 +164,11 @@ def test_npz_roundtrip_dtypes_and_shapes(tmp_path):
         assert data["schema_version"].shape == ()
         for key in EXPECTED_DEFAULT_GEOMETRY:
             assert data[key].shape == ()  # 0-d geometry scalars
+        # open-hole dataset: empty layer stack, NaN bond, one 4-wide layer axis
+        assert data["layer_params"].shape == (n, 0, len(EXPECTED_LAYER_PARAM_NAMES))
+        assert data["layer_names"].shape == (0,)
+        assert data["bond_index"].shape == (n,)
+        assert not np.isfinite(data["bond_index"]).any()
 
         # pinned values / ordering
         assert tuple(data["param_names"]) == EXPECTED_PARAM_NAMES
@@ -180,3 +196,32 @@ def test_npz_consumer_reads_shape_from_metadata_not_hardcoded(tmp_path):
         assert data["mode_in_gather"].shape[1] == n_modes
         assert data["params"].shape[1] == n_params
         assert data["slowness"].shape[2] == freq.size
+
+
+# ------------------------------------------------------------------
+# Cased-hole dataset (schema v4)
+# ------------------------------------------------------------------
+
+
+def test_cased_dataset_layer_arrays_and_bond(tmp_path):
+    """A cased-hole dataset carries a (casing, cement) stack and a bond label."""
+    freq = _small_grid()
+    samples = gen.generate_cased_dataset(6, seed=0, freq=freq)
+    out = tmp_path / "cased.npz"
+    gen.save_npz(str(out), samples)
+    with np.load(out, allow_pickle=False) as data:
+        assert set(data.files) == EXPECTED_KEYS  # same frozen key set as v4
+        assert int(data["schema_version"]) == EXPECTED_SCHEMA_VERSION
+        n = len(samples)
+        # Two annular layers, four columns each; labels in radial order.
+        assert data["layer_params"].shape == (n, 2, len(EXPECTED_LAYER_PARAM_NAMES))
+        assert tuple(data["layer_names"]) == ("casing", "cement")
+        # The single bound Stoneley mode.
+        assert tuple(data["mode_names"]) == ("Stoneley",)
+        # Bond index is a finite [0, 1] proxy for every cased sample.
+        bond = data["bond_index"]
+        assert bond.shape == (n,)
+        assert np.all(np.isfinite(bond))
+        assert np.all((bond >= 0.0) & (bond <= 1.0))
+        # Positive layer properties (vp, vs, rho, thickness all > 0).
+        assert np.all(data["layer_params"] > 0.0)

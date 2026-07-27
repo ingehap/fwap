@@ -127,7 +127,7 @@ def test_v2_missing_geometry_key_raises(tmp_path, stacked):
 
 def test_v3_bundle_carries_attenuation(npz_path):
     b = load_npz(npz_path)
-    assert b.schema_version == 3
+    assert b.schema_version >= 3  # attenuation present since v3
     assert b.attenuation is not None
     assert b.attenuation.shape == b.slowness.shape
 
@@ -147,6 +147,67 @@ def test_v2_file_loads_with_none_attenuation(tmp_path, stacked):
 def test_v3_missing_attenuation_raises(tmp_path, stacked):
     bad = {k: v for k, v in stacked.items() if k != "attenuation"}  # keep v3
     p = tmp_path / "v3_noatt.npz"
+    np.savez_compressed(p, **bad)
+    with pytest.raises(SchemaError):
+        load_npz(str(p))
+
+
+# ------------------------------------------------------------------
+# Schema v4: cased-hole annulus + bond label
+# ------------------------------------------------------------------
+
+
+def test_open_hole_v4_bundle_has_empty_layers(npz_path):
+    # The default (open-hole) dataset is v4: layer arrays present but empty,
+    # bond_index all-NaN, and is_cased False.
+    b = load_npz(npz_path)
+    assert b.schema_version >= 4
+    assert b.layer_params is not None
+    assert b.layer_params.shape == (b.n_samples, 0, 4)
+    assert b.layer_names == ()
+    assert b.bond_index is not None
+    assert not np.isfinite(b.bond_index).any()
+    assert b.is_cased is False
+
+
+def test_cased_v4_bundle_carries_layers_and_bond(tmp_path, freq):
+    gen = gen_shim.generator()
+    p = tmp_path / "cased.npz"
+    gen.save_npz(str(p), gen.generate_cased_dataset(6, seed=0, freq=freq))
+    b = load_npz(str(p))
+    assert b.schema_version == 4
+    assert b.is_cased is True
+    assert b.layer_names == ("casing", "cement")
+    assert b.layer_params is not None
+    assert b.layer_params.shape == (b.n_samples, 2, 4)
+    assert b.bond_index is not None
+    assert b.bond_index.shape == (b.n_samples,)
+    assert np.all(np.isfinite(b.bond_index))
+    assert np.all((b.bond_index >= 0.0) & (b.bond_index <= 1.0))
+    assert b.mode_names == ("Stoneley",)
+
+
+def test_v3_file_loads_with_none_cased_fields(tmp_path, stacked):
+    # A v3 file (no cased keys) still loads, exposing layer_params/bond None.
+    legacy = {
+        k: v
+        for k, v in stacked.items()
+        if k not in ("layer_params", "layer_names", "bond_index")
+    }
+    legacy["schema_version"] = np.asarray(3, dtype=np.int64)
+    p = tmp_path / "v3.npz"
+    np.savez_compressed(p, **legacy)
+    b = load_npz(str(p))
+    assert b.schema_version == 3
+    assert b.layer_params is None
+    assert b.bond_index is None
+    assert b.layer_names == ()
+    assert b.is_cased is False
+
+
+def test_v4_missing_cased_key_raises(tmp_path, stacked):
+    bad = {k: v for k, v in stacked.items() if k != "bond_index"}  # keep v4
+    p = tmp_path / "v4_nobond.npz"
     np.savez_compressed(p, **bad)
     with pytest.raises(SchemaError):
         load_npz(str(p))
