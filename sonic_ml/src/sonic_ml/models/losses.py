@@ -53,3 +53,37 @@ def presence_bce(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         Scalar loss.
     """
     return F.binary_cross_entropy_with_logits(logits, target)
+
+
+def gaussian_nll(
+    mean: torch.Tensor,
+    log_var: torch.Tensor,
+    target: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Heteroscedastic Gaussian negative log-likelihood.
+
+    Predicting a per-target ``log_var`` alongside the ``mean`` lets the model
+    express calibrated uncertainty -- essential where formation parameters are
+    weakly identifiable (vp / rho from Stoneley + flexural). The additive
+    constant ``0.5 log(2*pi)`` is dropped (irrelevant to optimization).
+
+    .. math::
+
+        \\mathcal{L} = \\tfrac12 \\left[ e^{-\\log\\sigma^2}
+        (\\mu - y)^2 + \\log\\sigma^2 \\right]
+
+    Parameters
+    ----------
+    mean, log_var : Tensor, shape (B, K)
+        Predicted per-target mean and log-variance.
+    target : Tensor, shape (B, K)
+        Standardized target values.
+
+    Returns
+    -------
+    Tensor
+        Scalar loss (mean over batch and targets).
+    """
+    inv_var = torch.exp(-log_var)
+    return 0.5 * (inv_var * (mean - target) ** 2 + log_var).mean()
