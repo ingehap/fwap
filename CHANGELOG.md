@@ -7,6 +7,19 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`sonic_ml` model cards + checkpoint hygiene (M4d)**: a torch-free
+  ``ModelCard`` (in ``sonic_ml.models.weights``) binds a trained checkpoint to
+  its provenance -- model type, hyper-parameters, held-out metrics, the fwap
+  version + git SHA at training time (reused from ``sonic_ml.provenance``), and
+  the ``content_hash`` of the training dataset, so a checkpoint can be tied back
+  to the exact ``.npz`` (and thus the exact fwap solver output) it learned from.
+  ``save_with_card`` writes a model's own ``.save()`` checkpoint plus a small
+  ``<ckpt>.card.json`` sidecar beside it; ``card_for`` / ``read_card`` build and
+  read the card. The card is duck-typed on the trained wrapper
+  (``.model.hparams`` + ``.save``), so it stays torch-free and works for both
+  ``TrainedInverseNet`` and ``TrainedForwardSurrogate``. A root ``.gitignore``
+  rule now excludes ``*.pt`` / ``*.ckpt`` (large binaries) while keeping the
+  committable JSON card -- the durable record of what each checkpoint is.
 - **Surrogate schema v3: leaky-mode attenuation channel + pseudo-Rayleigh mode
   (M4c)**: the generator now stores each mode's spatial attenuation rate
   (1/m) in an ``attenuation`` array alongside ``slowness`` -- a free extra

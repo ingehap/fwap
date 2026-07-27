@@ -25,6 +25,12 @@ from sonic_ml.models.train import (
     slowness_rmse,
     train_forward,
 )
+from sonic_ml.models.weights import (
+    ModelCard,
+    card_for,
+    read_card,
+    save_with_card,
+)
 
 __all__ = [
     # forward surrogate (M2)
@@ -49,4 +55,9 @@ __all__ = [
     "residual_zscore_std",
     # augmentation (M4)
     "GatherAugmentation",
+    # model cards / weight storage (M4d)
+    "ModelCard",
+    "card_for",
+    "save_with_card",
+    "read_card",
 ]
