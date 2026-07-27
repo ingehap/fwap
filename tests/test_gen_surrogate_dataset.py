@@ -202,3 +202,31 @@ def test_main_writes_file(tmp_path, capsys):
     assert out.exists()
     captured = capsys.readouterr()
     assert "wrote 2 samples" in captured.out
+
+
+# ------------------------------------------------------------------
+# Optional n=2 quadrupole mode
+# ------------------------------------------------------------------
+
+
+def test_default_modes_stay_lean():
+    # QUADRUPOLE_MODE is opt-in; the default dataset is unchanged (2 modes).
+    assert [m.name for m in gen.DEFAULT_MODES] == ["Stoneley", "flexural"]
+    assert gen.QUADRUPOLE_MODE.name == "quadrupole"
+
+
+def test_three_mode_dataset_generates_and_stacks(tmp_path):
+    freq = gen.default_freq_grid(n_freq=64)
+    modes = (*gen.DEFAULT_MODES, gen.QUADRUPOLE_MODE)
+    samples = gen.generate_dataset(6, seed=0, freq=freq, modes=modes)
+    stacked = gen.stack_dataset(samples)
+    # Mode-agnostic: M grows to 3, arrays follow, mode_names carries the label.
+    assert tuple(stacked["mode_names"]) == ("Stoneley", "flexural", "quadrupole")
+    n = len(samples)
+    assert stacked["slowness"].shape == (n, 3, freq.size)
+    assert stacked["mode_in_gather"].shape == (n, 3)
+    # Round-trips through save/load.
+    out = tmp_path / "q.npz"
+    gen.save_npz(str(out), samples)
+    with np.load(out, allow_pickle=False) as data:
+        assert tuple(data["mode_names"]) == ("Stoneley", "flexural", "quadrupole")

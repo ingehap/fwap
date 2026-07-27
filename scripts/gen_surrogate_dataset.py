@@ -61,6 +61,7 @@ from fwap import (
     ArrayGeometry,
     Mode,
     flexural_dispersion,
+    quadrupole_dispersion,
     stoneley_dispersion,
     synthesize_gather,
 )
@@ -128,6 +129,18 @@ DEFAULT_MODES: tuple[ModeSpec, ...] = (
         sigma=3.0e-4,
     ),
     ModeSpec("flexural", flexural_dispersion, f0=3000.0, amplitude=1.5),
+)
+
+# Opt-in n=2 quadrupole mode -- a signature-compatible drop-in kept out of
+# DEFAULT_MODES so the default dataset stays lean (two modes, two solves per
+# sample). Pass e.g. ``modes=(*DEFAULT_MODES, QUADRUPOLE_MODE)`` to
+# :func:`generate_dataset` for a three-mode dataset; the loader and models are
+# mode-count-agnostic (they read ``M`` from ``mode_names``). The quadrupole is
+# bound (finite) mainly in slow formations -- in fast formations it is largely
+# leaky and often falls below ``min_finite``, so it is recorded in the slowness
+# label but absent from ``mode_in_gather``.
+QUADRUPOLE_MODE: ModeSpec = ModeSpec(
+    "quadrupole", quadrupole_dispersion, f0=4000.0, amplitude=1.0
 )
 
 
