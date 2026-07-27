@@ -78,6 +78,7 @@ literature:
    quickstart
    chapter_map
    notebooks/cylindrical_biot_validation
+   notebooks/sonic_ml_tutorial
    api
    roadmap
    changelog

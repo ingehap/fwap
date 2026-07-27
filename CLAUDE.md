@@ -26,6 +26,9 @@ pytest -x                               # bench suite auto-excluded
 - Benchmarks run separately: `pytest tests/test_bench.py` (excluded from the
   default run via `addopts` in `pyproject.toml`).
 - Notebook validation: `pytest --nbval-lax docs/notebooks/cylindrical_biot_validation.ipynb`.
+  The `sonic_ml` tutorial (`docs/notebooks/sonic_ml_tutorial.ipynb`) needs torch
+  and is validated in the `ml.yml` job:
+  `pytest --nbval-lax docs/notebooks/sonic_ml_tutorial.ipynb`.
 
 ## Conventions
 - **Type hints**: PEP 604/585 (`int | None`, `tuple[int, int]`).

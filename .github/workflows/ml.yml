@@ -41,6 +41,9 @@ jobs:
           # CPU-only torch (GitHub runners have no GPU).
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -e "./sonic_ml[dev]"
+          # ipykernel provides the "python3" kernel nbval re-executes the
+          # tutorial notebook with (nbval itself comes from the core [dev]).
+          pip install ipykernel
 
       - name: Ruff lint
         working-directory: sonic_ml
@@ -60,3 +63,10 @@ jobs:
       - name: Pytest
         working-directory: sonic_ml
         run: pytest
+
+      - name: Validate tutorial notebook (nbval)
+        # The sonic_ml tutorial imports torch, so it is exercised here (where
+        # torch is installed) rather than in the core CI. --nbval-lax re-runs
+        # every cell and fails on any exception, ignoring output drift. Run
+        # from the repo root so the notebook's relative context resolves.
+        run: pytest --nbval-lax docs/notebooks/sonic_ml_tutorial.ipynb
