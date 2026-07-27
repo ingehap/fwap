@@ -8,6 +8,7 @@ forward dispersion surrogate; M3 the DL-FWI inverse net.
 
 from __future__ import annotations
 
+from sonic_ml.models.augment import GatherAugmentation
 from sonic_ml.models.dataset import ForwardDataset, SlownessNormalizer
 from sonic_ml.models.forward import ForwardSurrogate, TrainedForwardSurrogate
 from sonic_ml.models.inverse import InverseNet, TrainedInverseNet
@@ -46,4 +47,6 @@ __all__ = [
     "InversePredictor",
     "parameter_mae",
     "residual_zscore_std",
+    # augmentation (M4)
+    "GatherAugmentation",
 ]
