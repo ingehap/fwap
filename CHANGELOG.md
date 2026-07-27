@@ -7,6 +7,23 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`sonic_ml` classical-baseline harness (M1)**: the no-ML benchmark layer
+  that establishes the bar a later ML model must beat. Adds a model-agnostic
+  scoring harness (`sonic_ml.bench`) built on a `Predictor` protocol -- any
+  object mapping a dataset + geometry to a per-sample Vs estimate -- with an
+  `evaluate` that reports median absolute Vs error split by slow/fast regime
+  plus a bootstrap 95% CI, and a `format_scorecard` text report. Two classical
+  `Predictor`s (`sonic_ml.baselines`) estimate Vs from the waveform with only
+  fwap processing: `ClassicalSTCBaseline` (regime-split dispersion-corrected
+  STC for slow / pseudo-Rayleigh STC for fast) and `FKDispersionBaseline` (f-k
+  phase-slowness reduced to a low-frequency shear slowness); both return `NaN`
+  on failure rather than raising. `sonic_ml.oracles` vendors the closed-form
+  physics limits (White Stoneley low-frequency slowness; flexural `1/vs` and
+  Rayleigh high-frequency asymptotes), validated against the fwap modal solver.
+  `sonic_ml.geometry.default_geometry` reconstructs the generator's default
+  acquisition geometry (the `.npz` does not yet store it -- a schema v2
+  follow-up would make gathers self-describing). Pure NumPy/SciPy + fwap, no
+  torch; covered by the non-required `ml.yml` job.
 - **`sonic_ml` sibling package (M0 spine)**: a new in-repo, top-level
   `sonic_ml/` package (its own `pyproject.toml`, depends on `fwap` + PyTorch)
   that consumes the surrogate-dataset `.npz` and will host the ML surrogate /
