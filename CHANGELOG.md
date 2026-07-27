@@ -7,6 +7,17 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Surrogate-dataset schema guard**: ``scripts/gen_surrogate_dataset.py``
+  now stamps its ``.npz`` output with a ``schema_version`` key
+  (``SCHEMA_VERSION = 1``), and a new ``tests/test_npz_schema_contract.py``
+  pins the on-disk contract -- the exact key set, ``PARAM_NAMES`` column
+  order, per-array dtypes and shapes, and the version. The generator is a
+  path-imported script outside the public-API guard and its ``.npz`` is the
+  sole hand-off to any downstream ML consumer, so a breaking change (a
+  reordered/renamed key or parameter column, a changed dtype) now fails core
+  CI here rather than silently mislabelling training data. Pure NumPy; runs
+  in the default ``.[dev]`` test job. Bump ``SCHEMA_VERSION`` and update the
+  contract test in lockstep for any intentional layout change.
 - **Surrogate-model data generator**: ``scripts/gen_surrogate_dataset.py``
   wraps the cylindrical-Biot forward modal solver
   (``stoneley_dispersion`` / ``flexural_dispersion``) as a labelled-pair
