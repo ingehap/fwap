@@ -7,6 +7,19 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`sonic_ml` tutorial notebook (M4e)**:
+  ``docs/notebooks/sonic_ml_tutorial.ipynb`` walks the full ML loop end-to-end
+  on a small synthetic dataset -- generate a surrogate dataset from the fwap
+  modal solver, load it through the ``.npz`` contract, regime-stratify the
+  split, score the classical STC baseline, train the DL-FWI inverse net, compare
+  the two head-to-head on identical held-out samples (the inverse net beats
+  classical by ~an order of magnitude on Vs, including the fast-formation
+  regime), and save the trained model with a provenance model card (M4d). Runs
+  in ~30 s. Added to the Sphinx toctree (rendered via ``myst-nb``, execution
+  off) and validated on every PR by a new ``--nbval-lax`` step in the
+  non-required ``ml.yml`` job (which has torch); the notebook closes with an
+  explicit statement of what a same-forward-model synthetic benchmark does and
+  does not demonstrate.
 - **`sonic_ml` model cards + checkpoint hygiene (M4d)**: a torch-free
   ``ModelCard`` (in ``sonic_ml.models.weights``) binds a trained checkpoint to
   its provenance -- model type, hyper-parameters, held-out metrics, the fwap
