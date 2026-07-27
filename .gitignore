@@ -39,6 +39,11 @@ htmlcov/
 # Demo output directory referenced by the README
 figures/
 
+# Trained model checkpoints (large binaries; the committed record is the small
+# JSON model card written next to them by sonic_ml.models.save_with_card).
+*.pt
+*.ckpt
+
 # Sphinx build artifacts
 docs/_build/
 docs/generated/
