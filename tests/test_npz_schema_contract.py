@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 _SCRIPT = (
     Path(__file__).resolve().parent.parent / "scripts" / "gen_surrogate_dataset.py"
@@ -46,9 +47,15 @@ EXPECTED_KEYS = {
     "param_names",
     "mode_names",
     "schema_version",
+    # geometry scalars (schema v2): make the gather self-describing.
+    "dt",
+    "tr_offset",
+    "dr",
 }
 EXPECTED_PARAM_NAMES = ("vp", "vs", "rho", "vf", "rho_f", "a")
-EXPECTED_SCHEMA_VERSION = 1
+EXPECTED_SCHEMA_VERSION = 2
+# Default fwap.ArrayGeometry scalars the generator stamps unless overridden.
+EXPECTED_DEFAULT_GEOMETRY = {"dt": 1.0e-5, "tr_offset": 3.0, "dr": 0.1524}
 
 
 def _small_grid() -> np.ndarray:
@@ -127,6 +134,8 @@ def test_npz_roundtrip_dtypes_and_shapes(tmp_path):
         assert data["param_names"].dtype.kind in ("U", "S")
         assert data["mode_names"].dtype.kind in ("U", "S")
         assert np.issubdtype(data["schema_version"].dtype, np.integer)
+        for key in EXPECTED_DEFAULT_GEOMETRY:
+            assert np.issubdtype(data[key].dtype, np.floating)
 
         # shapes
         assert data["params"].shape == (n, len(EXPECTED_PARAM_NAMES))
@@ -138,6 +147,8 @@ def test_npz_roundtrip_dtypes_and_shapes(tmp_path):
         assert data["param_names"].shape == (len(EXPECTED_PARAM_NAMES),)
         assert data["mode_names"].shape == (n_modes,)
         assert data["schema_version"].shape == ()
+        for key in EXPECTED_DEFAULT_GEOMETRY:
+            assert data[key].shape == ()  # 0-d geometry scalars
 
         # pinned values / ordering
         assert tuple(data["param_names"]) == EXPECTED_PARAM_NAMES
@@ -146,6 +157,10 @@ def test_npz_roundtrip_dtypes_and_shapes(tmp_path):
         )
         assert int(data["schema_version"]) == EXPECTED_SCHEMA_VERSION
         np.testing.assert_array_equal(data["freq"], freq)
+        # geometry scalars round-trip the default ArrayGeometry, and together
+        # with the gather's (n_rec, n_samples) fully specify acquisition.
+        for key, value in EXPECTED_DEFAULT_GEOMETRY.items():
+            assert float(data[key]) == pytest.approx(value)
 
 
 def test_npz_consumer_reads_shape_from_metadata_not_hardcoded(tmp_path):

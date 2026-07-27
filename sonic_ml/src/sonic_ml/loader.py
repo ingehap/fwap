@@ -17,12 +17,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from fwap import ArrayGeometry
 
 #: Schema versions this loader understands. Extend (do not silently widen)
 #: when the generator bumps ``SCHEMA_VERSION`` in a backward-compatible way.
-SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1})
+SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, 2})
 
-#: Keys every conformant ``.npz`` must contain.
+#: Keys every conformant ``.npz`` must contain (all schema versions).
 REQUIRED_KEYS: frozenset[str] = frozenset(
     {
         "params",
@@ -35,6 +36,9 @@ REQUIRED_KEYS: frozenset[str] = frozenset(
         "schema_version",
     }
 )
+
+#: Acquisition-geometry scalars added in schema v2 (required for v2+).
+GEOMETRY_KEYS: frozenset[str] = frozenset({"dt", "tr_offset", "dr"})
 
 
 class SchemaError(ValueError):
@@ -73,6 +77,11 @@ class DatasetBundle:
         :attr:`mode_in_gather`.
     schema_version : int
         The on-disk contract version this bundle was loaded from.
+    geometry : fwap.ArrayGeometry or None
+        Acquisition geometry the gathers were synthesized with,
+        reconstructed from the stored ``dt`` / ``tr_offset`` / ``dr``
+        scalars plus the gather's ``(n_rec, n_samples)``. ``None`` for
+        schema v1 files (which did not persist geometry).
     """
 
     params: np.ndarray
@@ -83,6 +92,7 @@ class DatasetBundle:
     param_names: tuple[str, ...]
     mode_names: tuple[str, ...]
     schema_version: int
+    geometry: ArrayGeometry | None = None
 
     @property
     def n_samples(self) -> int:
@@ -179,6 +189,27 @@ def load_npz(path: str) -> DatasetBundle:
         param_names = tuple(str(s) for s in data["param_names"].tolist())
         mode_names = tuple(str(s) for s in data["mode_names"].tolist())
 
+        geometry: ArrayGeometry | None = None
+        if schema_version >= 2:
+            missing_geom = GEOMETRY_KEYS - keys
+            if missing_geom:
+                raise SchemaError(
+                    f"{path}: schema_version {schema_version} requires geometry "
+                    f"keys but is missing {sorted(missing_geom)}"
+                )
+            if gather.ndim != 3:
+                raise SchemaError(
+                    f"{path}: schema v2 gather must be (N, n_rec, n_samples), "
+                    f"got shape {gather.shape}"
+                )
+            geometry = ArrayGeometry(
+                n_rec=int(gather.shape[1]),
+                tr_offset=float(data["tr_offset"]),
+                dr=float(data["dr"]),
+                dt=float(data["dt"]),
+                n_samples=int(gather.shape[2]),
+            )
+
     n = params.shape[0]
     n_params = len(param_names)
     n_modes = len(mode_names)
@@ -212,6 +243,7 @@ def load_npz(path: str) -> DatasetBundle:
         param_names=param_names,
         mode_names=mode_names,
         schema_version=schema_version,
+        geometry=geometry,
     )
 
 
