@@ -84,3 +84,37 @@ def test_allow_pickle_false_is_used(tmp_path):
     np.savez(p, params=obj)
     with pytest.raises((ValueError, SchemaError)):
         load_npz(str(p))
+
+
+# ------------------------------------------------------------------
+# Schema v2: acquisition geometry
+# ------------------------------------------------------------------
+
+
+def test_v2_bundle_carries_geometry(npz_path):
+    b = load_npz(npz_path)
+    assert b.schema_version == 2
+    assert b.geometry is not None
+    assert b.geometry.n_rec == b.gather.shape[1]
+    assert b.geometry.n_samples == b.gather.shape[2]
+    assert b.geometry.dt > 0.0
+
+
+def test_v1_file_loads_with_none_geometry(tmp_path, stacked):
+    # A legacy v1 file (no geometry keys, schema_version=1) still loads,
+    # exposing geometry=None -- backward compatibility.
+    legacy = {k: v for k, v in stacked.items() if k not in ("dt", "tr_offset", "dr")}
+    legacy["schema_version"] = np.asarray(1, dtype=np.int64)
+    p = tmp_path / "v1.npz"
+    np.savez_compressed(p, **legacy)
+    b = load_npz(str(p))
+    assert b.schema_version == 1
+    assert b.geometry is None
+
+
+def test_v2_missing_geometry_key_raises(tmp_path, stacked):
+    bad = {k: v for k, v in stacked.items() if k != "dr"}  # keep schema_version=2
+    p = tmp_path / "v2_nogeom.npz"
+    np.savez_compressed(p, **bad)
+    with pytest.raises(SchemaError):
+        load_npz(str(p))

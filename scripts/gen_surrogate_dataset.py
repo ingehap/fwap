@@ -80,7 +80,7 @@ PARAM_NAMES: tuple[str, ...] = ("vp", "vs", "rho", "vf", "rho_f", "a")
 # a version they do not understand; ``tests/test_npz_schema_contract.py``
 # pins the layout so a breaking change fails CI here rather than silently
 # mislabelling data downstream.
-SCHEMA_VERSION: int = 1
+SCHEMA_VERSION: int = 2
 
 SlownessOfF = Callable[[np.ndarray], np.ndarray]
 
@@ -230,6 +230,11 @@ class SurrogateSample:
         may have a slowness curve (partly finite) yet be excluded
         from the waveform because its finite support was too sparse
         to interpolate.
+    geom : fwap.ArrayGeometry
+        Acquisition geometry the ``gather`` was synthesized with
+        (sampling interval, receiver offsets, sample count). Shared by
+        every sample of a dataset and persisted once by
+        :func:`stack_dataset` so the waveform is self-describing.
     """
 
     params: dict[str, float]
@@ -238,6 +243,7 @@ class SurrogateSample:
     gather: np.ndarray
     mode_names: tuple[str, ...]
     mode_in_gather: np.ndarray
+    geom: ArrayGeometry
 
     def param_vector(self) -> np.ndarray:
         """Formation parameters as an array in :data:`PARAM_NAMES` order.
@@ -404,6 +410,7 @@ def generate_sample(
         gather=gather,
         mode_names=tuple(spec.name for spec in modes),
         mode_in_gather=in_gather,
+        geom=geom,
     )
 
 
@@ -521,6 +528,15 @@ def stack_dataset(samples: Sequence[SurrogateSample]) -> dict[str, np.ndarray]:
         * ``mode_names`` -- ``(M,)`` str
         * ``schema_version`` -- ``()`` int (0-d), the :data:`SCHEMA_VERSION`
           of this on-disk layout
+        * ``dt`` -- ``()`` float (0-d), sampling interval (s)
+        * ``tr_offset`` -- ``()`` float (0-d), transmitter-to-first-receiver
+          offset (m)
+        * ``dr`` -- ``()`` float (0-d), inter-receiver spacing (m)
+
+        The three geometry scalars (added in schema v2) plus the
+        ``gather``'s ``(n_rec, n_samples)`` fully reconstruct the
+        acquisition :class:`fwap.ArrayGeometry`, making the waveform
+        self-describing.
 
     Raises
     ------
@@ -529,6 +545,7 @@ def stack_dataset(samples: Sequence[SurrogateSample]) -> dict[str, np.ndarray]:
     """
     if len(samples) == 0:
         raise ValueError("cannot stack an empty sample list")
+    geom = samples[0].geom
     return {
         "params": np.stack([s.param_vector() for s in samples]),
         "slowness": np.stack([s.slowness for s in samples]),
@@ -538,6 +555,9 @@ def stack_dataset(samples: Sequence[SurrogateSample]) -> dict[str, np.ndarray]:
         "param_names": np.array(PARAM_NAMES),
         "mode_names": np.array(samples[0].mode_names),
         "schema_version": np.asarray(SCHEMA_VERSION, dtype=np.int64),
+        "dt": np.asarray(geom.dt, dtype=float),
+        "tr_offset": np.asarray(geom.tr_offset, dtype=float),
+        "dr": np.asarray(geom.dr, dtype=float),
     }
 
 

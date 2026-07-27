@@ -26,7 +26,13 @@ from sonic_ml.loader import DatasetBundle
 
 def default_geometry(bundle: DatasetBundle) -> ArrayGeometry:
     """
-    Reconstruct the generator's default geometry for a bundle's gathers.
+    Acquisition geometry for a bundle's gathers.
+
+    Prefers the geometry persisted in the dataset (schema v2+, exposed as
+    ``bundle.geometry``). Falls back to reconstructing the generator's
+    *default* :class:`~fwap.ArrayGeometry` for legacy schema v1 files, which
+    is only correct if that dataset used the default ``dt`` / ``dr`` /
+    ``tr_offset`` (see the module warning).
 
     Parameters
     ----------
@@ -36,14 +42,15 @@ def default_geometry(bundle: DatasetBundle) -> ArrayGeometry:
     Returns
     -------
     fwap.ArrayGeometry
-        ``ArrayGeometry(n_rec=<gather n_rec>, n_samples=<gather n_samples>)``
-        with the default ``dt`` / ``dr`` / ``tr_offset``.
+        The stored geometry (v2) or the default-reconstructed geometry (v1).
 
     Raises
     ------
     ValueError
-        If the gather is not 3-D.
+        If the gather is not 3-D (only reachable for a v1 fallback).
     """
+    if bundle.geometry is not None:
+        return bundle.geometry
     if bundle.gather.ndim != 3:
         raise ValueError(
             f"expected a 3-D gather (N, n_rec, n_samples), got shape "

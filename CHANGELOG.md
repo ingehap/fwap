@@ -7,6 +7,19 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Surrogate-dataset schema v2 -- self-describing geometry**:
+  ``scripts/gen_surrogate_dataset.py`` now persists the acquisition geometry
+  in the ``.npz`` -- three 0-d scalars ``dt`` / ``tr_offset`` / ``dr`` which,
+  together with the ``gather``'s ``(n_rec, n_samples)``, reconstruct the
+  :class:`fwap.ArrayGeometry` -- and bumps ``SCHEMA_VERSION`` to ``2``. The
+  ``SurrogateSample`` gains a ``geom`` field; the core schema-contract test is
+  updated in lockstep. On the consumer side ``sonic_ml`` reads the geometry
+  into ``DatasetBundle.geometry`` (``None`` for legacy v1 files) and
+  ``sonic_ml.geometry.default_geometry`` now returns the stored geometry,
+  falling back to the default reconstruction only for v1. This removes the
+  "assume default geometry" caveat the M1 harness carried and makes the
+  waveform self-describing ahead of the inverse-net work. ``load_npz`` accepts
+  both schema v1 and v2.
 - **`sonic_ml` classical-baseline harness (M1)**: the no-ML benchmark layer
   that establishes the bar a later ML model must beat. Adds a model-agnostic
   scoring harness (`sonic_ml.bench`) built on a `Predictor` protocol -- any
