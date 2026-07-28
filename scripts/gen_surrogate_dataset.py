@@ -59,11 +59,13 @@ import numpy as np
 
 from fwap import (
     ArrayGeometry,
+    BoreholeLayer,
     Mode,
     flexural_dispersion,
     pseudo_rayleigh_modal_dispersion,
     quadrupole_dispersion,
     stoneley_dispersion,
+    stoneley_dispersion_layered,
     synthesize_gather,
 )
 from fwap.cylindrical_solver import BoreholeMode
@@ -74,6 +76,15 @@ from fwap.cylindrical_solver import BoreholeMode
 # solvers accept.
 PARAM_NAMES: tuple[str, ...] = ("vp", "vs", "rho", "vf", "rho_f", "a")
 
+# Column order of the per-layer rows in the ``layer_params`` array written for
+# cased-hole datasets (schema v4). One row per annular layer between the
+# borehole fluid and the formation half-space.
+LAYER_PARAM_NAMES: tuple[str, ...] = ("vp", "vs", "rho", "thickness")
+
+# Layer labels for a cased-hole (casing + cement) sample, aligned with axis 1
+# of ``layer_params``.
+CASED_LAYER_NAMES: tuple[str, ...] = ("casing", "cement")
+
 # Version of the ``.npz`` on-disk contract (key set, ``PARAM_NAMES``
 # order, per-array dtypes and shapes) written by :func:`stack_dataset` /
 # :func:`save_npz`. Bump this whenever that layout changes in a way a
@@ -82,7 +93,7 @@ PARAM_NAMES: tuple[str, ...] = ("vp", "vs", "rho", "vf", "rho_f", "a")
 # a version they do not understand; ``tests/test_npz_schema_contract.py``
 # pins the layout so a breaking change fails CI here rather than silently
 # mislabelling data downstream.
-SCHEMA_VERSION: int = 3
+SCHEMA_VERSION: int = 4
 
 SlownessOfF = Callable[[np.ndarray], np.ndarray]
 
@@ -152,6 +163,116 @@ QUADRUPOLE_MODE: ModeSpec = ModeSpec(
 PSEUDO_RAYLEIGH_MODE: ModeSpec = ModeSpec(
     "pseudo_rayleigh", pseudo_rayleigh_modal_dispersion, f0=6000.0, amplitude=1.0
 )
+
+# Opt-in cased-hole Stoneley mode (schema v4). Uses the layered modal solver
+# over the annular stack fluid -> casing -> cement -> formation
+# (:func:`fwap.stoneley_dispersion_layered`). The Stoneley tube wave is the
+# bond-sensitive mode used for cement-bond evaluation, and it is a clean
+# *bound* mode only in the well-bonded regime (stiff cement with
+# ``V_S_cement >= V_f``) and a fast formation (``V_S > V_f``) -- pair it with a
+# :class:`CasingCementPriors` and a fast-formation :class:`FormationPriors`
+# (see :func:`generate_cased_dataset`). Cased flexural is intentionally
+# excluded: fwap's layered flexural solver covers the slow-formation bound
+# regime only and is fragile across the cement-stiffness range.
+CASED_STONELEY_MODE: ModeSpec = ModeSpec(
+    "Stoneley",
+    stoneley_dispersion_layered,
+    f0=3000.0,
+    amplitude=2.0,
+    wavelet="gabor",
+    sigma=3.0e-4,
+)
+
+# Default cased-hole mode set: the single bound Stoneley mode.
+CASED_MODES: tuple[ModeSpec, ...] = (CASED_STONELEY_MODE,)
+
+
+@dataclass(frozen=True)
+class CasingCementPriors:
+    """
+    Uniform sampling ranges for a steel casing + cement annulus.
+
+    Draws the two annular layers between the borehole fluid and the formation
+    for a cased-hole sample, plus a scalar *bond index* -- a normalized
+    cement-quality proxy in ``[0, 1]`` derived from the sampled cement shear
+    velocity. A high bond index is a stiff, well-bonded cement; the index
+    decreases as the cement softens toward the fluid velocity.
+
+    Notes
+    -----
+    The cement shear-velocity range is deliberately kept in the **bound
+    Stoneley regime** (``cement_vs`` lower bound ``>= vf``): below the fluid
+    velocity the cased Stoneley mode leaks and the modal-determinant solver no
+    longer returns a bound curve. The *free-pipe* (fully debonded) waveform
+    signature -- the classic CBL casing-ring amplitude -- is a phenomenological
+    effect outside this bound-mode dataset and is deferred to a later
+    milestone; here the bond index spans graded cement quality within the
+    bonded regime.
+
+    Attributes
+    ----------
+    casing_vp, casing_vs : (float, float)
+        Casing P-/S-velocity ranges (m/s). Defaults bracket steel.
+    casing_rho : float
+        Casing density (kg/m^3), fixed (steel).
+    casing_thickness : (float, float)
+        Casing radial thickness range (m).
+    cement_vp, cement_vs, cement_rho, cement_thickness : (float, float)
+        Cement-layer velocity (m/s), density (kg/m^3), and thickness (m)
+        ranges. ``cement_vs`` stays ``>= vf`` to keep the Stoneley mode bound.
+    vf : float
+        Borehole-fluid velocity (m/s); the Stoneley bound floor.
+    """
+
+    casing_vp: tuple[float, float] = (5700.0, 6000.0)
+    casing_vs: tuple[float, float] = (3050.0, 3230.0)
+    casing_rho: float = 7800.0
+    casing_thickness: tuple[float, float] = (0.008, 0.012)
+    cement_vp: tuple[float, float] = (2000.0, 2600.0)
+    cement_vs: tuple[float, float] = (1500.0, 1950.0)
+    cement_rho: tuple[float, float] = (1700.0, 2000.0)
+    cement_thickness: tuple[float, float] = (0.03, 0.06)
+    vf: float = 1500.0
+
+    @property
+    def layer_names(self) -> tuple[str, ...]:
+        """Layer labels aligned with the sampled layer stack."""
+        return CASED_LAYER_NAMES
+
+    def sample(
+        self, rng: np.random.Generator
+    ) -> tuple[tuple[BoreholeLayer, ...], float]:
+        """
+        Draw one casing + cement stack and its bond index.
+
+        Parameters
+        ----------
+        rng : numpy.random.Generator
+
+        Returns
+        -------
+        layers : tuple of fwap.BoreholeLayer
+            ``(casing, cement)``, ordered radially outward from the fluid.
+        bond_index : float
+            Normalized cement-quality proxy in ``[0, 1]`` (from the sampled
+            cement shear velocity).
+        """
+        casing = BoreholeLayer(
+            vp=float(rng.uniform(*self.casing_vp)),
+            vs=float(rng.uniform(*self.casing_vs)),
+            rho=self.casing_rho,
+            thickness=float(rng.uniform(*self.casing_thickness)),
+        )
+        cement_vs = float(rng.uniform(*self.cement_vs))
+        cement = BoreholeLayer(
+            vp=float(rng.uniform(*self.cement_vp)),
+            vs=cement_vs,
+            rho=float(rng.uniform(*self.cement_rho)),
+            thickness=float(rng.uniform(*self.cement_thickness)),
+        )
+        lo, hi = self.cement_vs
+        bond_index = (cement_vs - lo) / (hi - lo) if hi > lo else 1.0
+        return (casing, cement), float(bond_index)
 
 
 @dataclass(frozen=True)
@@ -263,6 +384,17 @@ class SurrogateSample:
         (sampling interval, receiver offsets, sample count). Shared by
         every sample of a dataset and persisted once by
         :func:`stack_dataset` so the waveform is self-describing.
+    layer_params : ndarray, shape (n_layers, 4)
+        Per-annular-layer ``[vp, vs, rho, thickness]`` (columns in
+        :data:`LAYER_PARAM_NAMES` order) for a cased-hole sample; an empty
+        ``(0, 4)`` array for an open-hole sample. Schema v4.
+    layer_names : tuple of str, length n_layers
+        Layer labels aligned with axis 0 of ``layer_params`` (e.g.
+        ``("casing", "cement")``); empty for an open-hole sample.
+    bond_index : float
+        Normalized cement-quality proxy in ``[0, 1]`` for a cased-hole
+        sample; ``NaN`` for an open-hole sample (no cement). The
+        cement-bond-evaluation inverse target.
     """
 
     params: dict[str, float]
@@ -273,6 +405,9 @@ class SurrogateSample:
     mode_names: tuple[str, ...]
     mode_in_gather: np.ndarray
     geom: ArrayGeometry
+    layer_params: np.ndarray
+    layer_names: tuple[str, ...]
+    bond_index: float
 
     def param_vector(self) -> np.ndarray:
         """Formation parameters as an array in :data:`PARAM_NAMES` order.
@@ -359,6 +494,7 @@ def generate_sample(
     *,
     priors: FormationPriors,
     modes: Sequence[ModeSpec] = DEFAULT_MODES,
+    cased_priors: CasingCementPriors | None = None,
     noise_max: float = 0.06,
     min_finite: int = 8,
 ) -> SurrogateSample | None:
@@ -382,6 +518,12 @@ def generate_sample(
         Sampling ranges for the formation.
     modes : sequence of ModeSpec, default :data:`DEFAULT_MODES`
         Modes to forward-model and try to inject.
+    cased_priors : CasingCementPriors or None, default None
+        When given, draws a casing + cement annulus and passes it as
+        ``layers=`` to each mode solver (a cased-hole sample); the sampled
+        layer stack and its bond index are recorded on the sample. ``None``
+        produces an open-hole sample (no layers). The ``modes`` must use the
+        layered solvers (e.g. :data:`CASED_MODES`) when this is set.
     noise_max : float, default 0.06
         Upper bound of the per-gather Gaussian noise fraction; the
         actual level is drawn uniformly in ``[0, noise_max]``.
@@ -396,6 +538,18 @@ def generate_sample(
         resamples.
     """
     params = priors.sample(rng)
+    if cased_priors is not None:
+        layers, bond_index = cased_priors.sample(rng)
+        layer_names = cased_priors.layer_names
+        layer_params = np.array(
+            [[L.vp, L.vs, L.rho, L.thickness] for L in layers], dtype=float
+        )
+    else:
+        layers = ()
+        bond_index = float("nan")
+        layer_names = ()
+        layer_params = np.empty((0, len(LAYER_PARAM_NAMES)), dtype=float)
+
     n_modes = len(modes)
     slowness = np.full((n_modes, freq.size), np.nan, dtype=float)
     attenuation = np.full((n_modes, freq.size), np.nan, dtype=float)
@@ -404,7 +558,12 @@ def generate_sample(
 
     for i, spec in enumerate(modes):
         try:
-            bm = spec.solver(freq, **params)
+            # Only the layered solvers accept ``layers=``; open-hole solvers
+            # are called with the bare formation kwargs (bit-identical path).
+            if layers:
+                bm = spec.solver(freq, **params, layers=layers)
+            else:
+                bm = spec.solver(freq, **params)
         except ValueError:
             # Physically invalid draw for this solver/regime; leave the
             # curve NaN and skip injection.
@@ -446,6 +605,9 @@ def generate_sample(
         mode_names=tuple(spec.name for spec in modes),
         mode_in_gather=in_gather,
         geom=geom,
+        layer_params=layer_params,
+        layer_names=layer_names,
+        bond_index=bond_index,
     )
 
 
@@ -457,6 +619,7 @@ def generate_dataset(
     freq: np.ndarray | None = None,
     priors: FormationPriors | None = None,
     modes: Sequence[ModeSpec] = DEFAULT_MODES,
+    cased_priors: CasingCementPriors | None = None,
     noise_max: float = 0.06,
     min_finite: int = 8,
     max_attempts: int | None = None,
@@ -479,6 +642,11 @@ def generate_dataset(
         Sampling ranges; defaults to :class:`FormationPriors`.
     modes : sequence of ModeSpec, default :data:`DEFAULT_MODES`
         Modes to model.
+    cased_priors : CasingCementPriors or None, default None
+        When given, every sample is a cased-hole draw (casing + cement
+        annulus passed as ``layers=`` to the layered mode solvers); ``None``
+        produces open-hole samples. Pair with ``modes=``:data:`CASED_MODES`
+        and a fast-formation ``priors`` -- see :func:`generate_cased_dataset`.
     noise_max : float, default 0.06
         Upper bound on per-gather noise fraction.
     min_finite : int, default 8
@@ -522,6 +690,7 @@ def generate_dataset(
             freq,
             priors=priors,
             modes=modes,
+            cased_priors=cased_priors,
             noise_max=noise_max,
             min_finite=min_finite,
         )
@@ -534,6 +703,65 @@ def generate_dataset(
             "attempts; loosen the priors or raise max_attempts"
         )
     return samples
+
+
+def generate_cased_dataset(
+    n: int,
+    *,
+    seed: int = 0,
+    geom: ArrayGeometry | None = None,
+    freq: np.ndarray | None = None,
+    priors: FormationPriors | None = None,
+    cased_priors: CasingCementPriors | None = None,
+    modes: Sequence[ModeSpec] = CASED_MODES,
+    noise_max: float = 0.06,
+    min_finite: int = 8,
+    max_attempts: int | None = None,
+) -> list[SurrogateSample]:
+    """
+    Generate ``n`` cased-hole training pairs (casing + cement + formation).
+
+    Convenience wrapper over :func:`generate_dataset` that pins the cased-hole
+    configuration: the bound Stoneley mode (:data:`CASED_MODES`), a
+    :class:`CasingCementPriors` annulus, and -- unless overridden -- a
+    *fast-formation* :class:`FormationPriors` (``vs`` in ``1700-3000 m/s``, all
+    above the fluid velocity), which is the regime where the cased Stoneley mode
+    stays bound across the cement-stiffness range.
+
+    Parameters
+    ----------
+    n : int
+        Number of samples to accept.
+    seed, geom, freq : as in :func:`generate_dataset`.
+    priors : FormationPriors or None
+        Formation ranges; defaults to a fast-only prior.
+    cased_priors : CasingCementPriors or None
+        Casing/cement ranges; defaults to :class:`CasingCementPriors`.
+    modes : sequence of ModeSpec, default :data:`CASED_MODES`
+        Cased-hole (layered-solver) modes.
+    noise_max, min_finite, max_attempts : as in :func:`generate_dataset`.
+
+    Returns
+    -------
+    list of SurrogateSample
+        Exactly ``n`` cased-hole samples.
+    """
+    if priors is None:
+        priors = FormationPriors(vs_min=1700.0, vs_max=3000.0)
+    if cased_priors is None:
+        cased_priors = CasingCementPriors()
+    return generate_dataset(
+        n,
+        seed=seed,
+        geom=geom,
+        freq=freq,
+        priors=priors,
+        modes=modes,
+        cased_priors=cased_priors,
+        noise_max=noise_max,
+        min_finite=min_finite,
+        max_attempts=max_attempts,
+    )
 
 
 def stack_dataset(samples: Sequence[SurrogateSample]) -> dict[str, np.ndarray]:
@@ -569,11 +797,17 @@ def stack_dataset(samples: Sequence[SurrogateSample]) -> dict[str, np.ndarray]:
         * ``tr_offset`` -- ``()`` float (0-d), transmitter-to-first-receiver
           offset (m)
         * ``dr`` -- ``()`` float (0-d), inter-receiver spacing (m)
+        * ``layer_params`` -- ``(N, L, 4)`` per-annular-layer
+          ``[vp, vs, rho, thickness]`` (schema v4); ``L = 0`` for open-hole
+        * ``layer_names`` -- ``(L,)`` str, layer labels (empty for open-hole)
+        * ``bond_index`` -- ``(N,)`` float, cement-bond proxy in ``[0, 1]``;
+          ``NaN`` for open-hole samples
 
         The three geometry scalars (added in schema v2) plus the
         ``gather``'s ``(n_rec, n_samples)`` fully reconstruct the
         acquisition :class:`fwap.ArrayGeometry`, making the waveform
-        self-describing.
+        self-describing. The three cased-hole arrays (schema v4) describe
+        the casing/cement annulus and the bond-evaluation label.
 
     Raises
     ------
@@ -596,6 +830,9 @@ def stack_dataset(samples: Sequence[SurrogateSample]) -> dict[str, np.ndarray]:
         "dt": np.asarray(geom.dt, dtype=float),
         "tr_offset": np.asarray(geom.tr_offset, dtype=float),
         "dr": np.asarray(geom.dr, dtype=float),
+        "layer_params": np.stack([s.layer_params for s in samples]),
+        "layer_names": np.array(samples[0].layer_names, dtype=np.str_),
+        "bond_index": np.array([s.bond_index for s in samples], dtype=float),
     }
 
 
@@ -644,6 +881,14 @@ def _build_parser() -> argparse.ArgumentParser:
         default=8,
         help="min finite slowness samples for a mode to enter the gather",
     )
+    parser.add_argument(
+        "--cased",
+        action="store_true",
+        help=(
+            "generate a cased-hole dataset (casing + cement annulus, bound "
+            "Stoneley mode, fast-formation prior) instead of the open-hole default"
+        ),
+    )
     return parser
 
 
@@ -663,7 +908,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     args = _build_parser().parse_args(argv)
     freq = default_freq_grid(args.n_freq, args.f_min, args.f_max)
-    samples = generate_dataset(
+    generate = generate_cased_dataset if args.cased else generate_dataset
+    samples = generate(
         args.n,
         seed=args.seed,
         freq=freq,

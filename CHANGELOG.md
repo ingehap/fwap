@@ -7,6 +7,27 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Cased-hole surrogate dataset: schema v4 (M5a)**: the generator can now
+  synthesize *cased-hole* samples (a steel casing + cement annulus between the
+  borehole fluid and the formation) by wrapping fwap's existing layered modal
+  solver ``fwap.stoneley_dispersion_layered``. ``scripts/gen_surrogate_dataset.py``
+  gains a ``CasingCementPriors`` (draws the two annular ``BoreholeLayer``s plus a
+  normalized cement **bond index** in ``[0, 1]``), a ``CASED_STONELEY_MODE`` /
+  ``CASED_MODES``, and a ``generate_cased_dataset`` convenience that pins the
+  cased configuration (fast-formation prior + stiff-cement bound regime, where
+  the Stoneley tube wave -- the classic cement-bond-evaluation mode -- stays a
+  clean bound curve). Schema bumps to **v4**: every dataset now stores
+  ``layer_params`` ``(N, L, 4)`` = per-layer ``[vp, vs, rho, thickness]``,
+  ``layer_names`` ``(L,)``, and ``bond_index`` ``(N,)``; an *open-hole* dataset
+  carries an empty ``(N, 0, 4)`` stack and ``NaN`` bond, so open-hole data is
+  unchanged bit-for-bit apart from the new metadata keys (the frozen contract
+  test is updated in lockstep). ``sonic_ml``'s loader reads the cased arrays into
+  ``DatasetBundle.layer_params`` / ``layer_names`` / ``bond_index`` (with an
+  ``is_cased`` helper; ``None`` for schema v1/v2/v3 files) and accepts schema
+  v1--v4. Honest scope: the dataset covers the *bonded* Stoneley regime;
+  free-pipe / leaky bond states and cased flexural (slow-formation-only in fwap)
+  are deferred. This is the data foundation for the M5 cased-hole operator
+  surrogate + cement-bond inverse.
 - **`sonic_ml` low-latency LWD inverse variant (M4f)**: a compact,
   depthwise-separable configuration of the M3 inverse net for logging-while-
   drilling latency/power budgets. ``InverseNet`` gains a backward-compatible

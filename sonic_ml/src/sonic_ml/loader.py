@@ -21,7 +21,7 @@ from fwap import ArrayGeometry
 
 #: Schema versions this loader understands. Extend (do not silently widen)
 #: when the generator bumps ``SCHEMA_VERSION`` in a backward-compatible way.
-SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, 2, 3})
+SUPPORTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, 2, 3, 4})
 
 #: Keys every conformant ``.npz`` must contain (all schema versions).
 REQUIRED_KEYS: frozenset[str] = frozenset(
@@ -42,6 +42,11 @@ GEOMETRY_KEYS: frozenset[str] = frozenset({"dt", "tr_offset", "dr"})
 
 #: Leaky-mode attenuation label added in schema v3 (required for v3+).
 ATTENUATION_KEY: str = "attenuation"
+
+#: Cased-hole annulus + bond-evaluation keys added in schema v4 (required
+#: for v4+). Open-hole v4 datasets carry an empty ``(N, 0, 4)`` layer stack
+#: and an all-``NaN`` ``bond_index``.
+CASED_KEYS: frozenset[str] = frozenset({"layer_params", "layer_names", "bond_index"})
 
 
 class SchemaError(ValueError):
@@ -89,6 +94,17 @@ class DatasetBundle:
         Per-mode spatial attenuation rate (1/m) for leaky modes; ``NaN``
         for bound modes / absent frequencies. ``None`` for schema v1/v2
         files (which did not persist attenuation).
+    layer_params : ndarray or None, shape (N, L, 4)
+        Per-annular-layer ``[vp, vs, rho, thickness]`` for a cased-hole
+        dataset (schema v4); an empty ``(N, 0, 4)`` array for an open-hole
+        v4 dataset, and ``None`` for schema v1/v2/v3 files.
+    layer_names : tuple of str, length L
+        Layer labels aligned with axis 1 of :attr:`layer_params` (e.g.
+        ``("casing", "cement")``); empty for open-hole / pre-v4 files.
+    bond_index : ndarray or None, shape (N,)
+        Cement-bond-quality proxy in ``[0, 1]`` for a cased-hole dataset
+        (schema v4); ``NaN`` per-sample for open-hole draws, and ``None``
+        for schema v1/v2/v3 files. The cement-bond-evaluation label.
     """
 
     params: np.ndarray
@@ -101,6 +117,14 @@ class DatasetBundle:
     schema_version: int
     geometry: ArrayGeometry | None = None
     attenuation: np.ndarray | None = None
+    layer_params: np.ndarray | None = None
+    layer_names: tuple[str, ...] = ()
+    bond_index: np.ndarray | None = None
+
+    @property
+    def is_cased(self) -> bool:
+        """``True`` if this dataset carries a non-empty casing/cement stack."""
+        return self.layer_params is not None and self.layer_params.shape[1] > 0
 
     @property
     def n_samples(self) -> int:
@@ -227,6 +251,20 @@ def load_npz(path: str) -> DatasetBundle:
                 )
             attenuation = np.asarray(data[ATTENUATION_KEY])
 
+        layer_params: np.ndarray | None = None
+        layer_names: tuple[str, ...] = ()
+        bond_index: np.ndarray | None = None
+        if schema_version >= 4:
+            missing_cased = CASED_KEYS - keys
+            if missing_cased:
+                raise SchemaError(
+                    f"{path}: schema_version {schema_version} requires cased-hole "
+                    f"keys but is missing {sorted(missing_cased)}"
+                )
+            layer_params = np.asarray(data["layer_params"])
+            layer_names = tuple(str(s) for s in data["layer_names"].tolist())
+            bond_index = np.asarray(data["bond_index"])
+
     n = params.shape[0]
     n_params = len(param_names)
     n_modes = len(mode_names)
@@ -256,6 +294,27 @@ def load_npz(path: str) -> DatasetBundle:
             f"attenuation shape {attenuation.shape} != slowness shape "
             f"(N={n}, M={n_modes}, F={n_freq})",
         )
+    if layer_params is not None:
+        n_layers = len(layer_names)
+        _check(
+            layer_params.ndim == 3 and layer_params.shape[0] == n,
+            f"layer_params must be (N, L, 4) with N={n}, got {layer_params.shape}",
+        )
+        _check(
+            layer_params.shape[1] == n_layers,
+            f"layer_params has {layer_params.shape[1]} layers but layer_names "
+            f"has {n_layers}",
+        )
+        _check(
+            layer_params.shape[2] == 4,
+            f"layer_params last axis must be 4 (vp, vs, rho, thickness), "
+            f"got {layer_params.shape[2]}",
+        )
+        assert bond_index is not None  # v4 reads both together
+        _check(
+            bond_index.shape == (n,),
+            f"bond_index shape {bond_index.shape} != (N={n},)",
+        )
 
     return DatasetBundle(
         params=params,
@@ -268,6 +327,9 @@ def load_npz(path: str) -> DatasetBundle:
         schema_version=schema_version,
         geometry=geometry,
         attenuation=attenuation,
+        layer_params=layer_params,
+        layer_names=layer_names,
+        bond_index=bond_index,
     )
 
 
