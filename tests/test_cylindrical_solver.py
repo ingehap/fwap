@@ -4345,25 +4345,33 @@ def test_flexural_dispersion_layered_empty_layers_returns_borehole_mode():
     assert res.azimuthal_order == 1
 
 
-def test_flexural_dispersion_layered_fast_formation_layered_raises_not_implemented():
+def test_flexural_dispersion_layered_fast_formation_dispatches_to_complex_path():
     """Fast-formation layered flexural (``V_S > V_f`` with a
-    non-empty layer) is future work per F.2.d. The 10x10 layered
-    solver covers the slow-formation bound regime only; fast-
-    formation layered raises a clear NotImplementedError."""
+    non-empty layer) dispatches to the complex-determinant path
+    via ``_modal_determinant_n1_cased_complex`` and
+    ``_flexural_dispersion_fast_formation_layered``. The earlier
+    ``NotImplementedError`` from F.2.d is gone -- fast-formation
+    layered flexural is now a supported regime."""
     f = np.array([2000.0, 4000.0])
     # Fast formation: vs (2500) > vf (1500).
     layer = BoreholeLayer(vp=3500.0, vs=1800.0, rho=2100.0, thickness=0.01)
-    with pytest.raises(NotImplementedError, match="fast formation"):
-        flexural_dispersion_layered(
-            f,
-            vp=4500.0,
-            vs=2500.0,
-            rho=2400.0,
-            vf=1500.0,
-            rho_f=1000.0,
-            a=0.1,
-            layers=(layer,),
-        )
+    res = flexural_dispersion_layered(
+        f,
+        vp=4500.0,
+        vs=2500.0,
+        rho=2400.0,
+        vf=1500.0,
+        rho_f=1000.0,
+        a=0.1,
+        layers=(layer,),
+    )
+    assert isinstance(res, BoreholeMode)
+    assert res.name == "flexural"
+    assert res.azimuthal_order == 1
+    # Bound mode: real-valued slowness (or NaN outside the
+    # geometric cutoff). Either way, no exception.
+    assert res.slowness.dtype == np.float64
+    assert res.attenuation_per_meter is None
 
 
 def test_flexural_dispersion_layered_rejects_bad_layer_object():
@@ -13349,3 +13357,218 @@ def test_quadrupole_dispersion_layered_fast_formation_does_not_apply_slow_format
     # No exception; structural contract holds.
     assert res.name == "quadrupole"
     assert res.azimuthal_order == 2
+
+
+# =====================================================================
+# Fast-formation cased-hole flexural (n=1 sister of the G'' follow-up)
+# =====================================================================
+#
+# Tests for the complex-determinant dispatch in
+# ``flexural_dispersion_layered`` when ``V_S > V_f``. The path uses
+# ``_layer_e_matrix_n1_complex`` / ``_layer_propagator_n1_complex`` /
+# ``_modal_determinant_n1_cased_complex`` to evaluate the modal
+# determinant at complex ``k_z``, and brentq's ``Im(det)`` along the
+# real-``k_z`` axis (mirroring the unlayered fast-formation flexural
+# auto-dispatch in ``flexural_dispersion``).
+#
+# Unlike the n=2 sister, the n=1 layer=formation collapse is clean
+# enough that brentq lands on the *same* root as the unlayered
+# solver, so the oracle here can pin slowness values directly rather
+# than only sign-change locations.
+
+
+def _typical_fast_formation_cased_n1_geometry():
+    """Fast-formation cased-hole fixture for the n=1 complex-
+    determinant tests. Formation V_S = 2820 > V_f = 1500 (the
+    Paillet & Cheng limestone), so the bound regime is slowness in
+    ``(1/V_S, 1/V_R) ~= (3.55e-4, 3.85e-4)``. Layers carry typical
+    casing + cement properties; no slow-formation per-layer
+    constraint applies at fast formation."""
+    return dict(
+        vp=4880.0,
+        vs=2820.0,
+        rho=2700.0,
+        vf=1500.0,
+        rho_f=1000.0,
+        a=0.1,
+        casing=BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01),
+        cement=BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05),
+    )
+
+
+def test_modal_determinant_n1_cased_complex_real_kz_slow_formation_matches_real():
+    """Slow-formation regression: at real ``k_z`` and slow
+    formation the complex cased determinant matches the real
+    G'.c one to floating-point precision, with an exactly-zero
+    imaginary part. Anchors the complex-extension correctness."""
+    from fwap.cylindrical_solver import (
+        _modal_determinant_n1_cased,
+        _modal_determinant_n1_cased_complex,
+    )
+
+    vp, vs, rho = 2200.0, 800.0, 2200.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=2500.0, vs=1100.0, rho=2100.0, thickness=0.005)
+    omega = 2.0 * np.pi * 5000.0
+    kz = 1.05 * omega / vs
+    det_re = _modal_determinant_n1_cased(
+        kz,
+        omega,
+        vp=vp,
+        vs=vs,
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
+        layers=(layer,),
+    )
+    det_cx = _modal_determinant_n1_cased_complex(
+        complex(kz, 0.0),
+        omega,
+        vp=vp,
+        vs=vs,
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
+        layers=(layer,),
+    )
+    assert det_cx.real == pytest.approx(det_re, rel=1.0e-12)
+    assert det_cx.imag == 0.0
+
+
+def test_layer_e_matrix_n1_complex_matches_real_at_real_kz():
+    """Entry-level oracle for the complex E-matrix: every one of
+    the 36 entries matches the real ``_layer_e_matrix_n1`` in the
+    bound regime, with zero imaginary part."""
+    from fwap.cylindrical_solver import (
+        _layer_e_matrix_n1,
+        _layer_e_matrix_n1_complex,
+    )
+
+    omega = 2.0 * np.pi * 5000.0
+    vp, vs, rho, r = 2500.0, 1100.0, 2100.0, 0.1
+    kz = 1.05 * omega / vs
+    E_re = _layer_e_matrix_n1(kz, omega, vp=vp, vs=vs, rho=rho, r=r)
+    E_cx = _layer_e_matrix_n1_complex(
+        complex(kz, 0.0), omega, vp=vp, vs=vs, rho=rho, r=r
+    )
+    assert np.all(E_cx.imag == 0.0)
+    np.testing.assert_allclose(E_cx.real, E_re, rtol=1.0e-12)
+
+
+def test_flexural_dispersion_layered_fast_formation_layer_eq_formation_matches_unlayered():
+    """Collapse identity through the public API: with
+    ``layer = formation`` in the fast-formation regime, the cased
+    dispatch reproduces the unlayered ``flexural_dispersion``
+    slowness to ``rtol=1e-9``, and the NaN pattern (frequencies
+    outside the geometric cutoff) matches exactly.
+
+    Strongest end-to-end oracle for the n=1 fast-formation
+    wiring."""
+    g = _typical_fast_formation_cased_n1_geometry()
+    layer = BoreholeLayer(vp=g["vp"], vs=g["vs"], rho=g["rho"], thickness=0.01)
+    f = np.linspace(3000.0, 15000.0, 7)
+    res_unl = flexural_dispersion(
+        f,
+        vp=g["vp"],
+        vs=g["vs"],
+        rho=g["rho"],
+        vf=g["vf"],
+        rho_f=g["rho_f"],
+        a=g["a"],
+    )
+    res_lyr = flexural_dispersion_layered(
+        f,
+        vp=g["vp"],
+        vs=g["vs"],
+        rho=g["rho"],
+        vf=g["vf"],
+        rho_f=g["rho_f"],
+        a=g["a"],
+        layers=(layer,),
+    )
+    # NaN pattern must agree exactly -- the layer=formation stack
+    # cannot open or close the geometric cutoff.
+    np.testing.assert_array_equal(
+        np.isfinite(res_unl.slowness), np.isfinite(res_lyr.slowness)
+    )
+    finite = np.isfinite(res_unl.slowness)
+    assert finite.any(), "fixture must put the bound mode in band"
+    np.testing.assert_allclose(
+        res_lyr.slowness[finite], res_unl.slowness[finite], rtol=1.0e-9
+    )
+
+
+def test_flexural_dispersion_layered_fast_formation_N2_runs_smoke():
+    """Multi-layer fast-formation smoke (casing + cement behind a
+    fast limestone): the brentq-on-Im(det) path runs to completion
+    at N=2 and lands inside the ``(V_R, V_S)`` bound window where
+    it converges."""
+    g = _typical_fast_formation_cased_n1_geometry()
+    f = np.linspace(4000.0, 16000.0, 7)
+    res = flexural_dispersion_layered(
+        f,
+        vp=g["vp"],
+        vs=g["vs"],
+        rho=g["rho"],
+        vf=g["vf"],
+        rho_f=g["rho_f"],
+        a=g["a"],
+        layers=(g["casing"], g["cement"]),
+    )
+    assert res.name == "flexural"
+    assert res.azimuthal_order == 1
+    assert res.attenuation_per_meter is None
+    np.testing.assert_array_equal(res.freq, f)
+    finite = np.isfinite(res.slowness)
+    assert finite.any(), "expected at least one bound-regime root"
+    # Bound regime: phase velocity between the formation Rayleigh
+    # speed (~0.92 V_S) and V_S itself.
+    sl = res.slowness[finite]
+    assert np.all(sl > 1.0 / g["vs"] * 0.99)
+    assert np.all(sl < 1.0 / (g["vs"] * 0.90))
+
+
+def test_flexural_dispersion_layered_fast_formation_does_not_break_slow_formation():
+    """Regression: adding the fast-formation dispatch did not
+    perturb the slow-formation layered path. With slow-formation
+    params (``V_S = 800 < V_f = 1500``) and ``layer = formation``,
+    the result still matches the unlayered ``flexural_dispersion``
+    to ``rtol=1e-9``."""
+    vp, vs, rho = 2200.0, 800.0, 2200.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.1
+    layer = BoreholeLayer(vp=vp, vs=vs, rho=rho, thickness=0.01)
+    f = np.linspace(2000.0, 8000.0, 5)
+    res_unl = flexural_dispersion(f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a)
+    res_lyr = flexural_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a, layers=(layer,)
+    )
+    finite = np.isfinite(res_unl.slowness) & np.isfinite(res_lyr.slowness)
+    assert finite.any()
+    np.testing.assert_allclose(
+        res_lyr.slowness[finite], res_unl.slowness[finite], rtol=1.0e-9
+    )
+
+
+def test_flexural_dispersion_layered_fast_formation_allows_layer_softer_than_formation():
+    """In fast formation the per-layer ``layer.vs >= formation.vs``
+    constraint enforced for the slow-formation regime does NOT
+    apply: cement softer in shear than a fast carbonate is
+    physically permissible. The dispatch must accept it without
+    raising ``ValueError``."""
+    g = _typical_fast_formation_cased_n1_geometry()
+    # Cement V_S = 1300 < formation V_S = 2820: would fail the
+    # slow-formation stacked constraint, but is legal here.
+    res = flexural_dispersion_layered(
+        np.array([8000.0, 12000.0]),
+        vp=g["vp"],
+        vs=g["vs"],
+        rho=g["rho"],
+        vf=g["vf"],
+        rho_f=g["rho_f"],
+        a=g["a"],
+        layers=(g["cement"],),
+    )
+    assert res.name == "flexural"
+    assert res.azimuthal_order == 1

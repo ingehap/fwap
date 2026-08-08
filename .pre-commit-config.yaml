@@ -1,0 +1,55 @@
+# Pre-commit hooks for fwap.
+#
+# Install once per clone::
+#
+#     pip install pre-commit
+#     pre-commit install
+#
+# The ruff hooks mirror the CI gate in ``.github/workflows/ci.yml``
+# (``ruff check`` / ``ruff format --check`` over ``fwap/ tests/
+# scripts/``) and ``ml.yml`` (the same over ``sonic_ml/{src,tests}``).
+# ruff performs hierarchical config discovery, so files under
+# ``sonic_ml/`` pick up ``sonic_ml/pyproject.toml`` automatically while
+# the rest use the root config.
+#
+# The ``rev`` below is pinned to the ruff version currently resolved by
+# ``pip install -e ".[dev]"`` (``ruff>=0.6,<1``). Formatting output is
+# version-dependent, so if CI and pre-commit ever disagree, bump this
+# pin to match the version CI installs.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.8
+    hooks:
+      # Lint. The tree is currently free of lint debt (verified
+      # tree-wide including sonic_ml), so this runs as a blocking hook
+      # rather than the format-only setup described in the older
+      # docs/roadmap.md entry.
+      - id: ruff-check
+        args: [--fix]
+        exclude: ^docs/notebooks/
+      # Format.
+      - id: ruff-format
+        exclude: ^docs/notebooks/
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        # Notebook JSON is machine-written; leave it byte-for-byte
+        # alone so committed cell outputs stay reproducible.
+        exclude: ^docs/notebooks/
+      - id: end-of-file-fixer
+        exclude: ^docs/notebooks/
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+        exclude: ^docs/notebooks/
+      - id: check-added-large-files
+        # Default is 500 kB. ``tests/test_cylindrical_solver.py`` is
+        # legitimately ~440 kB and grows with each solver PR, so the
+        # threshold is raised to keep the hook useful for catching
+        # accidental binary/data commits without blocking real edits.
+        args: [--maxkb=1000]
