@@ -191,6 +191,34 @@ The ML layer has its own suite, run from `sonic_ml/`:
 cd sonic_ml && pytest
 ```
 
+### Real-data integration tests
+
+The suite above runs entirely on synthetics with planted answers. That is what
+makes it assertable, and also what bounds it: a synthetic file is produced by
+the same assumptions the reader holds, so it cannot catch a convention the
+reader failed to anticipate. `tests/test_real_data.py` covers that gap using
+files written by *other* software — a real Kansas Geological Survey well log
+(wrapped LAS, 26 service-company curves) and a SEG-Y written by `segyio`.
+
+Those files are **not** in this repository. They are third-party, published
+under their own terms, and are fetched on demand into a git-ignored directory:
+
+```bash
+python scripts/fetch_real_data.py --list        # registry, provenance, licences
+python scripts/fetch_real_data.py --fetch all   # download + verify SHA-256
+pytest tests/test_real_data.py
+```
+
+Without them those tests skip, so a normal `pytest` run and CI are unaffected.
+
+**A limitation worth stating plainly:** neither file is a full-waveform sonic
+gather, because no openly redistributable one is known to exist — that data is
+almost always proprietary. So the sonic processing chain, and every quantitative
+claim built on it including `sonic_ml`'s, is still validated only against the
+same forward model that generated its data. Adding a real sonic gather is a
+one-entry change to the registry in `scripts/fetch_real_data.py`, and it would
+do more for confidence in this package than further synthetic work.
+
 ## Recommended companion references
 
 * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in Boreholes.*

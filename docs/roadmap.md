@@ -16,7 +16,7 @@ What remains is shorter and sharper than the list below suggests:
 
 | Open item | Why it matters |
 |-----------|----------------|
-| **F. Real-data fixtures** | The binding constraint on every quantitative claim in the repo, `sonic_ml`'s included. Everything is currently measured against the same forward model that generated it. |
+| **F. Real-data fixtures** | Harness shipped; a real *sonic* gather is still missing. The binding constraint on every quantitative claim in the repo, `sonic_ml`'s included. |
 | **G. `sonic_ml` follow-ons** | Free-pipe / leaky cased regime; surrogate-in-the-loop inversion. |
 | **A.1 Validation figures** | Ties the solver to published literature rather than to itself. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
@@ -508,8 +508,29 @@ real-data integration test, not just synthetics. Would need
 permission for redistribution; the USGS open-file datasets are
 likely candidates.
 
-**Priority note**: this has become the highest-value open item, and
-its value grew when the `sonic_ml` layer landed (section G). Every
+**Status (partially closed)**: the *harness* now exists, and adding a
+dataset is a one-entry change. `scripts/fetch_real_data.py` holds a
+registry of third-party files with URL, SHA-256, provenance and
+licence; `tests/test_real_data.py` runs against them and skips with an
+actionable message when they are absent, so CI stays hermetic. Two
+files are registered: a real Kansas Geological Survey well log (a
+wrapped LAS with 26 service-company curves, which our own writer would
+never emit) and a SEG-Y written by `segyio` (so a reader/writer
+disagreement cannot hide behind a round-trip through our own writer).
+
+Nothing is vendored, deliberately: the files are published by others
+under their own terms -- the KGS log carries a third-party copyright
+notice in its own header -- and `tests/data/real/` is git-ignored with
+a test asserting it, so the no-redistribution property is enforced
+rather than intended.
+
+**What is still open, and it is the important half**: neither
+registered file is a full-waveform sonic gather, because no openly
+redistributable one is known to exist. So the sonic processing chain
+is still validated only against synthetics.
+
+**Priority note**: this remains the highest-value open item, and its
+value grew when the `sonic_ml` layer landed (section G). Every
 number that layer reports -- including the headline that a learned
 inverse beats classical processing by roughly an order of magnitude
 in the open hole -- is measured on data drawn from the *same forward

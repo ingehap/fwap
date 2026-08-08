@@ -1603,6 +1603,35 @@ the project uses [Semantic Versioning](https://semver.org/).
   records that status is checked against the tree rather than from memory: the
   stale section A is exactly the failure mode it exists to prevent.
 
+### Added
+- **Real-data integration tests, fetch-on-demand** (roadmap item F, partially
+  closed). The suite otherwise runs entirely on synthetics with planted answers,
+  which is what makes it assertable and also what bounds it: a synthetic file is
+  produced by the same assumptions the reader holds, so it cannot catch a
+  convention the reader failed to anticipate. `tests/test_real_data.py` closes
+  that gap using files written by *other* software, and
+  `scripts/fetch_real_data.py` holds the registry -- URL, SHA-256, provenance
+  and licence per entry, with `--list` / `--fetch` / `--verify`.
+  Two files are registered: a real Kansas Geological Survey well log (AMOCO
+  Collingwood 1-28; a wrapped LAS with 26 service-company mnemonics and vendor
+  comment blocks, none of which `write_las` emits) and a SEG-Y written by
+  `segyio` (so a reader/writer disagreement about header layout or sample format
+  cannot hide behind a round-trip through our own writer -- there is a test that
+  reads the foreign file, writes it with fwap, and reads it back).
+  **Nothing is vendored**, deliberately: the files are published by third
+  parties under their own terms -- the KGS log carries a
+  "DATA COPYRIGHT - RILEYS DATASHARE INTERNATIONAL" notice in its own header --
+  so they are downloaded into a git-ignored `tests/data/real/` and verified
+  against a recorded checksum. A test asserts that directory is git-ignored, so
+  the no-redistribution property is enforced rather than intended. Without the
+  files the integration tests skip with an actionable message, leaving a normal
+  `pytest` run and CI hermetic.
+  **Still open, and it is the important half**: neither file is a full-waveform
+  sonic gather, because no openly redistributable one is known to exist. The
+  sonic processing chain -- and every quantitative claim built on it, including
+  `sonic_ml`'s -- remains validated only against the same forward model that
+  generated its data. Adding one is a one-entry change to the registry.
+
 ## [0.4.0] - 2026-04-22
 
 First formally-versioned release. Promotes the port of the 1994 Mari
