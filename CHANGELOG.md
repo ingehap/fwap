@@ -32,6 +32,15 @@ the project uses [Semantic Versioning](https://semver.org/).
   tutorial-notebook index; ``docs/`` gains a narrative ``sonic_ml.rst`` page
   covering the isolation guarantees, the versioned ``.npz`` contract, and the
   honest-measurement helpers, with the notebooks split into their own toctree.
+
+### Fixed
+- **Stale cased-flexural comment in the surrogate generator**: the
+  ``CASED_STONELEY_MODE`` note claimed fwap's layered n=1 solver "covers the
+  slow-formation bound regime only", which stopped being true when
+  fast-formation cased-hole flexural landed. The solver no longer refuses a
+  fast formation; its root-finding is simply still sparse there (a few
+  frequencies converge for a typical casing + cement stack), which is why the
+  cased dataset stays single-mode. Comment corrected to say that.
 - **`sonic_ml` re-gridding evaluation + casing-ring augmentation (M5f)**: two
   robustness slices, both of which produced *negative* results worth shipping.
   ``sonic_ml.models.regrid`` measures the operator's off-grid claim properly:

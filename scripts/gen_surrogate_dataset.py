@@ -172,8 +172,11 @@ PSEUDO_RAYLEIGH_MODE: ModeSpec = ModeSpec(
 # ``V_S_cement >= V_f``) and a fast formation (``V_S > V_f``) -- pair it with a
 # :class:`CasingCementPriors` and a fast-formation :class:`FormationPriors`
 # (see :func:`generate_cased_dataset`). Cased flexural is intentionally
-# excluded: fwap's layered flexural solver covers the slow-formation bound
-# regime only and is fragile across the cement-stiffness range.
+# excluded: since fast-formation cased flexural landed the layered n=1 solver
+# no longer refuses this regime, but its root-finding stays sparse here (only a
+# few frequencies converge for a typical casing + cement stack) and it is
+# fragile across the cement-stiffness range, so the cased dataset stays
+# single-mode. Revisit if the n=1 bracketing improves.
 CASED_STONELEY_MODE: ModeSpec = ModeSpec(
     "Stoneley",
     stoneley_dispersion_layered,
