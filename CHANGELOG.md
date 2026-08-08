@@ -7,6 +7,36 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Bed-boundary-aware coupling for joint inversion**: `invert_joint` gains
+  `penalty="tv"`, a pseudo-Huber roughness cost, alongside the existing
+  squared-difference `"l2"`. The motivation is a defect the previous release
+  measured but did not fix: at the weight cross-validation picks, `"l2"`
+  coupling improves a 2 us/ft log overall (`vp` MAE 506 -> 420) while making the
+  **bed contacts worse than not coupling at all** (486 -> 500). Squaring a
+  transition makes it four times cheaper to spread a given change over four
+  frames than to deliver it as one contact, so a real boundary is the most
+  expensive feature in the log and the optimiser pays to erase it. `"tv"` is
+  linear beyond `tv_eps` and so is nearly *indifferent* to how change is
+  distributed -- it does not prefer jumps, it stops paying to remove them --
+  which improves both numbers at once: 388 overall and 406 at the contacts.
+  `contact_precision` and `no_skill_contact_precision` make the boundary claim
+  checkable rather than rhetorical: can you still find the beds in the recovered
+  log? `"tv"` finds 91% against `"l2"`'s 83%, over a 36% no-skill bar that is
+  reported alongside because on a log with many contacts blind guessing already
+  scores well.
+  Because a piecewise-constant test bed is the most favourable possible setting
+  for a contact-preserving penalty, `synthesize_profile` gains
+  `gradation_frames` to build the unfavourable one. With contacts ramped over
+  four frames the advantage narrows and partly **inverts**: `"tv"` stays ahead
+  on overall error but is worse at the transition frames (262 against 241) and
+  worse at locating them (0.72 against 0.84). The default therefore stays
+  `"l2"`, and the recommendation is about the rock rather than the algorithm --
+  bedded log, use `"tv"`; gradational log, do not.
+  Also fixes a latent numerical bug found while testing the new penalty: the
+  pseudo-Huber was written as `sqrt(d^2 + eps^2) - eps`, which loses most of its
+  significant digits to cancellation in float32 once `eps` exceeds the
+  transition size. It is now evaluated as the algebraically identical
+  `d^2 / (sqrt(d^2 + eps^2) + eps)`, which is stable for every ratio.
 - **Joint multi-depth inversion** (`sonic_ml.models.joint`), the follow-on
   named when surrogate-in-the-loop inversion closed: `invert_joint` solves a
   whole logged interval as one problem, penalising frame-to-frame change in the

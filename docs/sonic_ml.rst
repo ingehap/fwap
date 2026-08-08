@@ -121,7 +121,13 @@ Three utilities exist specifically to keep attractive claims checkable:
    and so cannot be tuned from data at all. The module also reports where its
    own selector fails: on a noise-free log it over-couples badly enough to lose
    18-29%, so the method is quoted with the condition that it pays on noisy
-   picks and costs on clean ones.
+   picks and costs on clean ones. ``contact_precision`` then asks the question
+   an averaged error hides -- can you still find the bed boundaries? -- and
+   answering it exposed a defect in the squared-difference penalty, which
+   improved the log overall while degrading the contacts. The
+   bed-boundary-aware ``penalty="tv"`` fixes that, and its own limits are
+   measured too: on a *gradational* log, built on purpose by
+   ``synthesize_profile(gradation_frames=...)``, the advantage inverts.
 
 ``sonic_ml.models.regrid``
    An operator can be evaluated on a frequency grid it never trained on. That

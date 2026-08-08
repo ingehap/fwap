@@ -128,6 +128,68 @@ pays when the dispersion picks are noisy and costs when they are clean, and the
 selector cannot reliably tell you which case you are in.** If the picking
 scatter is known to be small, pass ``lam=0`` and keep the independent answer.
 
+Two penalties, because squared differences hate bed contacts
+------------------------------------------------------------
+Everything above uses ``penalty="l2"``, which charges each frame-to-frame
+transition its square. That has a consequence worth seeing plainly: given a
+fixed amount of total change, squaring makes it **four times cheaper** to spread
+it over four gentle frames than to deliver it as one contact. A bed boundary is
+therefore the single most expensive feature in the log, and the optimiser spends
+its budget flattening exactly the thing a logger wanted to keep. The
+bed/boundary split shows the damage as it happens, but showing it is not fixing
+it.
+
+``penalty="tv"`` fixes the incentive. It uses the pseudo-Huber norm --- quadratic
+for transitions small compared with ``tv_eps``, linear beyond --- which is very
+nearly **indifferent** to how a given total change is distributed. It is worth
+being precise about the mechanism, because the obvious reading is wrong: TV does
+not *prefer* sharp contacts, it simply stops paying to remove them. Small
+wiggles inside a bed are still suppressed quadratically; a real jump is charged
+once, at its size, and then left alone.
+
+Whether that indifference is worth having is a measurement, and
+:func:`contact_precision` is the one that answers it --- can you still find the
+bed boundaries in the recovered log? It is quoted against
+:func:`no_skill_contact_precision`, the score blind guessing already achieves,
+because on a log with many contacts a bare precision figure flatters everything.
+
+On the same five profiles at 2 us/ft, each penalty at its own CV-selected
+weight, the diagnosis is confirmed and the fix works:
+
+=============  ==========  ==========  ==============
+2 us/ft, CV    vp overall  vp at beds  contact precision
+=============  ==========  ==========  ==============
+independent       505.7       485.8         0.492
+``"l2"``          419.9       499.7         0.832
+``"tv"``          388.2       406.4         0.914
+no-skill            --          --          0.363
+=============  ==========  ==========  ==============
+
+The middle row is the problem this option exists for: at the weight
+cross-validation picks, squared-difference coupling improves the log overall
+(506 to 420) while making the **bed contacts worse than not coupling at all**
+(486 to 500). It buys its average by spending the boundaries. ``"tv"`` improves
+both --- 388 overall and 406 at the contacts --- and finds 91% of the boundaries
+against 83%.
+
+Where ``"tv"`` stops winning
+-----------------------------
+That test bed is piecewise-constant, which is the most favourable possible
+setting for a penalty designed to preserve sharp contacts, so it cannot settle
+the question on its own. Re-running it with ``gradation_frames=4``, which ramps
+each contact over four frames and leaves nothing sharp to preserve, the
+advantage narrows and partly **inverts**: ``"tv"`` stays slightly ahead on
+overall error (321 against 329 on ``vp``), but is now *worse* at the transition
+frames (262 against 241) and worse at locating them (0.72 against 0.84). With
+no sharp contacts in the ground truth, smoothing through the transition is the
+correct prior and tolerating jumps is the wrong one.
+
+Hence the default is still ``"l2"``, and the recommendation is a question about
+your rock rather than about the algorithm: **on a bedded log, pass
+``penalty="tv"``; on a gradational one, do not.** If you do not know, the
+overall-error column says ``"tv"`` is never worse in these measurements, but it
+is only clearly better when the contacts are real.
+
 Scope
 -----
 Depth coupling is a *prior*, and like every prior it buys variance reduction by
@@ -140,7 +202,7 @@ the boundary damage worth the in-bed gain for what I am logging for".
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -254,11 +316,42 @@ class DepthProfile:
         return mask
 
 
+def _gradate(
+    full: np.ndarray,
+    boundaries: list[int],
+    width: int,
+    varying: np.ndarray,
+) -> np.ndarray:
+    """
+    Replace sharp contacts with linear ramps ``width`` frames wide.
+
+    Turns a blocky log into a gradational one *without* changing the bed values
+    themselves, so the two versions differ only in how the transition is
+    reached. That is what makes them a fair pair for asking whether a
+    contact-preserving penalty still helps when there are no sharp contacts to
+    preserve.
+    """
+    out = full.copy()
+    half = max(width // 2, 1)
+    for b in boundaries:
+        lo, hi = max(0, b - half), min(full.shape[0] - 1, b + half)
+        if hi <= lo:
+            continue
+        span = hi - lo
+        for i in range(lo + 1, hi):
+            weight = (i - lo) / span
+            out[i, varying] = (1.0 - weight) * full[lo, varying] + weight * full[
+                hi, varying
+            ]
+    return out
+
+
 def synthesize_profile(
     bundle: DatasetBundle,
     *,
     n_depths: int = 60,
     mean_bed_frames: float = 8.0,
+    gradation_frames: int = 0,
     spacing: float = DEFAULT_SPACING,
     noise_us_per_ft: float = 2.0,
     seed: int = 0,
@@ -290,6 +383,15 @@ def synthesize_profile(
     mean_bed_frames : float, default 8.0
         Mean bed thickness in frames; thicknesses are Poisson-drawn with a
         floor of 2 frames.
+    gradation_frames : int, default 0
+        Width, in frames, over which a contact ramps linearly instead of
+        stepping. ``0`` gives sharp contacts. Non-zero builds the *unfavourable*
+        case for a contact-preserving penalty --- a log with no sharp contacts to
+        preserve --- which is what makes the ``"tv"`` versus ``"l2"`` comparison
+        more than a restatement of how the test data was generated.
+        :attr:`DepthProfile.bed_boundaries` still marks the ramp centres, so a
+        gradational profile's "boundary" frames are where the log is changing
+        fastest rather than where it jumps.
     spacing : float, default 0.1524
         Depth increment (m).
     noise_us_per_ft : float, default 2.0
@@ -349,6 +451,9 @@ def synthesize_profile(
         depth += take
 
     full = np.array(rows, dtype=float)
+    if gradation_frames > 0 and boundaries:
+        full = _gradate(full, boundaries, gradation_frames, varying)
+
     clean = np.full((n_depths, len(bundle.mode_names), freq.size), np.nan)
     for d in range(n_depths):
         kwargs = {name: float(full[d, i]) for i, name in enumerate(names)}
@@ -391,11 +496,49 @@ def _misfit_terms(
     return target, mask, mask.sum(dim=(1, 2)).clamp(min=1)
 
 
+def _roughness_term(
+    penalty: str, tv_eps: float
+) -> Callable[[torch.Tensor], torch.Tensor]:
+    """
+    Build the depth-roughness term, mean over the ``D-1`` frame transitions.
+
+    ``"l2"`` squares each transition, so *how* a given amount of change is
+    distributed matters enormously: one contact of size 4 costs four times what
+    the same total change spread over four frames costs. That is a standing
+    incentive to erase contacts. ``"tv"`` uses the pseudo-Huber norm, quadratic
+    while a transition is small compared with ``tv_eps`` and linear once it is
+    large, which makes it very nearly **indifferent** to the distribution --- it
+    prices the total amount of change, not its shape. Indifference, not a
+    preference for jumps, is what lets a contact survive.
+    """
+    if penalty == "l2":
+
+        def l2(z: torch.Tensor) -> torch.Tensor:
+            return ((z[1:] - z[:-1]) ** 2).sum(dim=1).mean()
+
+        return l2
+
+    if penalty == "tv":
+
+        def tv(z: torch.Tensor) -> torch.Tensor:
+            squared = ((z[1:] - z[:-1]) ** 2).sum(dim=1)
+            # Algebraically sqrt(s + eps^2) - eps, written to avoid the
+            # catastrophic cancellation that form suffers in float32 once
+            # eps greatly exceeds the transition size.
+            return (squared / (torch.sqrt(squared + tv_eps**2) + tv_eps)).mean()
+
+        return tv
+
+    raise ValueError(f"penalty must be 'l2' or 'tv', got {penalty!r}")
+
+
 def invert_joint(
     trained: TrainedForwardSurrogate,
     observed: np.ndarray,
     *,
     lam: float,
+    penalty: str = "l2",
+    tv_eps: float = 0.05,
     steps: int = 400,
     lr: float = 0.02,
     warm_start: np.ndarray | None = None,
@@ -411,12 +554,23 @@ def invert_joint(
     .. math::
 
         \frac{1}{D}\sum_d \text{misfit}_d(z_d)
-        \;+\; \frac{\lambda}{D-1}\sum_d \lVert z_{d+1} - z_d \rVert^2
+        \;+\; \frac{\lambda}{D-1}\sum_d \rho(z_{d+1} - z_d)
 
-    Both terms are means, so ``lam`` is a ratio of two comparable quantities
-    rather than a number whose useful scale depends on how many frames you
-    happened to log. Because :math:`z` is standardised, one unit of roughness
-    means the same thing for every parameter, and ``lam`` is dimensionless.
+    where :math:`\rho` is squared length for ``penalty="l2"`` and the
+    pseudo-Huber norm :math:`\sqrt{\lVert\cdot\rVert^2 + \epsilon^2} - \epsilon`
+    for ``penalty="tv"``. Both terms are means, so ``lam`` is a ratio of two
+    comparable quantities rather than a number whose useful scale depends on how
+    many frames you happened to log. Because :math:`z` is standardised, one unit
+    of roughness means the same thing for every parameter, and ``lam`` is
+    dimensionless.
+
+    The two penalties differ in what they do at a bed contact, and that is the
+    whole reason both exist. Squared differences price a jump at its square, so
+    a real contact is the most expensive feature in the log and the optimiser
+    spends its budget flattening exactly the thing you wanted to keep. The
+    pseudo-Huber cost is linear once a jump is large, so the marginal price of a
+    contact stops rising and it can survive. See the module docstring for what
+    that is measured to be worth.
 
     The optimisation starts from the independent solution (see the module
     docstring for why that is the honest choice) and refines it. With
@@ -434,6 +588,17 @@ def invert_joint(
         roughness penalty couples frames that are not neighbours.
     lam : float
         Penalty weight; ``0.0`` disables coupling. Must be non-negative.
+    penalty : {"l2", "tv"}, default "l2"
+        Roughness cost. ``"l2"`` penalises squared frame-to-frame change;
+        ``"tv"`` uses the pseudo-Huber norm, which preserves bed contacts. The
+        default is ``"l2"`` for continuity with the measurements already
+        published in the module docstring, not because it is the better choice
+        on a bedded log --- see there for which to pick.
+    tv_eps : float, default 0.05
+        Transition size (in standardised units) at which ``"tv"`` crosses from
+        quadratic to linear. Smaller approaches true total variation and is
+        harder to optimise; larger degenerates toward ``"l2"``. Ignored when
+        ``penalty="l2"``. Must be positive.
     steps : int, default 400
         Adam iterations of the coupled refinement.
     lr : float, default 0.02
@@ -461,8 +626,9 @@ def invert_joint(
     Raises
     ------
     ValueError
-        If ``observed`` is not 3-D, if fewer than two frames are given, or if
-        ``lam`` is negative.
+        If ``observed`` is not 3-D, if fewer than two frames are given, if
+        ``lam`` is negative, if ``tv_eps`` is not positive, or if ``penalty`` is
+        not a recognised name.
     """
     observed = np.asarray(observed, dtype=float)
     if observed.ndim != 3:
@@ -471,6 +637,8 @@ def invert_joint(
         raise ValueError("joint inversion needs at least 2 depth frames")
     if lam < 0.0:
         raise ValueError(f"lam must be non-negative, got {lam}")
+    if tv_eps <= 0.0:
+        raise ValueError(f"tv_eps must be positive, got {tv_eps}")
 
     seed_everything(seed)
     if warm_start is None:
@@ -490,13 +658,14 @@ def invert_joint(
         predicted, _ = model(z)
         return (((predicted - target) ** 2) * mask).sum(dim=(1, 2)) / counts
 
+    roughness = _roughness_term(penalty, tv_eps)
     z = torch.as_tensor(z0, dtype=torch.float32).clone().requires_grad_(True)
     optimizer = torch.optim.Adam([z], lr=lr)
     for _ in range(steps):
         optimizer.zero_grad()
         loss = data_misfit(z).mean()
         if lam > 0.0:
-            loss = loss + lam * ((z[1:] - z[:-1]) ** 2).sum(dim=1).mean()
+            loss = loss + lam * roughness(z)
         loss.backward()
         optimizer.step()
 
@@ -545,6 +714,8 @@ def select_lambda(
     observed: np.ndarray,
     candidates: Sequence[float],
     *,
+    penalty: str = "l2",
+    tv_eps: float = 0.05,
     holdout_frac: float = 0.3,
     steps: int = 400,
     lr: float = 0.02,
@@ -569,6 +740,11 @@ def select_lambda(
     candidates : sequence of float
         Penalty weights to score. Include ``0.0`` so "no coupling at all"
         can win.
+    penalty : {"l2", "tv"}, default "l2"
+    tv_eps : float, default 0.05
+        Roughness cost to select for, passed to :func:`invert_joint`. Selection
+        is per-penalty: a weight chosen for one is not valid for the other,
+        because the two price a bed contact differently.
     holdout_frac : float, default 0.3
         Fraction of finite entries to withhold. Must be in ``(0, 1)``.
     steps, lr, n_starts : int / float
@@ -618,6 +794,8 @@ def select_lambda(
             trained,
             observed,
             lam=lam,
+            penalty=penalty,
+            tv_eps=tv_eps,
             steps=steps,
             lr=lr,
             warm_start=warm,
@@ -698,6 +876,93 @@ def smooth_independent(result: InversionResult, width: int) -> InversionResult:
         n_starts=result.n_starts,
         method="smoothed",
     )
+
+
+def contact_precision(
+    result: InversionResult,
+    profile: DepthProfile,
+    *,
+    tolerance: int = 1,
+) -> float:
+    """
+    Can you find the bed contacts in the recovered log?
+
+    Mean absolute error says how close the values are; it says nothing about
+    whether the *boundaries* survived, which for anyone picking beds is the
+    question. This takes the ``B`` largest frame-to-frame changes in the
+    recovered profile, where ``B`` is the true number of contacts, and reports
+    what fraction of them land within ``tolerance`` frames of a real one.
+
+    Score it against :func:`no_skill_contact_precision`, never on its own: on a
+    log with many contacts, jumps placed at random already score well, and a
+    bare precision figure hides that.
+
+    Parameters
+    ----------
+    result : InversionResult
+        Recovered profile, in the same depth order as ``profile``.
+    profile : DepthProfile
+        Supplies the true contacts.
+    tolerance : int, default 1
+        How many frames off a pick may be and still count. ``0`` demands the
+        exact transition.
+
+    Returns
+    -------
+    float
+        In ``[0, 1]``; ``nan`` for a profile with no contacts, which has nothing
+        to find.
+
+    Raises
+    ------
+    ValueError
+        If ``tolerance`` is negative.
+    """
+    if tolerance < 0:
+        raise ValueError(f"tolerance must be non-negative, got {tolerance}")
+    truth = np.asarray(profile.bed_boundaries, dtype=int)
+    if truth.size == 0:
+        return float("nan")
+
+    scale = np.abs(result.params).mean(axis=0)
+    scale[scale == 0.0] = 1.0
+    jumps = np.abs(np.diff(result.params, axis=0) / scale).sum(axis=1)
+    # transition i sits between frames i and i+1, i.e. it *is* boundary i+1
+    picked = np.argsort(jumps)[::-1][: truth.size] + 1
+    hits = sum(bool(np.any(np.abs(truth - p) <= tolerance)) for p in picked)
+    return hits / truth.size
+
+
+def no_skill_contact_precision(
+    profile: DepthProfile,
+    *,
+    tolerance: int = 1,
+) -> float:
+    """
+    Precision a contact-picker gets by guessing --- the bar for the number above.
+
+    Computed exactly rather than simulated: it is the fraction of the available
+    transitions that lie within ``tolerance`` of a true contact, which is the
+    probability that a single blind pick lands on one.
+
+    Parameters
+    ----------
+    profile : DepthProfile
+    tolerance : int, default 1
+
+    Returns
+    -------
+    float
+        In ``[0, 1]``; ``nan`` for a profile with no contacts.
+    """
+    if tolerance < 0:
+        raise ValueError(f"tolerance must be non-negative, got {tolerance}")
+    truth = np.asarray(profile.bed_boundaries, dtype=int)
+    if truth.size == 0:
+        return float("nan")
+    transitions = np.arange(1, profile.n_depths)
+    near = [bool(np.any(np.abs(truth - t) <= tolerance)) for t in transitions]
+    return float(np.mean(near))
 
 
 def profile_mae(

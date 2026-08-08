@@ -55,7 +55,9 @@ from sonic_ml.models.joint import (
     DepthProfile,
     LambdaSelection,
     bed_vs_boundary_mae,
+    contact_precision,
     invert_joint,
+    no_skill_contact_precision,
     profile_mae,
     select_lambda,
     smooth_independent,
@@ -170,6 +172,8 @@ __all__ = [
     "smooth_independent",
     "profile_mae",
     "bed_vs_boundary_mae",
+    "contact_precision",
+    "no_skill_contact_precision",
     # re-gridding evaluation (M5f)
     "true_curves_on_grid",
     "RegridScore",
