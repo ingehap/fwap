@@ -52,4 +52,11 @@ jobs:
 
       - name: Pytest
         # The bench suite is excluded by pyproject.toml's addopts.
-        run: pytest -x
+        #
+        # Coverage gate: the suite measured 96.5% line coverage over
+        # ``fwap/`` (5799/6008 statements) when the gate was added.
+        # ``--cov-fail-under=95`` leaves ~1.5 points of headroom for
+        # version-gated branches that differ between 3.11 and 3.12,
+        # so the gate catches real regressions without going red on
+        # interpreter differences. Raise it as coverage improves.
+        run: pytest -x --cov=fwap --cov-report=term-missing --cov-fail-under=95
