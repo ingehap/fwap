@@ -29,6 +29,12 @@ from sonic_ml.models.lwd import (
     measure_latency_ms,
     train_lwd_inverse,
 )
+from sonic_ml.models.operator import (
+    DeepONet,
+    FNO1d,
+    SpectralConv1d,
+    params_on_grid,
+)
 from sonic_ml.models.train import (
     presence_auc,
     slowness_rmse,
@@ -77,4 +83,9 @@ __all__ = [
     "LatencyAccuracy",
     "latency_accuracy_report",
     "format_latency_accuracy",
+    # operator-learning primitives (M5b)
+    "SpectralConv1d",
+    "FNO1d",
+    "DeepONet",
+    "params_on_grid",
 ]
