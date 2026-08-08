@@ -55,8 +55,9 @@ Layers
      - ``sonic_ml.baselines``
    * - Models
      - Forward surrogate, DL-FWI inverse net with calibrated uncertainty, a
-       low-latency LWD variant, FNO / DeepONet operators, and the cased-hole
-       operator plus cement-bond inverse
+       low-latency LWD variant, FNO / DeepONet operators, the cased-hole
+       operator plus cement-bond inverse, and surrogate-in-the-loop inversion
+       (single-frame and depth-coupled)
      - ``sonic_ml.models``
 
 The ``.npz`` contract
@@ -106,7 +107,21 @@ measuring.
 Honest-measurement helpers
 --------------------------
 
-Two utilities exist specifically to keep attractive claims checkable:
+Three utilities exist specifically to keep attractive claims checkable:
+
+``sonic_ml.models.joint``
+   Inverting a whole logged interval with a frame-to-frame smoothness penalty
+   improves accuracy -- but so, potentially, does the far simpler act of
+   inverting each frame alone and running a moving average afterwards, so
+   ``smooth_independent`` ships as the control and is scored on every result.
+   Depth coupling does win, unevenly: 38% against 0% on :math:`V_S`, and a tie
+   on density. Tuned as a user would have to tune it -- by cross-validation
+   rather than against the answer -- coupling keeps 17-29% and smoothing keeps
+   nothing, because averaging after the fact degrades data misfit monotonically
+   and so cannot be tuned from data at all. The module also reports where its
+   own selector fails: on a noise-free log it over-couples badly enough to lose
+   18-29%, so the method is quoted with the condition that it pays on noisy
+   picks and costs on clean ones.
 
 ``sonic_ml.models.regrid``
    An operator can be evaluated on a frequency grid it never trained on. That
