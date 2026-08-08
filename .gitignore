@@ -44,6 +44,12 @@ figures/
 *.pt
 *.ckpt
 
+# Third-party real-world log files fetched by scripts/fetch_real_data.py.
+# These are downloaded on demand and MUST NOT be committed: they are published
+# by others under their own terms (one carries a third-party copyright notice
+# in its own header), and this repository has no redistribution rights.
+tests/data/real/
+
 # Sphinx build artifacts
 docs/_build/
 docs/generated/
