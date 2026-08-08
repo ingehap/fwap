@@ -43,7 +43,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from sonic_ml.determinism import seed_everything
 from sonic_ml.loader import DatasetBundle
-from sonic_ml.models.augment import GatherAugmentation
+from sonic_ml.models.augment import Augmentation
 from sonic_ml.models.inverse import InverseNet, TrainedInverseNet
 from sonic_ml.models.inverse_dataset import normalize_gathers
 from sonic_ml.models.losses import gaussian_nll
@@ -120,7 +120,7 @@ class CasedInverseDataset(Dataset):
         Fitted on the *training* targets.
     target_names : tuple of str
         Target columns to assemble (must match ``target_std.names``).
-    augment : GatherAugmentation or None
+    augment : Augmentation or None
         Optional training-time waveform augmentation (applied per access).
     augment_seed : int, default 0
         Seed for the augmentation RNG.
@@ -133,7 +133,7 @@ class CasedInverseDataset(Dataset):
         target_std: Standardizer,
         target_names: tuple[str, ...] = DEFAULT_CASED_TARGETS,
         *,
-        augment: GatherAugmentation | None = None,
+        augment: Augmentation | None = None,
         augment_seed: int = 0,
     ) -> None:
         idx = np.asarray(indices, dtype=int)
@@ -172,7 +172,7 @@ def train_cased_inverse(
     hidden: int = 128,
     dropout: float = 0.0,
     separable: bool = False,
-    augment: GatherAugmentation | None = None,
+    augment: Augmentation | None = None,
     seed: int = 0,
     device: str = "cpu",
 ) -> tuple[TrainedInverseNet, list[float]]:
@@ -192,7 +192,7 @@ def train_cased_inverse(
     epochs, batch_size, lr, channels, kernel, hidden, dropout, separable :
         Network and optimization hyperparameters (see
         :func:`~sonic_ml.models.inverse_train.train_inverse`).
-    augment : GatherAugmentation or None
+    augment : Augmentation or None
         Training-time waveform augmentation, applied to the training split only.
     seed : int, default 0
     device : str, default "cpu"

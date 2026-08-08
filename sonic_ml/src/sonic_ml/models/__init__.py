@@ -8,7 +8,11 @@ forward dispersion surrogate; M3 the DL-FWI inverse net.
 
 from __future__ import annotations
 
-from sonic_ml.models.augment import GatherAugmentation
+from sonic_ml.models.augment import (
+    Augmentation,
+    CasingRingAugmentation,
+    GatherAugmentation,
+)
 from sonic_ml.models.cased import (
     CasedForwardOperator,
     TrainedCasedOperator,
@@ -56,6 +60,12 @@ from sonic_ml.models.operator import (
     SpectralConv1d,
     params_on_grid,
 )
+from sonic_ml.models.regrid import (
+    RegridScore,
+    evaluate_regridding,
+    format_regrid_score,
+    true_curves_on_grid,
+)
 from sonic_ml.models.train import (
     presence_auc,
     slowness_rmse,
@@ -91,6 +101,8 @@ __all__ = [
     "residual_zscore_std",
     # augmentation (M4)
     "GatherAugmentation",
+    "Augmentation",
+    "CasingRingAugmentation",
     # model cards / weight storage (M4d)
     "ModelCard",
     "card_for",
@@ -126,4 +138,9 @@ __all__ = [
     "NeuralBondPredictor",
     "cased_target_mae",
     "cased_residual_zscore_std",
+    # re-gridding evaluation (M5f)
+    "true_curves_on_grid",
+    "RegridScore",
+    "evaluate_regridding",
+    "format_regrid_score",
 ]

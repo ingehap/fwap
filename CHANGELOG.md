@@ -7,6 +7,36 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`sonic_ml` re-gridding evaluation + casing-ring augmentation (M5f)**: two
+  robustness slices, both of which produced *negative* results worth shipping.
+  ``sonic_ml.models.regrid`` measures the operator's off-grid claim properly:
+  ``true_curves_on_grid`` re-runs fwap's layered solver at arbitrary frequencies
+  (exact by construction -- on the dataset's own grid it reproduces the stored
+  labels bit for bit, which a test asserts), and ``evaluate_regridding`` scores
+  the operator's zero-shot prediction on an unseen grid against **the
+  interpolation control**: the same operator's training-grid prediction simply
+  interpolated onto that grid. **Finding: on these smooth dispersion curves,
+  zero-shot re-gridding does not beat interpolation** (measured 0.352 vs 0.254
+  us/ft on a 24 -> 93 point refinement, against 0.256 us/ft on the training grid).
+  M5c's "self-consistent to 0.14%" is true but measures agreement, not accuracy;
+  a model can be smoothly and confidently wrong at every new frequency and still
+  agree with itself. ``format_regrid_score`` therefore always prints the control
+  and an explicit verdict, so the super-resolution claim cannot be reported
+  without the number that can refute it.
+  ``CasingRingAugmentation`` plants a phenomenological steel-casing ring arrival
+  (the same modelling stance as ``fwap.lwd.lwd_collar_mode``) on cased gathers.
+  Its amplitude is drawn **independently of the bond index by design**: a
+  bond-coupled ring would manufacture a CBL-like signal, and a model "recovering"
+  bond from it would only be recovering a hard-coded relationship. **Finding: at
+  realistic ring amplitudes (0.2-1.5x RMS) the M5d bond inverse is already
+  robust** (1.0x degradation, so there is nothing to fix); only when the ring
+  dominates the record (20-50x RMS) does the plain net degrade 2.4x, and training
+  with the augmentation removes that degradation entirely (0.9x) for a small
+  clean-accuracy cost. A new ``Augmentation`` Protocol lets it drop into the
+  existing ``augment=`` slot with no dataset changes (``GatherAugmentation``
+  satisfies it unchanged). This is a robustness probe, **not** free-pipe
+  detection -- that needs a leaky-mode forward model, not a planted wavetrain.
+  Torch-gated; spine stays torch-free.
 - **Cased-hole tutorial notebook (M5e)**:
   ``docs/notebooks/cased_hole_tutorial.ipynb`` walks the cased-hole path end to
   end -- generate a schema-v4 cased dataset, train the M5c forward operator and

@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader
 
 from sonic_ml.determinism import seed_everything
 from sonic_ml.loader import DatasetBundle, load_npz
-from sonic_ml.models.augment import GatherAugmentation
+from sonic_ml.models.augment import Augmentation
 from sonic_ml.models.inverse import InverseNet, TrainedInverseNet
 from sonic_ml.models.inverse_dataset import InverseDataset
 from sonic_ml.models.losses import gaussian_nll
@@ -39,7 +39,7 @@ def train_inverse(
     hidden: int = 128,
     dropout: float = 0.0,
     separable: bool = False,
-    augment: GatherAugmentation | None = None,
+    augment: Augmentation | None = None,
     seed: int = 0,
     device: str = "cpu",
 ) -> tuple[TrainedInverseNet, list[float]]:
@@ -55,7 +55,7 @@ def train_inverse(
     separable : bool, default False
         Use depthwise-separable conv blocks (the low-latency LWD variant; see
         :mod:`sonic_ml.models.lwd`).
-    augment : GatherAugmentation or None, default None
+    augment : Augmentation or None, default None
         Training-time waveform augmentation (SNR sweep / amplitude jitter) for
         sim-to-real robustness. Applied to the *training* split only.
     seed : int, default 0

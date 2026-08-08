@@ -19,7 +19,7 @@ import torch
 from torch.utils.data import Dataset
 
 from sonic_ml.loader import DatasetBundle
-from sonic_ml.models.augment import GatherAugmentation
+from sonic_ml.models.augment import Augmentation
 from sonic_ml.normalize import Standardizer
 
 
@@ -64,7 +64,7 @@ class InverseDataset(Dataset):
         Sample indices to include.
     param_std : Standardizer
         Fitted on the *training* parameters.
-    augment : GatherAugmentation or None, default None
+    augment : Augmentation or None, default None
         If set, each ``__getitem__`` returns a freshly augmented+normalized
         gather (stochastic per access); ``None`` returns the deterministic
         normalized gather. Use only for the *training* split.
@@ -79,7 +79,7 @@ class InverseDataset(Dataset):
         indices: np.ndarray,
         param_std: Standardizer,
         *,
-        augment: GatherAugmentation | None = None,
+        augment: Augmentation | None = None,
         augment_seed: int = 0,
     ) -> None:
         idx = np.asarray(indices, dtype=int)
