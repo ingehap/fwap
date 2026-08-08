@@ -231,6 +231,15 @@ def resolution_transfer_error(
     evaluated this way at all; for an operator this measures how stable the
     learned map is under re-gridding.
 
+    .. warning::
+
+       This is **self-consistency, not accuracy**. A model can be smoothly and
+       confidently wrong at every new frequency and still agree with itself
+       perfectly here, so a small value is a necessary condition and nothing
+       more. For the accuracy question -- and for the interpolation control that
+       decides whether native re-gridding is worth anything -- use
+       :func:`sonic_ml.models.regrid.evaluate_regridding`.
+
     Parameters
     ----------
     trained : TrainedCasedOperator
