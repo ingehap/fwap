@@ -15,6 +15,14 @@ from sonic_ml.models.cased import (
     cased_features,
     normalized_coords,
 )
+from sonic_ml.models.cased_inverse import (
+    DEFAULT_CASED_TARGETS,
+    CasedInverseDataset,
+    NeuralBondPredictor,
+    cased_target_mae,
+    cased_targets,
+    train_cased_inverse,
+)
 from sonic_ml.models.cased_train import (
     CasedDataset,
     resolution_transfer_error,
@@ -109,4 +117,11 @@ __all__ = [
     "train_cased_operator",
     "slowness_mae_us_per_ft",
     "resolution_transfer_error",
+    # cement-bond inverse (M5d)
+    "cased_targets",
+    "DEFAULT_CASED_TARGETS",
+    "CasedInverseDataset",
+    "train_cased_inverse",
+    "NeuralBondPredictor",
+    "cased_target_mae",
 ]

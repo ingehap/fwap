@@ -7,6 +7,42 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`sonic_ml` cement-bond inverse (M5d)**: the cased-hole counterpart of the M3
+  inverse -- a cased waveform gather is inverted for the two quantities a cement
+  evaluation wants, ``(behind-casing Vs, bond index)``, reusing the M3
+  ``InverseNet`` (1-D CNN + heteroscedastic mean/log-variance head) unchanged and
+  only swapping the targets. Adds ``sonic_ml.models.cased_inverse``
+  (``cased_targets``, ``CasedInverseDataset`` -- gather-only input, so the
+  dispersion label cannot leak -- ``train_cased_inverse``, ``NeuralBondPredictor``,
+  ``cased_target_mae``), a bond scoring harness ``sonic_ml.bench.bond``
+  (``BondPredictor`` protocol, ``bond_regime_labels`` stratifying by *bond
+  quality* rather than the Vs harness's slow/fast regime, ``evaluate_bond``
+  reusing the existing ``Scorecard`` and bootstrap machinery, ``MeanBondPredictor``
+  as the no-skill reference), and a classical reference
+  ``sonic_ml.baselines.bond.StoneleyBondBaseline``. ``format_scorecard`` gains
+  backward-compatible ``row_order`` / ``precision`` arguments so a ``[0, 1]``
+  target renders legibly.
+  **The baseline is deliberately not a CBL amplitude indicator**: these
+  synthetics are built from the cased Stoneley dispersion alone and contain no
+  casing-ring arrival, so an amplitude gate would be measuring noise and beating
+  it would prove nothing. The honest analogue uses the signal that is present --
+  an STC Stoneley pick mapped to bond through a calibration fitted on the
+  training split.
+  **Measured (300-sample dataset, held-out split):** bond-index MAE 0.134 for the
+  net vs 0.220 for the classical baseline and 0.247 for predicting the mean
+  (~1.8x skill, ~1.6x over classical); behind-casing Vs MAE 224 m/s (~1.5x over
+  the mean). Both targets' predicted sigma is well calibrated (residual z-score
+  std 1.10 and 1.12). Scaling to 800 samples lifts both to ~2.1x skill with
+  calibration holding (z-std 1.1-1.2), so this is a partially-identifiable
+  problem rather than an under-trained one -- deliberately unlike the M3
+  open-hole result (~25x), and reported as such. That asymmetry is expected, not a defect: a forward
+  sensitivity sweep shows cement stiffness moves the cased Stoneley curve ~7%
+  across its prior while formation Vs moves it only ~1.5% -- less than the
+  nuisance cement-thickness variation -- so the uncertainty head reporting a wide
+  sigma on Vs is the model being honest about a weakly identifiable target.
+  **Scope:** the M5a dataset spans the *bonded* regime only, so this inverts
+  graded bond quality and is **not** a free-pipe detector. Torch-gated; spine
+  stays torch-free.
 - **`sonic_ml` cased-hole forward operator (M5c)**: wires the M5b operator
   primitives to the M5a cased-hole dataset, learning
   ``(formation, casing, cement, bond index) -> Stoneley slowness curve s(f)`` --
