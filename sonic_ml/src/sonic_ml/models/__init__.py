@@ -9,6 +9,18 @@ forward dispersion surrogate; M3 the DL-FWI inverse net.
 from __future__ import annotations
 
 from sonic_ml.models.augment import GatherAugmentation
+from sonic_ml.models.cased import (
+    CasedForwardOperator,
+    TrainedCasedOperator,
+    cased_features,
+    normalized_coords,
+)
+from sonic_ml.models.cased_train import (
+    CasedDataset,
+    resolution_transfer_error,
+    slowness_mae_us_per_ft,
+    train_cased_operator,
+)
 from sonic_ml.models.dataset import ForwardDataset, SlownessNormalizer
 from sonic_ml.models.forward import ForwardSurrogate, TrainedForwardSurrogate
 from sonic_ml.models.inverse import InverseNet, TrainedInverseNet
@@ -88,4 +100,13 @@ __all__ = [
     "FNO1d",
     "DeepONet",
     "params_on_grid",
+    # cased-hole forward operator (M5c)
+    "CasedForwardOperator",
+    "TrainedCasedOperator",
+    "cased_features",
+    "normalized_coords",
+    "CasedDataset",
+    "train_cased_operator",
+    "slowness_mae_us_per_ft",
+    "resolution_transfer_error",
 ]

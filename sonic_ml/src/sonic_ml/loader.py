@@ -48,6 +48,11 @@ ATTENUATION_KEY: str = "attenuation"
 #: and an all-``NaN`` ``bond_index``.
 CASED_KEYS: frozenset[str] = frozenset({"layer_params", "layer_names", "bond_index"})
 
+#: Column order of the last axis of ``layer_params`` (schema v4). Mirrors
+#: ``LAYER_PARAM_NAMES`` in ``scripts/gen_surrogate_dataset.py``; the core
+#: ``tests/test_npz_schema_contract.py`` pins both.
+LAYER_PARAM_NAMES: tuple[str, ...] = ("vp", "vs", "rho", "thickness")
+
 
 class SchemaError(ValueError):
     """The ``.npz`` does not match the expected surrogate-dataset layout."""

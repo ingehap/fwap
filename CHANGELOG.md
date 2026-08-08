@@ -7,6 +7,30 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`sonic_ml` cased-hole forward operator (M5c)**: wires the M5b operator
+  primitives to the M5a cased-hole dataset, learning
+  ``(formation, casing, cement, bond index) -> Stoneley slowness curve s(f)`` --
+  a surrogate for the layered modal-determinant root-finding in
+  ``fwap.stoneley_dispersion_layered``. Adds ``sonic_ml.models.cased``
+  (``cased_features`` assembles the 15-column feature matrix and
+  ``Standardizer`` drops the constant fluid/casing-density columns;
+  ``CasedForwardOperator`` selects either the ``"fno"`` or ``"deeponet"``
+  backbone behind one ``(B, M, F)`` signature; ``TrainedCasedOperator`` predicts
+  in raw units and round-trips through a ``weights_only``-safe checkpoint) and
+  ``sonic_ml.models.cased_train`` (``CasedDataset``, ``train_cased_operator``
+  with a masked loss, ``slowness_mae_us_per_ft``, ``resolution_transfer_error``).
+  **The operator payoff:** the frequency axis is a *coordinate*, not an array
+  index, so a trained model can be evaluated on a grid it never saw via
+  ``predict(..., freq=...)`` -- normalized against the stored training band so a
+  sub-band query is not silently rescaled. On a 200-sample dataset both
+  backbones reach ~0.15-0.18 us/ft test MAE against a 213-240 us/ft curve range,
+  and re-gridding is self-consistent to 0.14% (FNO) and to floating-point
+  precision (DeepONet, whose pointwise trunk cannot let a node depend on the
+  rest of the grid -- the FNO couples the grid globally through the FFT). Tests
+  score skill against a predict-the-training-mean baseline rather than asserting
+  an absolute MAE. Same honesty framing as the M2 open-hole surrogate: a
+  methodology and validation baseline, not a speed claim. Torch-gated; spine
+  stays torch-free.
 - **`sonic_ml` operator-learning primitives: FNO + DeepONet (M5b)**: a new
   ``sonic_ml.models.operator`` module adding the two building blocks the
   cased-hole operator surrogate needs, both **implemented in-house on plain
