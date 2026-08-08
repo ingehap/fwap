@@ -345,3 +345,48 @@ def cased_target_mae(
     col = trained.active_names.index(name)
     truth = targets[idx][:, names.index(name)]
     return float(np.mean(np.abs(pred[:, col] - truth)))
+
+
+def cased_residual_zscore_std(
+    trained: TrainedInverseNet,
+    bundle: DatasetBundle,
+    indices: np.ndarray,
+    name: str,
+    target_names: tuple[str, ...] = DEFAULT_CASED_TARGETS,
+) -> float:
+    """
+    Standard deviation of the standardized residuals for a cased target.
+
+    ``(pred - true) / pred_std`` should have unit spread if the predicted
+    heteroscedastic uncertainty is calibrated; ``>> 1`` means the model is
+    over-confident, ``<< 1`` under-confident.
+
+    The M3 :func:`~sonic_ml.models.inverse_train.residual_zscore_std` cannot be
+    reused here: it resolves the truth through ``bundle.param(name)``, which
+    only knows the *formation* columns, so it raises on ``"bond_index"``. This
+    resolves the truth through :func:`cased_targets` instead, which is the same
+    lookup :func:`cased_target_mae` uses.
+
+    Parameters
+    ----------
+    trained : TrainedInverseNet
+    bundle : DatasetBundle
+    indices : ndarray of int
+        Samples to score.
+    name : str
+        Target column, e.g. ``"bond_index"`` or ``"vs"``.
+    target_names : tuple of str
+        The target set the model was trained on.
+
+    Returns
+    -------
+    float
+        Standard deviation of the z-scored residuals (``1.0`` = calibrated).
+    """
+    idx = np.asarray(indices, dtype=int)
+    targets, names = cased_targets(bundle, target_names)
+    pred, std = trained.predict(bundle.gather[idx])
+    col = trained.active_names.index(name)
+    truth = targets[idx][:, names.index(name)]
+    z = (pred[:, col] - truth) / np.maximum(std[:, col], 1e-12)
+    return float(np.std(z))

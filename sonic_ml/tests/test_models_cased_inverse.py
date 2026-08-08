@@ -34,6 +34,7 @@ from sonic_ml.models.cased_inverse import (  # noqa: E402
     DEFAULT_CASED_TARGETS,
     CasedInverseDataset,
     NeuralBondPredictor,
+    cased_residual_zscore_std,
     cased_target_mae,
     cased_targets,
     train_cased_inverse,
@@ -167,6 +168,28 @@ def test_cased_target_mae_is_finite(cased_net, cased_bundle, cased_split):
     for name in trained.active_names:
         mae = cased_target_mae(trained, cased_bundle, cased_split.test, name)
         assert np.isfinite(mae) and mae >= 0.0
+
+
+def test_cased_residual_zscore_std_reaches_bond_index(
+    cased_net, cased_bundle, cased_split
+):
+    """The M3 z-score helper resolves truth via ``bundle.param()`` and so cannot
+    see ``bond_index``; the cased variant must."""
+    from sonic_ml.models.inverse_train import residual_zscore_std
+
+    trained, _ = cased_net
+    for name in trained.active_names:
+        z = cased_residual_zscore_std(trained, cased_bundle, cased_split.test, name)
+        assert np.isfinite(z) and z > 0.0
+    # The formation-parameter helper agrees on a formation column ...
+    if "vs" in trained.active_names:
+        np.testing.assert_allclose(
+            cased_residual_zscore_std(trained, cased_bundle, cased_split.test, "vs"),
+            residual_zscore_std(trained, cased_bundle, cased_split.test, "vs"),
+        )
+    # ... but raises on the bond target, which is why the cased variant exists.
+    with pytest.raises(KeyError):
+        residual_zscore_std(trained, cased_bundle, cased_split.test, "bond_index")
 
 
 def test_uncertainty_is_positive_and_per_target(cased_net, cased_bundle):
