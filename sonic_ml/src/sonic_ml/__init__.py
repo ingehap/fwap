@@ -15,13 +15,21 @@ later milestones.
 from __future__ import annotations
 
 from sonic_ml import baselines, bench, determinism, gen_shim, mask, oracles, provenance
-from sonic_ml.baselines import ClassicalSTCBaseline, FKDispersionBaseline
+from sonic_ml.baselines import (
+    ClassicalSTCBaseline,
+    FKDispersionBaseline,
+    StoneleyBondBaseline,
+)
 from sonic_ml.bench import (
+    BondPredictor,
+    MeanBondPredictor,
     Predictor,
     RegimeScore,
     Scorecard,
     StubPredictor,
+    bond_regime_labels,
     evaluate,
+    evaluate_bond,
     format_scorecard,
 )
 from sonic_ml.geometry import default_geometry
@@ -66,6 +74,12 @@ __all__ = [
     # classical baselines (M1)
     "ClassicalSTCBaseline",
     "FKDispersionBaseline",
+    # cement-bond scoring + baseline (M5d)
+    "BondPredictor",
+    "evaluate_bond",
+    "bond_regime_labels",
+    "MeanBondPredictor",
+    "StoneleyBondBaseline",
     # submodules
     "gen_shim",
     "mask",
