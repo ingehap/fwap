@@ -1580,6 +1580,29 @@ the project uses [Semantic Versioning](https://semver.org/).
   `_require_dlisio`, `_require_dliswriter`, `_require_segyio`) and
   their friendly-error guards have been removed.
 
+### Changed
+- **Roadmap brought back in line with the tree** (`docs/roadmap.md`). Several
+  status claims had gone stale as work landed:
+  - Section A (cylindrical-Biot solver) still said the leaky-mode extension was
+    "what remains" long after leaky n=0/n=1/n=2, quadrupole, layered/cased-hole
+    and VTI solvers had all shipped. It now records the family as essentially
+    complete and names the two things genuinely left: extending the validation
+    notebook to the full set of published reference figures, and improving the
+    cased-flexural bracketing (which is what currently forces the cased dataset
+    to stay single-mode).
+  - Section E said `ruff-check` was not yet hooked pending a lint-debt cleanup;
+    both have since happened.
+  - A new **section G** documents the `sonic_ml` layer, which did not exist when
+    the roadmap was written -- what shipped across M0-M5f, the isolation
+    guarantees, the two headline results *with the identifiability gap between
+    them stated*, and its four open follow-ons.
+  - Section F (real-data fixtures) is flagged as the highest-value open item,
+    because every quantitative claim in the repo -- `sonic_ml`'s included -- is
+    currently measured against the same forward model that generated the data.
+  A new summary table at the top gives the real remaining scope, and a note
+  records that status is checked against the tree rather than from memory: the
+  stale section A is exactly the failure mode it exists to prevent.
+
 ## [0.4.0] - 2026-04-22
 
 First formally-versioned release. Promotes the port of the 1994 Mari

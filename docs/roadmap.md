@@ -3,6 +3,31 @@
 A living document of open items that would meaningfully extend fwap
 beyond the 0.4.0 release, ordered by estimated effort × user-value.
 
+**Where things stand.** Most of what this document was originally
+written to track has shipped. The book's four Parts and the extension
+layer were complete by the end of the post-0.4.0 cycle; the
+cylindrical-Biot solver family (section A) has since closed out
+through leaky modes, quadrupole, layered / cased-hole and VTI; and a
+machine-learning layer that was not contemplated when this file was
+written now sits alongside the package (section G). Sections B, C and
+E are closed and kept for reference.
+
+What remains is shorter and sharper than the list below suggests:
+
+| Open item | Why it matters |
+|-----------|----------------|
+| **F. Real-data fixtures** | The binding constraint on every quantitative claim in the repo, `sonic_ml`'s included. Everything is currently measured against the same forward model that generated it. |
+| **G. `sonic_ml` follow-ons** | Free-pipe / leaky cased regime; surrogate-in-the-loop inversion. |
+| **A.1 Validation figures** | Ties the solver to published literature rather than to itself. |
+| **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
+
+A note on how this file is kept honest: items are marked closed only
+when the code and its tests are on `main`, and status claims are
+checked against the tree rather than against memory. Section A carried
+a "leaky modes are still open" note for some time after the leaky
+solvers had actually shipped; that is the failure mode this heading
+exists to prevent.
+
 ## Released (for reference)
 
 ### 0.4.0
@@ -195,28 +220,41 @@ The phenomenological models stay shipped
 need a closed-form smoothed-step dispersion curve without solving
 the determinant per frequency.
 
-**What's still open** in the cylindrical-Biot family:
+**Status (superseded)**: the paragraphs above describe the state
+when only the two bound-mode solvers shipped. The family is now
+essentially complete -- plan items A through H in
+`plans/cylindrical_biot.md` are all closed, including everything the
+"remaining work" note below anticipated:
 
-**What to build (remaining work, leaky-mode regime)**:
+- **Leaky modes** (the item this section was written to track):
+  `pseudo_rayleigh_modal_dispersion` (n=0), leaky flexural (n=1) and
+  leaky quadrupole (n=2), with complex-`k_z` root-finding, outgoing-
+  wave boundary conditions, and branch tracking across the leaky
+  cutoff. Leaky solutions carry a spatial attenuation rate alongside
+  the phase slowness.
+- **Quadrupole (n=2)**: `quadrupole_dispersion`, bound and leaky.
+- **Layered / cased hole**: `stoneley_dispersion_layered`,
+  `flexural_dispersion_layered`, `quadrupole_dispersion_layered` over
+  a `BoreholeLayer` stack (mudcake, altered zone, casing + cement),
+  including fast-formation cased flexural.
+- **VTI formations**: `stoneley_dispersion_vti`,
+  `flexural_dispersion_vti`.
 
-Both bound-mode solvers ship; what remains is the leaky-mode
-extension. The bound-mode solver uses real-valued ``k_z >
-omega/V_alpha`` for every wave speed ``V_alpha``, so all radial
-wavenumbers F, p, s are real and positive. Leaky modes
-(pseudo-Rayleigh, fast-formation flexural, leaky-quadrupole)
-sit at complex ``k_z`` with at least one of F, p, s having
-non-zero imaginary part. Their solver needs:
+**What is actually still open here** is narrow:
 
-1. Outgoing Hankel-function (rather than decaying Bessel) BCs for
-   the radiating component(s);
-2. Complex-``k_z`` root-finding via Mueller iteration (real-axis
-   ``brentq`` no longer applies);
-3. Branch tracking across the leaky cutoff at the corresponding
-   wave-speed boundary.
-
-The same scaffolding (modal-determinant assembly, dispersion-
-curve marching, BoreholeMode return type) extends straight from
-the bound-mode solver.
+1. **Validation-figure coverage** (plan item I, marked partial). The
+   validation notebook checks the solver against published oracle
+   values, but not yet against every figure in the reference set
+   (Paillet & Cheng 1991 Fig. 4.5; Schmitt 1988 Fig. 4; Tang & Cheng
+   2004 Fig. 3.4). Extending it is bounded, unglamorous work with
+   real payoff: these are the only checks that tie the solver to
+   literature rather than to itself.
+2. **Cased flexural bracketing.** The layered n=1 solver no longer
+   refuses fast formations, but its root-finding stays sparse for a
+   typical casing + cement stack (only a few frequencies converge).
+   That sparseness is why `scripts/gen_surrogate_dataset.py` keeps
+   the cased dataset single-mode; better bracketing would unlock a
+   two-mode cased-hole dataset.
 
 For reference, the original from-scratch problem statement is
 preserved below.
@@ -456,10 +494,11 @@ release is live. Reversible, low-risk; one afternoon's work.
 sweep applied (42 files reformatted, behaviour-preserving). New
 ``.pre-commit-config.yaml`` registers the ``ruff-format`` hook so
 drift is prevented automatically once contributors run
-``pre-commit install``. ``ruff check`` is not yet hooked because the
-tree carries pre-existing lint debt (B023, B007, I001 across various
-modules and tests); a follow-up cleanup PR will clear that debt and
-add ``ruff-check`` to the pre-commit list.
+``pre-commit install``. The follow-up is also done: the lint debt
+(B023, B007, I001) is cleared and ``ruff-check`` now sits in the
+pre-commit list alongside ``ruff-format``, together with the standard
+hygiene hooks (trailing whitespace, end-of-file, YAML/TOML syntax,
+merge-conflict markers, mixed line endings, large-file guard).
 
 ### F. Real-data test fixtures
 
@@ -468,6 +507,67 @@ pulled from a public well) so the test suite includes a genuine
 real-data integration test, not just synthetics. Would need
 permission for redistribution; the USGS open-file datasets are
 likely candidates.
+
+**Priority note**: this has become the highest-value open item, and
+its value grew when the `sonic_ml` layer landed (section G). Every
+number that layer reports -- including the headline that a learned
+inverse beats classical processing by roughly an order of magnitude
+in the open hole -- is measured on data drawn from the *same forward
+model* that generated the training set. That measures identifiability,
+not field accuracy, and no amount of additional synthetic work can
+close the gap. A single real gather with trustworthy reference picks
+would say more about whether any of this transfers than another
+milestone of modelling.
+
+### G. `sonic_ml` -- the machine-learning layer
+
+**Status**: shipped through milestones M0-M5f; see `sonic_ml.rst`
+for the narrative overview and `sonic_ml/` for the package. In brief:
+a torch-free spine (schema-versioned `.npz` loader, provenance,
+regime-stratified splits, determinism), a model-agnostic benchmark
+harness with bootstrap CIs, classical baselines, and models -- a
+forward dispersion surrogate, a DL-FWI inverse net with a
+heteroscedastic head, a low-latency LWD variant, in-house FNO /
+DeepONet operator primitives, and a cased-hole forward operator plus
+cement-bond inverse.
+
+The layer is deliberately isolated: it is a sibling package excluded
+from the core wheel and the core CI gate, running in its own
+non-required workflow, and `import fwap` never pulls in PyTorch.
+
+**Two results, and the honest gap between them.** In the open hole the
+learned inverse recovers V_S roughly an order of magnitude more
+accurately than classical slowness-time processing on identical
+held-out gathers. Behind casing, the cement-bond inverse reaches only
+about twice the skill of predicting the mean -- because a forward
+sensitivity sweep shows cement stiffness moves the cased Stoneley
+curve ~7% across its prior while formation V_S moves it ~1.5%, so the
+problem is only partially identifiable. The uncertainty head reports
+calibrated error bars that say so. Publishing only the first number
+would be advertising rather than measuring.
+
+**What's open:**
+
+1. **Real-data evaluation** -- see section F. The binding constraint
+   on every claim above.
+2. **Free-pipe / leaky cased regime.** The cased dataset spans the
+   *bonded* regime, where the cased Stoneley stays bound, so the bond
+   inverse grades cement quality and is explicitly not a free-pipe
+   detector. Reaching the debonded regime needs a leaky-mode cased
+   forward model, not a planted wavetrain -- and it is also the regime
+   where a CBL-amplitude baseline would finally be a fair comparison
+   rather than a strawman.
+3. **Two-mode cased datasets**, gated on the cased-flexural
+   bracketing in section A.
+4. **Surrogate-in-the-loop inversion.** The forward surrogate is
+   differentiable, but nothing yet uses it inside an optimisation
+   loop; that was the original motivation for building it.
+
+**Deliberately not planned**: shipping trained weights in the repo.
+Checkpoints are git-ignored and the committed artefact is the small
+JSON model card that binds a checkpoint to its fwap version, config
+and training-data hash. Weights are cheap to regenerate and expensive
+to keep honest.
 
 ## Non-goals
 
