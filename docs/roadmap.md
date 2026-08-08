@@ -17,7 +17,7 @@ What remains is shorter and sharper than the list below suggests:
 | Open item | Why it matters |
 |-----------|----------------|
 | **F. Real-data fixtures** | Harness shipped; a real *sonic* gather is still missing. The binding constraint on every quantitative claim in the repo, `sonic_ml`'s included. |
-| **G. `sonic_ml` follow-ons** | Free-pipe / leaky cased regime; joint multi-depth inversion (single-frame surrogate inversion is done). |
+| **G. `sonic_ml` follow-ons** | Free-pipe / leaky cased regime (single-frame *and* joint multi-depth surrogate inversion are done). |
 | **A.1 Validation figures** | Ties the solver to published literature rather than to itself. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
 
@@ -592,10 +592,33 @@ would be advertising rather than measuring.
    surrogate's own forward error. The module docstring records the
    rule that predicts this, which is reusable: expected error is
    roughly `(forward error / parameter signature) x parameter
-   range`. What remains open is the obvious follow-on -- using the
-   surrogate's gradients for *joint* inversion across depth, or with
-   regularisation between adjacent frames, which is where an
-   iterative method earns its cost over the amortised M3 net.
+   range`.
+5. **Joint multi-depth inversion** -- *closed*.
+   `sonic_ml.models.joint` uses the surrogate's gradients across a
+   whole logged interval at once, penalising frame-to-frame change.
+   The answer is conditional. Noise-free it buys nothing: the best
+   available penalty is no penalty on almost every profile and
+   parameter. The mechanism the first draft proposed -- that coupling
+   averages away the surrogate's forward error -- is false, because
+   inside a bed every frame has identical parameters and so draws the
+   identical surrogate error, perfectly correlated with nothing to
+   cancel. What coupling actually averages is observation noise, so
+   at a realistic 2 us/ft of picking scatter it removes 31-45% of the
+   error on all four parameters. It also beats the boring control
+   that ships beside it (`smooth_independent`, a moving average over
+   an independently inverted log) on all four -- by 38 points on `vs`,
+   where smoothing cannot help at all, and by under 2 on `rho`, where
+   the two tie. Tuned the way a user would have to tune it, the gap
+   widens rather than closes: cross-validation keeps 17-29% for
+   coupling and *nothing* for smoothing, which it cannot tune at all.
+   The same selector fails in the other direction on a quiet log,
+   over-coupling badly enough to lose 18-29% -- so the honest summary
+   is that this pays on noisy picks, costs on clean ones, and cannot
+   reliably tell you which you have.
+   What remains open is the harder version of the same idea --
+   coupling across depth *and* mode with a bed-boundary-aware penalty
+   (total variation rather than squared differences), so contacts
+   survive the prior instead of being paid for by it.
 
 **Deliberately not planned**: shipping trained weights in the repo.
 Checkpoints are git-ignored and the committed artefact is the small

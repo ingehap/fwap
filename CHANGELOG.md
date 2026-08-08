@@ -7,6 +7,47 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Joint multi-depth inversion** (`sonic_ml.models.joint`), the follow-on
+  named when surrogate-in-the-loop inversion closed: `invert_joint` solves a
+  whole logged interval as one problem, penalising frame-to-frame change in the
+  standardised parameters, and `synthesize_profile` builds the bedded synthetic
+  log to test it on (drawn from the *dataset's own* observed ranges, so the
+  profile is inside the surrogate's training support by construction rather
+  than by hope).
+  The result is conditional, and the condition is the interesting part.
+  **Noise-free, depth coupling buys nothing** -- the best available penalty is
+  no penalty on almost every profile and parameter. The first draft of the
+  module claimed the opposite mechanism (that coupling averages away the
+  surrogate's forward error); the noise-free run falsified it, and the reason is
+  that inside a bed every frame has *identical* parameters, so the surrogate
+  makes the *identical* error, perfectly correlated down the bed with nothing to
+  cancel. The mechanism is ordinary noise averaging, so with 2 us/ft of
+  dispersion-picking scatter the same sweep removes **31-45%** of the error on
+  all four parameters.
+  Because the prior is one a moving average could also apply, the boring control
+  ships with it: `smooth_independent` post-smooths an independently inverted
+  log, and both arms are tuned by the same rule. At their oracle settings
+  coupling wins on all four but unevenly -- 38% against **0%** on `vs`, and
+  44.6% against 42.8% on `rho`, a tie. At the setting cross-validation actually
+  picks, coupling keeps 17-29% while smoothing keeps **nothing**: CV chose a
+  one-frame window on all five profiles, because post-hoc averaging degrades
+  held-out data misfit monotonically and so cannot be tuned from data at all.
+  That asymmetry is the argument for coupling inside the objective rather than
+  after it, and it also shows at bed contacts (421 m/s against 535 on `vp`),
+  where a well-determined frame can resist its neighbours and a moving average
+  cannot.
+  `select_lambda` picks the penalty weight by cross-validation on held-out
+  frequencies, using no truth, and its failure is reported rather than omitted:
+  on a noise-free log it **over-couples** -- non-zero penalty on four of five
+  profiles when zero is correct -- leaving the result **18-29% worse than not
+  coupling**. Withholding 30% of the frequencies makes each frame less
+  determined during selection than at inference, so the prior looks more
+  valuable than it is. Noted alongside: on a clean log the untunable control is
+  the safer method, since being impossible to talk into a bad setting saves it
+  exactly that 18-29%.
+  `bed_vs_boundary_mae` scores inside beds and across contacts separately so the
+  bias-for-variance trade cannot hide inside one average. 28 tests,
+  mechanism-focused.
 - **Core open-hole tutorial notebooks + documentation pass**: the library's own
   workflows had no tutorial -- only a solver-validation notebook and two ML
   ones -- so this adds them.

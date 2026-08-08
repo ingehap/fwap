@@ -51,6 +51,16 @@ from sonic_ml.models.inversion import (
     invert_with_surrogate,
     no_skill_mae,
 )
+from sonic_ml.models.joint import (
+    DepthProfile,
+    LambdaSelection,
+    bed_vs_boundary_mae,
+    invert_joint,
+    profile_mae,
+    select_lambda,
+    smooth_independent,
+    synthesize_profile,
+)
 from sonic_ml.models.losses import gaussian_nll, masked_slowness_loss, presence_bce
 from sonic_ml.models.lwd import (
     LatencyAccuracy,
@@ -151,6 +161,15 @@ __all__ = [
     "invert_with_solver",
     "inversion_mae",
     "no_skill_mae",
+    # joint multi-depth inversion (G.4 follow-on)
+    "DepthProfile",
+    "synthesize_profile",
+    "invert_joint",
+    "LambdaSelection",
+    "select_lambda",
+    "smooth_independent",
+    "profile_mae",
+    "bed_vs_boundary_mae",
     # re-gridding evaluation (M5f)
     "true_curves_on_grid",
     "RegridScore",
