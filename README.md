@@ -40,6 +40,58 @@ Helpers: [`fwap.synthetic`](fwap/synthetic.py) (canonical test gathers),
 [`fwap.demos`](fwap/demos/) (one worked example per chapter),
 [`fwap.cli`](fwap/cli.py) (command-line demo runner).
 
+## `sonic_ml` — the optional machine-learning layer
+
+[`sonic_ml/`](sonic_ml/) is an **in-repo sibling package** that treats the
+`fwap` forward solver as a labelled-data factory and learns surrogate and
+inverse models on top of it. It is deliberately separate: `fwap` stays pure
+NumPy/SciPy, and no ML dependency ever enters the physics package. Installing
+or importing `fwap` never pulls in PyTorch.
+
+| Layer | What it does | Module |
+|-------|--------------|--------|
+| Data | Cylindrical-Biot forward solves → a versioned `.npz` of (parameters, dispersion, waveform) triples, open-hole and cased-hole | [`scripts/gen_surrogate_dataset.py`](scripts/gen_surrogate_dataset.py) |
+| Spine (torch-free) | Defensive loader, provenance capture, regime-stratified splits, standardization, determinism | [`sonic_ml.loader`](sonic_ml/src/sonic_ml/loader.py), [`sonic_ml.provenance`](sonic_ml/src/sonic_ml/provenance.py), [`sonic_ml.split`](sonic_ml/src/sonic_ml/split.py) |
+| Benchmark | Model-agnostic scoring of any Vs or cement-bond predictor, with bootstrap CIs and per-regime rows | [`sonic_ml.bench`](sonic_ml/src/sonic_ml/bench/) |
+| Baselines | The classical bar an ML model must clear (STC, f-k dispersion, Stoneley bond calibration) | [`sonic_ml.baselines`](sonic_ml/src/sonic_ml/baselines/) |
+| Models | Forward surrogate, DL-FWI inverse net with calibrated uncertainty, low-latency LWD variant, FNO / DeepONet operators, cased-hole operator + cement-bond inverse | [`sonic_ml.models`](sonic_ml/src/sonic_ml/models/) |
+
+Two headline results, reported with the gap between them intact:
+
+* **Open hole** — the learned inverse recovers V<sub>s</sub> roughly an order of
+  magnitude more accurately than classical slowness-time processing on identical
+  held-out gathers, including the fast-formation regime where the two-mode
+  gather starves classical STC.
+* **Cased hole** — the cement-bond inverse reaches only ~2× the skill of
+  predicting the mean. That is not a modelling failure: a forward sensitivity
+  sweep shows cement stiffness moves the cased Stoneley curve ~7% across its
+  prior while formation V<sub>s</sub> moves it ~1.5%, so the problem is only
+  partially identifiable — and the heteroscedastic uncertainty head reports
+  calibrated error bars that say so.
+
+```bash
+pip install -e ".[dev]"          # core fwap
+pip install torch                # CPU wheel is fine
+pip install -e "./sonic_ml[dev]" # the ML layer
+```
+
+`sonic_ml` is excluded from the core wheel and the core CI gate; it runs in its
+own non-required workflow, so an ML failure can never block a physics change.
+
+## Tutorial notebooks
+
+| Notebook | Topic |
+|----------|-------|
+| [`open_hole_processing`](docs/notebooks/open_hole_processing.ipynb) | Parts 1–2: synthesize → STC → pick P/S/Stoneley → wave separation → log curves |
+| [`open_hole_petrophysics`](docs/notebooks/open_hole_petrophysics.ipynb) | Part 3 + extensions: dispersion bias, moduli, Gassmann, Stoneley permeability, mud-weight window |
+| [`sonic_ml_tutorial`](docs/notebooks/sonic_ml_tutorial.ipynb) | The ML loop: generate → train a DL-FWI inverse → beat the classical baseline |
+| [`cased_hole_tutorial`](docs/notebooks/cased_hole_tutorial.ipynb) | Cement-bond evaluation, and an honest account of what is recoverable behind casing |
+| [`cylindrical_biot_validation`](docs/notebooks/cylindrical_biot_validation.ipynb) | The modal solver checked against published oracle values |
+
+The first two need only `fwap`; the middle two additionally need `sonic_ml` and
+PyTorch. All are re-executed in CI, so the numbers in them are reproducible
+rather than decorative.
+
 ## Installation
 
 ```bash
@@ -111,19 +163,33 @@ sphinx-build -b html docs docs/_build/html
 
 Pre-built PDF snapshots of the full manual and per-section subsets
 live in [`docs/`](docs/); see [`docs/quickstart.rst`](docs/quickstart.rst)
-for the list. A Jupyter notebook validating the cylindrical-Biot
-modal solver against published oracle values lives at
-[`docs/notebooks/cylindrical_biot_validation.ipynb`](docs/notebooks/cylindrical_biot_validation.ipynb).
+for the list. The rendered manual covers the chapter-to-module map, the
+[`sonic_ml`](docs/sonic_ml.rst) layer, the full API reference, and every
+tutorial notebook listed above.
 
 ## Tests
 
 ```bash
-pip install pytest
-pytest
+pip install -e ".[dev]"
+pytest                    # core suite; the perf bench is excluded by default
+pytest tests/test_bench.py  # wall-clock perf suite, run deliberately
 ```
 
 The suite exercises one end-to-end path per algorithm family against
-synthetic data with known ground truth.
+synthetic data with known ground truth. Two guards are worth knowing about:
+
+* [`scripts/check_public_api.py`](scripts/check_public_api.py) freezes the
+  public surface — adding or renaming an exported name requires updating
+  `fwap/__init__.py`, `docs/api.rst` and the guard together.
+* [`tests/test_npz_schema_contract.py`](tests/test_npz_schema_contract.py)
+  freezes the on-disk surrogate-dataset layout, so a core change that would
+  silently mislabel downstream training data fails here instead.
+
+The ML layer has its own suite, run from `sonic_ml/`:
+
+```bash
+cd sonic_ml && pytest
+```
 
 ## Recommended companion references
 

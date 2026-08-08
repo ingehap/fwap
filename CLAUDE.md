@@ -25,11 +25,13 @@ pytest -x                               # bench suite auto-excluded
 ```
 - Benchmarks run separately: `pytest tests/test_bench.py` (excluded from the
   default run via `addopts` in `pyproject.toml`).
-- Notebook validation: `pytest --nbval-lax docs/notebooks/cylindrical_biot_validation.ipynb`.
-  The `sonic_ml` tutorials (`docs/notebooks/sonic_ml_tutorial.ipynb` and
-  `docs/notebooks/cased_hole_tutorial.ipynb`) need torch and are validated in the
-  `ml.yml` job:
+- Notebook validation. The two **open-hole tutorials** are torch-free and run in
+  the core `ci.yml` gate (they need `ipykernel` alongside `nbval`):
+  `pytest --nbval-lax docs/notebooks/open_hole_processing.ipynb docs/notebooks/open_hole_petrophysics.ipynb`.
+  The **`sonic_ml` tutorials** need torch and are validated in the `ml.yml` job:
   `pytest --nbval-lax docs/notebooks/sonic_ml_tutorial.ipynb docs/notebooks/cased_hole_tutorial.ipynb`.
+  The solver-validation notebook is run on demand:
+  `pytest --nbval-lax docs/notebooks/cylindrical_biot_validation.ipynb`.
 
 ## Conventions
 - **Type hints**: PEP 604/585 (`int | None`, `tuple[int, int]`).
