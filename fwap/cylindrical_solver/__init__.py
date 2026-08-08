@@ -74,17 +74,20 @@ Scope (this module)
   n=2 slow-formation paths additionally enforce the
   ``layer.vs >= vs`` per-layer constraint at validation time
   via :func:`_validate_flexural_layers_stacked` (same
-  constraint at both azimuthal orders). At n=2 with fast
-  formation (``V_S > V_f`` and a non-empty layer stack), the
-  dispatch instead routes through
-  :func:`_modal_determinant_n2_cased_complex` (complex sister
-  of :func:`_modal_determinant_n2_cased`) and
-  :func:`_quadrupole_dispersion_fast_formation_layered` (mirror
-  of the unlayered :func:`_quadrupole_dispersion_fast_formation`
-  with brentq on ``Im(det)`` along the real-``k_z`` axis); the
-  per-layer slow-formation constraint does not apply in this
-  regime (a cement layer softer than the formation is
-  physically permissible behind a fast carbonate). See plan G
+  constraint at both azimuthal orders). At n=1 and n=2 with
+  fast formation (``V_S > V_f`` and a non-empty layer stack),
+  the dispatch instead routes through the complex-``k_z``
+  determinants :func:`_modal_determinant_n1_cased_complex` /
+  :func:`_modal_determinant_n2_cased_complex` and the drivers
+  :func:`_flexural_dispersion_fast_formation_layered` /
+  :func:`_quadrupole_dispersion_fast_formation_layered`, which
+  mirror the unlayered fast-formation solvers by brentq'ing
+  ``Im(det)`` along the real-``k_z`` axis (the fluid radial
+  wavenumber turns imaginary once the phase velocity exceeds
+  ``V_f``, while the formation P / S branches stay bound). The
+  per-layer slow-formation constraint does not apply in that
+  regime -- a cement layer softer in shear than the formation
+  is physically permissible behind a fast carbonate. See plan G
   in ``docs/plans/cylindrical_biot.md`` and the G / G' / G''
   sub-plan docs for the full breakdown.
 
@@ -164,6 +167,9 @@ from fwap.cylindrical_solver._cased import (
     _layer_e_matrix_n1 as _layer_e_matrix_n1,
 )
 from fwap.cylindrical_solver._cased import (
+    _layer_e_matrix_n1_complex as _layer_e_matrix_n1_complex,
+)
+from fwap.cylindrical_solver._cased import (
     _layer_e_matrix_n2 as _layer_e_matrix_n2,
 )
 from fwap.cylindrical_solver._cased import (
@@ -176,6 +182,9 @@ from fwap.cylindrical_solver._cased import (
     _layer_propagator_n1 as _layer_propagator_n1,
 )
 from fwap.cylindrical_solver._cased import (
+    _layer_propagator_n1_complex as _layer_propagator_n1_complex,
+)
+from fwap.cylindrical_solver._cased import (
     _layer_propagator_n2 as _layer_propagator_n2,
 )
 from fwap.cylindrical_solver._cased import (
@@ -186,6 +195,9 @@ from fwap.cylindrical_solver._cased import (
 )
 from fwap.cylindrical_solver._cased import (
     _modal_determinant_n1_cased as _modal_determinant_n1_cased,
+)
+from fwap.cylindrical_solver._cased import (
+    _modal_determinant_n1_cased_complex as _modal_determinant_n1_cased_complex,
 )
 from fwap.cylindrical_solver._cased import (
     _modal_determinant_n2_cased as _modal_determinant_n2_cased,
