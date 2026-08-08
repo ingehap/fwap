@@ -38,6 +38,23 @@ def bundle(npz_path: str):
 
 
 @pytest.fixture(scope="session")
+def cased_npz_path(tmp_path_factory: pytest.TempPathFactory, freq: np.ndarray) -> str:
+    """Path to a small on-disk *cased-hole* dataset (schema v4)."""
+    gen = gen_shim.generator()
+    p = tmp_path_factory.mktemp("cased") / "cased.npz"
+    gen.save_npz(str(p), gen.generate_cased_dataset(40, seed=0, freq=freq))
+    return str(p)
+
+
+@pytest.fixture(scope="session")
+def cased_bundle(cased_npz_path: str):
+    """The shared cased-hole dataset loaded into a DatasetBundle."""
+    from sonic_ml import load_npz
+
+    return load_npz(cased_npz_path)
+
+
+@pytest.fixture(scope="session")
 def geom(bundle):
     """Default acquisition geometry reconstructed for the shared dataset."""
     from sonic_ml import default_geometry
