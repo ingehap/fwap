@@ -7,6 +7,24 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`sonic_ml` operator-learning primitives: FNO + DeepONet (M5b)**: a new
+  ``sonic_ml.models.operator`` module adding the two building blocks the
+  cased-hole operator surrogate needs, both **implemented in-house on plain
+  PyTorch** (no ``neuraloperator`` or other new dependency). ``SpectralConv1d``
+  multiplies the lowest retained Fourier modes by learned complex weights
+  (stored as a real ``(..., 2)`` tensor so ordinary optimizers and
+  ``weights_only=True`` checkpoints keep working); ``FNO1d`` stacks
+  ``GELU(spectral + pointwise)`` blocks; ``DeepONet`` factors the map into a
+  branch net over parameters and a trunk net over a *query coordinate*; and
+  ``params_on_grid`` lifts a parameter vector onto a coordinate grid with the
+  standard trailing coordinate channel. Unlike the M2/M3 point networks, these
+  learn a map between *functions*: the frequency axis is a coordinate rather
+  than an array index, so a grid-trained ``FNO1d`` runs on any grid length
+  (verified zero-shot on a 2x finer grid) and a ``DeepONet`` can be queried at
+  arbitrary off-grid frequencies. Tests pin the exact Fourier semantics
+  (DC-only convolution equals the grid mean; energy above the cutoff is
+  rejected; the trunk is pointwise in the query) and assert only that learning
+  *happens*, never a specific accuracy. Torch-gated; the spine stays torch-free.
 - **Cased-hole surrogate dataset: schema v4 (M5a)**: the generator can now
   synthesize *cased-hole* samples (a steel casing + cement annulus between the
   borehole fluid and the formation) by wrapping fwap's existing layered modal
