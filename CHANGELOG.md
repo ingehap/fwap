@@ -7,6 +7,31 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Core open-hole tutorial notebooks + documentation pass**: the library's own
+  workflows had no tutorial -- only a solver-validation notebook and two ML
+  ones -- so this adds them.
+  ``docs/notebooks/open_hole_processing.ipynb`` runs Parts 1-2 end to end
+  (synthesize a monopole gather -> STC coherence surface -> pick P/S/Stoneley
+  against planted truth -> f-k and tau-p wave separation -> track across depth
+  -> LAS-ready log curves), and
+  ``docs/notebooks/open_hole_petrophysics.ipynb`` runs Part 3 and the extension
+  layer (flexural dispersion bias, elastic moduli, Gassmann substitution,
+  Stoneley permeability, and a drilling-decision mud-weight window). Both use
+  **only** ``fwap`` -- no torch -- so they are validated by the **core**
+  ``ci.yml`` gate via a new ``--nbval-lax`` step (12 cells, ~15 s), which also
+  proves the tutorials work without the ML layer installed.
+  Two teaching points came out of writing them and are reported rather than
+  smoothed over: an eight-receiver array gives the f-k filter almost no
+  wavenumber resolution, so tau-p separates the Stoneley ~2.8x better while f-k
+  barely moves the ratio; and the Lacy UCS correlation is quadratic in Young's
+  modulus and was fitted on *static* core moduli, so feeding it a *dynamic*
+  sonic modulus returns 360 MPa where a 2x static correction gives a plausible
+  109 MPa -- the notebook prints both.
+  ``README.md`` gains a ``sonic_ml`` section (layer table, the two headline
+  results with the identifiability gap between them intact, install steps) and a
+  tutorial-notebook index; ``docs/`` gains a narrative ``sonic_ml.rst`` page
+  covering the isolation guarantees, the versioned ``.npz`` contract, and the
+  honest-measurement helpers, with the notebooks split into their own toctree.
 - **`sonic_ml` re-gridding evaluation + casing-ring augmentation (M5f)**: two
   robustness slices, both of which produced *negative* results worth shipping.
   ``sonic_ml.models.regrid`` measures the operator's off-grid claim properly:

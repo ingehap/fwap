@@ -71,18 +71,32 @@ literature:
   directly;
 * log-format I/O for LAS, DLIS and SEG-Y (:mod:`fwap.io`).
 
+Alongside the package sits ``sonic_ml``, an optional machine-learning
+layer that consumes the forward solver as a labelled-data factory and
+learns surrogate and inverse models on top of it. It is a separate
+sibling package, so installing or importing :mod:`fwap` never pulls in
+PyTorch — see :doc:`sonic_ml`.
+
 .. toctree::
    :maxdepth: 2
    :caption: Contents
 
    quickstart
    chapter_map
-   notebooks/cylindrical_biot_validation
-   notebooks/sonic_ml_tutorial
-   notebooks/cased_hole_tutorial
+   sonic_ml
    api
    roadmap
    changelog
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Tutorial notebooks
+
+   notebooks/open_hole_processing
+   notebooks/open_hole_petrophysics
+   notebooks/sonic_ml_tutorial
+   notebooks/cased_hole_tutorial
+   notebooks/cylindrical_biot_validation
 
 Indices and tables
 ==================
