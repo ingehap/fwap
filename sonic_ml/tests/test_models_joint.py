@@ -25,7 +25,9 @@ from sonic_ml.models.inversion import InversionResult  # noqa: E402
 from sonic_ml.models.joint import (  # noqa: E402
     DepthProfile,
     bed_vs_boundary_mae,
+    contact_precision,
     invert_joint,
+    no_skill_contact_precision,
     profile_mae,
     select_lambda,
     smooth_independent,
@@ -79,6 +81,35 @@ def test_beds_are_piecewise_constant_and_change_only_at_boundaries(profile):
     changed = np.where(np.any(np.diff(profile.params, axis=0) != 0.0, axis=1))[0] + 1
     np.testing.assert_array_equal(changed, profile.bed_boundaries)
     assert profile.n_beds == profile.bed_boundaries.size + 1
+
+
+def test_gradation_softens_contacts_without_moving_the_beds(bundle):
+    """The unfavourable case for a contact-preserving penalty, built honestly.
+
+    Ramping must change only *how* a contact is reached, not which beds the log
+    contains or where the contacts are --- otherwise the sharp and gradational
+    runs are not a matched pair and comparing penalties across them proves
+    nothing.
+    """
+    kw = dict(n_depths=30, mean_bed_frames=8.0, noise_us_per_ft=0.0, seed=7)
+    sharp = synthesize_profile(bundle, **kw)
+    ramped = synthesize_profile(bundle, gradation_frames=4, **kw)
+
+    np.testing.assert_array_equal(sharp.bed_boundaries, ramped.bed_boundaries)
+    steps_sharp = np.abs(np.diff(sharp.value("vs")))
+    steps_ramped = np.abs(np.diff(ramped.value("vs")))
+    assert steps_ramped.max() < steps_sharp.max()
+    # the change is spread over more transitions, not removed
+    assert (steps_ramped > 1.0).sum() > (steps_sharp > 1.0).sum()
+    assert np.isfinite(ramped.slowness).any(axis=(1, 2)).all()
+
+
+def test_zero_gradation_is_the_blocky_default(bundle):
+    kw = dict(n_depths=20, mean_bed_frames=6.0, noise_us_per_ft=0.0, seed=4)
+    np.testing.assert_array_equal(
+        synthesize_profile(bundle, **kw).params,
+        synthesize_profile(bundle, gradation_frames=0, **kw).params,
+    )
 
 
 def test_noise_free_profile_is_exactly_the_forward_model(bundle):
@@ -200,6 +231,152 @@ def test_joint_inversion_rejects_bad_input(surrogate, profile):
         invert_joint(surrogate, profile.slowness[:1], lam=0.0, steps=1)
     with pytest.raises(ValueError, match="non-negative"):
         invert_joint(surrogate, profile.slowness, lam=-1.0, steps=1)
+    with pytest.raises(ValueError, match="tv_eps must be positive"):
+        invert_joint(surrogate, profile.slowness, lam=0.1, tv_eps=0.0, steps=1)
+    with pytest.raises(ValueError, match="penalty must be"):
+        invert_joint(surrogate, profile.slowness, lam=0.1, penalty="l1", steps=1)
+
+
+# ------------------------------------------------------------------
+# The bed-boundary-aware (TV) penalty
+# ------------------------------------------------------------------
+
+
+def test_tv_is_nearly_indifferent_to_how_change_is_distributed():
+    """The defining property, checked on the penalty itself, not through a fit.
+
+    Both profiles below contain the same *total* change. L2 charges four times
+    as much when it arrives as one contact instead of four gentle steps, which
+    is a standing incentive to erase contacts. TV is within a few percent of
+    indifferent --- and indifference, not a preference for jumps, is what lets a
+    contact survive.
+    """
+    from sonic_ml.models.joint import _roughness_term
+
+    l2 = _roughness_term("l2", 0.05)
+    tv = _roughness_term("tv", 0.05)
+    one_jump = torch.tensor([[0.0], [0.0], [4.0], [4.0], [4.0]])
+    spread = torch.tensor([[0.0], [1.0], [2.0], [3.0], [4.0]])
+
+    assert float(l2(one_jump) / l2(spread)) == pytest.approx(4.0, rel=1e-4)
+    assert float(tv(one_jump) / tv(spread)) == pytest.approx(1.0, abs=0.05)
+
+
+def test_tv_reduces_to_l2_behaviour_for_a_large_epsilon():
+    """The two penalties are a family, not rivals, and eps is the dial."""
+    from sonic_ml.models.joint import _roughness_term
+
+    z = torch.tensor([[0.0], [0.02], [0.01], [0.03]])
+    l2 = _roughness_term("l2", 0.0)(z)
+    # for |diff| << eps, pseudo-Huber ~= |diff|^2 / (2 eps)
+    big_eps = 50.0
+    tv = _roughness_term("tv", big_eps)(z)
+    assert tv == pytest.approx(l2 / (2 * big_eps), rel=1e-3)
+
+
+def test_both_penalties_smooth_but_tv_keeps_more_structure(surrogate, profile):
+    """At a weight strong enough to visibly smooth, TV must retain more jumps."""
+
+    def roughness(result):
+        scale = np.abs(result.params).mean(axis=0)
+        return np.abs(np.diff(result.params, axis=0) / scale).sum(axis=1)
+
+    warm = invert_joint(
+        surrogate, profile.slowness, lam=0.0, steps=30, n_starts=1
+    ).params
+    kw = dict(lam=0.3, steps=80, warm_start=warm)
+    flat = invert_joint(surrogate, profile.slowness, penalty="l2", **kw)
+    kept = invert_joint(surrogate, profile.slowness, penalty="tv", **kw)
+    # both smooth relative to the warm start
+    start = InversionResult(
+        params=warm,
+        active_names=surrogate.param_std.active_names,
+        data_misfit=np.zeros(profile.n_depths),
+        n_starts=1,
+        method="joint",
+    )
+    assert roughness(flat).sum() < roughness(start).sum()
+    assert roughness(kept).sum() < roughness(start).sum()
+    # but TV concentrates what is left into fewer, larger transitions
+    assert roughness(kept).max() > roughness(flat).max()
+
+
+def test_penalty_choice_changes_the_answer(surrogate, profile):
+    warm = invert_joint(
+        surrogate, profile.slowness, lam=0.0, steps=20, n_starts=1
+    ).params
+    kw = dict(lam=0.1, steps=60, warm_start=warm)
+    a = invert_joint(surrogate, profile.slowness, penalty="l2", **kw)
+    b = invert_joint(surrogate, profile.slowness, penalty="tv", **kw)
+    assert not np.allclose(a.params, b.params)
+
+
+# ------------------------------------------------------------------
+# contact_precision
+# ------------------------------------------------------------------
+
+
+def test_perfect_recovery_finds_every_contact(profile):
+    """A profile recovered exactly must score 1.0, or the metric is broken."""
+    exact = InversionResult(
+        params=profile.params.copy(),
+        active_names=profile.active_names,
+        data_misfit=np.zeros(profile.n_depths),
+        n_starts=1,
+        method="joint",
+    )
+    assert contact_precision(exact, profile, tolerance=0) == pytest.approx(1.0)
+
+
+def test_a_flat_log_finds_nothing_real(profile):
+    """A constant profile has no jumps; its picks are arbitrary, not contacts."""
+    flat = InversionResult(
+        params=np.repeat(profile.params[:1], profile.n_depths, axis=0),
+        active_names=profile.active_names,
+        data_misfit=np.zeros(profile.n_depths),
+        n_starts=1,
+        method="joint",
+    )
+    score = contact_precision(flat, profile, tolerance=0)
+    assert 0.0 <= score <= 1.0
+
+
+def test_no_skill_precision_is_the_reachable_bar(profile):
+    """It must be a real fraction strictly inside (0, 1] on a bedded log."""
+    bar = no_skill_contact_precision(profile, tolerance=1)
+    assert 0.0 < bar <= 1.0
+    # widening the tolerance can only make blind guessing easier
+    assert no_skill_contact_precision(profile, tolerance=2) >= bar
+
+
+def test_a_profile_without_contacts_has_nothing_to_score(bundle):
+    single = synthesize_profile(
+        bundle, n_depths=4, mean_bed_frames=500.0, noise_us_per_ft=0.0, seed=2
+    )
+    assert single.n_beds == 1
+    exact = InversionResult(
+        params=single.params.copy(),
+        active_names=single.active_names,
+        data_misfit=np.zeros(single.n_depths),
+        n_starts=1,
+        method="joint",
+    )
+    assert np.isnan(contact_precision(exact, single))
+    assert np.isnan(no_skill_contact_precision(single))
+
+
+def test_contact_metrics_reject_a_negative_tolerance(profile):
+    exact = InversionResult(
+        params=profile.params.copy(),
+        active_names=profile.active_names,
+        data_misfit=np.zeros(profile.n_depths),
+        n_starts=1,
+        method="joint",
+    )
+    with pytest.raises(ValueError, match="non-negative"):
+        contact_precision(exact, profile, tolerance=-1)
+    with pytest.raises(ValueError, match="non-negative"):
+        no_skill_contact_precision(profile, tolerance=-1)
 
 
 # ------------------------------------------------------------------

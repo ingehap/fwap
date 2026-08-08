@@ -615,10 +615,30 @@ would be advertising rather than measuring.
    over-coupling badly enough to lose 18-29% -- so the honest summary
    is that this pays on noisy picks, costs on clean ones, and cannot
    reliably tell you which you have.
-   What remains open is the harder version of the same idea --
-   coupling across depth *and* mode with a bed-boundary-aware penalty
-   (total variation rather than squared differences), so contacts
-   survive the prior instead of being paid for by it.
+6. **Bed-boundary-aware penalty** -- *closed*. `invert_joint` takes
+   `penalty="tv"`, a pseudo-Huber cost that is linear beyond `tv_eps`
+   and so nearly indifferent to how a given amount of change is
+   distributed down the log. It exists because the squared-difference
+   penalty had a measurable defect: at the cross-validated weight it
+   improved a noisy log overall (`vp` MAE 506 to 420) while making the
+   bed contacts *worse than not coupling at all* (486 to 500), which
+   is what squaring a transition buys you. `"tv"` improves both, to
+   388 and 406, and raises contact-localisation precision from 0.83 to
+   0.91 against a 0.36 no-skill bar (`contact_precision` /
+   `no_skill_contact_precision`).
+   The finding is scoped rather than universal, and deliberately so.
+   A piecewise-constant test bed is the friendliest possible setting
+   for a contact-preserving prior, so `synthesize_profile` grew
+   `gradation_frames` to build the hostile one; with contacts ramped
+   over four frames the advantage narrows and partly inverts --- `"tv"`
+   is then *worse* at the transition frames and worse at finding them.
+   The default stays `"l2"` and the choice is a question about the
+   rock: bedded log, use `"tv"`; gradational log, do not.
+   What remains open: whether `"tv"` should become the default is a
+   judgement the current evidence does not force, because it turns on
+   how bedded a typical target log is --- which is a real-data
+   question (section F), not one more synthetic sweep can settle.
+   Coupling across *mode* as well as depth is untouched.
 
 **Deliberately not planned**: shipping trained weights in the repo.
 Checkpoints are git-ignored and the committed artefact is the small
