@@ -17,7 +17,7 @@ What remains is shorter and sharper than the list below suggests:
 | Open item | Why it matters |
 |-----------|----------------|
 | **F. Real-data fixtures** | Harness shipped; a real *sonic* gather is still missing. The binding constraint on every quantitative claim in the repo, `sonic_ml`'s included. |
-| **G. `sonic_ml` follow-ons** | Free-pipe / leaky cased regime; surrogate-in-the-loop inversion. |
+| **G. `sonic_ml` follow-ons** | Free-pipe / leaky cased regime; joint multi-depth inversion (single-frame surrogate inversion is done). |
 | **A.1 Validation figures** | Ties the solver to published literature rather than to itself. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
 
@@ -580,9 +580,22 @@ would be advertising rather than measuring.
    rather than a strawman.
 3. **Two-mode cased datasets**, gated on the cased-flexural
    bracketing in section A.
-4. **Surrogate-in-the-loop inversion.** The forward surrogate is
-   differentiable, but nothing yet uses it inside an optimisation
-   loop; that was the original motivation for building it.
+4. **Surrogate-in-the-loop inversion** -- *closed*.
+   `sonic_ml.models.inversion` puts the differentiable forward
+   surrogate inside a multi-start gradient optimisation
+   (`invert_with_surrogate`), and ships the control alongside it
+   (`invert_with_solver`, the same inversion through fwap's real
+   modal solver). The measured verdict is a trade, not a win: about
+   ten times faster per sample, and less accurate on three of four
+   parameters -- badly so for density, whose curve signature is the
+   weakest of the four and so is the first casualty of the
+   surrogate's own forward error. The module docstring records the
+   rule that predicts this, which is reusable: expected error is
+   roughly `(forward error / parameter signature) x parameter
+   range`. What remains open is the obvious follow-on -- using the
+   surrogate's gradients for *joint* inversion across depth, or with
+   regularisation between adjacent frames, which is where an
+   iterative method earns its cost over the amortised M3 net.
 
 **Deliberately not planned**: shipping trained weights in the repo.
 Checkpoints are git-ignored and the committed artefact is the small

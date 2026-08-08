@@ -1632,6 +1632,44 @@ the project uses [Semantic Versioning](https://semver.org/).
   `sonic_ml`'s -- remains validated only against the same forward model that
   generated its data. Adding one is a one-entry change to the registry.
 
+### Added
+- **`sonic_ml` surrogate-in-the-loop inversion** (roadmap G.4). The M2 forward
+  surrogate has always been differentiable; nothing used that, which was the
+  original motivation for building it. ``sonic_ml.models.inversion`` closes the
+  loop: ``invert_with_surrogate`` optimises formation parameters through the
+  surrogate by gradient descent in standardised parameter space, multi-start to
+  survive a non-convex landscape, with ``NaN`` frequencies excluded from the
+  misfit rather than imputed. ``InversionResult`` carries the recovered values,
+  the parameters actually solved for, and the **final data misfit** -- which is
+  the number to check before trusting any recovered value.
+  **The control ships with the method.** ``invert_with_solver`` runs the same
+  inversion through fwap's real modal solver, with the same multi-start budget
+  and the same bounds, because "inversion through a learned forward model works"
+  means nothing without the exact-forward-model number beside it.
+  ``inversion_mae`` and ``no_skill_mae`` score against the training-mean
+  reference, so a parameter that was not recovered cannot look as though it was.
+  **Measured (400-sample open-hole dataset, held-out, four active parameters):**
+  the surrogate route is ~10x faster per sample (~0.36 s vs ~3.5 s) and *less*
+  accurate on three of four parameters -- vp 182 vs 236 m/s (surrogate better),
+  vs 39 vs 31 m/s, rho 91 vs 3.4 kg/m3, a 0.0038 vs 0.0010 m. The trade is speed
+  for accuracy, not a free win. An earlier draft claimed the opposite because
+  its control was given one start and a smaller budget than the surrogate got;
+  the fair control reversed the conclusion.
+  The error pattern turns out to be predictable, and the module docstring
+  records it: a surrogate cannot resolve a parameter more finely than its own
+  forward error allows, so expected error is roughly
+  ``(forward error / parameter signature) x parameter range``. At a measured
+  1.5 us/ft forward error that predicts 191 m/s for vp (observed 182),
+  103 kg/m3 for rho (observed 91) and 0.0035 m for a (observed 0.0038) --
+  within ~12% each. Density has the weakest curve signature of the four and is
+  therefore the first casualty of surrogate error; fixing it needs a better
+  surrogate, not a better optimiser.
+  Tests pin mechanism rather than accuracy (the CI fixture trains on ~32
+  samples): that optimisation actually reduces the misfit, that extra starts
+  never worsen it, that both routes solve for the same parameters, that results
+  are reproducible, and that the answer changes when the surrogate's weights do
+  -- so it cannot be coming from the normalisers instead of the learned model.
+
 ## [0.4.0] - 2026-04-22
 
 First formally-versioned release. Promotes the port of the 1994 Mari

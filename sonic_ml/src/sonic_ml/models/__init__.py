@@ -44,6 +44,13 @@ from sonic_ml.models.inverse_train import (
     residual_zscore_std,
     train_inverse,
 )
+from sonic_ml.models.inversion import (
+    InversionResult,
+    inversion_mae,
+    invert_with_solver,
+    invert_with_surrogate,
+    no_skill_mae,
+)
 from sonic_ml.models.losses import gaussian_nll, masked_slowness_loss, presence_bce
 from sonic_ml.models.lwd import (
     LatencyAccuracy,
@@ -138,6 +145,12 @@ __all__ = [
     "NeuralBondPredictor",
     "cased_target_mae",
     "cased_residual_zscore_std",
+    # surrogate-in-the-loop inversion (G.4)
+    "InversionResult",
+    "invert_with_surrogate",
+    "invert_with_solver",
+    "inversion_mae",
+    "no_skill_mae",
     # re-gridding evaluation (M5f)
     "true_curves_on_grid",
     "RegridScore",
