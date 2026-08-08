@@ -19,6 +19,7 @@ from sonic_ml.models.cased_inverse import (
     DEFAULT_CASED_TARGETS,
     CasedInverseDataset,
     NeuralBondPredictor,
+    cased_residual_zscore_std,
     cased_target_mae,
     cased_targets,
     train_cased_inverse,
@@ -124,4 +125,5 @@ __all__ = [
     "train_cased_inverse",
     "NeuralBondPredictor",
     "cased_target_mae",
+    "cased_residual_zscore_std",
 ]

@@ -64,9 +64,12 @@ jobs:
         working-directory: sonic_ml
         run: pytest
 
-      - name: Validate tutorial notebook (nbval)
-        # The sonic_ml tutorial imports torch, so it is exercised here (where
+      - name: Validate tutorial notebooks (nbval)
+        # The sonic_ml tutorials import torch, so they are exercised here (where
         # torch is installed) rather than in the core CI. --nbval-lax re-runs
         # every cell and fails on any exception, ignoring output drift. Run
-        # from the repo root so the notebook's relative context resolves.
-        run: pytest --nbval-lax docs/notebooks/sonic_ml_tutorial.ipynb
+        # from the repo root so the notebooks' relative context resolves.
+        run: |
+          pytest --nbval-lax \
+            docs/notebooks/sonic_ml_tutorial.ipynb \
+            docs/notebooks/cased_hole_tutorial.ipynb

@@ -79,6 +79,7 @@ literature:
    chapter_map
    notebooks/cylindrical_biot_validation
    notebooks/sonic_ml_tutorial
+   notebooks/cased_hole_tutorial
    api
    roadmap
    changelog

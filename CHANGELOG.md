@@ -7,6 +7,28 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Cased-hole tutorial notebook (M5e)**:
+  ``docs/notebooks/cased_hole_tutorial.ipynb`` walks the cased-hole path end to
+  end -- generate a schema-v4 cased dataset, train the M5c forward operator and
+  evaluate it on a 3x finer frequency grid it never saw, train the M5d bond
+  inverse, and score it against the classical Stoneley baseline and a
+  predict-the-mean reference through the bond harness. Its spine is a **forward
+  sensitivity sweep run before any training**: sweeping each parameter across its
+  prior shows cement stiffness dominates the cased Stoneley curve while formation
+  Vs moves it less than the nuisance cement-thickness variation, which *predicts*
+  the inverse result that follows (bond recoverable, behind-casing Vs weak) and
+  frames the closing section on calibrated uncertainty. Runs in ~75 s, added to
+  the Sphinx toctree, and validated on every PR by the ``ml.yml`` ``--nbval-lax``
+  step (now covering both tutorials). Closes with an explicit statement that this
+  is **not a free-pipe detector** and that the ~2x skill here, unlike the
+  open-hole tutorial's ~25x, reflects a partially-identifiable problem rather
+  than modelling effort.
+  Writing it exposed a gap in the M5d API, fixed here: the M3
+  ``residual_zscore_std`` resolves truth through ``bundle.param()`` and so raises
+  on ``bond_index``; ``sonic_ml.models.cased_inverse.cased_residual_zscore_std``
+  is the cased-aware counterpart (mirroring ``cased_target_mae``), with a test
+  pinning that it agrees with the M3 helper on a formation column and reaches the
+  bond target where the M3 helper cannot.
 - **`sonic_ml` cement-bond inverse (M5d)**: the cased-hole counterpart of the M3
   inverse -- a cased waveform gather is inverted for the two quantities a cement
   evaluation wants, ``(behind-casing Vs, bond index)``, reusing the M3
