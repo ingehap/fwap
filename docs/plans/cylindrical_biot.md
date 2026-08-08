@@ -273,7 +273,12 @@ decoupling).
    element layer stacks supported; multi-layer raises
    `NotImplementedError` pointing at plan item G.
 4. Slow-formation regime constraint for n=1 (`layer.vs >= vs`)
-   documented; fast-formation layered flexural is future work.
+   documented. Fast-formation layered flexural was future work at
+   F.2 time; it has since shipped via the complex-``k_z`` path
+   (`_modal_determinant_n1_cased_complex` +
+   `_flexural_dispersion_fast_formation_layered`), the n=1 sister
+   of the fast-formation cased-hole quadrupole follow-up to G''.
+   The per-layer constraint does not apply in that regime.
 
 **Validation actually achieved.**
 

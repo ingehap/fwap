@@ -69,8 +69,12 @@ from fwap.cylindrical_solver._n1_isotropic import (
 # The public-API dispatch in :func:`flexural_dispersion_layered`
 # replaces the previous ``NotImplementedError`` with a brentq loop
 # driven by the bound-regime bracket extended to ``min(V_S, V_S_m,
-# V_f)``. Slow-formation regime only (``V_S < V_f`` AND
-# ``V_S_m < V_f``); fast-formation layered flexural is future work.
+# V_f)``. That path covers the slow-formation regime
+# (``V_S < V_f``). Fast formation (``V_S > V_f``) is handled by
+# :func:`_flexural_dispersion_fast_formation_layered`, which
+# brentq's ``Im(det)`` of the complex-``k_z`` cased determinant
+# along the real axis -- the n=1 sister of the fast-formation
+# cased-hole quadrupole path.
 
 
 def _modal_determinant_n1_layered(
@@ -297,6 +301,161 @@ def _flexural_kz_bracket_cased(
     return kz_lo, kz_hi
 
 
+def _flexural_dispersion_fast_formation_layered(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...],
+) -> BoreholeMode:
+    r"""
+    Fast-formation (``V_S > V_f``) cased-hole flexural dispersion
+    via brentq on ``Im(det)``.
+
+    n=1 sister of
+    :func:`~fwap.cylindrical_solver._n2_quadrupole._quadrupole_dispersion_fast_formation_layered`,
+    lifted from the unlayered fast-formation flexural driver to the
+    multi-layer cased determinant
+    :func:`~fwap.cylindrical_solver._cased._modal_determinant_n1_cased_complex`.
+
+    The bound regime is ``k_z`` real in ``(omega/V_S, omega/V_R)``;
+    in that window the formation P / S radial wavenumbers stay real
+    while the fluid radial wavenumber goes purely imaginary, so the
+    cased determinant evaluated at real ``k_z`` has an imaginary
+    part that crosses zero at the modal root. Both the layer and
+    formation columns use ``leaky_p = leaky_s = False`` -- the mode
+    is bound everywhere outside the borehole fluid.
+
+    Continuation strategy mirrors the unlayered case: walk
+    high-to-low frequency, narrow bracket centred on the previous
+    step's slowness first, fall back to the wide
+    ``(omega/V_S, omega/V_R)`` bracket if the narrow one fails.
+
+    Parameters
+    ----------
+    freq : ndarray, shape (n_freq,)
+        Frequency grid (Hz). Strictly positive.
+    vp, vs, rho : float
+        Formation half-space P / S velocity (m/s) and density
+        (kg/m^3). Fast formation, i.e. ``vs > vf``.
+    vf, rho_f : float
+        Borehole-fluid velocity (m/s) and density (kg/m^3).
+    a : float
+        Borehole (fluid-side) radius (m).
+    layers : tuple of BoreholeLayer
+        Annular layer stack ordered inside-out. Non-empty.
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "flexural"``, ``azimuthal_order = 1``,
+        ``slowness`` in s/m with ``NaN`` where no root was
+        bracketed. The converged ``k_z`` is real to floating-point
+        precision, so ``attenuation_per_meter`` is ``None``.
+    """
+    from fwap.cylindrical import rayleigh_speed
+    from fwap.cylindrical_solver import _modal_determinant_n1_cased_complex
+
+    f_arr = np.asarray(freq, dtype=float)
+    n_f = f_arr.size
+    slowness = np.full(n_f, np.nan, dtype=float)
+    if n_f == 0:
+        return BoreholeMode(
+            name="flexural",
+            azimuthal_order=1,
+            freq=f_arr,
+            slowness=slowness,
+        )
+
+    vR = rayleigh_speed(vp, vs)
+    eps = 1.0e-4
+
+    def _im_det(kz: float, _omega: float) -> float:
+        return _modal_determinant_n1_cased_complex(
+            complex(kz, 0.0),
+            _omega,
+            vp=vp,
+            vs=vs,
+            rho=rho,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
+            layers=layers,
+            leaky_p=False,
+            leaky_s=False,
+        ).imag
+
+    def _find_root_in_bracket(
+        kz_lo: float,
+        kz_hi: float,
+        omega: float,
+    ) -> float | None:
+        try:
+            d_lo = _im_det(kz_lo, omega)
+            d_hi = _im_det(kz_hi, omega)
+            if not (np.isfinite(d_lo) and np.isfinite(d_hi)):
+                return None
+            if np.sign(d_lo) == np.sign(d_hi):
+                return None
+            return float(
+                optimize.brentq(
+                    _im_det,
+                    kz_lo,
+                    kz_hi,
+                    args=(omega,),
+                    xtol=1.0e-10,
+                )
+            )
+        except (ValueError, RuntimeError):
+            return None
+
+    order_desc = np.argsort(-f_arr)
+    f_desc = f_arr[order_desc]
+    slowness_desc = np.full(f_desc.size, np.nan, dtype=float)
+    slowness_prev: float | None = None
+
+    for i, f in enumerate(f_desc):
+        omega = 2.0 * np.pi * float(f)
+        kz_root: float | None = None
+
+        if slowness_prev is not None:
+            kz_centre = slowness_prev * omega
+            kz_lo = max(kz_centre * 0.98, omega / vs * (1.0 + eps))
+            kz_hi = min(kz_centre * 1.02, omega / vR * (1.0 - eps))
+            if kz_hi > kz_lo:
+                kz_root = _find_root_in_bracket(kz_lo, kz_hi, omega)
+
+        if kz_root is None:
+            kz_lo = omega / vs * (1.0 + eps)
+            kz_hi = omega / vR * (1.0 - eps)
+            if kz_hi > kz_lo:
+                kz_root = _find_root_in_bracket(kz_lo, kz_hi, omega)
+
+        if kz_root is None:
+            logger.debug(
+                "_flexural_dispersion_fast_formation_layered: no "
+                "Im(det) sign change at f=%.1f Hz",
+                f,
+            )
+            continue
+
+        slowness_desc[i] = kz_root / omega
+        slowness_prev = slowness_desc[i]
+
+    slowness[order_desc] = slowness_desc
+
+    return BoreholeMode(
+        name="flexural",
+        azimuthal_order=1,
+        freq=f_arr,
+        slowness=slowness,
+    )
+
+
 def flexural_dispersion_layered(
     freq: np.ndarray,
     *,
@@ -337,9 +496,11 @@ def flexural_dispersion_layered(
         the formation half-space, ordered radially outward.
         ``()`` dispatches to :func:`flexural_dispersion`. A
         single-element tuple dispatches to the 10x10 layered
-        solver (slow-formation regime only). Multi-layer support
-        is plan item G; fast-formation layered flexural
-        (``V_S > V_f``) is future work.
+        solver; ``N >= 2`` uses the cased-hole propagator chain
+        (plan item G'). In the fast-formation regime
+        (``V_S > V_f``) any non-empty stack routes to the
+        complex-determinant path
+        :func:`_flexural_dispersion_fast_formation_layered`.
 
     Returns
     -------
@@ -355,10 +516,17 @@ def flexural_dispersion_layered(
         If any input is non-positive, ``vp <= vs``, ``freq``
         contains a non-positive entry, any layer is malformed, or
         any layer fails the slow-formation constraint
-        ``layer.vs >= vs`` (multi-layer only).
-    NotImplementedError
-        If the formation is fast (``V_S > V_f``) with a non-empty
-        layer (fast-formation layered flexural is future work).
+        ``layer.vs >= vs`` (multi-layer, slow-formation only --
+        the constraint does not apply when ``V_S > V_f``).
+
+    Notes
+    -----
+    Slow formation (``V_S < V_f``) uses the real-valued
+    determinant with brentq on ``det`` itself; fast formation
+    (``V_S > V_f``) uses the complex-``k_z`` determinant with
+    brentq on ``Im(det)`` along the real axis, because the fluid
+    radial wavenumber turns imaginary once the phase velocity
+    exceeds ``V_f``.
     """
     layers_tuple = tuple(layers)
     _validate_borehole_layers(layers_tuple)
@@ -385,12 +553,25 @@ def flexural_dispersion_layered(
         raise ValueError("freq must be strictly positive")
 
     if vs > vf:
-        raise NotImplementedError(
-            "flexural_dispersion_layered with fast formation "
-            "(V_S > V_f) and a non-empty layer is not supported "
-            "yet; the 10x10 layered solver here covers the slow-"
-            "formation bound regime only. Fast-formation layered "
-            "flexural is scheduled as a follow-up to plan item F.2."
+        # Fast-formation cased-hole flexural: phase velocity is in
+        # (V_R, V_S) > V_f, so the fluid radial wavenumber goes
+        # purely imaginary while the formation P / S branches stay
+        # bound. Brentq on Im(det) along the real-k_z axis via the
+        # complex-determinant cased helper. The slow-formation
+        # per-layer constraint does NOT apply here: a layer softer
+        # in shear than a fast formation (e.g. cement behind a fast
+        # carbonate) is physically permissible, and the complex
+        # Bessel functions handle the mixed-regime layer kinematics
+        # transparently.
+        return _flexural_dispersion_fast_formation_layered(
+            f_arr,
+            vp=vp,
+            vs=vs,
+            rho=rho,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
+            layers=layers_tuple,
         )
 
     n_layers = len(layers_tuple)

@@ -2182,6 +2182,381 @@ def _modal_determinant_n2_cased(
 
 
 # =====================================================================
+# Fast-formation cased-hole flexural -- complex-``k_z`` helpers (n=1)
+# =====================================================================
+#
+# Sisters of the slow-formation-only ``_layer_e_matrix_n1``,
+# ``_layer_propagator_n1``, and ``_modal_determinant_n1_cased``. Same
+# construction as the n=2 complex block further down, with the
+# Bessel-index shift ``(I_1, I_2) -> (I_0, I_1)`` and the n=1
+# azimuthal factors.
+#
+# In the fast-formation regime (formation ``V_S > V_f``) the guided
+# flexural mode has phase velocity in ``(V_R, V_S)``, both above
+# ``V_f``. The fluid radial wavenumber ``F = sqrt(k_z^2 -
+# omega^2/V_f^2)`` therefore goes purely imaginary while the
+# formation P / S radial wavenumbers stay real, so the determinant
+# picks up a uniform ``i^k`` phase from the fluid whose imaginary
+# part crosses zero at the modal root. The driver
+# ``_flexural_dispersion_fast_formation_layered`` brentq's
+# ``Im(det)`` along the real-``k_z`` axis; the formation half-space
+# uses ``_k_or_hankel`` so a future genuinely-leaky extension can
+# flip to the Hankel branch without touching the assembly.
+
+
+def _layer_e_matrix_n1_complex(
+    kz: complex,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    r: float,
+) -> np.ndarray:
+    """
+    Complex-``k_z`` 6x6 mode-amplitude-to-state-vector matrix
+    ``E_n1(r)`` at azimuthal order n=1.
+
+    Mirrors :func:`_layer_e_matrix_n1` entry-for-entry; the only
+    differences are (1) ``kz`` is complex, so ``p`` and ``s`` are
+    complex too, and (2) there is no real-``p^2 > 0`` /
+    ``s^2 > 0`` bound-regime check -- the layer is computed via
+    complex Bessel functions throughout. ``scipy.special.iv`` and
+    ``scipy.special.kv`` accept complex arguments transparently;
+    in the bound-regime real-``k_z`` limit the entries reduce to
+    real values matching the real :func:`_layer_e_matrix_n1`.
+
+    Parameters
+    ----------
+    kz : complex
+        Trial axial wavenumber (rad / m). May be complex.
+    omega, vp, vs, rho, r : float
+        Angular frequency (rad / s), layer P / S velocity (m/s),
+        density (kg/m^3), and evaluation radius (m). Same as
+        :func:`_layer_e_matrix_n1`.
+
+    Returns
+    -------
+    ndarray, shape (6, 6), complex dtype
+        ``E_n1(r)`` post-rescale, in the amplitude order
+        ``(B_I, B_K, C_I, C_K, D_I, D_K)`` and the state-row order
+        ``(u_r, u_z, u_theta, sigma_rr, sigma_rz, sigma_r_theta)``.
+
+    See Also
+    --------
+    _layer_e_matrix_n1 : Real-``k_z`` slow-formation counterpart.
+    _layer_e_matrix_n2_complex : The n=2 sister.
+    """
+    kz_c = complex(kz)
+    p = np.sqrt(kz_c * kz_c - (omega / vp) ** 2)
+    s = np.sqrt(kz_c * kz_c - (omega / vs) ** 2)
+    pr = p * r
+    sr = s * r
+    I0_p = complex(special.iv(0, pr))
+    I1_p = complex(special.iv(1, pr))
+    K0_p = complex(special.kv(0, pr))
+    K1_p = complex(special.kv(1, pr))
+    I0_s = complex(special.iv(0, sr))
+    I1_s = complex(special.iv(1, sr))
+    K0_s = complex(special.kv(0, sr))
+    K1_s = complex(special.kv(1, sr))
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz_c * kz_c - kS2
+
+    E: np.ndarray = np.zeros((6, 6), dtype=complex)
+    # Row 0: u_r
+    E[0, 0] = +p * I0_p - I1_p / r
+    E[0, 1] = -p * K0_p - K1_p / r
+    E[0, 2] = -kz_c * I1_s
+    E[0, 3] = -kz_c * K1_s
+    E[0, 4] = +I1_s / r
+    E[0, 5] = +K1_s / r
+    # Row 1: u_z
+    E[1, 0] = -kz_c * I1_p
+    E[1, 1] = -kz_c * K1_p
+    E[1, 2] = +s * I0_s
+    E[1, 3] = -s * K0_s
+    E[1, 4] = 0.0
+    E[1, 5] = 0.0
+    # Row 2: u_theta
+    E[2, 0] = -I1_p / r
+    E[2, 1] = -K1_p / r
+    E[2, 2] = 0.0
+    E[2, 3] = 0.0
+    E[2, 4] = -s * I0_s + I1_s / r
+    E[2, 5] = +s * K0_s + K1_s / r
+    # Row 3: sigma_rr
+    E[3, 0] = +mu * (
+        two_kz2_minus_kS2 * I1_p - 2.0 * p * I0_p / r + 4.0 * I1_p / (r * r)
+    )
+    E[3, 1] = +mu * (
+        two_kz2_minus_kS2 * K1_p + 2.0 * p * K0_p / r + 4.0 * K1_p / (r * r)
+    )
+    E[3, 2] = -2.0 * kz_c * mu * (s * I0_s - I1_s / r)
+    E[3, 3] = +2.0 * kz_c * mu * (s * K0_s + K1_s / r)
+    E[3, 4] = +2.0 * mu * (s * I0_s / r - 2.0 * I1_s / (r * r))
+    E[3, 5] = -2.0 * mu * (s * K0_s / r + 2.0 * K1_s / (r * r))
+    # Row 4: sigma_rz. D cols cross-couple at n=1 (F.2.a.6 erratum:
+    # the cos / sin sectors are NOT block-diagonal).
+    E[4, 0] = -2.0 * kz_c * mu * (p * I0_p - I1_p / r)
+    E[4, 1] = +2.0 * kz_c * mu * (p * K0_p + K1_p / r)
+    E[4, 2] = +mu * two_kz2_minus_kS2 * I1_s
+    E[4, 3] = +mu * two_kz2_minus_kS2 * K1_s
+    E[4, 4] = -kz_c * mu * I1_s / r
+    E[4, 5] = -kz_c * mu * K1_s / r
+    # Row 5: sigma_r_theta
+    E[5, 0] = +2.0 * mu * (-p * I0_p / r + 2.0 * I1_p / (r * r))
+    E[5, 1] = +2.0 * mu * (+p * K0_p / r + 2.0 * K1_p / (r * r))
+    E[5, 2] = +kz_c * mu * I1_s / r
+    E[5, 3] = +kz_c * mu * K1_s / r
+    E[5, 4] = -mu * (s * s * I1_s - 2.0 * s * I0_s / r + 4.0 * I1_s / (r * r))
+    E[5, 5] = -mu * (s * s * K1_s + 2.0 * s * K0_s / r + 4.0 * K1_s / (r * r))
+    return E
+
+
+def _layer_propagator_n1_complex(
+    kz: complex,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    r_inner: float,
+    r_outer: float,
+) -> np.ndarray:
+    """
+    Complex-``k_z`` 6x6 per-layer propagator at azimuthal order n=1.
+
+    Identical algebra to :func:`_layer_propagator_n1` but with
+    ``_layer_e_matrix_n1_complex`` in place of the real version.
+
+    Parameters
+    ----------
+    kz : complex
+        Trial axial wavenumber (rad / m). May be complex.
+    omega, vp, vs, rho : float
+        Angular frequency (rad / s), layer P / S velocity (m/s),
+        and density (kg/m^3).
+    r_inner, r_outer : float
+        Inner and outer radius of the layer (m).
+
+    Returns
+    -------
+    ndarray, shape (6, 6), complex dtype
+        ``E_n1(r_outer) E_n1(r_inner)^{-1}``.
+    """
+    if r_inner == r_outer:
+        return np.eye(6, dtype=complex)
+    E_inner = _layer_e_matrix_n1_complex(
+        kz,
+        omega,
+        vp=vp,
+        vs=vs,
+        rho=rho,
+        r=r_inner,
+    )
+    E_outer = _layer_e_matrix_n1_complex(
+        kz,
+        omega,
+        vp=vp,
+        vs=vs,
+        rho=rho,
+        r=r_outer,
+    )
+    return np.linalg.solve(E_inner.T, E_outer.T).T
+
+
+def _modal_determinant_n1_cased_complex(
+    kz: complex,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...],
+    leaky_p: bool = False,
+    leaky_s: bool = False,
+) -> complex:
+    r"""
+    Complex-``k_z`` 10x10 cased-hole flexural modal determinant.
+
+    Sister of :func:`_modal_determinant_n1_cased` lifted to
+    complex ``k_z`` with optional leaky-wave branches for the
+    formation half-space (selected via :func:`_k_or_hankel`).
+    The annular-layer columns use the complex per-layer E and
+    propagator helpers (:func:`_layer_e_matrix_n1_complex`,
+    :func:`_layer_propagator_n1_complex`); both Bessel flavours
+    are valid in a finite-thickness layer at finite radius
+    regardless of regime.
+
+    In the fast-formation bound regime (``V_S > V_f`` with real
+    ``k_z`` in ``(omega/V_S, omega/V_R)``), the fluid radial
+    wavenumber is purely imaginary while the formation P / S
+    radial wavenumbers stay real; the fluid contribution
+    introduces a uniform ``i^k`` phase to the determinant whose
+    imaginary part vanishes at the modal root. The fast-formation
+    cased driver
+    (:func:`~fwap.cylindrical_solver._n1_layered._flexural_dispersion_fast_formation_layered`)
+    brentq's on ``Im(det)`` along the real-``k_z`` axis with
+    ``leaky_p = leaky_s = False``.
+
+    Parameters
+    ----------
+    kz : complex
+        Axial wavenumber (rad / m). May be complex.
+    omega, vp, vs, rho, vf, rho_f, a : float
+        Angular frequency (rad / s); formation half-space P / S
+        velocity (m/s) and density (kg/m^3); borehole-fluid
+        velocity (m/s) and density (kg/m^3); borehole radius (m).
+        Same as :func:`_modal_determinant_n1_cased`.
+    layers : tuple of BoreholeLayer
+        Annular layer stack ordered inside-out. Must have
+        ``len(layers) >= 1``.
+    leaky_p, leaky_s : bool, default False
+        Select the leaky branch (Hankel-via-analytic-continuation)
+        for the formation P / S Bessel pair. Only the formation
+        half-space at ``r = b`` is affected; the layer columns
+        always carry both I- and K-flavour.
+
+    Returns
+    -------
+    complex
+        ``det M(k_z)`` evaluated with the chosen branches; ``NaN``
+        if any layer or formation block is non-finite.
+
+    See Also
+    --------
+    _modal_determinant_n1_cased : Real-``k_z`` slow-formation
+        counterpart.
+    _modal_determinant_n2_cased_complex : The n=2 sister.
+    """
+    kz_c = complex(kz)
+    F = np.sqrt(kz_c * kz_c - (omega / vf) ** 2)
+    radii = [a]
+    for L in layers:
+        radii.append(radii[-1] + L.thickness)
+    b = radii[-1]
+    L1 = layers[0]
+    E_1_a = _layer_e_matrix_n1_complex(
+        kz_c,
+        omega,
+        vp=L1.vp,
+        vs=L1.vs,
+        rho=L1.rho,
+        r=a,
+    )
+    if not np.all(np.isfinite(E_1_a)):
+        return complex("nan")
+    P_total = np.eye(6, dtype=complex)
+    for j, L in enumerate(layers):
+        P_j = _layer_propagator_n1_complex(
+            kz_c,
+            omega,
+            vp=L.vp,
+            vs=L.vs,
+            rho=L.rho,
+            r_inner=radii[j],
+            r_outer=radii[j + 1],
+        )
+        if not np.all(np.isfinite(P_j)):
+            return complex("nan")
+        P_total = P_j @ P_total
+    # Formation half-space: only K-flavour cols (radiation
+    # condition); use _k_or_hankel to support the leaky branch.
+    # At n=1 the pair needed is (K_0, K_1), i.e. ``_k_or_hankel(0, ...)``.
+    p_form = np.sqrt(kz_c * kz_c - (omega / vp) ** 2)
+    s_form = np.sqrt(kz_c * kz_c - (omega / vs) ** 2)
+    K0pb, K1pb = _k_or_hankel(0, p_form, b, leaky=leaky_p)
+    K0sb, K1sb = _k_or_hankel(0, s_form, b, leaky=leaky_s)
+    mu_form = rho * vs * vs
+    kS2_form = (omega / vs) ** 2
+    A_form = 2.0 * kz_c * kz_c - kS2_form
+    # Formation K-only state vector at r=b (rows 0..5: u_r, u_z,
+    # u_theta, sigma_rr, sigma_rz, sigma_r_theta; cols B_form,
+    # C_form, D_form). Mirrors the K-flavour cols (1, 3, 5) of
+    # _layer_e_matrix_n1 evaluated at ``r=b`` with formation params.
+    E_form_b: np.ndarray = np.zeros((6, 3), dtype=complex)
+    # Col 0: B_form (P scalar, K-flavour)
+    E_form_b[0, 0] = -p_form * K0pb - K1pb / b
+    E_form_b[1, 0] = -kz_c * K1pb
+    E_form_b[2, 0] = -K1pb / b
+    E_form_b[3, 0] = +mu_form * (
+        A_form * K1pb + 2.0 * p_form * K0pb / b + 4.0 * K1pb / (b * b)
+    )
+    E_form_b[4, 0] = +2.0 * kz_c * mu_form * (p_form * K0pb + K1pb / b)
+    E_form_b[5, 0] = +2.0 * mu_form * (p_form * K0pb / b + 2.0 * K1pb / (b * b))
+    # Col 1: C_form (SV vector, K-flavour); col*(-i) absorbed
+    E_form_b[0, 1] = -kz_c * K1sb
+    E_form_b[1, 1] = -s_form * K0sb
+    E_form_b[2, 1] = 0.0
+    E_form_b[3, 1] = +2.0 * kz_c * mu_form * (s_form * K0sb + K1sb / b)
+    E_form_b[4, 1] = +mu_form * A_form * K1sb
+    E_form_b[5, 1] = +kz_c * mu_form * K1sb / b
+    # Col 2: D_form (SH vector, K-flavour)
+    E_form_b[0, 2] = +K1sb / b
+    E_form_b[1, 2] = 0.0
+    E_form_b[2, 2] = +s_form * K0sb + K1sb / b
+    E_form_b[3, 2] = -2.0 * mu_form * (s_form * K0sb / b + 2.0 * K1sb / (b * b))
+    E_form_b[4, 2] = -kz_c * mu_form * K1sb / b
+    E_form_b[5, 2] = -mu_form * (
+        s_form * s_form * K1sb + 2.0 * s_form * K0sb / b + 4.0 * K1sb / (b * b)
+    )
+    if not np.all(np.isfinite(E_form_b)):
+        return complex("nan")
+    v_at_b = P_total @ E_1_a
+    # At n=1 the fluid pressure ansatz P = A I_n(F r) cos(n theta)
+    # uses I_0 / I_1 (vs I_1 / I_2 at n=2).
+    I0_Ff_a = complex(special.iv(0, F * a))
+    I1_Ff_a = complex(special.iv(1, F * a))
+
+    M: np.ndarray = np.zeros((10, 10), dtype=complex)
+
+    # Rows 0-3 at r=a, fluid-layer interface.
+    def _layer_at_a_c(state_row: int, sign: float) -> np.ndarray:
+        return sign * E_1_a[state_row, :]
+
+    # Row 0: BC1, u_r continuity. Layer side negated.
+    M[0, 0] = (F * I0_Ff_a - I1_Ff_a / a) / (rho_f * omega**2)
+    layer0 = _layer_at_a_c(0, -1.0)
+    M[0, 1:5] = layer0[0:4]
+    M[0, 7:9] = layer0[4:6]
+    # Row 1: BC2, sigma_rr balance. Layer side negated; the fluid
+    # pressure carries ``-A I_n(F a)``, i.e. ``-I_1`` at n=1.
+    M[1, 0] = -I1_Ff_a
+    layer1 = _layer_at_a_c(3, -1.0)
+    M[1, 1:5] = layer1[0:4]
+    M[1, 7:9] = layer1[4:6]
+    # Row 2: BC3, sigma_r_theta = 0.
+    layer2 = _layer_at_a_c(5, +1.0)
+    M[2, 1:5] = layer2[0:4]
+    M[2, 7:9] = layer2[4:6]
+    # Row 3: BC4, sigma_rz = 0.
+    layer3 = _layer_at_a_c(4, +1.0)
+    M[3, 1:5] = layer3[0:4]
+    M[3, 7:9] = layer3[4:6]
+
+    # Rows 4-9 at r=b, layer-formation continuity (m - s).
+    def _layer_at_b_c(state_row: int) -> np.ndarray:
+        return v_at_b[state_row, :]
+
+    bc_to_state_b = [0, 2, 1, 3, 5, 4]
+    for i_bc, state_row in enumerate(bc_to_state_b):
+        i_M = 4 + i_bc
+        layer = _layer_at_b_c(state_row)
+        M[i_M, 1:5] = layer[0:4]
+        M[i_M, 7:9] = layer[4:6]
+        M[i_M, 5] = -E_form_b[state_row, 0]
+        M[i_M, 6] = -E_form_b[state_row, 1]
+        M[i_M, 9] = -E_form_b[state_row, 2]
+
+    return complex(np.linalg.det(M))
+
+
+# =====================================================================
 # Fast-formation cased-hole quadrupole -- complex-``k_z`` helpers
 # =====================================================================
 #
