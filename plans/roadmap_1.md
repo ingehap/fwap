@@ -8,14 +8,15 @@ before acting on it.
 
 ## The shape of it
 
-Five things are open, and they fall into two kinds — which matters more than
+Four things are open, and they fall into two kinds — which matters more than
 their ordering, because only one kind can be worked on from a coding session.
 Item 1 used to be a single row; measurement split it, and the half that came
-loose is the only large item here that is not blocked on something external.
+loose (1a) turned out to be ordinary coding and is now closed. The struck-out
+row is kept because the split is the useful part of the story.
 
 | # | Item | Kind | Blocked on |
 |---|------|------|-----------|
-| 1a | Leaky-mode branch selection, n=0 (A.3) | ordinary coding | nothing — see below |
+| ~~1a~~ | ~~Leaky-mode branch selection, n=0 (A.3)~~ | **closed** | — |
 | 1b | Leaky-mode root tracking, n=1 (A.2 + G.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
 | 2 | A real full-waveform sonic gather (F) | sourcing | fetching one **named** file from a host this sandbox cannot reach |
 | 3 | Digitised validation figures (A.1, curve shapes) | sourcing | access to the books |
@@ -27,27 +28,32 @@ disproved — the AWS Open Data S3 buckets are reachable and downloads from them
 work. They simply do not host the files in question. The obstacle is which host
 serves a file, not a blanket network wall.
 
-**The headline changed with this revision, and it changed in the direction this
-file keeps getting wrong.** The previous revision said "there is no longer a
-large piece of work a coding session can carry to completion unaided". That is
-now false: item 1 split. Checking the leaky-mode attenuation found that the
-`n=0` leaky solver — the part that is supposed to work — returns a *different
-mode* depending on the caller's frequency window, and fails silently to all-NaN
-on grids that are merely too coarse. Fixing that needs no derivation and no
-literature; the roots are there and are found reliably once seeded. It is
-ordinary coding, and it is item 1a.
+**Item 1a came and went inside one revision, which is the point.** The revision
+before last said "there is no longer a large piece of work a coding session can
+carry to completion unaided". Checking the leaky-mode attenuation disproved
+that: the `n=0` leaky solver returned a *different mode* depending on the
+caller's frequency window and failed silently to all-NaN on merely-coarse grids.
+That needed no derivation and no literature — enumerate the roots at the seed
+frequency, order them by radial order, let the caller pick — and it is now
+closed. The measured defects run the other way round: `branch=0` returns the
+same curve for every grid top from 32 to 100 kHz, and both silent failures
+recover their full bands.
 
-That is the third time a claim in this file about what is *not* available here
-has been overturned by measuring instead of reasoning. Item 2 remains the most
-valuable thing on the list — it went from "no such data is known to exist" to a
-named CC BY 4.0 file in a format the library already reads, and is now an errand
-rather than a research problem — but it is no longer the only thing that can
-move.
+So the honest headline is not about what is left but about how it keeps being
+found. That was the third claim in this file about what is *not* available here
+to be overturned by measuring instead of reasoning, and it was overturned by a
+check aimed at something else entirely. `plans/learning.md` is the retrospective
+on why; the short version is that oracles find defects at a much better rate
+than tests do, and that claims about absence are the ones that age worst.
+
+Item 2 remains the most valuable thing on the list — it went from "no such data
+is known to exist" to a named CC BY 4.0 file in a format the library already
+reads, and is now an errand rather than a research problem.
 
 ## 1. Leaky-mode root tracking (A.2 + G.2), and the n=0 piece that split off
 
 Two roadmap items need the same machinery — and a third, smaller one turned out
-not to need it at all.
+not to need it at all, and is closed.
 
 **A.2, the fast-formation flexural sparsity.** A fast formation behind casing
 converges over only ~38 % of a 1-12 kHz band. It was filed as a *cased-hole
@@ -78,18 +84,21 @@ continuation from the cutoff fails on its first step. Even above the cutoff,
 1 kHz continuation steps can hop to a different branch, so the extension needs
 the validated marcher's regime checks and not just the tracker.
 
-**A narrower, probably-tractable piece has since split off.** Checking the
-leaky-mode attenuation turned up a defect in `n=0` — the part of the leaky
-solver that is supposed to work. `pseudo_rayleigh_dispersion` seeds its march at
-the highest requested frequency, and several leaky roots live near that seed, so
-the mode it returns depends on the caller's grid: 2486 m/s at 30 kHz for a grid
-ending at 40 kHz, 2952 m/s for one ending at 80 kHz, both genuine roots. Worse,
-a grid that is merely too coarse returns all-NaN rather than a coarse answer,
-with no warning. Unlike the `n=1` problem this needs no Riemann-sheet
-derivation: the roots are there and are found reliably once seeded. What is
-missing is enumerating them at the seed frequency and letting the caller pick a
-radial order instead of letting the frequency window pick for them. That makes
-it the one piece of item 1 a coding session could plausibly close.
+**A narrower piece split off and is now closed.** Checking the leaky-mode
+attenuation turned up a defect in `n=0` — the part of the leaky solver that is
+supposed to work. `pseudo_rayleigh_dispersion` seeded its march with a guess
+near `1/V_S` at the highest requested frequency, and several leaky roots live
+near that seed, so the mode it returned depended on the caller's grid: 2486 m/s
+at 30 kHz for a grid ending at 40 kHz, 2952 m/s for one ending at 80 kHz, both
+genuine roots. Worse, a merely-coarse grid returned all-NaN rather than a coarse
+answer, with no warning.
+
+Unlike the `n=1` problem this needed no Riemann-sheet derivation — the roots sit
+on the principal sheet and are found reliably once seeded — so the fix was to
+enumerate them at the seed frequency and expose a `branch` argument. Done; see
+`docs/roadmap.md` A item 3. The one non-obvious part was checking that the root
+*count* does not depend on the seed-scan density, because otherwise `branch=1`
+would silently mean different things at different resolutions.
 
 What is missing *for the `n=1` case* is a derivation rather than code: which
 Riemann sheet the `n=1` pole occupies below the cutoff. And there may be no pole to find — the

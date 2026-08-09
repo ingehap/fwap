@@ -429,40 +429,38 @@ essentially complete -- plan items A through H in
    `V_S` is a nuisance parameter, and is the wrong dataset for
    anything needing formation-property variety.
 
-3. **Leaky-mode branch selection depends on the caller's frequency
-   window.** Found while checking the attenuation above, and separate
-   from item 2: this one is about `n=0`, where the leaky solver is
-   supposed to work. `pseudo_rayleigh_dispersion` seeds its march at
-   the *highest requested frequency*, and more than one leaky root
-   lives near that seed, so the answer is a function of the grid as
-   well as the medium. On a 0.10 m hole in a 4000/2300/2500
-   formation the mode reported at 30 kHz has `c = 2486 m/s` for a grid
-   stopping at 40 kHz and `c = 2952 m/s` for one stopping at 80 kHz.
-   Neither is spurious --- both are genuine roots of the determinant,
-   verified by residual against their own neighbourhood, and a scan of
-   the leaky-S window at 30 kHz finds exactly those two.
+3. **Leaky-mode branch selection** — **closed.** Found while checking the
+   attenuation, and separate from item 2: this one was about `n=0`, where
+   the leaky solver is supposed to work. `pseudo_rayleigh_dispersion`
+   seeded its march with a heuristic guess near `1/V_S` at the highest
+   requested frequency and followed whichever root the hybrid solver fell
+   into. Since several leaky roots live near that seed — one per radial
+   order, more of them as frequency rises past successive cutoffs — the
+   answer was a function of the caller's grid as well as the medium: on a
+   0.10 m hole in a 4000/2300/2500 formation the mode at 30 kHz was
+   2486 m/s for a grid ending at 40 kHz and 2952 m/s for one ending at
+   80 kHz, both genuine roots. Two related failures were worse for being
+   silent: a 0.07 m hole returned all-NaN on a 60-sample 4-30 kHz grid
+   while recovering the band at 80, and a 24-32 kHz request returned
+   nothing where a 2-40 kHz grid converged throughout.
 
-   Two related failure modes are worse because they are silent rather
-   than wrong. A 0.07 m hole recovers the 4-30 kHz band at 80 grid
-   samples and returns **all-NaN at 60** --- total failure, no partial
-   curve, no warning, so a caller who picked the coarser grid would
-   conclude the mode does not exist. And requesting only 24-32 kHz
-   returns nothing for the 0.10 m case, while a 2-40 kHz grid
-   converges across the whole of that interval.
+   The fix is to enumerate rather than guess. `_enumerate_leaky_roots_n0`
+   sweeps the leaky-S window at the top frequency, keeps the points where
+   the determinant genuinely dips against its own neighbourhood, and
+   orders them by descending `Re(k_z)` — ascending radial order, so index
+   0 is the fundamental. A `branch` argument selects the order. All three
+   defects close: `branch=0` returns the same curve for every grid top
+   from 32 to 100 kHz, and both silent failures recover their full bands
+   and match the wide-grid values to 1e-9.
 
-   Where it converges the tracking is sound: halving the step
-   reproduces the attenuation to better than 1e-10 relative. So this
-   is about *which* root is followed, not how accurately --- which
-   makes it a narrower problem than item 2, and probably fixable
-   without the Riemann-sheet derivation that one needs. A fix would
-   enumerate the roots in the leaky window at the seed frequency and
-   let the caller select by radial order, rather than letting the grid
-   choose. Until then the docstring states the limitation, advises a
-   wide grid started well above the band of interest, and says an
-   all-NaN result means "not found on this grid" rather than "no such
-   mode"; five tests in `tests/test_cylindrical_solver.py` pin the
-   behaviour so a future fix surfaces there rather than passing
-   quietly.
+   Two things made this tractable where item 2 is not, and they are worth
+   separating. The roots exist on the principal sheet and are found
+   reliably once seeded, so no Riemann-sheet analysis was needed. And the
+   root *count* turned out to be insensitive to the seed-scan density
+   over a 3.3x span, which is what makes "branch 1" a property of the
+   medium rather than of the search; that is pinned by a test, because if
+   it ever stopped holding the `branch` argument would silently change
+   meaning.
 
 For reference, the original from-scratch problem statement is
 preserved below.

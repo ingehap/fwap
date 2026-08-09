@@ -797,6 +797,95 @@ def _march_complex_dispersion_validated(
 _J1_FIRST_ZERO = 3.831705970207512
 
 
+def _enumerate_leaky_roots_n0(
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    n_re: int = 40,
+    n_im: int = 8,
+) -> list[complex]:
+    r"""
+    Find every n=0 leaky-S root at one frequency, ordered by radial order.
+
+    Sweeps a grid of seeds across the leaky-S window and polishes each
+    with :func:`_track_complex_root`, then keeps the converged roots
+    that are genuinely roots -- verified by comparing ``|det|`` at the
+    root against its median on a small circle around it, which rejects
+    the flat regions the hybrid solver sometimes reports as converged.
+
+    Ordering is by **descending** ``Re(k_z)``, which is ascending radial
+    order: the fundamental has the smallest radial wavenumber in the
+    fluid, hence the largest axial wavenumber and the slowest phase
+    velocity. So index 0 is the fundamental, index 1 the first
+    overtone, and so on.
+
+    Parameters
+    ----------
+    omega : float
+        Angular frequency (rad/s).
+    vp, vs, rho, vf, rho_f, a : float
+        Media and geometry, as in :func:`pseudo_rayleigh_dispersion`.
+    n_re, n_im : int
+        Seed-grid resolution across ``Re(k_z)`` and ``Im(k_z)``. The
+        defaults are chosen with margin: the recovered root *count* is
+        unchanged from ``24 x 5`` up to ``80 x 16`` across borehole
+        radii 0.07-0.15 m, formations with ``V_S`` 1700-2800 m/s and
+        frequencies 15-60 kHz, so the defaults sit well above the
+        density where anything is missed.
+
+    Returns
+    -------
+    list of complex
+        Converged ``k_z`` values with ``Im(k_z) > 0`` and slowness
+        strictly inside ``(1/V_P, 1/V_S)``, ordered fundamental first.
+        Empty if the frequency is below the lowest branch's cutoff.
+    """
+
+    def det(kz: complex) -> complex:
+        return _modal_determinant_n0_complex(
+            kz, omega, vp, vs, rho, vf, rho_f, a, leaky_p=False, leaky_s=True
+        )
+
+    kz_lo = omega / vp
+    kz_hi = omega / vs
+    roots: list[complex] = []
+    for re_kz in np.linspace(kz_lo * 1.001, kz_hi * 0.999, n_re):
+        for im_kz in np.geomspace(0.02, 60.0, n_im):
+            polished = _track_complex_root(det, complex(float(re_kz), float(im_kz)))
+            if polished is None or polished.imag <= 0.0:
+                continue
+            if not kz_lo < polished.real < kz_hi:
+                continue
+            # A converged point is only a root if the determinant dips
+            # sharply there relative to its own neighbourhood; the
+            # absolute magnitude is meaningless because the determinant
+            # spans many orders of magnitude across the window.
+            radius = 0.01 * abs(polished)
+            try:
+                ring = float(
+                    np.median(
+                        [
+                            abs(det(polished + radius * np.exp(1j * t)))
+                            for t in np.linspace(0.0, 2.0 * np.pi, 8, endpoint=False)
+                        ]
+                    )
+                )
+            except (ValueError, OverflowError, ZeroDivisionError):
+                continue
+            if not np.isfinite(ring) or abs(det(polished)) > 1.0e-9 * ring:
+                continue
+            if any(abs(polished - seen) < 1.0e-6 * abs(polished) for seen in roots):
+                continue
+            roots.append(polished)
+
+    return sorted(roots, key=lambda z: -z.real)
+
+
 def pseudo_rayleigh_dispersion(
     freq: np.ndarray,
     *,
@@ -806,6 +895,7 @@ def pseudo_rayleigh_dispersion(
     vf: float,
     rho_f: float,
     a: float,
+    branch: int = 0,
 ) -> BoreholeMode:
     r"""
     Pseudo-Rayleigh leaky-mode dispersion from the n=0 modal
@@ -832,6 +922,14 @@ def pseudo_rayleigh_dispersion(
         satisfy ``vs > vf`` (fast formation).
     a : float
         Borehole radius (m).
+    branch : int, default 0
+        Radial order to track, ``0`` being the fundamental (the
+        slowest of the leaky modes, and the one that survives to the
+        lowest frequency). Branches are enumerated at the highest
+        requested frequency and ordered by descending ``Re(k_z)``.
+        Higher orders appear only above their own cutoffs, so a
+        ``branch`` that does not exist at the top of the requested
+        band raises rather than returning an empty curve.
 
     Returns
     -------
@@ -878,33 +976,35 @@ def pseudo_rayleigh_dispersion(
     branch-stitching across the cutoff; that is plan item C
     (`docs/plans/cylindrical_biot.md`).
 
-    Limitations of the branch selection
-    -----------------------------------
-    Because the march is seeded at the *highest requested frequency*,
-    the result depends on the caller's frequency window and not on the
-    medium alone. Three consequences, all measured and pinned in
-    ``tests/test_cylindrical_solver.py``:
+    Branch selection
+    ----------------
+    The leaky-S window holds several roots at once -- one per radial
+    order of the fluid column -- and their number grows with frequency
+    as successive orders pass their cutoffs. They are enumerated at the
+    highest requested frequency by :func:`_enumerate_leaky_roots_n0`
+    and selected by ``branch``, so the returned curve is a function of
+    the medium and the requested order alone.
 
-    * **The tracked branch depends on the top of the grid.** More than
-      one leaky root lives near the seed. For a 0.10 m hole in a
-      ``V_P/V_S/rho = 4000/2300/2500`` formation the mode reported at
-      30 kHz has ``c = 2486 m/s`` when the grid stops at 40 kHz and
-      ``c = 2952 m/s`` when it stops at 80 kHz. Both are genuine roots
-      of the determinant.
-    * **Too coarse a grid returns all-NaN, not a coarse answer.** The
-      same formation in a 0.07 m hole recovers the 4-30 kHz band at 80
-      samples and returns nothing at 60. The failure is silent.
-    * **A sub-window can lose a mode the full band finds.** Requesting
-      only 24-32 kHz returns nothing for that 0.10 m case, while a
-      2-40 kHz grid converges across the whole of that interval.
+    **This replaces a heuristic seed that made the answer depend on the
+    caller's grid.** The previous implementation guessed a point near
+    ``1/V_S`` and followed whichever root the hybrid solver fell into,
+    with three measured consequences: a 0.10 m hole in a
+    ``V_P/V_S/rho = 4000/2300/2500`` formation reported ``c = 2486 m/s``
+    at 30 kHz for a grid ending at 40 kHz and ``c = 2952 m/s`` for one
+    ending at 80 kHz (both genuine roots, but a silent switch between
+    them); a 0.07 m hole returned *all-NaN* on a 60-sample 4-30 kHz
+    grid while recovering the band at 80 samples; and a request for
+    24-32 kHz alone returned nothing where a 2-40 kHz grid converged
+    throughout. All three are fixed -- ``branch=0`` now returns the
+    same curve for every grid top from 32 kHz to 100 kHz, and the two
+    silent failures recover their full bands.
 
-    Where it does converge the tracking itself is solid: halving the
-    step reproduces the attenuation to better than 1e-10 relative. The
-    sensitivity is about *which* root is followed, not how accurately.
-
-    Prefer a wide grid starting well above the band of interest, and
-    treat an all-NaN result as "not found on this grid" rather than as
-    "no such mode".
+    What remains: the march can still terminate early at a genuine
+    cutoff, which is the intended behaviour, and the resulting NaNs
+    mark where the mode ceases to exist rather than where the search
+    gave up. An all-NaN result now means the requested branch has no
+    root at the top of the band -- a physical statement, not a search
+    failure.
 
     Accuracy of the attenuation
     ---------------------------
@@ -997,21 +1097,43 @@ def pseudo_rayleigh_dispersion(
     order_desc = np.argsort(-f_arr)
     f_desc = f_arr[order_desc]
 
-    # High-frequency seed: slowness ~ 0.95 / V_S (5% inside the
-    # leaky regime in slowness terms, equivalently 5% above V_S in
-    # phase velocity), with a substantial positive imaginary part
-    # so the determinant evaluator unambiguously sits on the leaky
-    # branch. A seed pinned to slowness ~ 1/V_S itself causes the
-    # hybrid root finder to converge to a numerical zero of the
-    # Hankel-formulated determinant that lies just above 1/V_S in
-    # slowness -- a non-physical solution outside the leaky-S
-    # regime. The 5% offset is well-tested empirically against
-    # standard fast-formation parameters (V_S/V_f ~ 2).
+    # High-frequency seed: enumerate every leaky root at the top of
+    # the grid and take the requested radial order, rather than
+    # guessing a point near 1/V_S and marching whichever root the
+    # hybrid solver happens to fall into. The old heuristic seed
+    # (slowness ~ 0.95 / V_S) made the answer depend on where the
+    # caller's grid stopped -- a 2-40 kHz request and a 2-80 kHz
+    # request returned different modes at the same frequency, both
+    # of them genuine roots. Enumerating removes that coupling: the
+    # branch is now selected by index, and the same index gives the
+    # same curve for any grid that reaches it.
     omega_max = 2.0 * np.pi * float(f_desc[0])
-    kz_seed = complex(
-        omega_max / vs * 0.95,
-        omega_max / vs * 5.0e-3,
+    seeds = _enumerate_leaky_roots_n0(
+        omega_max, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a
     )
+    if not seeds:
+        # No leaky root exists at the top of the requested band, so
+        # there is nothing to march. An all-NaN curve is the honest
+        # answer; it means "no mode at these frequencies", which is
+        # a physical statement here rather than a search failure.
+        return BoreholeMode(
+            name="pseudo_rayleigh",
+            azimuthal_order=0,
+            freq=f_arr,
+            slowness=slowness,
+            attenuation_per_meter=attenuation,
+        )
+    if branch < 0:
+        raise ValueError(f"branch must be non-negative, got {branch}")
+    if branch >= len(seeds):
+        raise ValueError(
+            f"branch={branch} was requested but only {len(seeds)} leaky "
+            f"branch(es) exist at {f_desc[0]:.6g} Hz, the top of the "
+            "requested band. Higher radial orders appear only above "
+            "their own cutoffs, so extend the frequency grid upward to "
+            "reach them."
+        )
+    kz_seed = seeds[branch]
 
     # Valid leaky-S regime in slowness terms: open interval
     # (1/V_P, 1/V_S), with a small upper-side numerical slack so

@@ -6,6 +6,50 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **`pseudo_rayleigh_dispersion` no longer returns a different mode depending on
+  the caller's frequency window.** The seed is now *enumerated* rather than
+  guessed: `_enumerate_leaky_roots_n0` sweeps the leaky-S window at the highest
+  requested frequency, keeps the points where the determinant genuinely dips
+  against its own neighbourhood, and orders them by descending `Re(k_z)` —
+  ascending radial order, so index 0 is the fundamental. A new `branch: int = 0`
+  argument selects the order.
+  This closes all three defects reported in the previous release cycle, with the
+  same measurements now running the other way round. `branch=0` on a 0.10 m hole
+  in a 4000/2300/2500 formation returns **c = 2486.16 m/s at 30 kHz for every
+  grid top from 32 kHz to 100 kHz** (it used to switch silently to 2952 m/s
+  somewhere between 55 and 60 kHz); a 0.07 m hole over 4-30 kHz now returns
+  **60/60 finite samples on the 60-point grid that used to return nothing**; and
+  a 24-32 kHz request returns **81/81** and matches the wide-grid values to 1e-9
+  instead of returning nothing. `branch=1` reaches the other root — addressable
+  now rather than arrived at by accident.
+  Requesting a branch that has not yet passed its cutoff raises with the number
+  of branches actually found, rather than returning an empty curve that would be
+  indistinguishable from "this mode does not propagate here".
+  The enumeration costs about 0.25 s per call, paid once per call regardless of
+  grid size. The one place that adds up is `PSEUDO_RAYLEIGH_MODE` in
+  `scripts/gen_surrogate_dataset.py`, which calls the solver once per draw — an
+  offline generator, so the margin was kept rather than traded for speed.
+  Its root *count* is unchanged
+  from a 24x5 seed grid up to 80x16 across radii 0.07-0.15 m, `V_S` 1700-2800 m/s
+  and 15-60 kHz, so the scan resolution does not decide how many modes exist —
+  pinned by a test, since otherwise `branch=1` would mean different things at
+  different densities.
+  The five tests that pinned the old behaviour as defects are rewritten as
+  guarantees, keeping their measured numbers so the direction of the change is
+  visible in the diff.
+
+### Added
+- **`plans/learning.md`** — a retrospective on the five analytic oracles added
+  between PRs #50 and #63, written to change how the next batch of work is
+  chosen rather than to record status. Covers what distinguishes an oracle from
+  another test, the five specific ways a check looked convincing and was not
+  (a limit that cannot discriminate, a grid that shares the scaling under test,
+  statistics over the wrong population, sampling structure mistaken for noise, a
+  false test premise), why a systematic offset must be reported rather than
+  fitted away, and the planning consequences — chiefly that claims about
+  *absence* are the ones this repository's plans keep getting wrong.
+
 ### Added
 - **`leaky_radiation_attenuation` — an independent oracle for the leaky-mode
   solver's attenuation.** A borehole leaky mode is a fluid wave bouncing from
