@@ -6,6 +6,33 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **The pseudo-Rayleigh rigid-pipe cutoff estimate is checked against the
+  solver for the first time, and its documented use was wrong.**
+  `_J1_FIRST_ZERO` and the closed form
+  `f_c ~ j_{1,1} V_f V_S / (2 pi a sqrt(V_S^2 - V_f^2))` have been in
+  `_leaky.py` since the leaky work landed, with a docstring offering them to
+  "callers that want to guard against requesting frequencies below the cutoff".
+  Nothing had compared them to what the solver does. Comparing them splits the
+  claim in two.
+  **What holds:** the geometric `1/a` scaling is reproduced exactly. Measured on
+  a *fixed* frequency grid across a 3.3x range of borehole radius, the ratio of
+  solver cutoff to closed form is constant to about 1 part in 300. (Tying the
+  grid to the estimate would have produced a constant ratio for free, since both
+  scale as `1/a` — the first version of this measurement did exactly that and
+  had to be redone.) A test pins it, and would catch a radius/diameter
+  confusion, which is invisible to any single-radius check.
+  **What does not:** the estimate overshoots badly as an absolute cutoff. At
+  `V_S = 2600`, `V_f = 1500`, `a = 0.10` it gives 11.2 kHz while the solver
+  converges to about 4.1 kHz, so guarding with it discards a valid band nearly
+  3 kHz wide — the opposite of the docstring's advice, which is corrected. The
+  offset is not a constant that could be folded in: it varies strongly with
+  formation velocity, and for some parameter sets the marcher's termination is
+  not stable at all (a 1.1 % change in `vp` moved it 20 %; one case never
+  converged on a reasonable grid). The docstring now says to treat the `NaN`
+  boundary as this implementation's convergence limit rather than as a physical
+  cutoff.
+
 ### Added
 - **`fwap.scholte_speed`, and with it the first literature tie the validation
   notebook actually makes** (roadmap A.1). A.1's remaining half was blocked on

@@ -13727,3 +13727,79 @@ def test_complex_marcher_reproduces_the_real_cased_flexural_branch():
         assert root is not None
         assert abs(root.imag) < 1.0e-9 * abs(root.real)
         assert root.real / omega == pytest.approx(expected, rel=1e-6)
+
+
+# ----------------------------------------------------------------------
+# The pseudo-Rayleigh geometric cutoff against its rigid-pipe closed form
+#
+# `_J1_FIRST_ZERO` has been in the module since the leaky work landed, with
+# a docstring offering the rigid-pipe estimate
+#
+#     f_c ~ j_{1,1} V_f V_S / (2 pi a sqrt(V_S^2 - V_f^2))
+#
+# to "callers that want to guard against requesting frequencies below the
+# cutoff". Nothing checked it against the solver. Doing so splits into a
+# part that holds cleanly and a part that does not, and both are pinned
+# here because the second one contradicts that docstring advice.
+# ----------------------------------------------------------------------
+
+_PR_ROCK = dict(vp=4500.0, vs=2600.0, rho=2400.0)
+_PR_FLUID = dict(vf=1500.0, rho_f=1000.0)
+# One fixed grid for every case. Tying the grid to the estimate would make
+# any grid-determined stopping point produce a constant ratio for free,
+# since the estimate scales as 1/a and so would the grid.
+_PR_GRID = np.linspace(500.0, 30000.0, 1500)
+
+
+def _rigid_pipe_cutoff(vs: float, vf: float, a: float) -> float:
+    from fwap.cylindrical_solver._leaky import _J1_FIRST_ZERO
+
+    return _J1_FIRST_ZERO * vf * vs / (2.0 * np.pi * a * np.sqrt(vs**2 - vf**2))
+
+
+def _lowest_converged(a: float) -> float:
+    from fwap import pseudo_rayleigh_modal_dispersion
+
+    result = pseudo_rayleigh_modal_dispersion(_PR_GRID, **_PR_ROCK, **_PR_FLUID, a=a)
+    finite = np.isfinite(result.slowness)
+    assert finite.any()
+    return float(_PR_GRID[finite].min())
+
+
+def test_pseudo_rayleigh_cutoff_scales_inversely_with_borehole_radius():
+    """The geometric 1/a scaling of the closed form is reproduced exactly.
+
+    This is the part of the rigid-pipe comparison that holds. Measured on a
+    *fixed* frequency grid across a 3.3x range of borehole radius, the ratio
+    of solver cutoff to closed form is constant to about 1 part in 300 --
+    so the radius enters the solver's cutoff exactly as the closed form
+    says it should.
+
+    It would catch a radius/diameter confusion, which is the classic way to
+    get this wrong and is invisible to any single-radius check.
+    """
+    radii = [0.06, 0.08, 0.10, 0.12, 0.15, 0.20]
+    ratios = [
+        _lowest_converged(a) / _rigid_pipe_cutoff(2600.0, 1500.0, a) for a in radii
+    ]
+    assert max(ratios) - min(ratios) < 0.01 * np.mean(ratios)
+
+
+def test_the_rigid_pipe_estimate_is_not_usable_as_a_cutoff_guard():
+    """It overestimates by ~2.8x, so guarding with it discards a valid band.
+
+    The docstring of `pseudo_rayleigh_dispersion` offers the rigid-pipe
+    formula to callers wanting to avoid requesting frequencies below the
+    cutoff. Taken literally that is bad advice: the solver converges well
+    below the estimate, because a compliant elastic wall admits the mode at
+    lower frequency than a rigid pipe does.
+
+    Pinned as a bound rather than a constant, since the factor is not
+    universal -- it varies strongly with formation velocity (see the
+    module-level note and docs/roadmap.md A.1).
+    """
+    estimate = _rigid_pipe_cutoff(2600.0, 1500.0, 0.10)
+    measured = _lowest_converged(0.10)
+    assert measured < 0.5 * estimate
+    # and the discarded band is wide enough to matter
+    assert estimate - measured > 5000.0
