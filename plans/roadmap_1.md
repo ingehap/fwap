@@ -1,11 +1,12 @@
 # What remains to be done
 
-A prioritised reading of the open items in `docs/roadmap.md`, current through
+A prioritised reading of the open items in `docs/roadmap_old.m`, current through
 the analytic-oracle programme (PRs #59-#66) and the fluid-microannulus work
 (PRs #67-#69).
-`docs/roadmap.md` stays the authoritative status file; this is a snapshot of
-*priority and reasoning* at one point in time, so check it against the tree
-before acting on it.
+`docs/roadmap_old.m` — the archived roadmap, renamed out of the Sphinx source
+set from `docs/roadmap.md` — remains the fuller status file; this is a snapshot
+of *priority and reasoning* at one point in time, so check both against the tree
+before acting on either.
 
 ## The shape of it
 
@@ -114,8 +115,9 @@ answer, with no warning.
 Unlike the `n=1` problem this needed no Riemann-sheet derivation — the roots sit
 on the principal sheet and are found reliably once seeded — so the fix was to
 enumerate them at the seed frequency and expose a `branch` argument. Done; see
-`docs/roadmap.md` A item 3. The one non-obvious part was checking that the root
-*count* does not depend on the seed-scan density, because otherwise `branch=1`
+`docs/roadmap_old.m` A item 3. The one non-obvious part was checking that the
+root *count* does not depend on the seed-scan density, because otherwise
+`branch=1`
 would silently mean different things at different resolutions.
 
 **A second piece split off and is also closed.** Building the biorthogonality
@@ -304,8 +306,8 @@ wiring plus one real decision.
   three-file lockstep (`fwap/__init__.py`, `docs/api.rst`,
   `scripts/check_public_api.py`).
 * **Then the `sonic_ml` consumer**, which is what section G item 2 in
-  `docs/roadmap.md` actually wants: a debonded-regime dataset, and with it the
-  first fair CBL-amplitude comparison rather than a strawman.
+  `docs/roadmap_old.m` actually wants: a debonded-regime dataset, and with it
+  the first fair CBL-amplitude comparison rather than a strawman.
 
 Not required for any of the above, and worth stating so it is not assumed:
 `n=1` / `n=2` microannulus assemblies would be needed for *flexural* CBL work,

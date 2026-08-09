@@ -24,7 +24,7 @@ repos:
       # Lint. The tree is currently free of lint debt (verified
       # tree-wide including sonic_ml), so this runs as a blocking hook
       # rather than the format-only setup described in the older
-      # docs/roadmap.md entry.
+      # docs/roadmap_old.m entry.
       - id: ruff-check
         args: [--fix]
         exclude: ^docs/notebooks/

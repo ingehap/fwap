@@ -13796,7 +13796,7 @@ def test_the_rigid_pipe_estimate_is_not_usable_as_a_cutoff_guard():
 
     Pinned as a bound rather than a constant, since the factor is not
     universal -- it varies strongly with formation velocity (see the
-    module-level note and docs/roadmap.md A.1).
+    module-level note and docs/roadmap_old.m A.1).
     """
     estimate = _rigid_pipe_cutoff(2600.0, 1500.0, 0.10)
     measured = _lowest_converged(0.10)

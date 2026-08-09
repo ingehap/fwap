@@ -2,7 +2,9 @@
 
 Raw and near-raw outputs from the oracle work (PRs #59-#65 and the n=1/n=2
 cutoff investigation), kept so the numbers quoted in `plans/learning.md`,
-`docs/roadmap.md` and the changelog can be traced to something.
+`plans/roadmap_1.md`, `docs/roadmap_old.m` and the changelog can be traced to
+something. The session notes below are appended verbatim and quote the paths as
+they stood at the time, so older entries still refer to `docs/roadmap.md`.
 
 ## Provenance and how far to trust this
 
@@ -632,3 +634,52 @@ for the compliant-layer warnings.
 > which is the same shape as the branch-selection defect closed in #64. The gap
 > mode is worth exposing in its own right, since it's a debonding indicator with
 > a closed-form velocity.
+
+## Session note: the roadmap-update reply
+
+> Both tasks done, on **draft PR #70**.
+>
+> **Task 1** — the merge-outcome reply is appended to `plans/log_output.md`.
+>
+> **Task 2** — updated both roadmaps. The substantive change is that **there is
+> now an open item blocked on nothing**. For several revisions everything open
+> was waiting on something outside a coding session — an unreachable host, a
+> book, a derivation, a release — and both files were written around that. The
+> microannulus isn't: two of three pieces are on `main`, and the last one is
+> ordinary implementation work.
+>
+> In `plans/roadmap_1.md` I gave it its own section (item 5), moving the
+> material out of item 1 where it stopped belonging when #67 decoupled it, and
+> recorded the one real decision inside the remaining work: the determinant
+> carries two root families, so bracketing has to choose — the same failure as
+> the `n=0` defect closed in #64.
+>
+> Three things I corrected rather than let stand:
+>
+> * **The "oracle programme has run its course" headline was wrong.** The
+>   Krauklis crack wave arrived two revisions later and is the strongest of the
+>   set. That revision had itself warned the claim was "the same shape" as four
+>   earlier absence claims the file had had to withdraw — so this is the fifth.
+>   What's worth keeping is *how* it arrived: not by working the candidate list,
+>   but by characterising an unexplained extra root instead of dismissing it.
+> * **The oracle tally didn't add up.** It read "nine candidates: five working"
+>   while listing seven working ones directly below. The list was right, the
+>   count was wrong — it's twelve/eight with the crack wave. Recorded as a
+>   correction, since a summary that disagrees with the list under it survives
+>   many readings.
+> * **`docs/roadmap.md` carried two claims that caused the mis-filing** — that a
+>   fix for flexural leakage needs "the same machinery item G.2 needs", and that
+>   "reaching the debonded regime needs a leaky-mode cased forward model". A
+>   microannulus is a bound-mode problem. It's now A.5, with `sonic_ml` re-gated
+>   onto it.
+>
+> I also corrected my own earlier phrasing: a fluid annulus *does* contribute a
+> bracket floor, at its acoustic velocity. What matters is that ~1500 m/s
+> doesn't drag the floor below the fluid the way a compliant solid's near-zero
+> shear velocity does.
+>
+> Docs-only; Sphinx builds with no new warnings. One thing I noticed and
+> deliberately left alone: `docs/roadmap.rst` is a stub that shares a docname
+> with `roadmap.md`, so Sphinx warns and picks the `.md` — the stub has never
+> rendered. Pre-existing, and deleting a file felt beyond this change, so it's
+> flagged in the PR instead.
