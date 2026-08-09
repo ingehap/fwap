@@ -1,14 +1,14 @@
 # What the oracles taught us
 
 A retrospective on the analytic cross-checks added to `fwap` between PRs #50
-and #63, written to change how the next batch of work is chosen. It is not a
+and #64, written to change how the next batch of work is chosen. It is not a
 status file — `docs/roadmap.md` is that, and `plans/roadmap_1.md` is the
 priority snapshot. This one is about *method*.
 
 ## The short version
 
-Four analytic oracles have been built. **Every one found something, and three
-of the four overturned a written claim rather than confirming it.** That hit
+Five analytic oracles have been built. **Every one found something, and four
+of the five overturned a written claim rather than confirming it.** That hit
 rate is far better than the alternative that kept being proposed in planning
 notes — "more tests against existing behaviour" — and it held even in an
 environment with no access to published figures or field data.
@@ -19,8 +19,9 @@ environment with no access to published figures or field data.
 | Rigid-pipe pseudo-Rayleigh cutoff | #61 | **Corrected** docstring advice that would have discarded valid data |
 | Quadrupole high-frequency asymptote | #62 | Confirmed slow formations; **exposed** a fast-formation defect |
 | Ray radiation estimate vs leaky attenuation | #63 | Confirmed scale and geometry; **exposed** window-dependent branch selection, fixed in the follow-up |
+| White tube-wave speed vs Stoneley `f -> 0` limit | #64 | Confirmed the limit to ~1e-7; **exposed** an undocumented validity floor on the repo's slow-formation `V_S` estimator |
 
-A fifth item, `fwap.validation` (#50), is deliberately not in that table. It is
+`fwap.validation` (#50) is deliberately not in that table. It is
 the *machinery* for scoring against digitised figures, not an oracle: with no
 reference CSV shipped it has found nothing and cannot, and the notebook says so
 rather than letting green plots imply otherwise. Counting it among the wins
@@ -45,6 +46,10 @@ The ones that worked share a shape:
 - **The ray radiation estimate** is a plane-wave reflection coefficient times a
   bounce rate. It reaches the imaginary part of the answer, which nothing else
   did.
+- **The White tube-wave speed** is the opposite end of the same curve Scholte
+  pins: a quasi-static long-wavelength limit in which the borehole radius drops
+  out of the algebra entirely. That absence is the sharper test — the radius is
+  the one parameter the solver has and the formula does not.
 
 Four generative questions, in the order they have actually paid off:
 
@@ -95,6 +100,17 @@ convincing test was not refinement but varying the grid *endpoints*, which is
 what actually exposed the branch-selection bug. **When something looks like
 numerical noise, find the parameter it truly depends on before calling it
 noise.**
+
+**An "oracle" the code under test already contains.** The White tube-wave
+formula looked like a clean independent closed form for the Stoneley
+low-frequency limit — until a grep found `s_st_lf = sqrt(1/vf**2 + rho_f/mu)`
+inside `_stoneley_kz_bracket`, where it sets the solver's own search bracket.
+Agreement would then have been partly the solver confirming itself, and the
+claim "independent oracle" was one commit from being written down. The fix was
+to take the bracket out of the loop: the test locates the root by scanning 40×
+wider than the solver's factor-of-two bracket. **Before calling anything
+independent, grep for it in the implementation.** Independence is a property of
+the code, not of the derivation.
 
 **A test premise that is simply false.** A test asserted TV regularisation
 "prefers a single contact"; true TV is exactly indifferent, and the smoothing
@@ -158,16 +174,17 @@ keeps a known limitation from quietly becoming a guarantee.
 
 Kept concrete so the next session does not have to re-derive the list. Whether
 any of these bites is a measurement, not a promise — which is exactly what the
-last such list said, and it went three for three.
+last such list said, and it went four for four.
+
+Add one screening step before starting any of them, learned the hard way on the
+tube-wave check: **grep the implementation for the formula first.** If the
+solver already uses it — as a bracket, a seed, an initial guess — the check is
+not independent, and the test has to be built to route around that use.
 
 - **Energy balance for the leaky modes.** Radiated power computed from the
   far-field Hankel amplitude, divided by axial energy flux, should reproduce
   `Im(k_z)` — and unlike the ray estimate it has no free geometry in it, so it
   might explain the 0.6 offset rather than merely bracketing it.
-- **Low-frequency Stoneley limit.** The tube-wave (Biot–Rosenbaum) speed
-  `1/sqrt(rho_f (1/K_f + 1/mu))` is a closed form the cylindrical solver must
-  approach as `f -> 0`. The high-frequency end is tied by Scholte; the low end
-  is untied.
 - **Reciprocity / symmetry of the layered solver.** Swapping layer order in a
   stack where the physics is symmetric should leave the dispersion invariant.
 - **The `n=1` and `n=2` cutoffs against their rigid-pipe forms**, the same

@@ -589,3 +589,163 @@ def test_leaky_estimate_would_catch_a_wrong_radius_scaling():
     estimate = leaky_radiation_attenuation(1.0 / mode.slowness, freq, **wrong)
     ratio = mode.attenuation_per_meter[ok] / estimate[ok]
     assert float(np.median(ratio)) > 0.90
+
+
+# ---------------------------------------------------------------------------
+# Low-frequency (tube-wave) limit of the borehole Stoneley mode
+# ---------------------------------------------------------------------------
+
+_TUBE_BRINE = {"vf": 1500.0, "rho_f": 1000.0}
+
+
+def _bound_root_without_bracket_hint(freq, *, span=40.0, n=400, **medium):
+    """Locate the bound n=0 root by scanning far wider than the solver.
+
+    ``_stoneley_kz_bracket`` places its upper end at 1.5x the White
+    estimate, so a test that used ``stoneley_dispersion`` alone would be
+    checking a formula the solver was already told about. Scanning
+    ``span`` times the bound edge -- twenty times wider than that
+    bracket -- takes the estimate out of the loop entirely.
+    """
+    from scipy.optimize import brentq
+
+    from fwap.cylindrical_solver._n0_isotropic import _modal_determinant_n0
+
+    omega = 2.0 * np.pi * freq
+
+    def det(s):
+        return _modal_determinant_n0(s * omega, omega, **medium)
+
+    s_lo = max(1.0 / medium["vf"], 1.0 / medium["vs"]) * (1.0 + 1.0e-12)
+    grid = np.linspace(s_lo, s_lo * span, n)
+    values = np.array([det(s) for s in grid])
+    finite = np.isfinite(values)
+    for i in range(grid.size - 1):
+        if not (finite[i] and finite[i + 1]):
+            continue
+        if np.sign(values[i]) != np.sign(values[i + 1]):
+            return float(brentq(det, grid[i], grid[i + 1], xtol=1e-18, rtol=8.9e-16))
+    return float("nan")
+
+
+def test_tube_wave_speed_is_the_low_frequency_limit_of_the_solver():
+    """The modal determinant's f -> 0 root is the White tube-wave speed.
+
+    Deliberately does *not* call ``stoneley_dispersion``: that function's
+    bracket is built from this very formula, so agreement through it
+    would be partly circular. The root here is found by scanning 40x the
+    bound edge, against a solver bracket only a factor of two wide.
+    """
+    from fwap import tube_wave_speed
+
+    cases = [
+        dict(vp=2600.0, vs=1300.0, rho=2300.0, **_TUBE_BRINE, a=0.10),
+        dict(vp=3400.0, vs=1800.0, rho=2400.0, **_TUBE_BRINE, a=0.10),
+        dict(vp=4000.0, vs=2300.0, rho=2500.0, **_TUBE_BRINE, a=0.10),
+        dict(vp=5200.0, vs=3000.0, rho=2650.0, **_TUBE_BRINE, a=0.10),
+        dict(vp=4000.0, vs=2300.0, rho=2500.0, vf=1400.0, rho_f=1400.0, a=0.10),
+    ]
+    for medium in cases:
+        scanned = _bound_root_without_bracket_hint(1.0, **medium)
+        expected = 1.0 / tube_wave_speed(
+            medium["vs"], medium["rho"], vf=medium["vf"], rho_f=medium["rho_f"]
+        )
+        assert scanned == pytest.approx(expected, rel=1.0e-6), medium
+
+
+def test_tube_wave_limit_is_independent_of_borehole_radius():
+    """No radius appears in the closed form, so none may appear in the limit.
+
+    A sharper check than the value itself: the borehole radius is the one
+    parameter the solver has and the formula does not, and it is not part
+    of the bracket's shape. If the low-frequency limit drifted with ``a``
+    the agreement above would be a coincidence of one geometry.
+    """
+    from fwap import tube_wave_speed
+
+    base = dict(vp=4000.0, vs=2300.0, rho=2500.0, **_TUBE_BRINE)
+    expected = 1.0 / tube_wave_speed(2300.0, 2500.0, **_TUBE_BRINE)
+    for a in (0.05, 0.10, 0.20, 0.30):
+        scanned = _bound_root_without_bracket_hint(1.0, **base, a=a)
+        assert scanned == pytest.approx(expected, rel=1.0e-6), a
+
+
+def test_stoneley_dispersion_converges_to_the_tube_wave_as_frequency_falls():
+    """The solver's Stoneley curve tends to the closed form as f -> 0.
+
+    The approach is **not** one-sided, which is worth stating because the
+    Scholte high-frequency check is, and the analogy tempts the opposite
+    assumption. Measured, the relative error changes sign at a crossover
+    whose frequency moves with ``V_S``: it is positive throughout for
+    ``V_S`` = 1300 m/s, crosses near 200 Hz at 2300 m/s and near 20 Hz at
+    3000 m/s, and at 1600 m/s the crossover happens to sit at the top of
+    this grid. So the assertion is on convergence, not on side.
+
+    Restricted to 500 Hz and below, where every case is past its
+    crossover, the error falls monotonically and reaches better than
+    1e-6 relative at 1 Hz.
+    """
+    from fwap import stoneley_dispersion, tube_wave_speed
+
+    freq = np.array([500.0, 200.0, 100.0, 50.0, 20.0, 10.0, 5.0, 2.0, 1.0])
+    cases = [
+        dict(vp=2600.0, vs=1300.0, rho=2300.0, **_TUBE_BRINE, a=0.10),
+        dict(vp=3000.0, vs=1600.0, rho=2300.0, **_TUBE_BRINE, a=0.10),
+        dict(vp=4000.0, vs=2300.0, rho=2500.0, **_TUBE_BRINE, a=0.10),
+        dict(vp=5200.0, vs=3000.0, rho=2650.0, **_TUBE_BRINE, a=0.10),
+    ]
+    for medium in cases:
+        limit = 1.0 / tube_wave_speed(
+            medium["vs"], medium["rho"], vf=medium["vf"], rho_f=medium["rho_f"]
+        )
+        slowness = stoneley_dispersion(freq, **medium).slowness
+        assert np.all(np.isfinite(slowness)), medium
+
+        error = np.abs(slowness / limit - 1.0)
+        assert np.all(np.diff(error) < 0.0), (medium, error)
+        assert error[-1] < 1.0e-6, (medium, error[-1])
+
+
+def test_tube_wave_speed_rejects_media_below_the_validity_floor():
+    """Below ``vf * sqrt(1 - rho_f/rho)`` the formula is not a bound mode."""
+    from fwap import tube_wave_speed
+
+    floor = 1500.0 * np.sqrt(1.0 - 1000.0 / 2200.0)
+    assert floor == pytest.approx(1107.8, rel=1.0e-3)
+
+    with pytest.raises(ValueError, match="validity floor"):
+        tube_wave_speed(floor * 0.99, 2200.0, **_TUBE_BRINE)
+    # ...and it is admitted just above.
+    assert tube_wave_speed(floor * 1.01, 2200.0, **_TUBE_BRINE) < floor * 1.01
+
+    with pytest.raises(ValueError, match="must all be positive"):
+        tube_wave_speed(-1.0, 2200.0, **_TUBE_BRINE)
+    with pytest.raises(ValueError, match="require rho > rho_f"):
+        tube_wave_speed(1300.0, 900.0, **_TUBE_BRINE)
+
+
+def test_tube_wave_validity_floor_predicts_where_the_solver_stops_converging():
+    """The floor is physics, not a bracketing artefact.
+
+    Below it no bound root exists at all -- checked by scanning the
+    determinant across a window far wider than the solver's bracket, not
+    merely by observing that ``stoneley_dispersion`` returns NaN. The
+    closed form locates the transition to within a couple of percent.
+    """
+    from fwap import stoneley_dispersion
+
+    rho, vf, rho_f = 2200.0, 1500.0, 1000.0
+    floor = vf * np.sqrt(1.0 - rho_f / rho)
+
+    below = dict(vp=2000.0, vs=0.90 * floor, rho=rho, vf=vf, rho_f=rho_f, a=0.10)
+    above = dict(vp=2400.0, vs=1.10 * floor, rho=rho, vf=vf, rho_f=rho_f, a=0.10)
+
+    # No bound root below the floor, by direct scan...
+    assert not np.isfinite(_bound_root_without_bracket_hint(1.0, **below))
+    # ...and there is one above it.
+    assert np.isfinite(_bound_root_without_bracket_hint(1.0, **above))
+
+    # The solver agrees on both counts.
+    freq = np.array([1.0, 10.0, 100.0])
+    assert not np.any(np.isfinite(stoneley_dispersion(freq, **below).slowness))
+    assert np.all(np.isfinite(stoneley_dispersion(freq, **above).slowness))

@@ -23,6 +23,7 @@ Functions
 ---------
 * :func:`rayleigh_speed`
 * :func:`scholte_speed`
+* :func:`tube_wave_speed`
 * :func:`leaky_radiation_attenuation`
 * :func:`flexural_dispersion_physical`
 
@@ -221,6 +222,136 @@ def scholte_speed(
     raise ValueError(  # pragma: no cover - unreachable for valid media
         "no Scholte root below min(vs, vf); check the input media"
     )
+
+
+def tube_wave_speed(
+    vs: float,
+    rho: float,
+    *,
+    vf: float,
+    rho_f: float,
+) -> float:
+    r"""
+    Low-frequency (tube-wave) limit of the borehole Stoneley speed.
+
+    The White (1983) closed form
+
+    .. math::
+
+        S_T^2 \;=\; \frac{1}{V_f^2} \;+\; \frac{\rho_f}{\mu},
+        \qquad \mu = \rho V_s^2,
+
+    returned as a speed :math:`V_T = 1 / S_T`. Note what is *absent*:
+    the borehole radius. In this limit the wavelength is long compared
+    with the hole, the fluid column responds quasi-statically against
+    the formation's shear stiffness, and the geometry drops out
+    entirely --- which is itself a testable prediction, and a sharper
+    one than the value.
+
+    Why this function exists
+    -----------------------
+    It is the **low-frequency counterpart to :func:`scholte_speed`**.
+    Between them the two pin both ends of the borehole Stoneley
+    dispersion curve against closed forms: this one as
+    :math:`f \to 0`, the Scholte speed as :math:`f \to \infty`.
+
+    **A caveat on independence, which matters for how much the
+    agreement is worth.** Unlike :func:`scholte_speed`, this formula is
+    not wholly outside the solver: ``_stoneley_kz_bracket`` uses it to
+    place the upper end of its search bracket. The bracket is a
+    factor-of-two-wide window and cannot force agreement to the ~1e-7
+    that is actually observed, and the tests deliberately locate the
+    root by scanning 40x wider than the solver's own bracket so the
+    estimate plays no part. But the check is weaker than the Scholte
+    one and is documented as such rather than being presented as a
+    fully independent tie.
+
+    Validity floor
+    --------------
+    A tube wave is a *bound* mode, so it must be slower than the
+    formation shear wave. Requiring :math:`V_T < V_s` gives
+
+    .. math::
+
+        V_s \;>\; V_f \sqrt{1 - \rho_f / \rho},
+
+    below which this formula returns a speed above :math:`V_s`, which
+    describes no bound mode --- and, measured, no bound root exists
+    there: the borehole Stoneley merges with the shear branch point at
+    a finite frequency and ceases to exist below it. Scanning the modal
+    determinant across a window far wider than the solver's bracket
+    finds no sign change at all. The closed form predicts where the
+    cylindrical solver stops converging to within 1 % across formation
+    and fluid densities giving floors from 960 to 1255 m/s.
+
+    This bites in practice: for brine (``rho_f`` 1000) in a
+    2200 kg/m^3 formation the floor is 1108 m/s, which is an ordinary
+    slow formation. It is the reason
+    :func:`fwap.vs_from_stoneley_slow_formation` --- whose whole
+    purpose is slow formations --- has a lower limit on the shear
+    velocities it can report, documented there in terms of the
+    Stoneley slowness a caller actually measures.
+
+    Parameters
+    ----------
+    vs : float
+        Formation shear velocity (m/s). Must be positive and above the
+        validity floor above.
+    rho : float
+        Formation bulk density (kg/m^3). Must exceed ``rho_f``.
+    vf : float
+        Borehole-fluid velocity (m/s); must be positive.
+    rho_f : float
+        Borehole-fluid density (kg/m^3); must be positive.
+
+    Returns
+    -------
+    float
+        Tube-wave speed (m/s), strictly less than both ``vf`` and
+        ``vs``.
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive, if ``rho <= rho_f`` (the
+        formation cannot be lighter than the mud in it), or if ``vs``
+        is at or below the validity floor, where the formula describes
+        no bound mode.
+
+    See Also
+    --------
+    scholte_speed : The high-frequency end of the same curve.
+    fwap.vs_from_stoneley_slow_formation : Inverts this relation for
+        ``V_S`` from a measured Stoneley slowness.
+
+    References
+    ----------
+    * White, J. E. (1983). *Underground Sound: Application of Seismic
+      Waves.* Elsevier, sect. 5.5.
+    * Norris, A. N. (1990). The speed of a tube wave. *J. Acoust. Soc.
+      Am.* 87(1), 414-417.
+    * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
+      Boreholes.* CRC Press, Ch. 3.
+    """
+    if vs <= 0.0 or rho <= 0.0 or vf <= 0.0 or rho_f <= 0.0:
+        raise ValueError("vs, rho, vf and rho_f must all be positive")
+    if rho <= rho_f:
+        raise ValueError(
+            f"require rho > rho_f; got rho={rho}, rho_f={rho_f}. A formation "
+            "lighter than the borehole fluid has no bound tube wave."
+        )
+
+    floor = vf * np.sqrt(1.0 - rho_f / rho)
+    if vs <= floor:
+        raise ValueError(
+            f"vs={vs} is at or below the tube-wave validity floor "
+            f"vf*sqrt(1 - rho_f/rho) = {floor:.4g} m/s. Below it the White "
+            "formula returns a speed above vs, which is not a bound mode; "
+            "the borehole Stoneley wave ceases to exist at low frequency "
+            "in such formations."
+        )
+
+    return float(1.0 / np.sqrt(1.0 / vf**2 + rho_f / (rho * vs**2)))
 
 
 def _fluid_solid_reflection(

@@ -298,6 +298,38 @@ essentially complete -- plan items A through H in
    a wrong power of frequency or a radius/diameter confusion, not a
    30 % error.
 
+   *A fourth analytic check, closing the other end of the Stoneley
+   curve.* `scholte_speed` ties the solver's `f -> infinity` limit;
+   `tube_wave_speed` now ties `f -> 0`. The White (1983) closed form
+   `S_T^2 = 1/V_f^2 + rho_f/mu` matches the modal determinant's
+   low-frequency root to 1.3e-8-1.5e-7 relative across five media, and
+   the radius-independence it predicts -- no `a` appears in the formula
+   -- holds across `a` = 0.05-0.30 m to 5e-8, which is the sharper of
+   the two checks.
+
+   **Its independence is qualified**, unlike Scholte's. The formula is
+   already used inside `_stoneley_kz_bracket` to place the solver's
+   search bracket, so a check routed through `stoneley_dispersion`
+   would be partly self-confirming. The tests locate the root by
+   scanning 40x wider than that bracket instead, and both the docstring
+   and `plans/learning.md` record this as a weaker tie rather than
+   presenting it as a clean one.
+
+   *What it found.* A validity floor that was not written down
+   anywhere: a tube wave is a bound mode, so `V_S > V_f sqrt(1 -
+   rho_f/rho)`, equivalently `S_ST < (1/V_f) sqrt(rho/(rho - rho_f))`
+   on the measured slowness. Below it no bound Stoneley root exists --
+   verified by scanning the determinant far outside the solver's own
+   bracket, not merely by observing NaN -- and the closed form predicts
+   where the solver stops converging to within 1 % across seven media
+   with floors from 960 to 1255 m/s. For brine in a 2200 kg/m^3
+   formation that floor is 1108 m/s, which sits inside the operating
+   range of `vs_from_stoneley_slow_formation`, the package's primary
+   slow-formation `V_S` estimator. It is now documented there, in terms
+   of the slowness a caller actually measures, and deliberately not
+   enforced -- a noisy pick belongs in QC rather than hard-failing a
+   log.
+
    *The machinery is done.* `fwap.validation` scores an fwap curve
    against a digitised reference and the notebook asserts a 5 % RMS
    budget per curve, verified to fail on a 12 %-perturbed reference.

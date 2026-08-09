@@ -40,6 +40,39 @@ the project uses [Semantic Versioning](https://semver.org/).
   visible in the diff.
 
 ### Added
+- **`tube_wave_speed` — the low-frequency oracle, completing the pair with
+  `scholte_speed`.** The White (1983) closed form
+  `S_T^2 = 1/V_f^2 + rho_f/mu` is the `f -> 0` limit of the borehole Stoneley
+  mode, as `scholte_speed` is the `f -> infinity` limit. Both ends of the
+  dispersion curve are now pinned to closed forms. Verified to 1.3e-8-1.5e-7
+  relative across five media including a doubled fluid density, and the
+  radius-independence the formula predicts (no `a` appears in it) holds across
+  `a` = 0.05-0.30 m to 5e-8.
+  **The independence is qualified, and the qualification is the interesting
+  part.** Unlike Scholte, this formula is already inside the solver:
+  `_stoneley_kz_bracket` uses it to place the upper end of its search bracket.
+  A test that went through `stoneley_dispersion` would have been partly the
+  solver confirming itself. The tests therefore locate the root by scanning
+  **40x wider than the solver's factor-of-two bracket**, taking the estimate
+  out of the loop; the docstring says plainly that this is a weaker tie than
+  the Scholte one rather than presenting it as fully independent.
+- **A validity floor on the slow-formation `V_S` estimator, previously
+  undocumented.** A tube wave is a bound mode, so it must be slower than the
+  formation shear wave; requiring that gives
+  `V_S > V_f*sqrt(1 - rho_f/rho)`, equivalently
+  `S_ST < (1/V_f)*sqrt(rho/(rho - rho_f))` on the measured slowness. Below it
+  **no bound Stoneley root exists at all** — confirmed by scanning the modal
+  determinant across a window far wider than the solver's bracket and finding
+  no sign change, rather than by observing that `stoneley_dispersion` returns
+  NaN. The closed form predicts where the solver stops converging to within
+  1 % across seven (rho, rho_f, V_f) combinations spanning floors from 960 to
+  1255 m/s.
+  This bites in practice: for brine in a 2200 kg/m^3 formation the floor is
+  1108 m/s, an ordinary slow formation and squarely inside the range
+  `vs_from_stoneley_slow_formation` exists to serve. `tube_wave_speed` raises
+  below the floor; the estimator documents it but deliberately does **not**
+  enforce it, because a noisy field pick should be screened in QC rather than
+  hard-failing a whole log — a choice now stated at the point of use.
 - **`plans/learning.md`** — a retrospective on the five analytic oracles added
   between PRs #50 and #63, written to change how the next batch of work is
   chosen rather than to record status. Covers what distinguishes an oracle from
