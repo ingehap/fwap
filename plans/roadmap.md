@@ -649,15 +649,22 @@ answer exactly. That makes any gain attributable — the residual is the
 finite-layer correction the half-space law cannot express, and the features
 expose exactly what the baseline lacks, the layer thicknesses.
 
-What is *not* yet established is whether it beats the baseline at a usable
-sample count. A 24-sample trial found the training loss reaching exactly zero
-with best validation at **epoch 6 of 400**, and on its 3 held-out samples the
-learned model scored *worse* than the closed form. That trial settled nothing
-except that validation-based weight selection was necessary, which is now in
-place. Both outcomes remain live, and the null one is a real result rather
-than a failure: an analytic law leaving only ~18 % residual is a hard thing to
-beat, and "the classical estimator is sufficient here" would be worth knowing.
-The comparison needs a few hundred samples, which is an hour of generation.
+**Measured on 240 samples** (192 train / 24 val / 24 test, gaps 10-961 um):
+on the held-out split the closed form scores **18.1 %** in gap width and the
+learned residual **2.5 %** — about sevenfold better. It is not memorisation:
+best validation lands at epoch 88 of 400 with validation loss falling
+throughout, and held-out 2.5 % agrees with whole-dataset 2.3 %. An earlier
+24-sample trial had been uninformative and, read carelessly, would have said
+the opposite; it is what forced validation-based weight selection, without
+which this run would have produced a convincing illusion at larger scale.
+
+**The caveat is the size of the claim, not its direction.** These dispersion
+curves are noiseless solver output — no measurement noise, no picking error —
+so 2.5 % is a ceiling against a perfect forward model rather than a field
+expectation. And on real data the crack wave has to be *detected* first, which
+at 63-620 m/s means it arrives outside a normal record. What is established is
+that the finite-layer correction the half-space law discards is learnable from
+the geometry, which is a modelling result.
 
 **Costs, because they bound what is practical.** A debonded sample runs ~14 s
 against ~0.5 s bonded (the microannulus solvers are ~0.45 s per frequency for

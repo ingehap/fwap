@@ -65,15 +65,25 @@ the project uses [Semantic Versioning](https://semver.org/).
   to the sample count it can afford, and keeping the last epoch returns a
   memorised model. `history` is now `(train, val)` pairs so that divergence is
   visible rather than inferred.
-  **The learned-versus-classical comparison at a usable sample count is not
-  yet measured**, and no claim is made here. A 24-sample trial was run and is
-  reported for what it is: uninformative, with 3 held-out samples, on which the
-  learned model scored *worse* than the closed form (5.8 % against 4.6 %). The
-  whole-dataset figure from that trial (21.6 % → 9.5 %) is largely training
-  fit and is not evidence. The honest possible outcomes are both live — that
-  the residual model learns the finite-layer correction, or that the analytic
-  estimator is simply sufficient here and the residual is not learnable from
-  the few hundred samples this dataset can afford.
+  **Measured on 240 samples** (192 train / 24 val / 24 test), gap 10-961 µm:
+
+  | held-out test | log RMSE | error in *h* | median ratio | ratio IQR |
+  |---|---|---|---|---|
+  | classical (Krauklis) | 0.0721 | **18.1 %** | 0.978 | 0.104 |
+  | learned residual | 0.0107 | **2.5 %** | 0.998 | 0.018 |
+
+  About **7x better**, and not memorisation: best validation at epoch 88 of
+  400 with validation loss falling throughout (0.00152 → 0.00047), and
+  held-out 2.5 % against whole-dataset 2.3 %. The classical figure reproduces
+  the independent 24-sample measurement exactly.
+  **What that does and does not mean.** The residual model learned the
+  finite-layer correction, which is what it was built to learn and what the
+  layer-thickness features expose. But the dispersion curves it learned from
+  are **noiseless** — deterministic solver output, no measurement noise and no
+  picking error — so 2.5 % is the ceiling against a perfect forward model,
+  not a field expectation. On real data the crack wave would first have to be
+  *detected*, and at 63-620 m/s it arrives outside a normal record. The bar
+  this clears is a modelling bar.
 - **A closed-form microannulus-thickness baseline** (roadmap G.2, the `sonic_ml`
   consumer). `sonic_ml.baselines.CrackWaveThicknessBaseline` inverts the
   Krauklis law, `h = c^3 C rho_f / omega` with `C = sum (1-nu)/mu` over the two
