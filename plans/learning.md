@@ -131,13 +131,18 @@ closing the balance inside the fluid is a mathematical identity. A conservation
 law tests something only if the control volume contains the constraint you are
 testing. Full treatment below, under *Attempted and withdrawn*.
 
-**An invariance borrowed from the wrong geometry.** "Swapping layer order
-leaves the dispersion invariant" is true of nothing in a *cylindrical* stack —
-the layers sit at different radii, so exchanging them changes the medium, by
-about 1 % here. The premise came from plane-layered intuition and survived into
-a written candidate list unchecked. Neighbouring geometry is where false
-invariances come from; the replacement (subdividing one annulus) is the version
-that survives the change of geometry.
+**A check transplanted across a boundary its mechanism does not cross.** The
+most common failure in this programme: two of seven candidates. "Swapping layer
+order leaves the dispersion invariant" is true of nothing in a *cylindrical*
+stack — the layers sit at different radii, so exchanging them changes the
+medium, by about 1 % here; the premise came from plane-layered intuition. And
+"check the n=1/n=2 cutoffs against their rigid-pipe forms" carried a check from
+one azimuthal order to another without asking whether the *kind of mode*
+carried with it — at n=0 it is a fluid-column resonance, at n=1 and n=2 the
+solver returns interface modes, and measurement confirms the cutoffs there are
+shear-controlled rather than fluid-controlled. **Ask what physical mechanism
+makes the check true, then ask whether that mechanism survives the move** —
+across geometry, azimuthal order, mode family, or regime.
 
 **A test premise that is simply false.** A test asserted TV regularisation
 "prefers a single contact"; true TV is exactly indifferent, and the smoothing
@@ -226,11 +231,43 @@ axial power must reproduce `Im(k_z)` with no free geometry in it, and so might
 bracketing it. **It does neither, and the way it fails is more instructive than
 another success would have been.**
 
-The derivation works. At the wall the boundary conditions give `sigma_rz = 0`
-and `sigma_rr = -P`, so both the radiated flux at `r = a` and the axial flux
-through the fluid column reduce to the same fluid amplitude, which cancels:
+### The derivation, in full
 
-    Im(k_z) = -a Im(I0(Fa) conj(F I1(Fa))) / (2 Re(k_z) INT_0^a |I0(Fr)|^2 r dr)
+Kept because the algebra is reusable even though the conclusion is negative —
+the same fluxes appear in any energy argument about these modes.
+
+Time convention `exp(i(k_z z - omega t))`. The time-averaged energy flux
+(Poynting vector) for an elastic medium is
+
+    I_j = -(1/2) Re(sigma_jk conj(v_k)),   v = -i omega u
+
+and in a fluid, where `sigma_jk = -P delta_jk`, that reduces to
+`I_j = -(omega/2) Im(P conj(u_j))`.
+
+The fluid field for the n=0 mode is
+
+    P   = A I0(F r),        F^2 = k_z^2 - (omega/V_f)^2
+    u   = grad P / (rho_f omega^2)
+
+so `u_r = A F I1(F r) / (rho_f omega^2)` and
+`u_z = i k_z A I0(F r) / (rho_f omega^2)`. Substituting:
+
+    axial flux density   I_z = Re(k_z) |A|^2 |I0(F r)|^2 / (2 rho_f omega)
+    axial power          P_z = (pi Re(k_z) |A|^2 / (rho_f omega))
+                                 INT_0^a |I0(F r)|^2 r dr
+    radial power at r=a  P_r = -(pi a / (rho_f omega)) |A|^2
+                                 Im(I0(Fa) conj(F I1(Fa)))
+
+`P_r` needs no formation fields at all: at the wall `sigma_rz = 0` and
+`sigma_rr = -P`, and `u_r` is continuous, so the flux through the wall can be
+evaluated entirely from the fluid side. The mode's power decays as
+`exp(-2 Im(k_z) z)`, so energy balance over the fluid cylinder is
+
+    2 Im(k_z) P_z = P_r
+
+and `|A|^2` cancels, leaving
+
+    Im(k_z) = -a Im(I0(Fa) conj(F I1(Fa))) / (2 Re(k_z) INT_0^a |I0(F r)|^2 r dr)
 
 Measured against the solver it reproduces `Im(k_z)` to ratio 1.000 at every
 frequency. That looked like the cleanest confirmation yet — for about ten
@@ -268,6 +305,58 @@ reproduces `Im(k_z)` at roots, that it does so at non-roots too, and that the
 formation field grows — so the next attempt starts from the result rather than
 from the derivation. Nothing was added to the public API: shipping a check that
 cannot fail would be worse than shipping none.
+
+## Which conservation laws are worth trying
+
+Prompted by the energy-balance failure: if energy did not bite, does anything
+else? The useful filter is the one that section ends on — a conservation law
+tests something only if the control volume contains the constraint that fixes
+the eigenvalue. A second filter falls out of the same algebra and is worth
+stating separately, because it disqualifies a whole family at once.
+
+**Linear momentum adds nothing.** For a single mode every quadratic flux
+carries the same `exp(-2 Im(k_z) z)`, so every balance has the form
+`(flux out) = 2 Im(k_z) x (flux carried)` and `Im(k_z)` divides out the same
+way. Momentum is worse than merely parallel: for the fluid column the axial
+momentum flux density is `rho_f <v_z v_z> = |k_z|^2 |A|^2 |I0|^2 /
+(2 rho_f omega^2)`, which is the energy flux density above multiplied by
+`|k_z|^2 / (omega Re(k_z))` — a constant across the cross-section. The momentum
+balance is therefore the energy balance times a constant, and reduces to the
+same identity. (For real `k_z` that factor is `1/c`, the familiar
+momentum-equals-energy-over-phase-velocity result.) **The general rule:
+a second conserved density built from the same single mode gives an
+independent check only if it is not proportional to the first.** The factor above was checked numerically rather
+than left as algebra: the ratio of the two integrated fluxes matches
+`|k_z|^2 / (omega Re(k_z))` to six digits at every frequency tried.
+
+That rules out most of the obvious list:
+
+- **Angular momentum** — for azimuthal order `n` it is `n/omega` times the
+  energy flux. Proportional; no information.
+- **Energy flux continuity across an interface** — that *is* the boundary
+  condition the determinant already enforces, so it is satisfied by
+  construction. Same failure as the fluid-only balance, in a thinner disguise.
+- **Momentum flux continuity across an interface** — likewise the traction
+  boundary condition.
+
+Two survive the filter and are worth attempting, because each brings in
+something the single mode does not already contain:
+
+- **Modal orthogonality.** Two *different* modes at the same frequency satisfy
+  a biorthogonality relation (Auld's reciprocity form for waveguides). This
+  involves two eigenvectors, so it cannot be satisfied by construction from
+  one of them, and it fails if either is wrong. This is the strongest
+  remaining conservation-flavoured candidate.
+- **Causality (Kramers-Kronig).** `k_z(omega)` for a causal medium ties the
+  frequency dependence of `Re(k_z)` to that of `Im(k_z)` non-locally. It
+  relates the solver's output *across* frequencies rather than at one, so
+  nothing about a single root can satisfy it automatically. Harder to set up,
+  and the dispersion relation needs care about branch structure, but it is a
+  genuine constraint rather than an identity.
+
+Note what both survivors have in common: they involve more than one solution.
+Any law evaluated on a single mode in a region where that mode already
+satisfies the governing equations will come back exact and mean nothing.
 
 ## Attempted: layered-solver invariance — misstated, with a working replacement
 
@@ -338,22 +427,64 @@ range of its own, and it is not the solver's.** Establish where the check
 itself stops working before reading a failure as the code's fault — and before
 reading a pass as coverage.
 
+## Attempted: the n=1 / n=2 rigid-pipe cutoffs — the premise was wrong again
+
+This list proposed checking the `n=1` and `n=2` cutoffs against their
+rigid-pipe closed forms, "the same check #61 ran for `n=0`, using the
+appropriate Bessel zeros". The Bessel zeros are the easy part
+(`j'_{n,1}` = 3.8317, 1.8412, 3.0542 for n = 0, 1, 2, and `_J1_FIRST_ZERO`
+is indeed the first of those). The premise underneath is wrong.
+
+**The n=0 check applies to a fluid-column mode; the n=1 and n=2 solvers do not
+return one.** `pseudo_rayleigh_dispersion` returns a *higher-order* mode of the
+borehole fluid perturbed by the wall, which is exactly what a rigid-pipe
+resonance describes. `flexural_dispersion` and `quadrupole_dispersion` return
+the *fundamental* modes at their orders, which are interface modes. The solver
+exposes no n=1 or n=2 counterpart of pseudo-Rayleigh, so there is nothing for
+the formula to be compared against. The candidate transplanted a check across
+azimuthal order without asking whether the *kind of mode* transplanted with it.
+
+Measurement says so independently, which is what settled it. The cutoff does
+scale cleanly as `1/a` — so a geometric cutoff exists — but its log-log
+sensitivities are about **0.87 on `V_S` and 0.10 on `V_f`**. A fluid-column
+cutoff is fluid-controlled; these are shear-controlled, and by roughly an order
+of magnitude in exponent. Changing `V_f` by 58 % moves the cutoff 4 %.
+
+There is a second, independent reason the comparison cannot be rescued. The
+rigid-pipe form is only defined for `V_S > V_f`, and in fast formations both
+solvers are separately known to be defective (roadmap A.2, and the quadrupole
+finding in #62) — 1086 and 1179 of 2000 samples converge. A "cutoff" read off
+a defective band is a numerical artefact, not a physical frequency.
+
+Three tests pin the outcome: that the `1/a` scaling holds, that the cutoff is
+shear- rather than fluid-controlled, and that the rigid-pipe form does not
+match — with the ratios for the two orders differing enough that no single
+constant reconciles them, unlike the fixed offset #61 was able to document for
+`n=0`.
+
+**The lesson: when transplanting a check from one mode to another, verify that
+the physical mechanism transplants too.** Both this and the layer-order
+candidate failed the same way — a check that works somewhere nearby, carried
+across a boundary (azimuthal order; plane-to-cylindrical geometry) that the
+underlying mechanism does not cross. Two of the seven candidates died of it,
+which makes it the most common failure mode in this list, ahead of any
+numerical issue.
+
 ## Candidate oracles not yet attempted
 
 Kept concrete so the next session does not have to re-derive the list. Whether
-any of these bites is a measurement, not a promise. Of the six candidates
-tried so far, four became working oracles, one was vacuous (energy balance) and
-one was misstated but had a working replacement nearby (layer subdivision).
-Both of the misses were caught by measuring, and neither was obvious from the
-armchair.
+any of these bites is a measurement, not a promise. Of the seven candidates
+tried so far, four became working oracles; one was vacuous (energy balance);
+and two failed because a check was transplanted across a boundary its mechanism
+does not cross (layer order, and the n=1/n=2 cutoffs) — one of those had a
+working replacement nearby, the other did not. All three misses were caught by
+measuring and none was obvious from the armchair.
 
 Add one screening step before starting any of them, learned the hard way on the
 tube-wave check: **grep the implementation for the formula first.** If the
 solver already uses it — as a bracket, a seed, an initial guess — the check is
 not independent, and the test has to be built to route around that use.
 
-- **The `n=1` and `n=2` cutoffs against their rigid-pipe forms**, the same
-  check #61 ran for `n=0`, using the appropriate Bessel zeros.
 - **Attenuation vs the bound-mode limit.** `Im(k_z)` must go to zero
   continuously as a mode approaches its trapping boundary; a discontinuity
   there would indicate a branch error.

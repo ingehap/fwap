@@ -7,6 +7,42 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **The n=1 / n=2 rigid-pipe cutoff candidate does not work, and the reason is
+  structural.** `plans/learning.md` proposed checking the flexural and
+  quadrupole cutoffs against their rigid-pipe closed forms, as PR #61 did for
+  n=0 using the appropriate Bessel zeros. The zeros are the easy part
+  (`j'_{n,1}` = 3.8317 / 1.8412 / 3.0542); the premise is wrong. The n=0 check
+  applies to `pseudo_rayleigh_dispersion`, a *fluid-column* resonance, whereas
+  `flexural_dispersion` and `quadrupole_dispersion` return the *fundamental*
+  interface modes at their orders. The solver exposes no n=1 or n=2 counterpart
+  of pseudo-Rayleigh, so there is nothing for the formula to describe.
+  Measurement settles it independently. The cutoff does scale cleanly as `1/a`
+  (`f_c * a` constant to 1.4 % and 0.5 % over a 3.3x span of radius), but its
+  log-log sensitivities are **0.87-0.89 on `V_S` and 0.08-0.13 on `V_f`** — a
+  58 % change in `V_f` moves the cutoff 4 %. A fluid-column cutoff is
+  fluid-controlled; these are shear-controlled. And the rigid-pipe form is only
+  defined for `V_S > V_f`, where both solvers are separately known to be
+  defective (roadmap A.2), so the comparison cannot be rescued by changing
+  regime either. Three tests pin the `1/a` scaling, the shear-control, and the
+  mismatch with the closed form.
+- **`plans/learning.md`** gains the full energy-balance derivation (fluxes,
+  the `2 Im(k_z) P_z = P_r` balance, and why the amplitude cancels), and a
+  survey of which *other* conservation laws are worth trying. Linear momentum
+  is not: for a single mode the axial momentum flux is the energy flux times
+  `|k_z|^2 / (omega Re(k_z))`, a constant across the cross-section, verified to
+  six digits — so its balance reduces to the same identity. Angular momentum
+  and interface flux continuity fail the same way. Modal biorthogonality and
+  Kramers-Kronig causality survive the filter, because both involve more than
+  one solution.
+
+### Added
+- **`plans/log_output.md`** — the measured tables behind the numbers quoted in
+  the plans, the roadmap and this changelog, with provenance stated: which
+  values are asserted by tests (and so trustworthy), which are one-time
+  readings, and which are machine-specific. Withdrawn numbers are kept and
+  marked rather than deleted, so they are not re-derived and re-believed.
+
+### Changed
 - **Layer-subdivision invariance added as an oracle for the layered propagator;
   the layer-order candidate it replaced was simply wrong.** `plans/learning.md`
   listed "swapping layer order should leave the dispersion invariant" as a

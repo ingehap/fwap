@@ -14516,3 +14516,137 @@ def test_genuine_thick_layers_still_converge_to_the_right_limit():
         assert np.all(error < 5.0e-3), (thickness, error)
         # ...and it tightens with frequency, as a short-wavelength limit must.
         assert np.all(np.diff(error) < 0.0), (thickness, error)
+
+
+# ---------------------------------------------------------------------------
+# The n=1 / n=2 cutoffs are NOT rigid-pipe fluid-column cutoffs.
+#
+# `plans/learning.md` proposed checking them against the rigid-pipe closed form
+# with the appropriate Bessel zeros, as PR #61 did for n=0. The premise does not
+# survive measurement, and the reason is structural rather than numerical:
+#
+#   * The n=0 mode that check applies to is the *pseudo-Rayleigh* mode, which
+#     is a fluid-column resonance -- a higher-order mode of the borehole fluid,
+#     perturbed by the wall.
+#   * `flexural_dispersion` and `quadrupole_dispersion` return the
+#     *fundamental* modes at their azimuthal orders. Those are interface modes,
+#     not fluid-column ones, so there is no rigid-pipe resonance for them to be
+#     compared against. The solver exposes no n=1 or n=2 counterpart of
+#     pseudo-Rayleigh.
+#
+# What the measurement shows instead is recorded here, because a scaling law is
+# falsifiable even when a closed form is not available.
+# ---------------------------------------------------------------------------
+
+_CUT_GRID = np.linspace(100.0, 40.0e3, 2000)
+
+
+def _lowest_converged_frequency(solver, **medium):
+    mode = solver(_CUT_GRID, **medium)
+    ok = np.isfinite(mode.slowness)
+    return float(_CUT_GRID[ok].min()) if ok.any() else float("nan")
+
+
+def _cutoff_solvers():
+    from fwap import flexural_dispersion, quadrupole_dispersion
+
+    return (("flexural", flexural_dispersion), ("quadrupole", quadrupole_dispersion))
+
+
+def test_n1_n2_cutoffs_scale_inversely_with_borehole_radius():
+    """A geometric cutoff exists, and it goes as 1/a.
+
+    This much the rigid-pipe picture would also predict, so on its own it does
+    not discriminate; it is asserted because it establishes that there *is* a
+    clean geometric cutoff to reason about.
+    """
+    for name, solver in _cutoff_solvers():
+        products = []
+        for a in (0.06, 0.10, 0.20):
+            medium = dict(vp=2200.0, vs=1000.0, rho=2200.0, vf=1500.0, rho_f=1000.0)
+            cutoff = _lowest_converged_frequency(solver, **medium, a=a)
+            assert np.isfinite(cutoff), (name, a)
+            products.append(cutoff * a)
+        spread = max(products) / min(products) - 1.0
+        assert spread < 0.05, (name, products)
+
+
+def test_n1_n2_cutoffs_are_shear_controlled_not_fluid_controlled():
+    """The discriminating measurement, and the one that kills the candidate.
+
+    A rigid-pipe fluid-column cutoff is set by the *fluid*: on the n=0 form
+    it carries a full power of ``V_f`` and none of ``V_S`` in the rigid limit.
+    The n=1 and n=2 cutoffs behave the other way round. Measured as log-log
+    sensitivities over a factor ~2 in ``V_S`` and ~1.6 in ``V_f``, the
+    exponents are about 0.87 on ``V_S`` and 0.10 on ``V_f``.
+
+    Bounds are set well clear of the measured values rather than tight to
+    them, since the point is the qualitative ordering -- shear-controlled, not
+    fluid-controlled -- and not the exponent itself.
+    """
+    for name, solver in _cutoff_solvers():
+        slow_shear = _lowest_converged_frequency(
+            solver,
+            vp=2.2 * 700.0,
+            vs=700.0,
+            rho=2200.0,
+            vf=1500.0,
+            rho_f=1000.0,
+            a=0.10,
+        )
+        fast_shear = _lowest_converged_frequency(
+            solver,
+            vp=2.2 * 1450.0,
+            vs=1450.0,
+            rho=2200.0,
+            vf=1500.0,
+            rho_f=1000.0,
+            a=0.10,
+        )
+        slow_fluid = _lowest_converged_frequency(
+            solver, vp=2200.0, vs=1000.0, rho=2200.0, vf=1200.0, rho_f=1000.0, a=0.10
+        )
+        fast_fluid = _lowest_converged_frequency(
+            solver, vp=2200.0, vs=1000.0, rho=2200.0, vf=1900.0, rho_f=1000.0, a=0.10
+        )
+        assert all(
+            np.isfinite(x) for x in (slow_shear, fast_shear, slow_fluid, fast_fluid)
+        ), name
+
+        exponent_vs = np.log(fast_shear / slow_shear) / np.log(1450.0 / 700.0)
+        exponent_vf = np.log(fast_fluid / slow_fluid) / np.log(1900.0 / 1200.0)
+
+        assert exponent_vs > 0.6, (name, exponent_vs)
+        assert exponent_vf < 0.4, (name, exponent_vf)
+        assert exponent_vs > 3.0 * exponent_vf, (name, exponent_vs, exponent_vf)
+
+
+def test_n1_n2_cutoffs_do_not_match_the_rigid_pipe_closed_form():
+    """Stated as a test so the candidate cannot quietly come back.
+
+    Evaluated where the rigid-pipe form is even defined -- a fast formation,
+    ``V_S > V_f`` -- the closed form and the solver disagree, and by different
+    factors for the two orders, so no single constant reconciles them. In that
+    regime both solvers are separately known to be defective (roadmap A.2),
+    which is the second reason the comparison cannot be made to work.
+    """
+    from scipy.special import jnp_zeros
+
+    medium = dict(vp=4000.0, vs=2300.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.10)
+    rigid_pipe = {
+        order: jnp_zeros(order, 1)[0]
+        * medium["vf"]
+        * medium["vs"]
+        / (2.0 * np.pi * medium["a"] * np.sqrt(medium["vs"] ** 2 - medium["vf"] ** 2))
+        for order in (1, 2)
+    }
+
+    ratios = {}
+    for order, (name, solver) in zip((1, 2), _cutoff_solvers()):
+        cutoff = _lowest_converged_frequency(solver, **medium)
+        assert np.isfinite(cutoff), name
+        ratios[order] = cutoff / rigid_pipe[order]
+
+    # No single constant reconciles the two orders, so this is not the
+    # n=0 situation of a fixed offset that could be documented and used.
+    assert abs(ratios[1] / ratios[2] - 1.0) > 0.15, ratios
