@@ -727,7 +727,25 @@ def _modal_determinant_n0_cased(
     if not np.all(np.isfinite(E_form_b)):
         return float("nan")
     # State vector at b from c_1: v_N(b) = P_total @ E_1(a) c_1.
+    #
+    # The propagator carries growing and decaying exponentials across each
+    # layer, and a very compliant layer (V_S far below the fluid velocity,
+    # e.g. a debonding proxy) drives its dynamic range past double
+    # precision. Overflow here does not raise -- it produces inf, the 7x7
+    # determinant below becomes meaningless, and the bracket search then
+    # finds sign changes in the garbage and reports them as roots. Bail out
+    # instead, so the caller gets NaN.
+    if not (np.all(np.isfinite(P_total)) and np.all(np.isfinite(E_1_a))):
+        return float("nan")
+    # Check the product cannot overflow *before* forming it: the matmul
+    # itself emits the RuntimeWarning, so a post-hoc isfinite test cleans up
+    # the determinant but not the warning.
+    scale = float(np.max(np.abs(P_total))) * float(np.max(np.abs(E_1_a)))
+    if not np.isfinite(scale) or scale > np.sqrt(np.finfo(float).max):
+        return float("nan")
     v_at_b = P_total @ E_1_a
+    if not np.all(np.isfinite(v_at_b)):
+        return float("nan")
     # Fluid Bessel pack at r = a.
     I0_Ff_a = float(special.iv(0, F_f * a))
     I1_Ff_a = float(special.iv(1, F_f * a))

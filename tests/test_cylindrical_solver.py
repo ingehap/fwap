@@ -15075,3 +15075,152 @@ def test_trapped_root_scan_resolution_does_not_decide_how_many_modes_exist():
         len(_scan_bound_roots(det, lo, hi, samples=n)) for n in (500, 1000, 2000, 4000)
     }
     assert len(counts) == 1, counts
+
+
+# ---------------------------------------------------------------------------
+# Compliant layers in the cased stack: NaN rather than nonsense.
+#
+# Found while starting the free-pipe / debonded item (roadmap G.2). Modelling
+# debonding as a very compliant *elastic* layer does not work, and the way it
+# failed was the dangerous way: the propagator's dynamic range ran past double
+# precision, the 7x7 determinant became meaningless, and the bracket search
+# found sign changes in the garbage and returned them as roots -- finite
+# slownesses corresponding to phase velocities of 3-12 m/s, against a fluid
+# velocity of 1500.
+#
+# The guard rejects a propagator product that cannot be formed in double
+# precision and returns NaN instead. The bonded regime is untouched.
+# ---------------------------------------------------------------------------
+
+_DEBOND_FORMATION = {"vp": 4000.0, "vs": 2300.0, "rho": 2500.0}
+_DEBOND_FLUID = {"vf": 1500.0, "rho_f": 1000.0}
+
+
+def _debond_stack(layer_vs, thickness_m):
+    from fwap import BoreholeLayer
+
+    return (
+        BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01),
+        BoreholeLayer(
+            vp=max(1600.0, 2.0 * layer_vs),
+            vs=layer_vs,
+            rho=1000.0,
+            thickness=thickness_m,
+        ),
+        BoreholeLayer(vp=2800.0, vs=1600.0, rho=1920.0, thickness=0.03),
+    )
+
+
+def test_compliant_cased_layer_returns_nan_not_a_spurious_root():
+    """A phase velocity of a few m/s is not a mode, and must not be reported.
+
+    Checked across thicknesses and compliances because the failure was not
+    monotone in either: some configurations produced a spurious root with no
+    warning at all, which is why a warning filter would not have caught it.
+    """
+    from fwap import stoneley_dispersion_layered
+
+    freq = np.linspace(2.0e3, 14.0e3, 13)
+    for thickness in (1.0e-3, 0.2e-3):
+        for layer_vs in (600.0, 300.0, 100.0, 30.0):
+            mode = stoneley_dispersion_layered(
+                freq,
+                **_DEBOND_FORMATION,
+                **_DEBOND_FLUID,
+                a=0.10,
+                layers=_debond_stack(layer_vs, thickness),
+            )
+            finite = mode.slowness[np.isfinite(mode.slowness)]
+            # Either nothing at all, or nothing absurd. Never a 3 m/s "mode".
+            if finite.size:
+                assert np.all(1.0 / finite > 0.5 * _DEBOND_FLUID["vf"]), (
+                    thickness,
+                    layer_vs,
+                    1.0 / finite,
+                )
+
+
+def test_compliant_cased_layer_does_not_warn():
+    """...and it gets there without emitting numerical warnings.
+
+    The overflow was raised by the matmul itself, so testing the *result* for
+    finiteness cleaned up the determinant but left the warning. The guard
+    checks the product's magnitude before forming it.
+    """
+    import warnings
+
+    from fwap import stoneley_dispersion_layered
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        for thickness in (1.0e-3, 0.2e-3):
+            for layer_vs in (300.0, 100.0, 30.0):
+                stoneley_dispersion_layered(
+                    np.linspace(2.0e3, 14.0e3, 13),
+                    **_DEBOND_FORMATION,
+                    **_DEBOND_FLUID,
+                    a=0.10,
+                    layers=_debond_stack(layer_vs, thickness),
+                )
+
+
+def test_bonded_cased_stoneley_is_unaffected_by_the_guard():
+    """The guard must not cost anything in the regime that works.
+
+    Cement stiffer than the fluid converges across the whole band and the
+    values are pinned, so a guard that clipped valid configurations would
+    show up here rather than as a silent loss of coverage.
+    """
+    from fwap import BoreholeLayer, stoneley_dispersion_layered
+
+    freq = np.linspace(2.0e3, 14.0e3, 13)
+    expected = {2200.0: 1440.30, 1800.0: 1420.19, 1600.0: 1404.12, 1500.0: 1393.53}
+    for cement_vs, speed_at_8k in expected.items():
+        layers = (
+            BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01),
+            BoreholeLayer(
+                vp=max(2.0 * cement_vs, 2800.0),
+                vs=cement_vs,
+                rho=1920.0,
+                thickness=0.03,
+            ),
+        )
+        mode = stoneley_dispersion_layered(
+            freq, **_DEBOND_FORMATION, **_DEBOND_FLUID, a=0.10, layers=layers
+        )
+        assert np.all(np.isfinite(mode.slowness)), cement_vs
+        assert 1.0 / mode.slowness[6] == pytest.approx(speed_at_8k, rel=1.0e-4)
+
+
+def test_cased_stoneley_stops_being_bound_once_cement_is_softer_than_the_fluid():
+    """The documented restriction on the cased dataset's prior, measured.
+
+    `CasingCementPriors` keeps `cement_vs >= vf` on the stated grounds that
+    the cased Stoneley stops being bound below it. That holds: full
+    convergence at and above the fluid velocity, partial just below, none
+    further down. It is the reason the shipped cased dataset spans graded
+    cement quality rather than reaching debonding.
+    """
+    from fwap import BoreholeLayer, stoneley_dispersion_layered
+
+    freq = np.linspace(2.0e3, 14.0e3, 13)
+
+    def converged(cement_vs):
+        layers = (
+            BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01),
+            BoreholeLayer(
+                vp=max(2.0 * cement_vs, 2800.0),
+                vs=cement_vs,
+                rho=1920.0,
+                thickness=0.03,
+            ),
+        )
+        mode = stoneley_dispersion_layered(
+            freq, **_DEBOND_FORMATION, **_DEBOND_FLUID, a=0.10, layers=layers
+        )
+        return int(np.isfinite(mode.slowness).sum())
+
+    assert converged(1600.0) == freq.size
+    assert converged(1500.0) == freq.size
+    assert converged(1200.0) == 0
+    assert converged(800.0) == 0
