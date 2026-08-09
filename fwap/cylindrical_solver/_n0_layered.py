@@ -1680,6 +1680,38 @@ def stoneley_dispersion_layered(
     ValueError
         If any input is non-positive, ``vp <= vs``, ``freq``
         contains a non-positive entry, or any layer is malformed.
+
+    Notes
+    -----
+    **Subdividing a layer is exactly invariant.** Describing one
+    homogeneous annulus as several adjacent layers with the same
+    properties reproduces the dispersion to ~1e-15 relative, for
+    every azimuthal order and for open-hole and cased stacks alike.
+    That is a useful property to lean on -- it means a stack may be
+    refined for convenience without perturbing the answer -- and
+    ``tests/test_cylindrical_solver.py`` pins it.
+
+    **A redundant layer is not always transparent, though.** Appending
+    a layer whose properties equal the formation is physically a no-op,
+    and the solver treats it as one only while the radial dynamic range
+    across that layer stays moderate. Beyond that -- somewhere above
+    0.1 m at 100 kHz for a 2 cm mudcake -- the root search returns
+    finite, plausible, wrong values. Neither the size of the error nor
+    which spurious root comes back is stable; both move with thickness
+    and across platforms, which is the signature of lost precision
+    rather than of a different physical branch. The effect grows with
+    the product of the radial decay constant and the layer thickness, so
+    it is reached either by thick layers or by high frequencies.
+
+    This matters for *verification* rather than for use: padding a stack
+    with a redundant layer is a technique for checking the solver
+    against its unlayered counterpart, not a configuration anyone
+    models. Genuine layers with real contrast keep converging to the
+    correct short-wavelength limit at every thickness tested, and fail
+    to ``NaN`` rather than to a wrong number. Prefer thin redundant
+    layers and moderate frequencies when using that technique, and
+    treat a disagreement as the check expiring rather than as the
+    solver being wrong until an independent oracle says otherwise.
     """
     layers_tuple = tuple(layers)
     _validate_borehole_layers(layers_tuple)

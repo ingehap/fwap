@@ -6,6 +6,50 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Layer-subdivision invariance added as an oracle for the layered propagator;
+  the layer-order candidate it replaced was simply wrong.** `plans/learning.md`
+  listed "swapping layer order should leave the dispersion invariant" as a
+  candidate. That is false for a cylindrical stack — the layers sit at
+  *different radii*, so exchanging them moves material from one radius to
+  another and changes the medium, by ~1 % here. The premise came from
+  plane-layered intuition and had never been checked.
+  What does hold is **subdivision**: relabelling one homogeneous annulus as
+  several adjacent layers with the same properties is exact to ~1e-15, across
+  n=0/n=1/n=2, open-hole mudcake and cased steel-plus-cement stacks, splitting
+  the inner or the outer layer, in slow and fast formations. It reaches what the
+  order-swap idea was aiming at — interface matching and propagator composition
+  across more than one boundary, which no single-layer test exercises. Verified
+  non-vacuous: a thickness error of one part in ten thousand moves the answer
+  nine orders above the 1e-15 floor. It remains a *consistency* oracle, so an
+  error common to every interface would cancel; that is stated rather than
+  glossed.
+- **A redundant layer is not always transparent — the neighbouring invariance
+  has a validity range, now documented.** Appending a layer whose properties
+  equal the formation is physically a no-op, and the solver treats it as one
+  only while the radial dynamic range across that layer stays moderate. A
+  0.15 m formation-equal layer shifts the 100 kHz answer by **14 %**, a 0.05 m
+  one fails at 400 kHz, and both calls return finite, plausible slownesses.
+  Which side is wrong was settled from outside the layered solver, with
+  `scholte_speed`: at 100 kHz the wavelength in the 2 cm mudcake is ~1.6 cm, so
+  the mode rides the innermost layer and must approach *that* layer's Scholte
+  speed. The plain stack does, to 0.05 %; the padded stack does not. Where the
+  padded answer lands is not stable, and neither is how far off it is — the same
+  stack has returned 289 m/s and 1095 m/s, disagreeing with the plain answer by
+  7 % on one machine and by a factor of four on another. That is itself the
+  diagnosis: a root search returning somewhere different for identical physics
+  has lost precision rather than found another branch. The test asserts only
+  that transparency is lost somewhere in the range, which is the one stable
+  claim.
+  **Calibration, because the first reading was too alarming:** genuine layers
+  with real contrast keep converging correctly at every thickness tried and fail
+  cleanly to `NaN` rather than to a wrong number. The defect belongs to a
+  construction used to *verify* the solver, not to configurations it exists to
+  model. The existing transparency tests use a 0.005 m layer over 0.5-8 kHz,
+  comfortably inside the safe window, which is why this went unnoticed rather
+  than being a regression. `stoneley_dispersion_layered` now documents both
+  facts.
+
 ### Fixed
 - **`pseudo_rayleigh_dispersion` no longer returns a different mode depending on
   the caller's frequency window.** The seed is now *enumerated* rather than

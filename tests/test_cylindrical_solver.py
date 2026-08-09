@@ -14256,3 +14256,263 @@ def test_full_energy_balance_has_no_finite_denominator():
         [abs(_k_or_hankel(0, p_radial, float(r), leaky=False)[0]) for r in radii]
     )
     assert np.all(np.diff(p_magnitude) < 0.0), p_magnitude
+
+
+# ---------------------------------------------------------------------------
+# Layer-subdivision invariance: an oracle for the layered propagator stack.
+#
+# Subdividing a homogeneous annulus into several adjacent layers with the same
+# properties changes the *description* and not the medium, so the dispersion
+# must be bit-stable. It exercises exactly the machinery the single-layer
+# tests cannot reach -- interface matching and propagator composition across
+# more than one boundary -- and it is independent of the physics of any one
+# layer, because it compares the solver against itself under a relabelling
+# that no correct implementation may notice.
+#
+# Note what this does NOT test: an error common to every interface cancels
+# out. It is a consistency oracle, not an absolute one.
+# ---------------------------------------------------------------------------
+
+_SUB_SLOW = {"vp": 2600.0, "vs": 1300.0, "rho": 2300.0}
+_SUB_FAST = {"vp": 4000.0, "vs": 2300.0, "rho": 2500.0}
+_SUB_FLUID = {"vf": 1500.0, "rho_f": 1000.0}
+_SUB_MUD = {"vp": 3000.0, "vs": 1600.0, "rho": 2100.0}
+_SUB_STEEL = {"vp": 5860.0, "vs": 3140.0, "rho": 7800.0}
+_SUB_CEMENT = {"vp": 2800.0, "vs": 1600.0, "rho": 1920.0}
+
+
+def _subdivide(layers, index, fractions):
+    """Replace ``layers[index]`` by adjacent copies summing to its thickness."""
+    from fwap import BoreholeLayer
+
+    target = layers[index]
+    assert abs(sum(fractions) - 1.0) < 1.0e-12
+    pieces = tuple(
+        BoreholeLayer(
+            vp=target.vp,
+            vs=target.vs,
+            rho=target.rho,
+            thickness=target.thickness * fraction,
+        )
+        for fraction in fractions
+    )
+    return layers[:index] + pieces + layers[index + 1 :]
+
+
+def test_subdividing_a_homogeneous_layer_leaves_the_dispersion_unchanged():
+    """Relabelling one annulus as several must change nothing at all.
+
+    Covered for all three azimuthal orders, for an open-hole mudcake and a
+    cased steel-plus-cement stack, and splitting the inner as well as the
+    outer layer of that stack -- so the invariance is checked where the
+    propagator has to compose across a large impedance contrast, not only
+    in the easy case.
+    """
+    from fwap import (
+        BoreholeLayer,
+        flexural_dispersion_layered,
+        quadrupole_dispersion_layered,
+        stoneley_dispersion_layered,
+    )
+
+    mud = (BoreholeLayer(**_SUB_MUD, thickness=0.04),)
+    cased = (
+        BoreholeLayer(**_SUB_STEEL, thickness=0.01),
+        BoreholeLayer(**_SUB_CEMENT, thickness=0.03),
+    )
+    freq = np.linspace(2.0e3, 14.0e3, 13)
+
+    cases = [
+        (stoneley_dispersion_layered, _SUB_SLOW, mud, 0),
+        (flexural_dispersion_layered, _SUB_SLOW, mud, 0),
+        (quadrupole_dispersion_layered, _SUB_SLOW, mud, 0),
+        (stoneley_dispersion_layered, _SUB_FAST, mud, 0),
+        (stoneley_dispersion_layered, _SUB_SLOW, cased, 0),
+        (stoneley_dispersion_layered, _SUB_SLOW, cased, 1),
+    ]
+    for solver, formation, layers, index in cases:
+        medium = dict(**formation, **_SUB_FLUID, a=0.10)
+        base = solver(freq, **medium, layers=layers).slowness
+        for fractions in ((0.5, 0.5), (0.3, 0.7), (0.25, 0.35, 0.40)):
+            split = solver(
+                freq, **medium, layers=_subdivide(layers, index, fractions)
+            ).slowness
+            ok = np.isfinite(base) & np.isfinite(split)
+            assert ok.sum() >= 4, (solver.__name__, layers, fractions)
+            assert np.allclose(base[ok], split[ok], rtol=1.0e-12, atol=0.0), (
+                solver.__name__,
+                index,
+                fractions,
+                np.max(np.abs(split[ok] / base[ok] - 1.0)),
+            )
+
+
+def test_layer_subdivision_invariance_is_not_vacuous():
+    """A subdivision that does not preserve the medium must be detected.
+
+    The invariance above is only worth asserting if a wrong stack fails it.
+    A thickness error of one part in ten thousand moves the slowness by
+    ~3e-6 relative -- nine orders above the 1e-15 floor the correct split
+    achieves -- so the check discriminates with enormous margin.
+    """
+    from fwap import BoreholeLayer, stoneley_dispersion_layered
+
+    medium = dict(**_SUB_SLOW, **_SUB_FLUID, a=0.10)
+    freq = np.linspace(2.0e3, 14.0e3, 13)
+    layers = (BoreholeLayer(**_SUB_MUD, thickness=0.04),)
+    base = stoneley_dispersion_layered(freq, **medium, layers=layers).slowness
+
+    exact = stoneley_dispersion_layered(
+        freq, **medium, layers=_subdivide(layers, 0, (0.5, 0.5))
+    ).slowness
+    assert np.max(np.abs(exact / base - 1.0)) < 1.0e-12
+
+    for relative_error, floor in ((1.0e-4, 1.0e-6), (1.0e-3, 1.0e-5)):
+        wrong = (
+            BoreholeLayer(**_SUB_MUD, thickness=0.02),
+            BoreholeLayer(**_SUB_MUD, thickness=0.02 * (1.0 + relative_error)),
+        )
+        got = stoneley_dispersion_layered(freq, **medium, layers=wrong).slowness
+        assert np.max(np.abs(got / base - 1.0)) > floor, relative_error
+
+
+def test_swapping_layer_order_is_not_an_invariance():
+    """Recorded because a planning note claimed it was.
+
+    `plans/learning.md` listed "swapping layer order should leave the
+    dispersion invariant" as a candidate oracle. It is false for a
+    cylindrical stack: the layers sit at *different radii*, so exchanging
+    them moves material from one radius to another and changes the medium.
+    Measured here at about 1 % -- far too large to be numerical, and in the
+    direction physics requires.
+    """
+    from fwap import BoreholeLayer, stoneley_dispersion_layered
+
+    medium = dict(**_SUB_FAST, **_SUB_FLUID, a=0.10)
+    freq = np.linspace(2.0e3, 15.0e3, 8)
+    inner = BoreholeLayer(**_SUB_MUD, thickness=0.02)
+    outer = BoreholeLayer(vp=3500.0, vs=1900.0, rho=2300.0, thickness=0.03)
+
+    forward = stoneley_dispersion_layered(
+        freq, **medium, layers=(inner, outer)
+    ).slowness
+    reversed_ = stoneley_dispersion_layered(
+        freq, **medium, layers=(outer, inner)
+    ).slowness
+
+    ok = np.isfinite(forward) & np.isfinite(reversed_)
+    assert ok.sum() >= 6
+    assert np.max(np.abs(reversed_[ok] / forward[ok] - 1.0)) > 1.0e-3
+
+
+# ---------------------------------------------------------------------------
+# Where the transparency invariance stops holding.
+#
+# Appending a layer whose properties equal the formation is a no-op on the
+# medium, so it must be a no-op on the dispersion. It is -- until the radial
+# dynamic range across the added layer gets large, at which point the root
+# search returns finite, plausible, wrong values. These tests pin that the
+# boundary exists and, importantly, establish *which* side is right using an
+# oracle outside the layered solver entirely.
+#
+# They pin a limitation, so a future fix should make the second one fail; it
+# should then be rewritten as a guarantee rather than worked around.
+#
+# Nothing about the size or location of the error is asserted. Both proved
+# platform-dependent, and two earlier versions of these tests failed in CI by
+# pinning first where the spurious root lands and then how far off it is.
+#
+# The existing single-layer transparency tests use a 0.005 m layer over
+# 0.5-8 kHz, which is far inside the safe region -- which is why the
+# limitation went unnoticed rather than being a regression.
+# ---------------------------------------------------------------------------
+
+
+def test_transparent_layer_is_a_no_op_while_the_dynamic_range_is_moderate():
+    """Thin formation-equal layers are transparent, as they must be."""
+    from fwap import BoreholeLayer, stoneley_dispersion_layered
+
+    medium = dict(**_SUB_SLOW, **_SUB_FLUID, a=0.10)
+    freq = np.linspace(2.0e3, 14.0e3, 13)
+    stack = (BoreholeLayer(**_SUB_MUD, thickness=0.02),)
+    base = stoneley_dispersion_layered(freq, **medium, layers=stack).slowness
+
+    for thickness in (0.01, 0.05, 0.10):
+        padded = stack + (BoreholeLayer(**_SUB_SLOW, thickness=thickness),)
+        got = stoneley_dispersion_layered(freq, **medium, layers=padded).slowness
+        ok = np.isfinite(base) & np.isfinite(got)
+        assert ok.sum() >= 10, thickness
+        assert np.max(np.abs(got[ok] / base[ok] - 1.0)) < 1.0e-10, thickness
+
+
+def test_transparent_layer_stops_being_a_no_op_when_it_is_thick():
+    """...and stops being one well before it returns NaN.
+
+    A formation-equal layer is physically nothing at all, so the padded and
+    plain stacks must agree to the same ~1e-15 that layer subdivision
+    achieves. For thin layers they do -- the previous test asserts 1e-10.
+    Somewhere above 0.1 m at 100 kHz they stop agreeing, silently: both
+    calls return finite slownesses that look like dispersion curves.
+
+    Which one is wrong is settled from outside the layered solver, with
+    ``scholte_speed``: at 100 kHz the wavelength in the 2 cm mudcake is
+    ~1.6 cm, so the mode rides the *innermost* layer and must approach that
+    layer's Scholte speed. The plain stack does, to 0.05 %.
+
+    **Nothing about the size or location of the error is asserted, because
+    neither is a property of the physics.** Both move with thickness and
+    with platform: the padded answer has been seen at 289 m/s and at
+    1095 m/s for the same stack, disagreeing with the plain answer by 7 % on
+    one machine and by a factor of four on another, and two earlier versions
+    of this test failed in CI by pinning first the location and then the
+    magnitude. What is stable, and all that is claimed here, is that
+    transparency is lost somewhere in this range -- which is the finding.
+    """
+    from fwap import BoreholeLayer, scholte_speed, stoneley_dispersion_layered
+
+    medium = dict(**_SUB_SLOW, **_SUB_FLUID, a=0.10)
+    stack = (BoreholeLayer(**_SUB_MUD, thickness=0.02),)
+    freq = np.array([100.0e3])
+
+    plain = stoneley_dispersion_layered(freq, **medium, layers=stack).slowness[0]
+    assert np.isfinite(plain)
+    mud_scholte = scholte_speed(**_SUB_MUD, **_SUB_FLUID)
+    assert abs((1.0 / plain) / mud_scholte - 1.0) < 1.0e-3
+
+    # Transparency means agreement to ~1e-15; 1e-3 is twelve orders looser
+    # than that and seven looser than the thin-layer test's tolerance, so
+    # exceeding it cannot be round-off on any platform.
+    def is_transparent(thickness):
+        padded = stack + (BoreholeLayer(**_SUB_SLOW, thickness=thickness),)
+        got = stoneley_dispersion_layered(freq, **medium, layers=padded).slowness[0]
+        if not np.isfinite(got):
+            return False  # NaN is a clean failure, but still not transparent
+        return abs(got / plain - 1.0) < 1.0e-3
+
+    thicknesses = (0.12, 0.15, 0.18, 0.20, 0.25)
+    assert not all(is_transparent(t) for t in thicknesses), thicknesses
+
+
+def test_genuine_thick_layers_still_converge_to_the_right_limit():
+    """The breakdown is specific to a *redundant* layer, not to thick ones.
+
+    A real altered zone with genuine contrast keeps converging to the
+    innermost layer's Scholte speed at every thickness tried, and its error
+    barely moves with thickness. That matters for how the limitation should
+    be read: it is a defect in a construction used to *verify* the solver,
+    not a defect in the configurations the solver exists to model.
+    """
+    from fwap import BoreholeLayer, scholte_speed, stoneley_dispersion_layered
+
+    medium = dict(**_SUB_SLOW, **_SUB_FLUID, a=0.10)
+    inner_scholte = scholte_speed(**_SUB_MUD, **_SUB_FLUID)
+    freq = np.array([50.0e3, 100.0e3, 200.0e3])
+
+    for thickness in (0.02, 0.10, 0.25):
+        layers = (BoreholeLayer(**_SUB_MUD, thickness=thickness),)
+        slowness = stoneley_dispersion_layered(freq, **medium, layers=layers).slowness
+        assert np.all(np.isfinite(slowness)), thickness
+        error = np.abs((1.0 / slowness) / inner_scholte - 1.0)
+        assert np.all(error < 5.0e-3), (thickness, error)
+        # ...and it tightens with frequency, as a short-wavelength limit must.
+        assert np.all(np.diff(error) < 0.0), (thickness, error)
