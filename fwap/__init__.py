@@ -49,6 +49,12 @@ Modules outside the scope of the 1994 book (added for completeness):
                               source ring synthesis, and m=2
                               receiver-side stacker
                               (Tang & Cheng 2004 sect. 2.4-2.5)
+* :mod:`fwap.validation`  -- scoring a dispersion curve against a
+                              digitised published figure: strict
+                              loading of the traced CSV (it refuses
+                              wrong-unit input rather than rescaling
+                              it) and an RMS-deviation budget, used by
+                              ``docs/notebooks/cylindrical_biot_validation.ipynb``
 * :mod:`fwap.io`          -- LAS reader/writer (``lasio``), DLIS
                               reader/writer (``dlisio`` +
                               ``dliswriter``), and SEG-Y reader/writer
@@ -312,6 +318,14 @@ from fwap.io import (
 
 # Plotting helpers (public; require matplotlib at call time)
 from fwap.plotting import save_figure, wiggle_plot
+from fwap.validation import (
+    OverlayScore,
+    ReferenceCurve,
+    ReferenceDataError,
+    format_overlay_score,
+    load_reference_curve,
+    score_against_reference,
+)
 
 __all__ = [
     # Constants + logger
@@ -497,4 +511,11 @@ __all__ = [
     # Plotting
     "wiggle_plot",
     "save_figure",
+    # Validation against digitised reference figures
+    "ReferenceCurve",
+    "ReferenceDataError",
+    "load_reference_curve",
+    "OverlayScore",
+    "score_against_reference",
+    "format_overlay_score",
 ]

@@ -7,9 +7,15 @@ live in this directory.
 ## Status
 
 Empty until reference curves are digitised. Each section of the
-validation notebook ships with the `fwap` curve only; the overlay
-cells are stubbed to a clearly-marked `TODO: digitise <FIGURE>` block
-that becomes a real `pandas.read_csv(...)` + plot once the CSV lands.
+validation notebook ships with the `fwap` curve only and prints a
+clearly-marked `TODO: digitise <FIGURE>` line.
+
+**The scoring is already wired.** Dropping a CSV here needs no notebook
+edit: the section's `check_overlay(...)` call switches from printing
+the TODO to plotting the overlay, printing an RMS verdict, and
+asserting the 5 % budget. The machinery lives in `fwap.validation` and
+is covered by `tests/test_validation.py`, so it is known to work before
+any real reference exists.
 
 ## Schema
 
@@ -40,22 +46,37 @@ Suggested filenames (matching the notebook section titles):
 
 1. Digitise the figure (e.g. WebPlotDigitizer) into a CSV with the
    schema above.
-2. Drop the CSV here.
-3. In the corresponding notebook section, replace the `TODO`
-   placeholder cell with:
+2. Drop the CSV here under the documented name.
+3. Re-run the notebook. That is the whole procedure — there is no code
+   to edit.
 
-   ```python
-   ref = pd.read_csv("_data/<filename>.csv", names=["freq", "slowness"])
-   plt.plot(ref["freq"], ref["slowness"], "k:", label="reference")
-   ```
+## Units are checked, not assumed
 
-4. Re-run the notebook. The overlay panel renders.
+The loader (`fwap.load_reference_curve`) refuses input whose magnitude
+indicates a units mistake, and names the suspected error:
+
+| Symptom in the CSV                | What it usually means            |
+|-----------------------------------|----------------------------------|
+| slowness around 60–700            | axis read in µs/ft or µs/m       |
+| slowness around 1500–5000         | a *velocity* axis traced instead |
+| frequency around 1–30             | axis left in kHz                 |
+
+It also sorts click-order output by frequency, and rejects duplicate
+frequencies, non-positive values and curves shorter than three points.
+
+It never rescales the data to make it fit. That is deliberate: a
+reference quietly adjusted to match would agree with a wrong solver
+exactly as readily as with a right one, which would turn this whole
+directory into decoration.
 
 ## Validation gate
 
 `pytest --nbval-lax docs/notebooks/cylindrical_biot_validation.ipynb`
-re-executes every cell and fails on errors. A tighter gate
-(per-curve RMS deviation < 5 %) is part of the eventual full Plan I
-deliverable; it activates only once at least one reference CSV is
-present (the notebook's `OVERLAY_AVAILABLE` flag controls the
-assertion block).
+re-executes every cell and fails on any error — including the
+`assert score.passed` inside `check_overlay`. So once a reference CSV
+is present here, a solver regression that moves the curve by more than
+the 5 % RMS budget fails the notebook.
+
+With no CSVs present the notebook still runs end to end, and its
+closing cell states plainly that nothing in it is validated against
+literature yet. Green plots are not evidence.
