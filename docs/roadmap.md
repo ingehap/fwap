@@ -310,6 +310,18 @@ essentially complete -- plan items A through H in
    `scripts/gen_surrogate_dataset.py` keeps the cased dataset
    single-mode.
 
+   **It affects n=2 as well.** Checking the quadrupole's
+   high-frequency asymptote turned up the same signature: in slow
+   formations `quadrupole_dispersion` converges cleanly to the
+   plane-interface Scholte speed (better than 0.1 % at 400 kHz), but
+   in fast formations it returns a *non-monotone* scatter between the
+   Rayleigh and shear speeds — finite values, so a caller filtering
+   on `NaN` keeps them. Over the default mixed prior, 19 of 31 fast
+   draws cleared `min_finite` and 18 of those 19 were non-monotone,
+   which corrects a comment in the generator claiming such draws
+   "often fall below `min_finite`". So this item is not only about
+   the flexural mode; a fix would repair two solvers.
+
    **It is not caused by the layer stack.** Removing the casing and
    cement entirely leaves the identical formation just as sparse in an
    *open* hole, over the same lower part of the band — so no amount of

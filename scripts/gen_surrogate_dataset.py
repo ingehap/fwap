@@ -148,10 +148,21 @@ DEFAULT_MODES: tuple[ModeSpec, ...] = (
 # DEFAULT_MODES so the default dataset stays lean (two modes, two solves per
 # sample). Pass e.g. ``modes=(*DEFAULT_MODES, QUADRUPOLE_MODE)`` to
 # :func:`generate_dataset` for a three-mode dataset; the loader and models are
-# mode-count-agnostic (they read ``M`` from ``mode_names``). The quadrupole is
-# bound (finite) mainly in slow formations -- in fast formations it is largely
-# leaky and often falls below ``min_finite``, so it is recorded in the slowness
-# label but absent from ``mode_in_gather``.
+# mode-count-agnostic (they read ``M`` from ``mode_names``).
+#
+# **Pair this with a slow-formation prior.** The quadrupole is a clean bound
+# mode only for ``vs < vf``. An earlier version of this note said that in fast
+# formations it "often falls below ``min_finite``", so that bad draws would be
+# filtered out downstream. Measured over the default mixed prior, they usually
+# are not: 19 of 31 fast draws cleared ``min_finite``, and 18 of those 19
+# returned a *non-monotone* curve scattered between the Rayleigh and shear
+# speeds rather than a guided mode. Those would be marked present in
+# ``mode_in_gather`` and injected into the gather.
+#
+# The cause is the same leaky-mode limitation as the n=1 flexural case (see
+# docs/roadmap.md A.2): for ``vs > vf`` the root leaves the real axis and the
+# real-axis search returns spurious values. Slow-formation draws are unaffected
+# (11 of 11 monotone in the same sample).
 QUADRUPOLE_MODE: ModeSpec = ModeSpec(
     "quadrupole", quadrupole_dispersion, f0=4000.0, amplitude=1.0
 )

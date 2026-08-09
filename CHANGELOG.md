@@ -7,6 +7,28 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Quadrupole high-frequency asymptote checked; it validates the slow-formation
+  solver and exposes a fast-formation defect.** At short wavelength the borehole
+  wall looks flat to every azimuthal order, so the n=2 quadrupole must approach
+  the same plane-interface Scholte speed the n=0 Stoneley does. In slow and
+  intermediate formations it does: monotone convergence to better than 0.1 % at
+  400 kHz, and n=0 and n=2 agree with each other to 1e-4 there.
+  In **fast** formations it does not. `quadrupole_dispersion` returns a
+  *non-monotone* scatter between the Rayleigh and shear speeds — finite values,
+  which is the hazard, because a caller filtering on `NaN` keeps them. This is
+  the same leaky-mode limitation as the n=1 flexural case (roadmap A.2), so that
+  item now covers two solvers rather than one.
+  It also corrects a comment in `scripts/gen_surrogate_dataset.py`, which said
+  fast-formation quadrupole draws "often fall below `min_finite`" and would
+  therefore be filtered out downstream. Measured over the default mixed prior
+  they usually are not: **19 of 31 fast draws cleared `min_finite`, and 18 of
+  those 19 were non-monotone** — they would be marked present in
+  `mode_in_gather` and injected into the gather. `QUADRUPOLE_MODE` should be
+  paired with a slow-formation prior, which the comment now says. Slow draws are
+  unaffected (11 of 11 monotone in the same sample).
+  Five tests, including one pinning the fast-formation misbehaviour so that a
+  future fix to the leaky-mode search surfaces here rather than passing
+  unnoticed.
 - **The pseudo-Rayleigh rigid-pipe cutoff estimate is checked against the
   solver for the first time, and its documented use was wrong.**
   `_J1_FIRST_ZERO` and the closed form
