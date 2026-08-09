@@ -7,6 +7,43 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Global assembly for the fluid microannulus
+  (`_modal_determinant_n0_microannulus`) — the n=0 modal determinant for
+  `borehole fluid | casing | microannulus | cement | formation`.** Builds on the
+  fluid-annulus element below. The stack splits into two elastic blocks joined
+  by a two-component state `(u_r, sigma_rr)`, giving an 11x11 system rather than
+  the all-elastic 7x7: 1 borehole + 4 + 4 + 2 unknowns against 3 + 1 + 3 + 4
+  interface conditions. The annulus amplitudes are folded out through the fluid
+  propagator, exactly as layer-internal amplitudes are in the 7x7, so extra
+  layers in either block leave the size unchanged.
+  **Validated against the Krauklis crack wave**, the analytic phase velocity of
+  a wave guided by a thin fluid gap between elastic walls,
+  `c = (omega h / (C rho_f))^{1/3}` with `C` the sum of the two wall compliances
+  `(1 - nu)/mu`. That formula comes from lubrication flow plus quasi-static
+  half-space compliance — no Bessel functions, no cylindrical geometry, no
+  shared code — and it fixes an *absolute* velocity, not just a scaling. The
+  solver reproduces it to 0.02 % at a 1 um gap, 0.2 % at 10 um and 1.7 % at
+  100 um, departing as `k h` stops being small, and follows its cube-root
+  scaling in frequency and gap thickness and its dependence on wall stiffness
+  and gap-fluid density. Where the oracle stops applying is measured too: the
+  mode is confined within `~1/k_z` of the gap, so walls thinner than that fall
+  away from the analytic value (0.64 of it for a 2 mm casing against a 6 mm
+  decay length).
+  Also checked against an independently assembled 13x13 form that keeps the gap
+  amplitudes explicit, and for invariance under subdivision of either elastic
+  block.
+  **There is no reduction to the existing solver, and that is the physics.**
+  The `annulus_thickness -> 0` limit is a frictionless *slip* interface, not the
+  bonded stack: shear traction stays zero on both faces and `u_z` stays free
+  however thin the gap. Measured at 8 kHz, the Stoneley-like root converges as
+  `O(h)` to 1383.45 m/s against 1400.04 m/s bonded — a 1.2 % offset that does
+  not close. That is why the validation had to come from outside the module.
+  The assembly carries **two root families**, a Stoneley-like mode and the slow
+  gap mode, which is recorded as a trap for the root finder that comes next: the
+  n=0 branch-selection defect fixed earlier came from a bracket that assumed a
+  single root. The root set is checked to be independent of scan grid and
+  window. Still private, for that reason — choosing which family a public
+  dispersion curve follows is a separate decision.
 - **Fluid-annulus propagator element for n=0 (`_fluid_layer_e_matrix_n0`,
   `_fluid_layer_propagator_n0`) — the first piece of the microannulus model for
   the debonded regime.** A fluid annulus differs from an elastic one in ways
@@ -35,6 +72,24 @@ the project uses [Semantic Versioning](https://semver.org/).
   failure is attributable to the assembly.
 
 ### Fixed
+- **Two ways a determinant sweep could escape its own contract, found while
+  building the microannulus assembly.** A determinant a root finder scans must
+  return `NaN` where it cannot be formed — never warn, never raise. Neither held
+  at low trial phase velocity. The unscaled `I_n` in the layer state matrices
+  overflows once the Bessel argument passes ~709, and because that happens
+  *inside* the helper, checking the result for finiteness cleaned up the value
+  but not the `RuntimeWarning`. Separately, `numpy.linalg.solve` inside the
+  fluid propagator hit an exactly singular matrix — `K_n` underflowing to zero
+  while `I_n` overflowed — and raised `LinAlgError` out of the sweep.
+  `_modal_determinant_n0_microannulus` now bounds every Bessel argument before
+  building any state matrix, using `kz * r_outermost` (an upper bound on all of
+  them) against `log(sqrt(DBL_MAX))` — the same square-root-of-double-max
+  headroom rule the product guard already used, expressed in the exponent. It
+  also gates the fluid propagator on its own exact determinant identity
+  `det P_f = r_inner/r_outer`, which fails well before the entries stop being
+  finite; that turns the element's documented validity range into an enforced
+  one. Both guards are exercised, and a 1600-point sweep asserts no
+  `RuntimeWarning` escapes. Existing assemblies are untouched.
 - **Compliant layers in a cased stack returned spurious roots instead of
   `NaN`.** Found while starting the free-pipe / debonded item. A very compliant
   elastic layer drives the propagator's dynamic range past double precision; the

@@ -511,3 +511,102 @@ still appears in the coverage run. A plain `pytest -q` run shows none, which is
 the same signature as the coverage-layer artefact seen earlier in the session.
 Identified rather than assumed is the standard here, so the claim stands only
 for the compliant-layer warnings.
+
+## Session note: the fluid-annulus element reply
+
+> Both tasks done, on **PR #68** (draft). Check-in armed.
+>
+> ## Task 1 — log appended, with a correction
+>
+> I'd claimed the #67 fix "closes the intermittent overflow warnings." The gate
+> afterwards still showed 1 warning under coverage, so that was too strong. The
+> compliant-layer warnings *are* gone — the four tests there run under
+> `warnings.simplefilter("error")` — but one remains in coverage runs and none
+> appears without coverage reporting. Three consistent checks now bound it as
+> the coverage-layer artifact seen earlier. The claim is narrowed to what was
+> measured.
+>
+> ## Task 2 — the fluid-annulus element
+>
+> A fluid annulus isn't a soft elastic one: two amplitudes instead of four,
+> shear traction identically zero, axial slip permitted — so the propagated
+> state is `(u_r, sigma_rr)` rather than the elastic four-vector. That's why it
+> changes the assembly's shape and not just its numbers.
+>
+> **Verified against an identity from outside the module.** The Bessel Wronskian
+> collapses the determinant to `det E_f = -1/(rho w^2 r)`, hence
+> `det P_f = r_in/r_out` — with no dependence on frequency, velocity, density or
+> `k_z`. A sign slip or swapped Bessel order breaks it immediately.
+>
+> Separately, the state matrix is checked against a **numerical derivative of
+> the pressure** — testing it against the momentum equation it encodes rather
+> than the algebra used to derive it. That's the check that would have caught
+> the two sign errors made earlier in this session, applied from the start this
+> time rather than after a failure.
+>
+> **The accuracy range is measured, not assumed.** I first wrote the determinant
+> test over a 0.05-0.50 m annulus and it failed. The response was to
+> characterise where the element stops working — error tracks the Bessel span
+> `F*dr`, machine precision to ~2, useless by 20 — and pin that, rather than
+> loosen the tolerance until it passed. A debonding gap puts the span below 0.1,
+> so it's a documented limit rather than a practical one, but it's documented
+> because the identical exponential-range failure caused the spurious roots in
+> #67.
+>
+> **Nothing public yet, deliberately.** `BoreholeLayer` can't express a fluid and
+> the global assembly changes shape when one is present. Shipping a public layer
+> type no solver accepts would be worse than shipping nothing — so the
+> foundation is verified in isolation first, and when the assembly lands any
+> failure is attributable to the assembly rather than to this.
+
+## Session note: the microannulus global assembly reply
+
+> Both tasks are complete for this turn. Summary of what I did:
+>
+> **Task 1** — appended the previous reply (the fluid-annulus element write-up)
+> to `plans/log_output.md`. Done.
+>
+> **Task 2** — built the global assembly,
+> `_modal_determinant_n0_microannulus`: an **11x11** n=0 determinant for
+> `borehole fluid | casing | microannulus | cement | formation`. A fluid gap
+> can't carry the elastic four-vector, so the stack splits into two elastic
+> blocks joined by `(u_r, sigma_rr)` — 1+4+4+2 unknowns against 3+1+3+4
+> interface conditions.
+>
+> The hard part was validation. **This configuration has no reduction to the
+> existing solver**: the `h -> 0` limit is a frictionless *slip* interface, not
+> the bonded stack, so the Stoneley-like root converges to 1383.45 m/s against
+> 1400.04 m/s bonded — a 1.2 % offset that doesn't close.
+>
+> What solved it was an unexplained second root I found while smoke-testing.
+> Rather than dismiss it, I measured its scaling: `c ~ (f*h)^(1/3)` in both
+> variables. That's the **Krauklis crack wave**, which has a closed form —
+> `c = (omega h / (C rho_f))^(1/3)`, `C = sum (1 - nu)/mu` — derivable from
+> lubrication flow plus the quasi-static half-space response. No Bessel
+> functions, no cylinder, no shared code, and it fixes an *absolute* velocity.
+> The solver reproduces it to **0.02 % at a 1 um gap**, departing as `k h`
+> grows. I also measured where the oracle stops applying: the mode is confined
+> within ~1/k of the gap, so a 2 mm casing against a 6 mm decay length gives
+> 0.64 of the analytic speed.
+>
+> Two defects fixed on the way, both violations of "a determinant a root finder
+> sweeps must return NaN, never warn, never raise": unscaled `I_n` overflowing
+> inside the state-matrix helper (so an isfinite check cleaned the value but not
+> the warning), and `LinAlgError` escaping from the fluid propagator's `solve`.
+> Guarded by a Bessel-argument bound and by gating the propagator on its own
+> exact determinant identity. Existing assemblies untouched.
+>
+> Nine tests, ~11 s (a first pass cost 30 s; I measured that the root set is
+> stable from 200 grid samples up and cut accordingly). Committed and pushed;
+> **draft PR #69** is open.
+>
+> Two caveats I should state plainly rather than let pass:
+>
+> * The local full-suite run I have in hand reported 92.91 % coverage, but I'd
+>   run two targeted `--cov` jobs concurrently against the same `.coverage`
+>   file, so that number is raced and I'm not treating it as a result. A clean
+>   re-run and CI are both still in flight; I've armed a monitor and will act on
+>   whatever they report.
+> * The assembly stays private. It has two root families, and choosing which one
+>   a public dispersion curve follows is the next decision — that's exactly the
+>   shape of the branch-selection defect fixed in #64.
