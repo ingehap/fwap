@@ -634,9 +634,49 @@ a test asserting it, so the no-redistribution property is enforced
 rather than intended.
 
 **What is still open, and it is the important half**: neither
-registered file is a full-waveform sonic gather, because no openly
-redistributable one is known to exist. So the sonic processing chain
-is still validated only against synthetics.
+registered file is a full-waveform sonic gather, so the sonic
+processing chain is still validated only against synthetics.
+
+*This entry used to add "because no openly redistributable one is
+known to exist". That is withdrawn -- a search turned up two credible
+candidate sources, and the claim was too strong.* Neither has been
+downloaded or opened, because this sandbox's egress reaches GitHub
+only, so what follows is a shortlist assembled from published
+metadata rather than from inspected files. Treat it as a lead, not a
+result.
+
+1. **Utah FORGE**, via the DOE Geothermal Data Repository
+   (`gdr.openei.org`, also mirrored on AWS Open Data). Wells 58-32
+   and 16A(78)-32 carry Schlumberger dipole sonic logs in **DLIS**,
+   which `fwap.io.read_dlis` already reads. The tool described for
+   the site (DSST-B) is an **eight-receiver array with a monopole
+   and two dipole sources** -- the geometry this package models.
+   GDR data from DOE Geothermal Technologies Office projects is
+   **CC BY 4.0**, so this one is redistributable, not merely
+   fetchable. Formation is granite, which is fast -- useful, and a
+   reminder that it exercises the regime where the flexural solver
+   is sparse (section A.2).
+2. **IODP / ODP**, via the LDEO Borehole Research Group
+   (`brg.ldeo.columbia.edu`). Per-hole pages publish sonic waveform
+   data for many expeditions, in DLIS *and* in a binary export
+   intended for import into Python. The documented layout is close
+   to this package's defaults: eight waveforms of 512 samples at
+   10 us (monopole) or 40 us (dipole), logged every 15.24 cm. The
+   licence could not be confirmed from here; IODP data are open
+   access after moratorium, but whether that permits redistribution
+   is the open question. Note this matters less than it looks --
+   the harness fetches on demand and never vendors, which is exactly
+   how the KGS log with its third-party copyright is already
+   handled.
+
+**What a person with network access needs to do next**, in order:
+open one file and confirm it contains per-receiver waveforms rather
+than only processed slowness curves; confirm the licence permits at
+least fetch-on-demand use; compute a SHA-256 and add one
+`RealDataset` entry to `scripts/fetch_real_data.py`. Only the first
+of those is real work. No registry entry is added here because the
+checksum cannot be computed without the file, and a registry entry
+without a verified checksum would defeat the point of the registry.
 
 **Priority note**: this remains the highest-value open item, and its
 value grew when the `sonic_ml` layer landed (section G). Every
