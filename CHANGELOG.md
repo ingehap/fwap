@@ -18,9 +18,18 @@ the project uses [Semantic Versioning](https://semver.org/).
   waveforms for many holes, DLIS plus a Python-friendly binary export,
   documented as eight waveforms x 512 samples at 10/40 us every 15.24 cm —
   close to this package's own defaults).
-  Neither file has been downloaded or opened: this sandbox's egress reaches
-  GitHub only. The entry says so, and is explicit that it is a shortlist from
-  published metadata rather than a verified result. No registry entry is added,
+  Neither file has been downloaded or opened, and the entry is explicit that it
+  is a shortlist from published metadata rather than a verified result.
+  Fetching was then attempted, which narrowed the handoff and corrected one
+  claim: the shortlist originally said Utah FORGE is "also mirrored on AWS Open
+  Data", implying an S3 route to the logs. That is wrong and is removed. The
+  AWS buckets `gdr-data-lake` and `oedi-data-lake` *are* reachable from this
+  sandbox and object downloads work, but they carry only bulk monitoring data
+  (DAS, geophone, CASSM, magnetotellurics) — no DLIS, no LAS, nothing wireline.
+  The hosts that do serve the log submissions (`gdr.openei.org`,
+  `data.openei.org`, `brg.ldeo.columbia.edu`, `osti.gov`, `iodp.tamu.edu`) all
+  refuse to connect. The obstacle is which host serves the file, not the data,
+  so a session with ordinary web egress could fetch it directly. No registry entry is added,
   because the SHA-256 cannot be computed without the file and an unverified
   checksum would defeat the registry's purpose. The remaining steps are
   recorded in order, and only the first — opening a file to confirm it holds

@@ -95,10 +95,21 @@ is withdrawn:
   matters less than it looks, since the harness fetches on demand and never
   vendors.
 
-Neither has been downloaded or opened — egress here reaches GitHub only — so
-this is a shortlist from published metadata, not a verified result. The next
-step is one person opening a file to confirm it holds per-receiver waveforms
-rather than processed curves, then a checksum and a one-line registry entry.
+Neither has been downloaded or opened, so this is a shortlist from published
+metadata, not a verified result.
+
+Fetching was attempted and the result is more specific than "egress is blocked".
+The AWS Open Data buckets `gdr-data-lake` and `oedi-data-lake` **are** reachable
+and object downloads work — but they carry only bulk monitoring data (DAS,
+geophone, CASSM, magnetotellurics), no wireline logs at all. The hosts that do
+serve the log submissions (`gdr.openei.org`, `data.openei.org`,
+`brg.ldeo.columbia.edu`, `osti.gov`, `iodp.tamu.edu`) all refuse to connect. So
+the obstacle is which host serves the file, not the data: a session with
+ordinary web egress could fetch it directly.
+
+The next step is one person opening a file to confirm it holds per-receiver
+waveforms rather than processed curves, then a checksum and a one-line registry
+entry.
 
 ## 3. Validation figures (A.1) — half closed, half blocked
 
