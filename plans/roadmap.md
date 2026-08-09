@@ -40,19 +40,22 @@ second number was mode confusion rather than imprecision, and closing it (F.1)
 took compressional to **95 %**. No synthetic could have found it, because the
 synthetics are produced by the forward model the picker is scored against.
 
-What that leaves is an asymmetry worth naming: **the results exist but CI cannot
-defend them.** The two rows below are what would close that, and only one of
-them is blocked. (A third piece of F, confirming the registered checksum
-against its canonical host, is tracked as F.4 in the section itself.)
+The package can now do all of that through its own API: `read_dlis_waveforms`
+(F.3) reads the per-receiver waveforms and recovers the acquisition geometry
+from the file's AXIS records. What remains is an asymmetry worth naming — **the
+results exist but CI cannot defend them**, and the one row that would close that
+is blocked on a decision rather than on work. (A third piece of F, confirming
+the registered checksum against its canonical host, is tracked as F.4 in the
+section itself.)
 
 | Open item | Why it matters |
 |-----------|----------------|
-| **F.3 A waveform path in `read_dlis`** | Unblocked, and the bottleneck. `read_dlis` skips multi-dimensional channels, so the waveforms both results above were measured on are unreachable from the public API — every one of those numbers came from calling `dlisio` directly. Prerequisite for F.2. |
 | **F.2 A waveform fixture CI can use** | The waveforms live in an 808 MB DLIS inside a 471 MB zip. A small extracted subset would work, but hosting one is redistribution and needs a decision rather than a commit. Until then what defends F.1 in CI is a seeded synthetic, not the log that found it. |
 | **G.2 Debonded-regime datasets** | The forward model A.5 was blocking on is now complete, so this needs no new physics. It is also where a CBL-amplitude baseline stops being a strawman. |
 | **A.1 Validation figures** | Ties the solver to published literature rather than to itself. Still needs the books. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
 | ~~**F. A real sonic log**~~ | *Largely closed.* A Schlumberger DSI log is registered and tested; the package's shear picks match the vendor's to **0.12 %** median on real rock. |
+| ~~**F.3 A waveform path in `read_dlis`**~~ | *Closed.* `read_dlis_waveforms` reads a multi-dimensional channel and recovers sample interval and receiver offsets from the RP66 AXIS records, so the processing chain runs on a real log without `dlisio` at the call site. |
 | ~~**F.1 The compressional-pick defect**~~ | *Closed.* It was mode confusion, not imprecision. `track_modes` and `pick_modes` now refuse to assign one arrival to two modes (`resolve_mode_collisions`); vendor agreement went 62 % → **95 %**, with shear bit-identical and nothing dropped. Kept below for the reasoning and the residual limits. |
 | ~~**A.5 Fluid microannulus**~~ | *Forward model complete.* Elements, assembly and both public APIs are on `main`; kept below for the reasoning and the measured limits. |
 
@@ -466,13 +469,29 @@ See `plans/log_output.md` for the full reading. In brief:
   old behaviour stays reachable, and tested, via
   `resolve_mode_collisions=False`.
 
+**F.3, closed: the waveforms are reachable from the public API.**
+
+* `read_dlis` returns one value per depth and skips everything else, which is
+  where a full-waveform record lives. `read_dlis_waveforms` reads one such
+  channel as `(n_depth, n_receiver, n_sample)`, and `DlisCurves` now reports
+  the names and shapes of what it skipped so they are discoverable at all.
+* **The acquisition geometry comes from the file.** RP66 v1 AXIS objects carry
+  COORDINATES and SPACING *with a declared unit*, so `sample_interval()` and
+  `offsets()` return seconds and metres without a constant anywhere: 10 us and
+  eight receivers 6 in apart from 7.874 m on this tool. Which axis is which is
+  decided by the declared unit, never by the AXIS-ID string, since AXIS-ID
+  values are producer-defined.
+* It also corrected an assumption. The hand-assembled runs used a 2.7432 m
+  first offset read off the tool description; the file says 7.874 m. Slowness
+  depends on receiver *spacing*, so the earlier numbers stand unchanged — 86 %
+  compressional agreement either way — but arrival times do not, and the file's
+  value is the right one.
+* Reading one channel of the 88 MB pass takes 1.1 s, against ~100 s to
+  materialise the whole frame, because only the requested channel and the index
+  channel are read.
+
 **What is still open:**
 
-* **F.3 — a waveform path in `fwap.io.read_dlis`.** It deliberately skips
-  multi-dimensional channels, so it cannot read these waveforms at all: every
-  real-data number above was produced by calling `dlisio` directly, outside the
-  package. Unblocked, ordinary work, and a prerequisite for F.2 and for any of
-  this being usable from the public API.
 * **F.2 — a waveform fixture the CI can actually use.** The waveforms live in
   an 808 MB DLIS inside a 471 MB zip, which is not a viable fetch-on-demand
   test fixture. A small extracted subset would be, but hosting one is

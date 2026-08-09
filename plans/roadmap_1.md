@@ -2,15 +2,15 @@
 
 A prioritised reading of the open items in `plans/roadmap.md`, current through
 the analytic-oracle programme (PRs #59-#66), the fluid-microannulus work
-(PRs #67-#72) and the real-data arrival and the defect it exposed
-(PRs #74-#76).
+(PRs #67-#72), and the real-data arrival with the defect it exposed and the
+waveform reader it demanded (PRs #74 onward).
 `plans/roadmap.md` — which absorbed the old `docs/roadmap.md` — is the fuller
 status file; this is a snapshot of *priority and reasoning* at one point in
 time, so check both against the tree before acting on either.
 
 ## The shape of it
 
-Six things are open, and they fall into three kinds — which matters more than
+Five things are open, and they fall into three kinds — which matters more than
 their ordering, because the kinds differ in whether they can be worked on from a
 coding session at all. The struck-out rows are kept because how they closed is
 the useful part of the story: each came loose from a larger item by measurement
@@ -22,25 +22,20 @@ rather than by planning.
 | ~~1c~~ | ~~Trapped pseudo-Rayleigh modes unexposed (A.4)~~ | **closed** (#66) | — |
 | ~~2~~ | ~~A real full-waveform sonic gather (F)~~ | **closed** (#74) | — |
 | ~~2a~~ | ~~The compressional-pick defect it exposed (F.1)~~ | **closed** (#75, #76) | — |
+| ~~2b~~ | ~~A waveform path in `read_dlis` (F.3)~~ | **closed** | — |
 | 1b | Leaky-mode root tracking, n=1 (A.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
-| 2b | A waveform path in `read_dlis` (F.3) | **implementation** | nothing |
 | 2c | A waveform fixture CI can fetch (F.2) | sourcing *and* a decision | hosting an extracted subset is redistribution |
 | 3 | Digitised validation figures (A.1, curve shapes) | sourcing | access to the books |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
 | 5 | Debonded-regime `sonic_ml` datasets (G.2) | **implementation** | nothing — the microannulus forward model it waited on is complete |
 
-**Two rows are now unblocked implementation, where for several revisions
-everything open was blocked on something outside the session** — a file behind
-an unreachable host, a book, a derivation, a release. Items 2b and 5 are
-neither. Both are ordinary work with real user value that can be finished from
-here.
-
-Item 2b is the smaller and the more leveraged: `fwap.io.read_dlis` deliberately
-skips multi-dimensional channels, so the per-receiver waveforms this project
-was finally scored against are *still* unreachable from the public API. Every
-real-data measurement in this repository was taken with `dlisio` called
-directly, outside the package. Until that changes, item 2c has nothing to be a
-fixture *for*.
+**Item 5 is the one open row that is ordinary implementation work**, where for
+several revisions everything open was blocked on something outside the session
+— a file behind an unreachable host, a book, a derivation, a release. Item 2b
+was the other, and it is now closed: `read_dlis_waveforms` reads the
+per-receiver waveforms and recovers the acquisition geometry from the file's
+AXIS records, so the processing chain runs on a real log with no `dlisio` at
+the call site.
 
 Item 3 still cannot be closed by writing code here. Note the qualifier that
 survived from earlier revisions and turned out to be the important one: the
@@ -84,9 +79,9 @@ What this means for prioritisation kept moving. An earlier revision claimed item
 too. Item 2 has since closed outright, and its value was exactly what this file
 predicted: the first real log immediately exposed a defect that had been shipping
 for the project's whole life and that no synthetic could have found. Two of its
-consequences, 2b and 2c, are what remain of it — and 2b is the sort of small
+consequences were 2b and 2c; 2b turned out to be exactly the sort of small
 implementation job that earlier revisions of this file kept assuming did not
-exist.
+exist, and is now closed. 2c is a decision rather than work.
 
 ## 1. Leaky-mode root tracking (A.2), and the three items that split off it
 
@@ -155,8 +150,8 @@ literature access too.
 ## 2. A real full-waveform sonic gather (F) — closed, and what it cost to learn
 
 **This item is closed, and it was worth what this file kept saying it was
-worth.** Everything below the first two paragraphs is the record of how; the
-live work is in 2b and 2c.
+worth.** Everything below the first two paragraphs is the record of how. Of the
+two consequences it left, 2b is closed and 2c is a decision.
 
 The Utah FORGE dipole sonic arrived: a Schlumberger DSI run from well ME-ESW1,
 registered as `forge_dsi_las` in `scripts/fetch_real_data.py`, with the
@@ -198,14 +193,26 @@ The other candidate is untouched and remains a lead, not a result:
   vendors. A second well would test whether F.1's repair generalises further
   than the two logging passes it has been checked on.
 
-### 2b. A waveform path in `read_dlis` (F.3) — unblocked, and the bottleneck
+### 2b. A waveform path in `read_dlis` (F.3) — closed
 
-`fwap.io.read_dlis` skips multi-dimensional channels by design, so `PWF1`-`PWF4`
-are unreachable from the public API. Every number in the paragraphs above was
-obtained by calling `dlisio` directly, outside the package — which means the
-package cannot yet do, from its own API, the thing it was just shown to be good
-at. This is ordinary implementation work with nothing in front of it, and it is
-a prerequisite for 2c being useful.
+`read_dlis` skips multi-dimensional channels by design, so `PWF1`-`PWF4` were
+unreachable from the public API and every number in the paragraphs above was
+obtained by calling `dlisio` directly. `read_dlis_waveforms` closes that.
+
+The part worth keeping is where the geometry came from. The obvious route was
+Schlumberger's own parameter records — `DSI4` (digitizer sample interval) and
+`RX1G`..`RX8G` (receiver geometry) are all present and all correct. Using them
+would have hard-coded a vendor's naming into the reader. RP66 v1 AXIS objects
+carry the same information as part of the *standard*: COORDINATES and SPACING,
+each with a declared unit. So the reader selects the time and offset axes by
+their **unit** rather than by the AXIS-ID string, which is producer-defined,
+and converts to seconds and metres from whatever the file declares.
+
+It also corrected an assumption these notes had inherited: the hand-assembled
+runs used a 2.7432 m first offset taken from the tool description, and the file
+says 7.874 m. The measured agreement is unchanged, because STC slowness depends
+on receiver spacing rather than absolute offset — but that is a reason the
+error was invisible, not a reason it was harmless.
 
 ### 2c. A waveform fixture CI can fetch (F.2), and the checksum
 
@@ -450,17 +457,14 @@ of this file got wrong, and the corrections are worth not losing.
 
 ## Recommendation
 
-**Do item 2b, and do it first.** `fwap.io.read_dlis` skips multi-dimensional
-channels, so the per-receiver waveforms this package was finally scored against
-cannot be read through its own API — every real-data number here was produced by
-calling `dlisio` directly. It is unblocked, it is small, and it is the
-prerequisite for item 2c, which is what would put the 0.12 % shear result and the
-95 % compressional result under CI instead of leaving them as one-off
-measurements in a changelog.
+**Do item 5.** It is now the only open row that is ordinary implementation
+work: it needs no new physics since A.5 shipped, and it is where a
+CBL-amplitude baseline stops being a strawman.
 
-Item 5 is the larger piece of available work and is worth doing next: it needs
-no new physics now that A.5 has shipped, and it is where a CBL-amplitude
-baseline stops being a strawman.
+Item 2c is more valuable but is not work — it is a decision. Hosting an
+extracted waveform subset is redistribution, and until someone makes that call
+the 0.12 % shear result and the 95 % compressional result stay one-off
+measurements in a changelog rather than something CI defends.
 
 The previous revision of this file recommended item 2, on the grounds that
 everything in the repository was measured against the forward model that

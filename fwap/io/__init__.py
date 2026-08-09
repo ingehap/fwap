@@ -29,15 +29,25 @@ References
 
 from __future__ import annotations
 
-from fwap.io._dlis import DlisCurves, read_dlis, write_dlis
+from fwap.io._dlis import (
+    DlisAxis,
+    DlisCurves,
+    DlisWaveforms,
+    read_dlis,
+    read_dlis_waveforms,
+    write_dlis,
+)
 from fwap.io._las import LasCurves, read_las, write_las
 from fwap.io._segy import SegyGather, read_segy, write_segy
 
 __all__ = [
+    "DlisAxis",
     "DlisCurves",
+    "DlisWaveforms",
     "LasCurves",
     "SegyGather",
     "read_dlis",
+    "read_dlis_waveforms",
     "read_las",
     "read_segy",
     "write_dlis",

@@ -117,7 +117,14 @@ def test_read_las_exposes_step(tmp_path):
 # DLIS reader / writer
 # ---------------------------------------------------------------------
 
-from fwap.io import DlisCurves, read_dlis, write_dlis
+from fwap.io import (
+    DlisAxis,
+    DlisCurves,
+    DlisWaveforms,
+    read_dlis,
+    read_dlis_waveforms,
+    write_dlis,
+)
 
 
 def test_read_write_dlis_round_trip(tmp_path):
@@ -365,3 +372,391 @@ def test_write_segy_rejects_non_positive_dt(tmp_path):
         write_segy(
             str(tmp_path / "bad.sgy"), np.zeros((2, 16), dtype=np.float32), dt=0.0
         )
+
+
+# ---------------------------------------------------------------------
+# DLIS waveform channels (array-sonic records)
+#
+# `read_dlis` returns one value per depth and skips everything else, so
+# for most of this package's life the per-receiver waveforms in a real
+# sonic DLIS -- the only thing the processing chain actually consumes --
+# were unreachable from the public API. `read_dlis_waveforms` reads them.
+#
+# Two kinds of test below, because `dliswriter` cannot produce the shape
+# the real files use. It caps datasets at two dimensions and overrides a
+# declared `dimension` from the data, so a written channel is always
+# `(n_depth, n)` with a single axis. The round-trip tests use that and
+# are honest end-to-end; the `(n_depth, n_receiver, n_sample)` case is
+# covered against a stub whose shape the round-trip tests pin.
+# ---------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def waveform_dlis(tmp_path_factory):
+    """A DLIS carrying one vector channel with a declared time axis.
+
+    Module-scoped because writing is the expensive half of these tests
+    and every one of them wants the same file.
+    """
+    import dliswriter
+
+    from fwap.io._dlis import _DLIS_OUTPUT_CHUNK_BYTES, _suppress_fd
+
+    n_depth, n_sample, dt_us = 6, 32, 10.0
+    f = dliswriter.DLISFile()
+    lf = f.add_logical_file()
+    lf.add_origin("FWAP")
+    axis = lf.add_axis(
+        "TAX",
+        axis_id="MICRO_TIME",
+        # dliswriter requires one coordinate per sample; the regular
+        # start+spacing form real files use is exercised separately
+        # against DlisAxis directly.
+        coordinates={"value": [dt_us * i for i in range(n_sample)], "units": "us"},
+        spacing={"value": dt_us, "units": "us"},
+    )
+    depth = np.arange(n_depth, dtype=float) * 0.1524
+    data = np.arange(n_depth * n_sample, dtype=np.float32).reshape(n_depth, n_sample)
+    channels = (
+        lf.add_channel("DEPT", data=depth, units="m"),
+        lf.add_channel("WFRM", data=data, axis=axis, units=""),
+        lf.add_channel("DTCO", data=np.linspace(50.0, 60.0, n_depth), units="us/ft"),
+    )
+    lf.add_frame("MAIN", channels=channels, index_type="BOREHOLE-DEPTH")
+
+    path = tmp_path_factory.mktemp("dlis_wf") / "wf.dlis"
+    with _suppress_fd(2):
+        f.write(str(path), output_chunk_size=_DLIS_OUTPUT_CHUNK_BYTES)
+    return str(path), depth, data
+
+
+def test_read_dlis_reports_the_waveform_channels_it_skips(waveform_dlis):
+    """The skipped channels are at least visible, with their shapes.
+
+    Before this, a caller reading a real sonic DLIS got a `DlisCurves`
+    with no indication that the waveforms existed at all.
+    """
+    path, _, _ = waveform_dlis
+
+    loaded = read_dlis(path)
+    assert "WFRM" not in loaded.curves, "vector channels stay out of curves"
+    assert "DTCO" in loaded.curves, "scalar channels are unaffected"
+    assert loaded.waveform_channels == {"WFRM": (32,)}
+
+
+def test_read_dlis_waveforms_round_trip(waveform_dlis):
+    """The samples come back exactly, depth-major, with the frame metadata."""
+    path, depth, data = waveform_dlis
+
+    wf = read_dlis_waveforms(path, "WFRM")
+    assert isinstance(wf, DlisWaveforms)
+    assert wf.channel == "WFRM"
+    assert wf.frame_name == "MAIN"
+    assert wf.data.shape == (6, 32)
+    assert np.allclose(wf.data, data, atol=0.0)
+    assert np.allclose(wf.depth, depth, atol=0.0)
+    assert wf.depth_unit == "m"
+
+
+def test_read_dlis_waveforms_recovers_the_sample_interval_from_the_file(waveform_dlis):
+    """10 us declared on the axis comes back as 1e-5 s, not as 10.
+
+    The unit conversion is the point: `fwap.stc` takes seconds, and the
+    file says microseconds. Getting this from the file rather than from
+    a hard-coded constant is what the whole reader exists for.
+    """
+    path, _, _ = waveform_dlis
+
+    wf = read_dlis_waveforms(path, "WFRM")
+    assert len(wf.axes) == 1
+    assert wf.axes[0].axis_id == "MICRO_TIME"
+    assert wf.axes[0].units == "us"
+    assert wf.sample_interval() == pytest.approx(1.0e-5, rel=1e-12)
+
+
+def test_read_dlis_waveforms_rejects_a_scalar_channel(waveform_dlis):
+    """A curve is not a waveform set, and the error says where to go."""
+    path, _, _ = waveform_dlis
+
+    with pytest.raises(ValueError, match="read_dlis"):
+        read_dlis_waveforms(path, "DTCO")
+
+
+def test_read_dlis_waveforms_unknown_channel_lists_what_is_there(waveform_dlis):
+    """A typo should not require opening the file by hand to diagnose."""
+    path, _, _ = waveform_dlis
+
+    with pytest.raises(KeyError, match="WFRM"):
+        read_dlis_waveforms(path, "PWF4")
+
+
+def test_read_dlis_waveforms_out_of_range_indices_raise(waveform_dlis):
+    path, _, _ = waveform_dlis
+
+    with pytest.raises(IndexError, match="logical_file_index"):
+        read_dlis_waveforms(path, "WFRM", logical_file_index=3)
+    with pytest.raises(IndexError, match="frame_index"):
+        read_dlis_waveforms(path, "WFRM", frame_index=3)
+
+
+# --- DlisAxis: the two coordinate conventions, and the unit selection ---
+#
+# Real files use the regular form (one starting coordinate plus SPACING);
+# `dliswriter` can only write the exhaustive form (every coordinate), so
+# the round-trip tests above cover one and these cover both.
+
+
+def test_dlis_axis_uses_coordinates_when_they_span_the_dimension():
+    axis = DlisAxis(
+        axis_id="MICRO_TIME",
+        coordinates=np.array([0.0, 7.0, 30.0, 31.0]),
+        spacing=float("nan"),
+        units="us",
+        size=4,
+    )
+    # Irregular on purpose: the listed coordinates win, they are not
+    # re-derived from a spacing that does not exist.
+    assert np.allclose(axis.values(), [0.0, 7.0, 30.0, 31.0])
+
+
+def test_dlis_axis_expands_a_regular_axis_from_start_and_spacing():
+    """The form the Schlumberger file uses: one coordinate, plus SPACING."""
+    axis = DlisAxis(
+        axis_id="SENSOR_OFFSET",
+        coordinates=np.array([7.874]),
+        spacing=0.1524,
+        units="m",
+        size=8,
+    )
+    values = axis.values()
+    assert values.shape == (8,)
+    assert values[0] == pytest.approx(7.874)
+    assert values[-1] == pytest.approx(7.874 + 7 * 0.1524)
+
+
+def test_dlis_axis_refuses_to_invent_coordinates():
+    axis = DlisAxis(
+        axis_id="ORDINAL",
+        coordinates=np.array([]),
+        spacing=float("nan"),
+        units="",
+        size=4,
+    )
+    with pytest.raises(ValueError, match="cannot be recovered"):
+        axis.values()
+
+
+def _waveforms(axes, *, shape=(3, 8, 512)):
+    return DlisWaveforms(
+        channel="PWF4",
+        data=np.zeros(shape),
+        depth=np.arange(shape[0], dtype=float),
+        depth_unit="0.1 in",
+        axes=axes,
+        units="",
+        frame_name="60B",
+    )
+
+
+def test_waveform_geometry_is_selected_by_unit_not_by_axis_name():
+    """AXIS-ID strings are producer-defined; units are not.
+
+    These axes are named nonsensically on purpose. A reader keying off
+    "MICRO_TIME" / "SENSOR_OFFSET" would fail here; one keying off the
+    declared unit does not.
+    """
+    wf = _waveforms(
+        [
+            DlisAxis("CHANNEL_B", np.array([2.7432]), 0.1524, "m", 8),
+            DlisAxis("CHANNEL_A", np.array([0.0]), 40.0, "us", 512),
+        ]
+    )
+    assert wf.sample_interval() == pytest.approx(4.0e-5)
+    assert np.allclose(wf.offsets(), 2.7432 + 0.1524 * np.arange(8))
+
+
+def test_waveform_geometry_converts_from_whatever_unit_the_file_declares():
+    """Feet and milliseconds come back as metres and seconds."""
+    wf = _waveforms(
+        [
+            DlisAxis("OFF", np.array([9.0]), 0.5, "ft", 8),
+            DlisAxis("T", np.array([0.0]), 0.01, "ms", 512),
+        ]
+    )
+    assert wf.sample_interval() == pytest.approx(1.0e-5)
+    assert wf.offsets()[0] == pytest.approx(9.0 * 0.3048)
+    assert wf.offsets()[1] - wf.offsets()[0] == pytest.approx(0.5 * 0.3048)
+
+
+def test_waveform_geometry_ignores_a_unitless_axis():
+    """A 3-axis channel with an unitless ORDINAL axis still resolves."""
+    wf = _waveforms(
+        [
+            DlisAxis("ORDINAL", np.array([1.0]), 1.0, "", 4),
+            DlisAxis("SENSOR_OFFSET", np.array([7.874]), 0.1524, "m", 8),
+            DlisAxis("MICRO_TIME", np.array([0.0]), 40.0, "us", 512),
+        ],
+        shape=(3, 4, 8, 512),
+    )
+    assert wf.sample_interval() == pytest.approx(4.0e-5)
+    assert wf.offsets().shape == (8,)
+
+
+@pytest.mark.parametrize(
+    "axes, kind",
+    [
+        ([], "time"),
+        (
+            [
+                DlisAxis("A", np.array([0.0]), 10.0, "us", 8),
+                DlisAxis("B", np.array([0.0]), 40.0, "ms", 512),
+            ],
+            "time",
+        ),
+    ],
+)
+def test_waveform_sample_interval_refuses_when_ambiguous(axes, kind):
+    """Zero or two time axes is not a number this can report."""
+    with pytest.raises(ValueError, match=f"{kind} unit"):
+        _waveforms(axes).sample_interval()
+
+
+def test_waveform_offsets_refuse_when_no_length_axis_exists():
+    wf = _waveforms([DlisAxis("T", np.array([0.0]), 10.0, "us", 512)])
+    with pytest.raises(ValueError, match="length unit"):
+        wf.offsets()
+
+
+def test_waveform_sample_interval_falls_back_to_the_coordinate_step():
+    """An axis with coordinates but no SPACING still yields an interval."""
+    wf = _waveforms(
+        [DlisAxis("T", np.array([0.0, 10.0, 20.0, 30.0]), float("nan"), "us", 4)],
+        shape=(3, 4),
+    )
+    assert wf.sample_interval() == pytest.approx(1.0e-5)
+
+
+# --- The real files' shape, which `dliswriter` cannot produce ---------
+#
+# A Schlumberger monopole waveform channel is (n_depth, 8, 512) with two
+# axes. `dliswriter` caps datasets at two dimensions and overrides a
+# declared `dimension` from the data shape, so no writable file reaches
+# this case. These stub the dlisio object graph instead; what keeps the
+# stub honest is that the round-trip tests above exercise the same code
+# against a real file, so any drift in the attribute names dlisio
+# exposes breaks those rather than passing silently here.
+
+
+class _StubAttr:
+    def __init__(self, units):
+        self.units = units
+
+
+class _StubAxis:
+    def __init__(self, axis_id, coordinates, spacing, units):
+        self.axis_id = axis_id
+        self.coordinates = coordinates
+        self.spacing = spacing
+        self.attic = {"SPACING": _StubAttr(units), "COORDINATES": _StubAttr(units)}
+
+
+class _StubChannel:
+    def __init__(self, name, data, units="", axis=()):
+        self.name = name
+        self.units = units
+        self.axis = list(axis)
+        self._data = data
+
+    def curves(self):
+        return self._data
+
+
+class _StubFrame:
+    def __init__(self, name, channels):
+        self.name = name
+        self.channels = channels
+
+
+class _StubFiles(list):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _stub_sonic_file(n_depth=4, n_rec=8, n_sample=512, n_axes=2):
+    """The object graph dlisio hands back for a monopole array-sonic frame."""
+    data = np.arange(n_depth * n_rec * n_sample, dtype=np.int16).reshape(
+        n_depth, n_rec, n_sample
+    )
+    axes = [
+        _StubAxis("SENSOR_OFFSET", [7.874], 0.1524, "m"),
+        _StubAxis("MICRO_TIME", [0.0], 10.0, "us"),
+    ][:n_axes]
+    frame = _StubFrame(
+        "60B",
+        [
+            _StubChannel("TDEP", np.arange(n_depth, dtype=float) * 6.0, units="0.1 in"),
+            _StubChannel("PWF4", data, units="", axis=axes),
+        ],
+    )
+    logical_file = type("LF", (), {"frames": [frame]})()
+    return _StubFiles([logical_file]), data
+
+
+def test_read_dlis_waveforms_reads_the_real_array_sonic_shape(monkeypatch):
+    """(n_depth, n_receiver, n_sample) with both axes resolved.
+
+    This is the case the whole reader exists for, and the numbers are
+    the ones the Utah FORGE DSI file declares: 8 receivers 6 in apart
+    starting 7.874 m from the source, sampled every 10 us.
+    """
+    from fwap.io import _dlis
+
+    files, data = _stub_sonic_file()
+    monkeypatch.setattr(_dlis.dlisio_dlis, "load", lambda _path: files)
+
+    wf = read_dlis_waveforms("ignored.dlis", "PWF4")
+
+    assert wf.data.shape == (4, 8, 512)
+    assert np.array_equal(wf.data, data)
+    assert wf.frame_name == "60B"
+    assert wf.depth_unit == "0.1 in", "the index unit is reported, not converted"
+
+    assert [a.axis_id for a in wf.axes] == ["SENSOR_OFFSET", "MICRO_TIME"]
+    assert wf.sample_interval() == pytest.approx(1.0e-5)
+    offsets = wf.offsets()
+    assert offsets.shape == (8,)
+    assert offsets[0] == pytest.approx(7.874)
+    # 6 inches between receivers, which is what sets the slowness scale.
+    assert np.allclose(np.diff(offsets), 0.1524)
+
+
+def test_read_dlis_waveforms_declines_a_partial_axis_list(monkeypatch):
+    """Fewer AXIS objects than dimensions is legal, and unassignable.
+
+    Guessing which dimension a lone axis describes would put a receiver
+    spacing where a sample interval belongs. Reporting no axes at all
+    makes the accessors raise instead.
+    """
+    from fwap.io import _dlis
+
+    files, _ = _stub_sonic_file(n_axes=1)
+    monkeypatch.setattr(_dlis.dlisio_dlis, "load", lambda _path: files)
+
+    wf = read_dlis_waveforms("ignored.dlis", "PWF4")
+
+    assert wf.data.shape == (4, 8, 512)
+    assert wf.axes == []
+    with pytest.raises(ValueError, match="time unit"):
+        wf.sample_interval()
+
+
+def test_waveform_sample_interval_refuses_a_single_coordinate_with_no_spacing():
+    """One coordinate and no SPACING pins nothing, and says so."""
+    wf = _waveforms(
+        [DlisAxis("T", np.array([0.0]), float("nan"), "us", 1)], shape=(3, 1)
+    )
+    with pytest.raises(ValueError, match="fewer than two coordinates"):
+        wf.sample_interval()

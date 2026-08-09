@@ -6,6 +6,43 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **`fwap.io.read_dlis_waveforms` reads the per-receiver waveforms in a DLIS**
+  (roadmap F.3). `read_dlis` returns one value per depth and skips everything
+  else, which is exactly where a full-waveform sonic record lives — so until
+  now the package could not reach, through its own API, the data it was
+  measured on. Every real-data number in this changelog was produced by calling
+  `dlisio` directly.
+  The new reader returns `DlisWaveforms`: the channel as
+  `(n_depth, n_receiver, n_sample)`, the depth axis, and one `DlisAxis` per
+  trailing dimension. **The acquisition geometry comes out of the file**, not
+  out of a constant: `sample_interval()` and `offsets()` read the RP66 v1 AXIS
+  records and convert from whatever unit is declared there. On the Utah FORGE
+  DSI file that is 10 µs and eight receivers 6 in apart starting at 7.874 m.
+  Which axis is which is decided by the declared **unit**, never by the
+  AXIS-ID string, because AXIS-ID values are producer-defined and units are
+  not. An axis list that does not match the channel's dimensions is reported
+  as no axes at all rather than guessed at.
+  Only the requested channel and the index channel are read, so this does not
+  pay for the rest of the frame: one monopole channel out of the 88 MB FORGE
+  pass takes **1.1 s**, against ~100 s to materialise the frame.
+  `DlisCurves` gained `waveform_channels`, a `{name: shape}` map of the
+  channels `read_dlis` skipped, so they are discoverable rather than invisible.
+  End-to-end on the real log through the public API only — no `dlisio` import
+  at the call site — `stc` + `track_modes` reproduce the previously
+  hand-assembled result exactly (compressional 86 % agreement, median −0.57 %),
+  including with the file's true 7.874 m first offset rather than the 2.7432 m
+  that had been assumed. Slowness depends on receiver *spacing*, so the two
+  agree; arrival times do not, and the file's value is the right one.
+
+### Fixed
+- **`write_dlis` allocated a 4 GiB buffer for every file, whatever its size.**
+  `dliswriter`'s `output_chunk_size` defaults to `2**32`; fwap now passes 8 MiB.
+  Measured on a 9124-byte output: **59.16 s and ~8.3 GB peak RSS before, 0.34 s
+  and ~89 MB after**, byte-identical. On a memory-constrained machine the old
+  path could fail outright rather than merely crawl. `tests/test_io.py` drops
+  from minutes to **2 s**.
+
 ### Documentation
 - **The Sphinx build renders correctly again.** Six docstrings produced wrong
   output rather than merely warnings: `track_to_log_curves`'s VTI table was
