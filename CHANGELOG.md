@@ -7,6 +7,37 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **A debonded cased-hole dataset generator** (roadmap G.2), and a measurement
+  that changed what it should be. `scripts/gen_surrogate_dataset.py` gains
+  `MicroannulusPriors`, `DEBONDED_MODES`, `generate_debonded_dataset` and a
+  `--debonded` CLI flag, drawing a fluid microannulus between casing and cement
+  — the standard debonding model, and a bound-mode problem now that A.5 has
+  shipped.
+  **The obvious build would not have been invertible.** The item was framed as
+  the cased dataset in the debonded regime: same Stoneley mode, gap width as
+  the label. Measured over 1–12 kHz, the cased Stoneley curve moves **0.05 %**
+  when the gap goes from 10 µm to 1 mm — a 100× range — while the formation
+  shear velocity alone moves it 1.0–1.5 %. The mode responds to the *slip
+  interface*, not its width: bonded → debonded is a **4.14 %** shift and it is
+  the same shift at every thickness.
+  **The crack wave carries the width, at roughly 100:1.** Over that same range
+  its velocity moves **+301 %** (4.78× measured, against 4.64× from the
+  Krauklis `h^(1/3)` law) while the formation moves it 0.03 %. So the dataset
+  carries both branches: Stoneley for a bonded/debonded state, crack wave for
+  the gap. Thickness is sampled log-uniformly, which is uniform-in-observable
+  for a cube-root law.
+  The crack wave is **recorded but not injected** — `ModeSpec` gained
+  `inject=True` for it. At 63–620 m/s it reaches the 3 m near offset between
+  4.8 ms and 47.6 ms against a 5.12 ms record, so a planted arrival would be
+  fiction. Its dispersion curve is the product.
+  No schema change: the gap is written into `layer_params` as an ordinary
+  layer with `vs = 0`, so its thickness is already carried by v4.
+  `bond_index` keeps its range and its direction (1 = best bond) but is driven
+  by gap width here and cement stiffness in `generate_cased_dataset`, so the
+  two datasets **must not be pooled**.
+  Cost is the reason `--debonded` defaults to a 32-point grid: ~14 s a sample
+  against ~0.5 s bonded, since the microannulus solvers run ~0.45 s per
+  frequency for the two branches together.
 - **`fwap.io.read_dlis_waveforms` reads the per-receiver waveforms in a DLIS**
   (roadmap F.3). `read_dlis` returns one value per depth and skips everything
   else, which is exactly where a full-waveform sonic record lives — so until

@@ -27,7 +27,8 @@ rather than by planning.
 | 2c | A waveform fixture CI can fetch (F.2) | sourcing *and* a decision | hosting an extracted subset is redistribution |
 | 3 | Digitised validation figures (A.1, curve shapes) | sourcing | access to the books |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
-| 5 | Debonded-regime `sonic_ml` datasets (G.2) | **implementation** | nothing — the microannulus forward model it waited on is complete |
+| 5a | ~~The debonded dataset generator (G.2)~~ | **closed** | — |
+| 5 | The `sonic_ml` consumer of it (G.2) | **implementation** | nothing |
 
 **Item 5 is the one open row that is ordinary implementation work**, where for
 several revisions everything open was blocked on something outside the session
@@ -36,6 +37,15 @@ was the other, and it is now closed: `read_dlis_waveforms` reads the
 per-receiver waveforms and recovers the acquisition geometry from the file's
 AXIS records, so the processing chain runs on a real log with no `dlisio` at
 the call site.
+
+Item 5 has since split. The **dataset generator** is done (5a) — and building
+it produced the more interesting half: measurement showed the item as planned
+would have made an uninvertible dataset, because the cased Stoneley mode is
+blind to the gap width (0.05 % over a 100× range) while the crack wave carries
+it at roughly 100:1. See `plans/roadmap.md` section G.2. What is left is the
+`sonic_ml` consumer, and it inherits a warning rather than a clean slate: a
+100 µm gap cuts the cement-stiffness sensitivity the shipped bond inverse keys
+on from 3.22 % to 0.48 %.
 
 Item 3 still cannot be closed by writing code here. Note the qualifier that
 survived from earlier revisions and turned out to be the important one: the

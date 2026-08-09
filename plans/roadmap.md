@@ -51,7 +51,7 @@ section itself.)
 | Open item | Why it matters |
 |-----------|----------------|
 | **F.2 A waveform fixture CI can use** | The waveforms live in an 808 MB DLIS inside a 471 MB zip. A small extracted subset would work, but hosting one is redistribution and needs a decision rather than a commit. Until then what defends F.1 in CI is a seeded synthetic, not the log that found it. |
-| **G.2 Debonded-regime datasets** | The forward model A.5 was blocking on is now complete, so this needs no new physics. It is also where a CBL-amplitude baseline stops being a strawman. |
+| **G.2 The `sonic_ml` consumer of the debonded dataset** | The generator is on `main`; what is open is the model and benchmark work on top of it. The measurements below changed what that work should be, and are worth reading before starting: the shipped cement-bond inverse keys on a signal a microannulus largely removes. |
 | **A.1 Validation figures** | Ties the solver to published literature rather than to itself. Still needs the books. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
 | ~~**F. A real sonic log**~~ | *Largely closed.* A Schlumberger DSI log is registered and tested; the package's shear picks match the vendor's to **0.12 %** median on real rock. |
@@ -568,6 +568,56 @@ identifiability, not field accuracy, and no amount of additional synthetic work
 can close the gap. A single real gather with trustworthy reference picks would
 say more about whether any of this transfers than another milestone of
 modelling.
+
+## G.2 The debonded regime — measured, and what it changed
+
+The generator shipped (`MicroannulusPriors`, `DEBONDED_MODES`,
+`generate_debonded_dataset`, `--debonded`). The measurements that shaped it are
+the durable part, because the obvious build would not have been invertible.
+
+**The item was framed wrongly, and measurement caught it.** The plan was "the
+cased dataset, in the debonded regime": same Stoneley mode, gap width as the
+label. Over 1-12 kHz on a representative stack, holding everything else fixed:
+
+| quantity varied | Stoneley curve | crack wave |
+|---|---|---|
+| gap 10 → 1000 µm (100×) | **0.05 %** | **+301 %** |
+| formation `vs` across its prior | 1.0-1.5 % | 0.03 % |
+| cement `vs` across its prior | 0.48 % | 1.0-3.3 % |
+| bonded → debonded (any gap) | **4.14 %** | n/a |
+
+* **The cased Stoneley mode is blind to gap width.** It responds to the slip
+  interface — shear traction is zero on both faces of a fluid layer however
+  thin — and that response is the same at 10 µm as at 1 mm. It supports a
+  bonded/debonded *state* at roughly 3:1 over the nuisance parameters, and not
+  a thickness regression. A regressor trained on it would fit noise.
+* **The crack wave carries the width, at roughly 100:1.** 4.78× measured over
+  the same range against 4.64× from the Krauklis `h^(1/3)` law. So the dataset
+  carries both branches, and the gap is sampled log-uniformly — uniform in log
+  is uniform in the observable for a cube-root law.
+* **The crack wave is recorded, never injected.** At 63-620 m/s it reaches the
+  3 m near offset between 4.8 ms and 47.6 ms, against a 5.12 ms record. Only
+  the widest gap would even enter the window, so a planted arrival would be
+  fiction; `ModeSpec.inject` exists for exactly this.
+
+**A caution for the `sonic_ml` work, and the reason this is the interesting
+half of the item.** A 100 µm gap cuts the cement-stiffness sensitivity of the
+Stoneley curve from 3.22 % to 0.48 % — about sevenfold. The shipped M5d bond
+inverse keys on precisely that sensitivity. It is therefore not merely untested
+in the debonded regime: the signal it reads has largely gone there, which is a
+different and worse problem than a domain shift. Whatever is built on this
+dataset should be scored against that, not around it.
+
+**Costs, because they bound what is practical.** A debonded sample runs ~14 s
+against ~0.5 s bonded (the microannulus solvers are ~0.45 s per frequency for
+both branches), so `--debonded` defaults to a 32-point grid and a useful set is
+a batch job of hours, not a CI artefact.
+
+**No schema change was needed.** The gap is written into `layer_params` as an
+ordinary layer with `vs = 0`, so v4 already carries its thickness.
+`bond_index` keeps its range and direction but is driven by gap width here and
+cement stiffness when bonded — same column, different question, so the two
+datasets must not be pooled.
 
 ## G. `sonic_ml` — the machine-learning layer
 
