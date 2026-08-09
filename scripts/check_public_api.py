@@ -140,6 +140,7 @@ FROZEN_PUBLIC_API: tuple[str, ...] = (
     "gassmann_fluid_substitution",
     # Surface-wave speeds / cylindrical
     "rayleigh_speed",
+    "scholte_speed",
     "flexural_dispersion_physical",
     "flexural_dispersion_vti_physical",
     # Cylindrical-borehole modal-determinant solver (Schmitt 1988)

@@ -35,9 +35,13 @@ Modules outside the scope of the 1994 book (added for completeness):
                               fracture indicators / aperture (Hornby
                               et al. 1989), slow-formation V_S
                               inversion
-* :mod:`fwap.cylindrical` -- Rayleigh-speed surface-wave
-                              calculation and a physics-grounded
-                              flexural-mode dispersion law
+* :mod:`fwap.cylindrical` -- Rayleigh- and Scholte-speed surface-wave
+                              calculations (the latter an independent
+                              plane-interface oracle for the
+                              cylindrical Stoneley solver's
+                              high-frequency limit) and a
+                              physics-grounded flexural-mode
+                              dispersion law
 * :mod:`fwap.geomechanics` -- brittleness / fracability / closure
                               stress / UCS / sand-stability indices
                               on top of :class:`ElasticModuli`
@@ -267,6 +271,7 @@ from fwap.geomechanics import (
 
 # Cylindrical / surface-wave speeds
 from fwap.cylindrical import (
+    scholte_speed,
     flexural_dispersion_physical,
     flexural_dispersion_vti_physical,
     rayleigh_speed,
@@ -444,6 +449,7 @@ __all__ = [
     "gassmann_fluid_substitution",
     # Surface-wave speeds / cylindrical
     "rayleigh_speed",
+    "scholte_speed",
     "flexural_dispersion_physical",
     "flexural_dispersion_vti_physical",
     # Cylindrical-borehole modal-determinant solver (Schmitt 1988)
