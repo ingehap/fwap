@@ -6,6 +6,30 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **`trapped_pseudo_rayleigh_dispersion` — the bound half of the
+  pseudo-Rayleigh family, which no public function reached before.** The family
+  splits by phase velocity: for `V_f < c < V_S` both formation waves are
+  evanescent while the fluid field oscillates radially, so the mode is a genuine
+  trapped resonance with a real `k_z` and no attenuation; above `V_S` the shear
+  wave propagates and `pseudo_rayleigh_dispersion` takes over with a complex
+  one. `stoneley_dispersion` cannot return these either — it brackets from
+  `omega/min(V_S, V_f)` upward and so covers only `c < V_f`.
+  Several coexist: three at 30 kHz in a 0.10 m hole through a 4000/2300/2500
+  formation, six by 50 kHz, each above its own cutoff. A `branch` argument
+  selects the radial order using the same convention as the leaky function
+  (descending `k_z`, so the fundamental is the slowest of the trapped modes),
+  and frequencies below a branch's cutoff return `NaN`.
+  They were found while building the biorthogonality oracle, and that oracle now
+  validates them: a test checks Auld's relation across the three trapped modes
+  *and* the Stoneley mode at the same frequency, so the new function is tied to
+  physics rather than to itself.
+  Unlike the leaky sister function this one needs no frequency marching — the
+  roots are real and simple, so each frequency is solved independently. A test
+  pins the consequence, that the result does not depend on the frequency grid at
+  all, and another pins that the scan resolution does not decide how many
+  branches exist.
+
 ### Changed
 - **Kramers-Kronig checked; it does not apply to the modal solver, and the
   place it does apply is the attenuation module's test synthetic.** The

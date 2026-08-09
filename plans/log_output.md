@@ -363,3 +363,46 @@ The discarded 88.64 s reading for the same file was taken while a full
 first suspect, costs 0.10 s at 3000 points and finds the same 4 roots at 400.
 **Both wrong numbers came from reasoning about the cost instead of profiling
 it; `--durations` settled it in one run.**
+
+## Session note: the Kramers-Kronig reply
+
+> All four CI checks pass on the pushed head, and the local gate is **1087
+> passed, 96.65 % coverage**.
+>
+> Both tasks are complete:
+>
+> **1.** The previous answer is appended to `plans/log_output.md`, with its two
+> corrections and the corrected timing table.
+>
+> **2.** Kramers-Kronig, which split in two:
+>
+> *It doesn't apply to the modal solver.* The bound Stoneley mode is exactly
+> lossless yet moves 8.26 % in phase velocity — impossible under a subtracted
+> KK relation. KK follows from causality of the *constitutive* relation;
+> waveguide dispersion is geometric. This is the third candidate to fail by
+> being carried across a boundary its mechanism doesn't cross, and it exposed a
+> gap in my own screening criterion: "needs more than one solution" rules out
+> tautologies but not misapplications. Two filters, not one — now written down.
+>
+> *It does apply next door.* The attenuation module's test gather is acausal —
+> `exp(-pi f t / Q)` with the phase untouched — carrying energy before the
+> geometric arrival. Not a bug, since both estimators read `|S(f)|` only, but
+> they window in time and dispersion reshapes the waveform inside that window.
+> On the causal gather, centroid goes 62 -> 41 and spectral-ratio 117 -> 81
+> against a planted Q of 50. Both *closer* to truth, so the existing tests
+> understate the estimators rather than flatter them.
+>
+> The part worth flagging: my first Kolsky phase had the sign inverted, which
+> produced a clean-looking "causality doubles the recovered Q" result (140 and
+> 224). It was wrong. What caught it was measuring the property the sign is
+> meant to produce — pre-arrival energy — instead of re-deriving the algebra,
+> and seeing the number move the wrong way. That's twice now the tell has been
+> a quantity moving in the wrong direction under refinement.
+>
+> On the programme as a whole: the endorsed candidate list is now empty. Nine
+> candidates gave five working oracles, one vacuous, three transplant failures.
+> I'd rather say that plainly than manufacture a tenth — the honest next items
+> are concrete gaps instead: the trapped pseudo-Rayleigh modes are real,
+> verified, and unexposed by any public function, and roadmap item F (a real
+> sonic gather) remains the binding constraint on every quantitative claim in
+> the repo.

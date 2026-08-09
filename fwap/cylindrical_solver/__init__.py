@@ -251,6 +251,9 @@ from fwap.cylindrical_solver._leaky import (
 from fwap.cylindrical_solver._leaky import (
     segments_from_kz_curve as segments_from_kz_curve,
 )
+from fwap.cylindrical_solver._leaky import (
+    trapped_pseudo_rayleigh_dispersion as trapped_pseudo_rayleigh_dispersion,
+)
 
 # Re-exports for the n=0 isotropic (Stoneley) helpers extracted to
 # ``_n0_isotropic`` in Phase 1 step 3 of the package split. Same

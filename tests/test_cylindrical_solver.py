@@ -14879,3 +14879,195 @@ def test_biorthogonality_check_rejects_the_wrong_bilinear_form():
             s_jj = _cross_integral(roots[j], roots[j], omega, _BIO_MEDIUM, shapes)
             worst = max(worst, abs(s_ij) / np.sqrt(abs(s_ii * s_jj)))
     assert worst > 1.0e-3, worst
+
+
+# ---------------------------------------------------------------------------
+# Trapped pseudo-Rayleigh modes, now public.
+#
+# These were found while building the biorthogonality check and were reachable
+# only by scanning the determinant directly: `stoneley_dispersion` brackets
+# from omega/min(V_S, V_f) upward and so returns just the Stoneley mode, and
+# `pseudo_rayleigh_dispersion` covers the leaky half above V_S.
+# ---------------------------------------------------------------------------
+
+_TRAP_MEDIUM = {
+    "vp": 4000.0,
+    "vs": 2300.0,
+    "rho": 2500.0,
+    "vf": 1500.0,
+    "rho_f": 1000.0,
+    "a": 0.10,
+}
+
+
+def test_trapped_pseudo_rayleigh_lies_strictly_inside_the_trapped_window():
+    """Bound between the fluid and shear velocities, and lossless.
+
+    The defining property: both formation waves evanescent, fluid field
+    oscillatory. Outside ``V_f < c < V_S`` the mode is either the Stoneley
+    wave or a leaky one, and neither belongs here.
+    """
+    from fwap import trapped_pseudo_rayleigh_dispersion
+
+    freq = np.linspace(8.0e3, 60.0e3, 20)
+    mode = trapped_pseudo_rayleigh_dispersion(freq, **_TRAP_MEDIUM)
+    assert mode.name == "trapped_pseudo_rayleigh"
+    assert mode.azimuthal_order == 0
+    assert mode.attenuation_per_meter is None  # bound modes do not radiate
+
+    ok = np.isfinite(mode.slowness)
+    assert ok.sum() > 15
+    speeds = 1.0 / mode.slowness[ok]
+    assert np.all(speeds > _TRAP_MEDIUM["vf"])
+    assert np.all(speeds < _TRAP_MEDIUM["vs"])
+
+
+def test_trapped_pseudo_rayleigh_branches_appear_in_order_and_descend():
+    """Higher orders switch on at higher frequency; each then slows toward V_f.
+
+    Each branch starts at its own cutoff near ``V_S`` and decreases toward
+    the fluid velocity, so at any one frequency the fundamental is the
+    *slowest* of the trapped modes -- which is the ordering convention the
+    ``branch`` argument uses, shared with the leaky sister function.
+    """
+    from fwap import trapped_pseudo_rayleigh_dispersion
+
+    freq = np.linspace(5.0e3, 60.0e3, 40)
+    curves = [
+        trapped_pseudo_rayleigh_dispersion(freq, **_TRAP_MEDIUM, branch=b).slowness
+        for b in range(3)
+    ]
+
+    cutoffs = []
+    for slowness in curves:
+        ok = np.isfinite(slowness)
+        assert ok.any()
+        cutoffs.append(freq[ok].min())
+        speeds = 1.0 / slowness[ok]
+        # monotonically slowing with frequency, allowing for grid coarseness
+        assert speeds[0] > speeds[-1]
+    assert cutoffs[0] < cutoffs[1] < cutoffs[2], cutoffs
+
+    # ...and at a frequency where all three exist, branch 0 is the slowest.
+    high = np.array([60.0e3])
+    speeds = [
+        1.0
+        / trapped_pseudo_rayleigh_dispersion(high, **_TRAP_MEDIUM, branch=b).slowness[0]
+        for b in range(3)
+    ]
+    assert speeds[0] < speeds[1] < speeds[2], speeds
+
+
+def test_trapped_pseudo_rayleigh_is_independent_of_the_frequency_grid():
+    """No marching, so no grid coupling -- unlike the leaky sister function.
+
+    Each frequency is solved on its own, which is why this function needs
+    none of the seed-enumeration machinery `pseudo_rayleigh_dispersion`
+    required. Worth pinning, because that grid independence is the whole
+    reason the simpler algorithm is safe here.
+    """
+    from fwap import trapped_pseudo_rayleigh_dispersion
+
+    probe = 33.0e3
+    reference = None
+    for base in (
+        np.array([]),
+        np.linspace(5.0e3, 40.0e3, 37),
+        np.linspace(20.0e3, 90.0e3, 200),
+        np.array([90.0e3, 12.0e3]),  # unordered once the probe is inserted
+    ):
+        # The probe must be an exact member of every grid: comparing the
+        # *nearest* sample would compare different frequencies, which is a
+        # different quantity rather than a grid effect.
+        grid = np.concatenate([base, [probe]])
+        mode = trapped_pseudo_rayleigh_dispersion(grid, **_TRAP_MEDIUM)
+        j = int(np.flatnonzero(grid == probe)[0])
+        value = mode.slowness[j]
+        assert np.isfinite(value)
+        if reference is None:
+            reference = value
+        else:
+            assert value == pytest.approx(reference, rel=1.0e-12)
+
+
+def test_trapped_pseudo_rayleigh_is_biorthogonal_to_the_stoneley_mode():
+    """Checked against physics rather than against itself.
+
+    The trapped modes and the Stoneley mode coexist at the same frequency
+    and the same azimuthal order, so Auld's relation must hold across them.
+    That ties the new function to the biorthogonality oracle above: a
+    spurious root would not be orthogonal to the Stoneley mode.
+    """
+    from fwap import stoneley_dispersion, trapped_pseudo_rayleigh_dispersion
+
+    omega = 2.0 * np.pi * 30.0e3
+    freq = np.array([30.0e3])
+
+    trapped = [
+        trapped_pseudo_rayleigh_dispersion(freq, **_TRAP_MEDIUM, branch=b).slowness[0]
+        for b in range(3)
+    ]
+    stoneley = stoneley_dispersion(freq, **_TRAP_MEDIUM).slowness[0]
+    assert all(np.isfinite(s) for s in trapped) and np.isfinite(stoneley)
+
+    wavenumbers = [s * omega for s in trapped] + [stoneley * omega]
+    shapes = {kz: _mode_shape(kz, omega, _BIO_MEDIUM) for kz in wavenumbers}
+    n = len(wavenumbers)
+    gram = np.array(
+        [
+            [
+                _cross_integral(
+                    wavenumbers[i], wavenumbers[j], omega, _BIO_MEDIUM, shapes
+                )
+                for j in range(n)
+            ]
+            for i in range(n)
+        ]
+    )
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+            scale = np.sqrt(abs(gram[i, i] * gram[j, j]))
+            assert abs(gram[i, j] - np.conj(gram[j, i])) / scale < 1.0e-9, (i, j)
+
+
+def test_trapped_pseudo_rayleigh_rejects_slow_formations_and_bad_input():
+    """A slow formation has no trapped window at all."""
+    from fwap import trapped_pseudo_rayleigh_dispersion
+
+    freq = np.array([10.0e3])
+    with pytest.raises(ValueError, match="fast formation"):
+        trapped_pseudo_rayleigh_dispersion(
+            freq, vp=2600.0, vs=1300.0, rho=2300.0, vf=1500.0, rho_f=1000.0, a=0.10
+        )
+    with pytest.raises(ValueError, match="branch must be non-negative"):
+        trapped_pseudo_rayleigh_dispersion(freq, **_TRAP_MEDIUM, branch=-1)
+    with pytest.raises(ValueError, match="require vp > vs"):
+        trapped_pseudo_rayleigh_dispersion(
+            freq, vp=2000.0, vs=2300.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.10
+        )
+    with pytest.raises(ValueError, match="freq must be strictly positive"):
+        trapped_pseudo_rayleigh_dispersion(np.array([0.0]), **_TRAP_MEDIUM)
+
+
+def test_trapped_root_scan_resolution_does_not_decide_how_many_modes_exist():
+    """The scan density must not set the branch count, or `branch` drifts."""
+    from fwap.cylindrical_solver._leaky import (
+        _modal_determinant_n0_complex,
+        _scan_bound_roots,
+    )
+
+    omega = 2.0 * np.pi * 50.0e3
+
+    def det(kz):
+        return _modal_determinant_n0_complex(
+            kz, omega, **_TRAP_MEDIUM, leaky_p=False, leaky_s=False
+        ).real
+
+    lo = omega / _TRAP_MEDIUM["vs"] * (1.0 + 1.0e-9)
+    hi = omega / _TRAP_MEDIUM["vf"] * (1.0 - 1.0e-9)
+    counts = {
+        len(_scan_bound_roots(det, lo, hi, samples=n)) for n in (500, 1000, 2000, 4000)
+    }
+    assert len(counts) == 1, counts

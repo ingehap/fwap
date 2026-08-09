@@ -683,3 +683,88 @@ not independent, and the test has to be built to route around that use.
 - **Attenuation vs the bound-mode limit.** `Im(k_z)` must go to zero
   continuously as a mode approaches its trapping boundary; a discontinuity
   there would indicate a branch error.
+
+## Getting signs right
+
+Four sign or branch errors were made in this programme and all four were
+caught. That is a better record than it sounds, because none of them was caught
+by checking the algebra again. Collected here because signs are the single most
+dangerous class of error in this kind of work and the usual defences do nothing
+against them.
+
+**Why signs are uniquely dangerous.** A sign error produces output of the right
+magnitude, the right shape, the right units and the right asymptotic behaviour.
+Dimensional analysis cannot see it. Order-of-magnitude sanity checks cannot see
+it. Plotting it usually cannot see it. It survives precisely the checks one
+habitually runs, and it produces a *confident wrong answer* rather than an
+obviously broken one. Every one of the four below looked completely plausible.
+
+### What actually caught them
+
+**Measure the property the sign is supposed to produce, not the formula.** The
+Kolsky dispersion phase had two candidate signs and re-deriving the Fourier
+convention was not converging. What settled it in one run: the sign exists to
+make the signal *causal*, so measure causality — energy arriving before the
+geometric arrival. The correct sign gives 4.9e-12, the wrong one 8.4e-07, and
+the no-dispersion case 1.5e-07. No algebra, and the answer is not a matter of
+opinion. **A sign is a physical claim. State the claim, then test the claim.**
+If you cannot say what the sign asserts physically, you do not yet understand
+the formula well enough to use it.
+
+**Exact small integers in a residual are a message, not a failure.** The
+biorthogonality eigenfunctions gave `|du_r| / |u_r| = 2.00` — not 1.97, not
+2.3, exactly 2.00 — which is what equal-and-opposite gives, every time.
+Floating-point noise does not produce round integers. **A residual of exactly
+2, or exactly 1, or exactly 0.5, is telling you about a factor or a sign rather
+than about precision**, and it should be read before it is debugged.
+
+**Prefer existence over value when the value cannot discriminate.** The Scholte
+secular equation's fluid-loading term reduces to the Rayleigh equation under
+*both* signs in the light-fluid limit, so the obvious check was worthless — and
+passed to 6e-13 with the sign wrong. What discriminated was not a number but a
+question of existence: with the wrong sign the left-hand side never crosses
+zero below `min(V_s, V_f)`, so no root exists at all. **When values are
+sign-insensitive, look for something that is present or absent rather than
+large or small.**
+
+**Use the code's own convention rather than reconstructing it.** The leaky-mode
+field growth check first used a hand-rolled `hankel1`, which *decays* with
+radius, and would have reversed the conclusion about whether the energy balance
+could be rescued. The solver's own `_k_or_hankel` uses `hankel2` and grows.
+Reconstructing a convention from memory is a second chance to get it wrong;
+calling the evaluator under test removes the opportunity.
+
+### The trap that hides a sign error
+
+**A check that is homogeneous in the quantity you flipped cannot detect the
+flip.** In the biorthogonality work, flipping both solid amplitudes together
+left the `sigma_rz = 0` condition satisfied — that row is homogeneous, so
+scaling the whole solid solution by any constant, including -1, preserves it.
+It passed at 1e-5 while the two inhomogeneous conditions were violated by
+exactly a factor of 2. If the checks available are all homogeneous in the
+suspect quantity, they are all blind in the same way, and the number of them
+that pass is not evidence.
+
+The generalisation: before trusting a set of checks, ask what transformation
+each of them is invariant under. Overall scaling, overall phase and overall
+sign are the usual ones. Any error living inside those invariances will pass
+every check in the set.
+
+### A short procedure
+
+1. Write the conventions down before writing the formula — time dependence
+   (`exp(-i omega t)` here), Fourier sign, outgoing-wave branch,
+   tension-positive or compression-positive stress. Most sign errors are
+   convention collisions between two sources, not algebra slips.
+2. For each sign in the result, state the physical assertion it encodes in one
+   sentence.
+3. Find a measurement that assertion predicts and the opposite sign forbids —
+   preferably one of existence, causality, direction of growth, or direction of
+   flow.
+4. Run it with both signs. Keeping the wrong-sign number is worth the extra
+   minute: it converts "this looks right" into a margin, and it is what the
+   write-up should quote.
+
+Step 4 is the one most often skipped and the one that pays. All four sign
+errors here were settled by a *comparison* between the two candidates, never by
+inspecting the correct one alone.
