@@ -31,6 +31,14 @@ the project uses [Semantic Versioning](https://semver.org/).
   while the genuine roots appeared in all six and agreed to 1e-9. Across the
   same sweep the API now returns no sub-20 m/s value anywhere, and the filter
   holds at every resolution from 60 samples up.
+  A detail worth knowing: the artefact's **existence** is platform-dependent,
+  not just its value. The configuration that produces a duplicated pair near
+  4 m/s on the development machine produces only the two genuine roots on CI.
+  That argues for the filter rather than against it — no caller can rely on the
+  artefact being absent on their machine — and it is why the tests assert the
+  API's answer rather than the artefact's presence. The filter's own contract
+  is tested directly instead, on a synthetic determinant with a root confined
+  to a needle that one scan grid samples and the other does not.
   The alternative filter was measured and rejected first: the elastic
   propagator's determinant identity is violated by 1e232 at operating points
   where the crack root is correct to 1e-9, so gating on it would have removed
