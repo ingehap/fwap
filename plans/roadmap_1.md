@@ -1,7 +1,7 @@
 # What remains to be done
 
 A prioritised reading of the open items in `docs/roadmap.md`, current through
-PR #57. `docs/roadmap.md` stays the authoritative status file; this is a
+PR #59. `docs/roadmap.md` stays the authoritative status file; this is a
 snapshot of *priority and reasoning* at one point in time, so check it against
 the tree before acting on it.
 
@@ -14,7 +14,7 @@ their ordering, because only one kind can be worked on from a coding session.
 |---|------|------|-----------|
 | 1 | Leaky-mode root tracking (A.2 + G.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
 | 2 | A real full-waveform sonic gather (F) | sourcing | fetching one **named** file from a host this sandbox cannot reach |
-| 3 | Digitised validation figures (A.1, second half) | sourcing | access to the books |
+| 3 | Digitised validation figures (A.1, curve shapes) | sourcing | access to the books |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
 
 Items 2 and 3 cannot be closed by writing code here. Note the qualifier: an
@@ -115,7 +115,23 @@ The next step is one person opening a file to confirm it holds per-receiver
 waveforms rather than processed curves, then a checksum and a one-line registry
 entry.
 
-## 3. Validation figures (A.1) — half closed, half blocked
+## 3. Validation figures (A.1) — the figures are blocked, the *tie* is not
+
+**The solver is now tied to literature, without any figure.** `scholte_speed`
+solves the classical secular equation for an interface wave on a *plane*
+fluid/solid boundary — a different equation from the cylindrical modal
+determinant, with no Bessel functions and no borehole radius in it. As the
+wavelength shortens the borehole wall looks flat, so `stoneley_dispersion` must
+approach it, and it does: better than 0.1 % at 400 kHz, converging monotonically
+and from opposite sides in fast and slow formations. The oracle is validated in
+turn by its own light-fluid limit, where it collapses to Rayleigh's equation and
+reproduces `rayleigh_speed` — a third, separate implementation.
+
+So the honest statement about this item changed. It is no longer "nothing ties
+the solver to literature"; it is "the *dispersion-curve shapes* are still
+untied, only the short-wavelength limit is". That is a smaller gap than it was,
+and a differently-shaped one: an asymptote check cannot catch an error in the
+middle of a curve.
 
 **Closed.** `fwap.validation` scores an fwap dispersion curve against a
 digitised reference, and the validation notebook asserts a 5 % RMS budget per
@@ -126,12 +142,12 @@ plausible files (µs/ft read as s/m, a velocity axis traced as a slowness one,
 kHz left unconverted); each is refused with a named diagnosis, and units are
 never silently rescaled.
 
-**Still open.** No reference CSV is shipped, so the solver is *not* yet tied to
-any published figure, and the notebook says so rather than letting green plots
-imply otherwise. Digitising needs the books (Paillet & Cheng 1991; Schmitt
-1988/1989; Tang & Cheng 2004 figs 3.7/3.10 and 7.1). Once a CSV lands in
-`docs/notebooks/_data/` under the documented name, no code changes — the section
-scores and gates automatically.
+**Still open.** No reference CSV is shipped, so no *curve shape* is checked
+against a published figure — and the notebook says which of its sections are and
+are not validated rather than letting green plots imply otherwise. Digitising
+needs the books (Paillet & Cheng 1991; Schmitt 1988/1989; Tang & Cheng 2004 figs
+3.7/3.10 and 7.1). Once a CSV lands in `docs/notebooks/_data/` under the
+documented name, no code changes — the section scores and gates automatically.
 
 ## 4. Conda-forge recipe (D)
 
@@ -164,6 +180,13 @@ of this file got wrong, and the corrections are worth not losing.
 - **A.2 re-diagnosed** (PR #51). Filed as cased-hole bracketing; measurement
   showed the open hole is equally sparse, relocating it into item 1.
 - **A.1 machinery** (PR #50). See item 3.
+- **Scholte analytic oracle** (PR #59) — `scholte_speed`, and with it the first
+  literature tie the validation notebook actually makes. Worth noting *how* it
+  arrived: the previous revision of this file said the only options left in this
+  environment were "more tests against existing behaviour, or documentation".
+  That was wrong. A third option existed — find an oracle that needs no
+  published figure — and it was found by asking what could be checked rather
+  than by re-reading the list of what was blocked.
 - **Sonic-gather candidates found** (PRs #56, #57) — not closed, but item 2
   moved further in these two than in anything before. Withdrew "no openly
   redistributable gather is known to exist", then withdrew the replacement's own
@@ -186,6 +209,21 @@ numbers mean.
 After that, item 3 (the digitised figures) for whoever has the books; item 1
 needs a derivation before any code is worth writing; item 4 waits on a release.
 
-If work continues in this environment regardless, the honest options are small:
-more tests against existing behaviour, or documentation. Both are worth much
-less than fetching one file, and this file should not pretend otherwise.
+If work continues in this environment regardless, the previous revision said the
+only options were "more tests against existing behaviour, or documentation".
+That turned out to be wrong — the Scholte oracle (PR #59) was neither, and it is
+a real check the repository did not have. So the honest version is narrower:
+what is unavailable here is *external data*, not external truth. Closed-form
+results, asymptotic limits and independent formulations of the same physics are
+all reachable, and each one that can be implemented from theory is worth more
+than another test of behaviour against itself.
+
+Candidates in that spirit, none yet attempted: the pseudo-Rayleigh geometric
+cutoff frequency against its rigid-pipe closed form (`_J1_FIRST_ZERO` is already
+in the code but unchecked against the solver); the quadrupole's high-frequency
+asymptote; and the leaky-mode attenuation against a thin-layer radiation
+estimate. Whether any of these bites is a measurement, not a promise.
+
+This file has now twice been too pessimistic — about whether an open sonic
+gather exists, and about what was left to do here. Both times the error was a
+claim about absence. Worth keeping in mind when reading the four items above.
