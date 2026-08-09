@@ -413,3 +413,179 @@ def test_the_scholte_limit_is_not_trivially_satisfied():
     assert correct < 1.0e-3
     assert wrong_density > 5.0 * correct
     assert naive_fluid > 5.0 * correct
+
+
+# ---------------------------------------------------------------------------
+# Leaky-mode radiation attenuation (independent oracle)
+# ---------------------------------------------------------------------------
+
+_LEAKY_ROCK = {"vp": 4000.0, "vs": 2300.0, "rho": 2500.0}
+_LEAKY_HOLE = {"vf": 1500.0, "rho_f": 1000.0, "a": 0.10}
+
+
+def test_leaky_radiation_attenuation_vanishes_below_the_shear_velocity():
+    """A bound mode radiates nothing, and does so exactly.
+
+    Below ``V_S`` both formation waves are evanescent, so the solid's
+    impedance is purely imaginary against a real fluid impedance and
+    ``|R|`` is identically 1. That is an algebraic identity rather than a
+    numerical near-miss, so the attenuation must be exactly zero.
+    """
+    from fwap import leaky_radiation_attenuation
+
+    below = np.array([1600.0, 2000.0, 2299.0])
+    att = leaky_radiation_attenuation(below, 10.0e3, **_LEAKY_ROCK, **_LEAKY_HOLE)
+    assert np.all(att == 0.0)
+
+
+def test_leaky_radiation_attenuation_is_positive_inside_the_leaky_window():
+    """Above ``V_S`` the shear wave propagates and carries energy away."""
+    from fwap import leaky_radiation_attenuation
+
+    inside = np.array([2400.0, 2800.0, 3500.0])
+    att = leaky_radiation_attenuation(inside, 10.0e3, **_LEAKY_ROCK, **_LEAKY_HOLE)
+    assert np.all(att > 0.0)
+
+
+def test_leaky_radiation_attenuation_scales_inversely_with_radius():
+    """The bounce rate, hence the attenuation, goes as ``1/a``.
+
+    Same phase velocity and frequency, so ``|R|``, ``k_f`` and ``k_z`` are
+    all unchanged and only the ``2a`` transverse round trip differs.
+    """
+    from fwap import leaky_radiation_attenuation
+
+    kw = dict(vf=1500.0, rho_f=1000.0)
+    narrow = leaky_radiation_attenuation(2600.0, 12.0e3, **_LEAKY_ROCK, **kw, a=0.05)
+    wide = leaky_radiation_attenuation(2600.0, 12.0e3, **_LEAKY_ROCK, **kw, a=0.15)
+    assert narrow / wide == pytest.approx(3.0, rel=1.0e-12)
+
+
+def test_leaky_radiation_attenuation_propagates_nan_and_broadcasts():
+    """A ``BoreholeMode`` is full of NaN below cutoff; passing it in must work."""
+    from fwap import leaky_radiation_attenuation
+
+    c = np.array([np.nan, 2600.0, np.nan, 2800.0])
+    freq = np.array([5.0e3, 10.0e3, 15.0e3, 20.0e3])
+    att = leaky_radiation_attenuation(c, freq, **_LEAKY_ROCK, **_LEAKY_HOLE)
+    assert att.shape == (4,)
+    assert np.isnan(att[0]) and np.isnan(att[2])
+    assert np.all(np.isfinite(att[[1, 3]])) and np.all(att[[1, 3]] > 0.0)
+
+
+def test_leaky_radiation_attenuation_rejects_bad_media_and_velocities():
+    from fwap import leaky_radiation_attenuation
+
+    with pytest.raises(ValueError, match="must all be positive"):
+        leaky_radiation_attenuation(
+            2600.0, 1.0e4, **_LEAKY_ROCK, vf=1500.0, rho_f=1000.0, a=-0.1
+        )
+    with pytest.raises(ValueError, match="require vp > vs"):
+        leaky_radiation_attenuation(
+            2600.0, 1.0e4, vp=2000.0, vs=2300.0, rho=2500.0, **_LEAKY_HOLE
+        )
+    with pytest.raises(ValueError, match="slow formation"):
+        leaky_radiation_attenuation(
+            2600.0, 1.0e4, vp=3000.0, vs=1400.0, rho=2500.0, **_LEAKY_HOLE
+        )
+    with pytest.raises(ValueError, match="freq must be strictly positive"):
+        leaky_radiation_attenuation(2600.0, 0.0, **_LEAKY_ROCK, **_LEAKY_HOLE)
+    with pytest.raises(ValueError, match="phase_velocity must lie in"):
+        leaky_radiation_attenuation(1400.0, 1.0e4, **_LEAKY_ROCK, **_LEAKY_HOLE)
+    with pytest.raises(ValueError, match="phase_velocity must lie in"):
+        leaky_radiation_attenuation(4500.0, 1.0e4, **_LEAKY_ROCK, **_LEAKY_HOLE)
+
+
+def test_leaky_radiation_reflection_matches_the_normal_incidence_limit():
+    """As ``c -> infinity`` the reflection coefficient must go normal-incidence.
+
+    This is the one point where ``R`` has a closed form independent of the
+    whole angle-dependent construction, so it is the check that the
+    impedance expression is assembled correctly. It is tested on the
+    private helper because ``c`` far above ``V_P`` is outside the physical
+    domain the public function accepts.
+    """
+    from fwap.cylindrical import _fluid_solid_reflection
+
+    vp, vs, rho = _LEAKY_ROCK["vp"], _LEAKY_ROCK["vs"], _LEAKY_ROCK["rho"]
+    vf, rho_f = 1500.0, 1000.0
+    got = _fluid_solid_reflection(
+        np.array(1.0e12), vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f
+    )
+    expected = (rho * vp - rho_f * vf) / (rho * vp + rho_f * vf)
+    assert float(np.real(got)) == pytest.approx(expected, rel=1.0e-9)
+    assert abs(float(np.imag(got))) < 1.0e-9
+
+
+def test_leaky_radiation_reflection_is_unit_modulus_when_nothing_radiates():
+    """``|R| = 1`` below ``V_S`` is an identity, so check it as one."""
+    from fwap.cylindrical import _fluid_solid_reflection
+
+    c = np.array([1600.0, 1900.0, 2200.0, 2299.999])
+    got = _fluid_solid_reflection(
+        c,
+        vp=_LEAKY_ROCK["vp"],
+        vs=_LEAKY_ROCK["vs"],
+        rho=_LEAKY_ROCK["rho"],
+        vf=1500.0,
+        rho_f=1000.0,
+    )
+    assert np.allclose(np.abs(got), 1.0, rtol=0.0, atol=1.0e-14)
+
+
+def test_leaky_radiation_estimate_brackets_the_cylindrical_solver():
+    """The oracle and the modal-determinant solver must agree in size.
+
+    This is the point of the whole function: ``pseudo_rayleigh_dispersion``
+    finds a complex root of the cylindrical modal determinant, while this
+    estimate is a plane-wave reflection coefficient times a bounce rate.
+    Nothing is shared between them.
+
+    The bounds are wide on purpose, and they are measured rather than
+    chosen. Across borehole radii 0.07-0.15 m and fast formations with
+    ``V_S`` 1700-2800 m/s the ratio stays inside 0.37-1.91, with a median
+    of 0.57-0.71 in *every* case -- a stable systematic offset near 0.6
+    plus a resonance the single-bounce picture does not model. The
+    assertions below pin both facts, and deliberately do not correct the
+    offset away.
+    """
+    from fwap import leaky_radiation_attenuation, pseudo_rayleigh_modal_dispersion
+
+    cases = [
+        dict(vp=4000.0, vs=2300.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.10),
+        dict(vp=4000.0, vs=2300.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.15),
+        dict(vp=4000.0, vs=2300.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.07),
+        dict(vp=4600.0, vs=2800.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.10),
+        dict(vp=3200.0, vs=1700.0, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.10),
+    ]
+    freq = np.linspace(4.0e3, 30.0e3, 120)
+    for medium in cases:
+        mode = pseudo_rayleigh_modal_dispersion(freq, **medium)
+        ok = np.isfinite(mode.slowness)
+        assert ok.sum() > 100, medium
+        estimate = leaky_radiation_attenuation(1.0 / mode.slowness, freq, **medium)
+        ratio = mode.attenuation_per_meter[ok] / estimate[ok]
+
+        assert np.all(ratio > 0.25), (medium, ratio.min())
+        assert np.all(ratio < 4.0), (medium, ratio.max())
+        assert 0.45 < float(np.median(ratio)) < 0.90, (medium, np.median(ratio))
+
+
+def test_leaky_estimate_would_catch_a_wrong_radius_scaling():
+    """The bracket above is loose; check it is still tight enough to bite.
+
+    A factor-of-two error in the borehole radius -- the kind of mistake the
+    estimate exists to catch -- must push the ratio outside the band that
+    the correct radius satisfies.
+    """
+    from fwap import leaky_radiation_attenuation, pseudo_rayleigh_modal_dispersion
+
+    medium = dict(vp=4000.0, vs=2300.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.10)
+    freq = np.linspace(4.0e3, 30.0e3, 120)
+    mode = pseudo_rayleigh_modal_dispersion(freq, **medium)
+    ok = np.isfinite(mode.slowness)
+
+    wrong = {**medium, "a": 0.20}
+    estimate = leaky_radiation_attenuation(1.0 / mode.slowness, freq, **wrong)
+    ratio = mode.attenuation_per_meter[ok] / estimate[ok]
+    assert float(np.median(ratio)) > 0.90

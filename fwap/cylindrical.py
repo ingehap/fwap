@@ -22,6 +22,8 @@ whose published limits match to within percent-level precision.
 Functions
 ---------
 * :func:`rayleigh_speed`
+* :func:`scholte_speed`
+* :func:`leaky_radiation_attenuation`
 * :func:`flexural_dispersion_physical`
 
 References
@@ -219,6 +221,225 @@ def scholte_speed(
     raise ValueError(  # pragma: no cover - unreachable for valid media
         "no Scholte root below min(vs, vf); check the input media"
     )
+
+
+def _fluid_solid_reflection(
+    c: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+) -> np.ndarray:
+    """
+    Plane-wave reflection coefficient, fluid on elastic solid.
+
+    Evaluated at horizontal slowness ``1 / c``, i.e. for the plane wave
+    whose trace velocity along the interface is ``c``. See
+    :func:`leaky_radiation_attenuation` for the formula and references.
+
+    Parameters
+    ----------
+    c : ndarray
+        Trace velocity along the interface (m/s).
+    vp, vs, rho, vf, rho_f : float
+        Solid and fluid media, as in
+        :func:`leaky_radiation_attenuation`.
+
+    Returns
+    -------
+    ndarray
+        Complex reflection coefficient, same shape as ``c``. Its modulus
+        is exactly 1 wherever ``vf < c <= vs`` (both formation waves
+        evanescent, so nothing radiates) and less than 1 for
+        ``vs < c < vp``.
+    """
+    with np.errstate(divide="ignore", invalid="ignore"):
+        cos_f = np.sqrt((1.0 - (vf / c) ** 2).astype(complex))
+        cos_p = np.sqrt((1.0 - (vp / c) ** 2).astype(complex))
+        cos_s = np.sqrt((1.0 - (vs / c) ** 2).astype(complex))
+
+        gamma = (vs / c) ** 2
+        z_f = rho_f * vf / cos_f
+        z_s = rho * vp * (1.0 - 2.0 * gamma) ** 2 / cos_p + (
+            4.0 * rho * vs * gamma * (1.0 - gamma) / cos_s
+        )
+        return np.asarray((z_s - z_f) / (z_s + z_f))
+
+
+def leaky_radiation_attenuation(
+    phase_velocity: np.ndarray | float,
+    freq: np.ndarray | float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> np.ndarray:
+    r"""
+    Ray estimate of a borehole leaky mode's radiation attenuation.
+
+    Models the ``n=0`` leaky mode as a plane wave bouncing inside the
+    fluid column: it crosses the borehole from wall to wall through the
+    axis (a transverse path of ``2a``), reflects once, and repeats. The
+    reflection is lossy whenever the formation shear wave is
+    propagating, so the mode decays along ``z`` at
+
+    .. math::
+
+        \operatorname{Im} k_z
+        \;=\; \frac{-\ln |R(c)| \; k_f}{2 a \, k_z},
+        \qquad
+        k_z = \frac{\omega}{c}, \quad
+        k_f = \sqrt{\frac{\omega^2}{V_f^2} - k_z^2}
+
+    where :math:`R` is the textbook plane-wave reflection coefficient
+    for a fluid on an elastic solid at horizontal slowness :math:`1/c`,
+
+    .. math::
+
+        R = \frac{Z_s - Z_f}{Z_s + Z_f}, \qquad
+        Z_f = \frac{\rho_f V_f}{\sqrt{1 - V_f^2/c^2}},
+
+    .. math::
+
+        Z_s = \frac{\rho V_p \left(1 - 2V_s^2/c^2\right)^2}
+                   {\sqrt{1 - V_p^2/c^2}}
+            + \frac{4 \rho V_s \,(V_s^2/c^2)(1 - V_s^2/c^2)}
+                   {\sqrt{1 - V_s^2/c^2}}.
+
+    Why this function exists
+    -----------------------
+    It is an **independent oracle for the leaky-mode solver**, in the
+    same spirit as :func:`scholte_speed`. Nothing here touches the
+    cylindrical modal determinant: there are no Bessel functions and no
+    root finding, only a plane-wave reflection coefficient and a
+    bounce-rate. Comparing it with the ``attenuation_per_meter`` field
+    of :func:`fwap.pseudo_rayleigh_modal_dispersion` therefore checks
+    the solver against different physics rather than against itself.
+
+    What the comparison actually shows, measured over a 4-30 kHz band
+    for borehole radii 0.07-0.15 m and fast formations with
+    ``V_S`` 1700-2800 m/s (see ``tests/test_cylindrical.py``):
+
+    * The estimate is the **right size and carries the right
+      geometry**. Solver-to-estimate ratios stay inside roughly
+      0.37-1.9 for a brine-like fluid.
+    * There is a **stable systematic offset**: the median ratio is
+      0.57-0.71 across every one of those cases, so the solver is
+      consistently *less* attenuating than this estimate by a factor
+      near 0.6. That offset is reported rather than corrected --- no
+      derivation here accounts for it, and folding an empirical
+      constant into the formula would turn an independent oracle into
+      a fit.
+    * The residual scatter about that offset is a **transverse
+      resonance** the single-bounce picture omits. The solver's
+      attenuation oscillates with frequency, and the peak spacing
+      satisfies ``spacing * a = const`` to about 6 % over that range of
+      radii --- the ``2a`` round trip assumed above, arrived at
+      independently from the solver's own output.
+
+    So this is a **order-of-magnitude and scaling check**, not a
+    precision one. It is strong enough to catch a wrong power of
+    frequency, a wrong radius dependence, or an attenuation that is
+    orders out; it would not catch a 30 % error.
+
+    Parameters
+    ----------
+    phase_velocity : ndarray or float
+        Mode phase velocity ``c`` (m/s), of any shape broadcastable
+        against ``freq``. Finite entries must satisfy
+        ``vf < c < vp``. ``NaN`` entries propagate to ``NaN``, so the
+        ``1 / slowness`` of a :class:`fwap.BoreholeMode` can be passed
+        in directly.
+    freq : ndarray or float
+        Frequency (Hz), broadcastable against ``phase_velocity``. Must
+        be strictly positive.
+    vp, vs, rho : float
+        Formation P-wave velocity (m/s), S-wave velocity (m/s) and bulk
+        density (kg/m^3). Require ``vp > vs > 0`` and ``rho > 0``.
+    vf, rho_f : float
+        Borehole-fluid velocity (m/s) and density (kg/m^3). Require
+        ``vs > vf > 0`` and ``rho_f > 0`` (fast formation).
+    a : float
+        Borehole radius (m); must be positive.
+
+    Returns
+    -------
+    ndarray
+        Radiation attenuation (1/m, the spatial decay rate of mode
+        amplitude in the ``+z`` direction), broadcast to the common
+        shape of ``phase_velocity`` and ``freq``. Exactly ``0.0``
+        wherever ``c <= vs``: both formation waves are then evanescent,
+        ``|R| = 1`` identically, and the mode is bound rather than
+        leaky.
+
+    Raises
+    ------
+    ValueError
+        If any medium parameter is non-positive, if ``vp <= vs``, if
+        ``vs <= vf`` (slow formation --- no leaky-S window exists), if
+        any frequency is non-positive, or if any finite
+        ``phase_velocity`` falls outside ``(vf, vp)``.
+
+    See Also
+    --------
+    scholte_speed : The analogous plane-interface oracle for the bound
+        Stoneley mode's high-frequency limit.
+    fwap.pseudo_rayleigh_modal_dispersion : The cylindrical leaky-mode
+        solver this function is used to check.
+
+    References
+    ----------
+    * Brekhovskikh, L. M., & Godin, O. A. (1990). *Acoustics of Layered
+      Media I.* Springer. (Fluid/solid plane-wave reflection.)
+    * Aki, K., & Richards, P. G. (2002). *Quantitative Seismology*
+      (2nd ed.). University Science Books, sect. 5.2.
+    * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
+      Boreholes.* CRC Press, sect. 4.4. (Borehole leaky modes.)
+    """
+    if vs <= 0.0 or rho <= 0.0 or vf <= 0.0 or rho_f <= 0.0 or a <= 0.0:
+        raise ValueError("vs, rho, vf, rho_f and a must all be positive")
+    if vp <= vs:
+        raise ValueError("require vp > vs")
+    if vs <= vf:
+        raise ValueError(
+            "require vs > vf (fast formation); a slow formation has no leaky-S window"
+        )
+
+    c = np.asarray(phase_velocity, dtype=float)
+    f = np.asarray(freq, dtype=float)
+    if np.any(f <= 0.0):
+        raise ValueError("freq must be strictly positive")
+
+    c, f = np.broadcast_arrays(c, f)
+    finite = np.isfinite(c)
+    if np.any(finite & ((c <= vf) | (c >= vp))):
+        raise ValueError(
+            f"phase_velocity must lie in ({vf}, {vp}) m/s where the fluid "
+            "wave propagates and the formation P wave does not"
+        )
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        reflection = np.abs(
+            _fluid_solid_reflection(c, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f)
+        )
+
+        omega = 2.0 * np.pi * f
+        k_z = omega / c
+        k_f = np.sqrt(np.maximum((omega / vf) ** 2 - k_z**2, 0.0))
+        attenuation = -np.log(reflection) * k_f / (2.0 * a * k_z)
+
+    # Below V_S nothing radiates: |R| is 1 as an algebraic identity, so
+    # the attenuation is exactly zero. It is imposed here rather than
+    # left to the arithmetic because |R| comes out of a complex division
+    # and lands on 1 only to a rounding error, which would otherwise
+    # leak a ~1e-16 attenuation into a mode that is bound.
+    attenuation = np.where(c <= vs, 0.0, attenuation)
+    return np.where(np.isfinite(c), np.maximum(attenuation, 0.0), np.nan)
 
 
 def flexural_dispersion_physical(

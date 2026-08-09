@@ -6,7 +6,45 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **`leaky_radiation_attenuation` — an independent oracle for the leaky-mode
+  solver's attenuation.** A borehole leaky mode is a fluid wave bouncing from
+  wall to wall through the axis, losing energy at each reflection to the shear
+  wave it radiates into the formation. That picture gives
+  `Im(k_z) = -ln|R| k_f / (2 a k_z)` from nothing but the textbook plane-wave
+  fluid/solid reflection coefficient — no Bessel functions, no modal
+  determinant — so comparing it with `pseudo_rayleigh_modal_dispersion` checks
+  the solver against different physics rather than against itself. This is the
+  same move `scholte_speed` made for the bound Stoneley mode.
+
 ### Changed
+- **Leaky-mode attenuation checked; the estimate holds at the order-of-magnitude
+  level and the check turned up three branch-selection defects.** Over 4-30 kHz,
+  borehole radii 0.07-0.15 m and fast formations with `V_S` 1700-2800 m/s, the
+  solver-to-estimate ratio stays inside 0.37-1.91. The scatter is not random:
+  the median ratio is **0.57-0.71 in every one of those cases**, a stable
+  systematic offset near 0.6, with the residual an oscillation whose peak
+  spacing satisfies `spacing * a = const` to about 6 % — the same `2a`
+  transverse round trip the estimate assumes, recovered independently from the
+  solver's own output. So the geometry is confirmed and the scale is right to
+  within a factor of two. The offset is **reported, not corrected**: folding an
+  empirical constant into the formula would turn an oracle into a fit.
+- **`pseudo_rayleigh_dispersion`'s result depends on the caller's frequency
+  window, which was undocumented.** The march is seeded at the highest requested
+  frequency, and more than one leaky root lives near that seed. Measured on a
+  0.10 m hole in a 4000/2300/2500 formation: the mode reported at 30 kHz has
+  `c = 2486 m/s` for a grid stopping at 40 kHz and `c = 2952 m/s` for one
+  stopping at 80 kHz — a 19 % difference, and **both are genuine roots of the
+  determinant**, verified by residual against the neighbourhood. Two related
+  failure modes are worse because they are silent: a 0.07 m hole recovers the
+  4-30 kHz band at 80 samples but returns **all-NaN at 60**, and requesting only
+  24-32 kHz returns nothing where a 2-40 kHz grid converges throughout. Where it
+  does converge the tracking is sound — halving the step reproduces the
+  attenuation to 1e-10 relative — so this is about *which* root is followed, not
+  accuracy. The docstring now states all of this and advises treating an
+  all-NaN result as "not found on this grid" rather than "no such mode".
+  Five tests pin the behaviour so a future fix surfaces here rather than
+  passing quietly.
 - **Quadrupole high-frequency asymptote checked; it validates the slow-formation
   solver and exposes a fast-formation defect.** At short wavelength the borehole
   wall looks flat to every azimuthal order, so the n=2 quadrupole must approach

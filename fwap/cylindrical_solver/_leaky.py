@@ -878,6 +878,45 @@ def pseudo_rayleigh_dispersion(
     branch-stitching across the cutoff; that is plan item C
     (`docs/plans/cylindrical_biot.md`).
 
+    Limitations of the branch selection
+    -----------------------------------
+    Because the march is seeded at the *highest requested frequency*,
+    the result depends on the caller's frequency window and not on the
+    medium alone. Three consequences, all measured and pinned in
+    ``tests/test_cylindrical_solver.py``:
+
+    * **The tracked branch depends on the top of the grid.** More than
+      one leaky root lives near the seed. For a 0.10 m hole in a
+      ``V_P/V_S/rho = 4000/2300/2500`` formation the mode reported at
+      30 kHz has ``c = 2486 m/s`` when the grid stops at 40 kHz and
+      ``c = 2952 m/s`` when it stops at 80 kHz. Both are genuine roots
+      of the determinant.
+    * **Too coarse a grid returns all-NaN, not a coarse answer.** The
+      same formation in a 0.07 m hole recovers the 4-30 kHz band at 80
+      samples and returns nothing at 60. The failure is silent.
+    * **A sub-window can lose a mode the full band finds.** Requesting
+      only 24-32 kHz returns nothing for that 0.10 m case, while a
+      2-40 kHz grid converges across the whole of that interval.
+
+    Where it does converge the tracking itself is solid: halving the
+    step reproduces the attenuation to better than 1e-10 relative. The
+    sensitivity is about *which* root is followed, not how accurately.
+
+    Prefer a wide grid starting well above the band of interest, and
+    treat an all-NaN result as "not found on this grid" rather than as
+    "no such mode".
+
+    Accuracy of the attenuation
+    ---------------------------
+    ``attenuation_per_meter`` has been checked against
+    :func:`fwap.leaky_radiation_attenuation`, an independent ray
+    estimate built from the plane-wave fluid/solid reflection
+    coefficient with no modal determinant in it. The two agree in size
+    and in their radius scaling, with a stable systematic offset near
+    0.6 and a superimposed transverse resonance; see that function's
+    docstring for the measured numbers and what the comparison does and
+    does not establish.
+
     The geometric cutoff frequency is approximately
 
     .. math::
