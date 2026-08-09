@@ -13,7 +13,7 @@ their ordering, because only one kind can be worked on from a coding session.
 | # | Item | Kind | Blocked on |
 |---|------|------|-----------|
 | 1 | Leaky-mode root tracking (A.2 + G.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
-| 2 | A real full-waveform sonic gather (F) | sourcing | licensing + network access |
+| 2 | A real full-waveform sonic gather (F) | sourcing | opening one candidate file — network access |
 | 3 | Digitised validation figures (A.1, second half) | sourcing | access to the books |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
 
@@ -81,8 +81,24 @@ on data drawn from *the same forward model that generated the training set*.
 That measures identifiability, not field accuracy, and no further synthetic work
 can close the gap.
 
-The blocker is genuine: no openly redistributable full-waveform gather with
-trustworthy reference picks is known to exist.
+**Candidates now exist; an earlier revision of this file was too pessimistic.**
+It said "no openly redistributable full-waveform gather with trustworthy
+reference picks is known to exist". A search found two credible sources, so that
+is withdrawn:
+
+- **Utah FORGE** via the DOE Geothermal Data Repository — Schlumberger dipole
+  sonic in **DLIS** (already readable by `fwap.io.read_dlis`), from an
+  eight-receiver array with monopole and dipole sources, and **CC BY 4.0**.
+- **IODP / ODP** via the LDEO Borehole Research Group — sonic waveforms for many
+  holes, in DLIS plus a Python-friendly binary export, documented as eight
+  waveforms × 512 samples at 10/40 µs every 15.24 cm. Licence unconfirmed;
+  matters less than it looks, since the harness fetches on demand and never
+  vendors.
+
+Neither has been downloaded or opened — egress here reaches GitHub only — so
+this is a shortlist from published metadata, not a verified result. The next
+step is one person opening a file to confirm it holds per-receiver waveforms
+rather than processed curves, then a checksum and a one-line registry entry.
 
 ## 3. Validation figures (A.1) — half closed, half blocked
 

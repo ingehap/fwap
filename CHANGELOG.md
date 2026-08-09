@@ -6,6 +6,26 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Two candidate sources for a real full-waveform sonic gather identified;
+  roadmap F's "none is known to exist" withdrawn.** Section F asserted that no
+  openly redistributable full-waveform gather was known to exist. A search says
+  otherwise, so the claim is retracted and replaced with a shortlist:
+  **Utah FORGE** via the DOE Geothermal Data Repository (Schlumberger dipole
+  sonic in DLIS, which `fwap.io.read_dlis` already reads, from an
+  eight-receiver array with monopole and two dipole sources, licensed
+  **CC BY 4.0**), and **IODP/ODP** via the LDEO Borehole Research Group (sonic
+  waveforms for many holes, DLIS plus a Python-friendly binary export,
+  documented as eight waveforms x 512 samples at 10/40 us every 15.24 cm —
+  close to this package's own defaults).
+  Neither file has been downloaded or opened: this sandbox's egress reaches
+  GitHub only. The entry says so, and is explicit that it is a shortlist from
+  published metadata rather than a verified result. No registry entry is added,
+  because the SHA-256 cannot be computed without the file and an unverified
+  checksum would defeat the registry's purpose. The remaining steps are
+  recorded in order, and only the first — opening a file to confirm it holds
+  per-receiver waveforms rather than processed curves — is real work.
+
 ### Added
 - **Two-mode cased dataset** (`generate_slow_two_mode_cased_dataset`,
   `CASED_TWO_MODES`, `CASED_FLEXURAL_MODE`, `SLOW_TWO_MODE_PRIORS` in
