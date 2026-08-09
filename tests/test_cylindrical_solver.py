@@ -14050,6 +14050,29 @@ def test_pseudo_rayleigh_rejects_a_branch_that_does_not_exist():
         )
 
 
+def test_pseudo_rayleigh_returns_all_nan_below_the_lowest_cutoff():
+    """No branch exists at the top of the band, so there is nothing to march.
+
+    This is the one case where an all-NaN curve is the right answer rather
+    than a search failure: at 100-200 Hz the wavelength is two orders above
+    the borehole radius and no leaky mode has reached its cutoff. The
+    enumeration finds nothing and the solver says so, instead of raising --
+    "this mode does not propagate here" is a physical statement, and it is
+    distinguished from an out-of-range ``branch``, which does raise.
+    """
+    from fwap import pseudo_rayleigh_modal_dispersion
+    from fwap.cylindrical_solver._leaky import _enumerate_leaky_roots_n0
+
+    medium = dict(**_LEAKY_FAST, **_LEAKY_BRINE, a=0.10)
+    assert _enumerate_leaky_roots_n0(2.0 * np.pi * 200.0, **medium) == []
+
+    freq = np.linspace(100.0, 200.0, 5)
+    mode = pseudo_rayleigh_modal_dispersion(freq, **medium)
+    assert mode.slowness.shape == freq.shape
+    assert not np.any(np.isfinite(mode.slowness))
+    assert not np.any(np.isfinite(mode.attenuation_per_meter))
+
+
 def test_leaky_root_enumeration_count_is_insensitive_to_scan_density():
     """The seed scan must not be the thing that decides how many modes exist.
 
