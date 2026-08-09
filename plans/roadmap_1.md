@@ -1,7 +1,7 @@
 # What remains to be done
 
-A prioritised reading of the open items in `docs/roadmap.md`, kept current
-through PR #51. `docs/roadmap.md` stays the authoritative status file; this is a
+A prioritised reading of the open items in `docs/roadmap.md`, current through
+PR #54. `docs/roadmap.md` stays the authoritative status file; this is a
 snapshot of *priority and reasoning* at one point in time, so check it against
 the tree before acting on it.
 
@@ -21,14 +21,15 @@ Items 2 and 3 cannot be closed by writing code, and this sandbox's egress
 reaches GitHub only, so neither can even be fetched from here. They are work for
 someone with a network and a library.
 
-A note on how this list shrank: A.2 was previously listed as its own item
-("cased flexural bracketing"). Investigating it showed it is a symptom of the
-same leaky-mode problem as G.2, so the two are now one entry. That is a real
-reduction in scope, not a re-labelling.
+**The headline, as of this revision: there is no longer a large piece of work a
+coding session can carry to completion unaided.** Item 1 was the candidate;
+attempting it moved the blocker from code to derivation. The bounded fallback
+that stood behind it has now been built and closed. What is left is one hard
+derivation and three things that need something this environment does not have.
 
-## 1. Leaky-mode root tracking (A.2 + G.2) — the only substantial coding work
+## 1. Leaky-mode root tracking (A.2 + G.2)
 
-Two roadmap items turned out to need the same machinery.
+Two roadmap items need the same machinery.
 
 **A.2, the fast-formation flexural sparsity.** A fast formation behind casing
 converges over only ~38 % of a 1-12 kHz band. It was filed as a *cased-hole
@@ -38,9 +39,8 @@ frequencies. The cause is leakage: for `V_S > V_f` the flexural root leaves the
 real `k_z` axis, and the real-axis sign change the solver hunts for survives
 only beside the shear branch point at high frequency. Widening a real bracket
 cannot recover it — no sign change exists below the cutoff in any sub-window,
-and the middle window is singular for the propagator formulation anyway. Four
-tests pin the open-hole-vs-cased comparison so the attribution cannot drift
-back.
+and the middle window is singular for the propagator formulation anyway. Tests
+pin the open-hole-vs-cased comparison so the attribution cannot drift back.
 
 **G.2, the free-pipe / debonded regime.** The cased dataset spans only the
 *bonded* regime, so the bond inverse grades cement quality and is explicitly not
@@ -66,15 +66,6 @@ fast-formation flexural mode may simply exist only above its cutoff, with the
 low-frequency dipole energy carried by a shear head wave. Settling that is what
 Schmitt 1988 fig 4 is for, which quietly puts this item behind item 3's
 literature access too.
-
-**Measured consequence for the dataset**: fast formations average 28 % band
-coverage (5/47 fully converged over 50 draws); slow formations converge fully.
-
-*Correction.* An earlier version of this file said "only ~15 % of draws are
-slow". That was measured over the **default** `FormationPriors` (1200-3200 m/s),
-not the one the cased generator actually uses — `generate_cased_dataset` pins
-1700-3000 m/s, so 100 % of its draws are fast. The figure described the wrong
-distribution and is withdrawn; see item 5 for what replaced the conclusion.
 
 ## 2. A real full-waveform sonic gather (F) — the one that matters most
 
@@ -117,43 +108,39 @@ Packaging only, and unblocked once the first PyPI release is live. Reversible
 and low-risk; listed for completeness rather than because it competes with
 anything above.
 
-## 5. Two-mode cased dataset — done, and narrower than expected
-
-`generate_slow_two_mode_cased_dataset` ships a cased dataset carrying both the
-Stoneley and the flexural mode, fully bound across the band.
-
-The catch is the prior it needs. The two cased modes fail in opposite
-directions — flexural is sparse in fast formations, the Stoneley stops being
-bound as the formation slows away from the fluid — so the window where both hold
-is `V_S` in 1420-1495 m/s, about 80 m/s wide. Measured both-modes-bound fraction
-across the annulus prior: 0.00 at 1350 m/s, 0.42 at 1380, 0.92 at 1400, 1.00
-from 1420 up.
-
-That window is **disjoint from the default cased prior** (1700-3000 m/s), so
-this is a different dataset rather than a subset, and the two must not be
-pooled. It suits cement-bond work, where the label is the bond index and
-formation `V_S` is a nuisance parameter; it is the wrong dataset for anything
-needing formation-property variety. The restriction is documented at the point
-of use and pinned by a test.
-
-## Loose ends from the joint-inversion work
+## Loose ends
 
 - Whether `penalty="tv"` should be the default in `sonic_ml.models.joint` —
   deliberately unresolved, because it turns on how bedded a real target log is.
   That is item 2, not another synthetic sweep.
-- Coupling across *mode* as well as depth: untouched.
+- Coupling across *mode* as well as depth in joint inversion: untouched.
+
+## Closed since this file was first written
+
+Kept here because each one moved a number or a conclusion that earlier revisions
+of this file got wrong, and the corrections are worth not losing.
+
+- **Two-mode cased dataset** (PR #54).
+  `generate_slow_two_mode_cased_dataset` carries both the Stoneley and the
+  flexural mode, fully bound. The catch is the prior: the two modes fail in
+  opposite directions, so the window where both hold is `V_S` 1420-1495 m/s —
+  about 80 m/s, and **disjoint from the default cased prior** (1700-3000 m/s),
+  making it a different dataset rather than a subset. Measured both-modes-bound
+  fraction: 0.00 at 1350 m/s, 0.42 at 1380, 0.92 at 1400, 1.00 from 1420 up.
+  This also withdrew a wrong figure — an earlier revision said "only ~15 % of
+  draws are slow", measured over the *default* `FormationPriors` rather than the
+  fast prior the cased generator actually pins, where the true figure is 0 %.
+- **A.2 re-diagnosed** (PR #51). Filed as cased-hole bracketing; measurement
+  showed the open hole is equally sparse, relocating it into item 1.
+- **A.1 machinery** (PR #50). See item 3.
 
 ## Recommendation
 
-Item 1 was the only substantial thing that looked buildable from here, and
-attempting it moved it: the coding part is ready, the *derivation* part is not,
-and it may itself depend on the literature access items 2 and 3 need. So there
-is currently **no large piece of work that a coding session can carry to
-completion unaided** — which is worth saying plainly rather than discovering
-again.
+Nothing here can be finished from a coding session alone. Ranked by value rather
+than by feasibility, items 2 and 3 dominate everything else and should be queued
+for whoever has the books and a network; item 1 needs a derivation before any
+code is worth writing; item 4 waits on a release.
 
-The bounded near-term dataset improvement has now been done, and it is smaller
-than this file previously implied — see item 5.
-
-Items 2 and 3 should be queued for whoever has the books and a network. They are
-worth more than anything on this list, and no amount of coding will close them.
+If work continues here regardless, the honest options are small: more tests
+against existing behaviour, or documentation. Both are worth less than the
+sourcing work, and this file should not pretend otherwise.
