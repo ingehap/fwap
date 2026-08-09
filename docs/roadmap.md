@@ -275,6 +275,29 @@ essentially complete -- plan items A through H in
    termination frequency is not stable at all, which is now recorded
    as a caveat on reading the `NaN` boundary as physics.
 
+   *A third analytic check, on the leaky modes' attenuation.* The
+   `attenuation_per_meter` field had tests proving it was present,
+   finite and positive, but nothing checking its *size* against any
+   independent physics. `fwap.leaky_radiation_attenuation` supplies
+   that: a leaky mode is a fluid wave bouncing wall-to-wall through
+   the borehole axis and shedding energy into the shear wave it
+   radiates, giving `Im(k_z) = -ln|R| k_f / (2 a k_z)` from the
+   textbook plane-wave fluid/solid reflection coefficient alone --- no
+   Bessel functions, no modal determinant. Over 4-30 kHz, radii
+   0.07-0.15 m and fast formations with `V_S` 1700-2800 m/s the
+   solver-to-estimate ratio stays inside 0.37-1.91, and the median is
+   0.57-0.71 in *every* case. Two things follow. The scale and the
+   geometry are confirmed: the residual scatter is an oscillation
+   whose peak spacing satisfies `spacing * a = const` to about 6 %,
+   which is the same `2a` transverse round trip the estimate assumes,
+   recovered independently from the solver's own output. And there is
+   a stable systematic offset near 0.6 that no derivation here
+   accounts for; it is reported rather than folded into the formula,
+   since an empirical constant would convert an oracle into a fit.
+   This is an order-of-magnitude and scaling check --- it would catch
+   a wrong power of frequency or a radius/diameter confusion, not a
+   30 % error.
+
    *The machinery is done.* `fwap.validation` scores an fwap curve
    against a digitised reference and the notebook asserts a 5 % RMS
    budget per curve, verified to fail on a 12 %-perturbed reference.
@@ -405,6 +428,41 @@ essentially complete -- plan items A through H in
    cement-bond work, where the label is the bond index and formation
    `V_S` is a nuisance parameter, and is the wrong dataset for
    anything needing formation-property variety.
+
+3. **Leaky-mode branch selection depends on the caller's frequency
+   window.** Found while checking the attenuation above, and separate
+   from item 2: this one is about `n=0`, where the leaky solver is
+   supposed to work. `pseudo_rayleigh_dispersion` seeds its march at
+   the *highest requested frequency*, and more than one leaky root
+   lives near that seed, so the answer is a function of the grid as
+   well as the medium. On a 0.10 m hole in a 4000/2300/2500
+   formation the mode reported at 30 kHz has `c = 2486 m/s` for a grid
+   stopping at 40 kHz and `c = 2952 m/s` for one stopping at 80 kHz.
+   Neither is spurious --- both are genuine roots of the determinant,
+   verified by residual against their own neighbourhood, and a scan of
+   the leaky-S window at 30 kHz finds exactly those two.
+
+   Two related failure modes are worse because they are silent rather
+   than wrong. A 0.07 m hole recovers the 4-30 kHz band at 80 grid
+   samples and returns **all-NaN at 60** --- total failure, no partial
+   curve, no warning, so a caller who picked the coarser grid would
+   conclude the mode does not exist. And requesting only 24-32 kHz
+   returns nothing for the 0.10 m case, while a 2-40 kHz grid
+   converges across the whole of that interval.
+
+   Where it converges the tracking is sound: halving the step
+   reproduces the attenuation to better than 1e-10 relative. So this
+   is about *which* root is followed, not how accurately --- which
+   makes it a narrower problem than item 2, and probably fixable
+   without the Riemann-sheet derivation that one needs. A fix would
+   enumerate the roots in the leaky window at the seed frequency and
+   let the caller select by radial order, rather than letting the grid
+   choose. Until then the docstring states the limitation, advises a
+   wide grid started well above the band of interest, and says an
+   all-NaN result means "not found on this grid" rather than "no such
+   mode"; five tests in `tests/test_cylindrical_solver.py` pin the
+   behaviour so a future fix surfaces there rather than passing
+   quietly.
 
 For reference, the original from-scratch problem statement is
 preserved below.

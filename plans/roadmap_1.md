@@ -1,18 +1,22 @@
 # What remains to be done
 
 A prioritised reading of the open items in `docs/roadmap.md`, current through
-PR #59. `docs/roadmap.md` stays the authoritative status file; this is a
-snapshot of *priority and reasoning* at one point in time, so check it against
-the tree before acting on it.
+the leaky-mode attenuation check (PRs #61, #62 and this branch).
+`docs/roadmap.md` stays the authoritative status file; this is a snapshot of
+*priority and reasoning* at one point in time, so check it against the tree
+before acting on it.
 
 ## The shape of it
 
-Four things are open, and they fall into two kinds — which matters more than
+Five things are open, and they fall into two kinds — which matters more than
 their ordering, because only one kind can be worked on from a coding session.
+Item 1 used to be a single row; measurement split it, and the half that came
+loose is the only large item here that is not blocked on something external.
 
 | # | Item | Kind | Blocked on |
 |---|------|------|-----------|
-| 1 | Leaky-mode root tracking (A.2 + G.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
+| 1a | Leaky-mode branch selection, n=0 (A.3) | ordinary coding | nothing — see below |
+| 1b | Leaky-mode root tracking, n=1 (A.2 + G.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
 | 2 | A real full-waveform sonic gather (F) | sourcing | fetching one **named** file from a host this sandbox cannot reach |
 | 3 | Digitised validation figures (A.1, curve shapes) | sourcing | access to the books |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
@@ -23,17 +27,27 @@ disproved — the AWS Open Data S3 buckets are reachable and downloads from them
 work. They simply do not host the files in question. The obstacle is which host
 serves a file, not a blanket network wall.
 
-**The headline, as of this revision: there is no longer a large piece of work a
-coding session can carry to completion unaided — but item 2 has shrunk a lot.**
-Item 1 was the large candidate, and attempting it moved the blocker from code to
-derivation; the bounded fallback behind it is built and closed. Item 2, however,
-went from "no such data is known to exist" to a named file, in a format the
-library already reads, under CC BY 4.0. That is now an errand rather than a
-research problem, and it is still the most valuable thing on this list.
+**The headline changed with this revision, and it changed in the direction this
+file keeps getting wrong.** The previous revision said "there is no longer a
+large piece of work a coding session can carry to completion unaided". That is
+now false: item 1 split. Checking the leaky-mode attenuation found that the
+`n=0` leaky solver — the part that is supposed to work — returns a *different
+mode* depending on the caller's frequency window, and fails silently to all-NaN
+on grids that are merely too coarse. Fixing that needs no derivation and no
+literature; the roots are there and are found reliably once seeded. It is
+ordinary coding, and it is item 1a.
 
-## 1. Leaky-mode root tracking (A.2 + G.2)
+That is the third time a claim in this file about what is *not* available here
+has been overturned by measuring instead of reasoning. Item 2 remains the most
+valuable thing on the list — it went from "no such data is known to exist" to a
+named CC BY 4.0 file in a format the library already reads, and is now an errand
+rather than a research problem — but it is no longer the only thing that can
+move.
 
-Two roadmap items need the same machinery.
+## 1. Leaky-mode root tracking (A.2 + G.2), and the n=0 piece that split off
+
+Two roadmap items need the same machinery — and a third, smaller one turned out
+not to need it at all.
 
 **A.2, the fast-formation flexural sparsity.** A fast formation behind casing
 converges over only ~38 % of a 1-12 kHz band. It was filed as a *cased-hole
@@ -64,8 +78,21 @@ continuation from the cutoff fails on its first step. Even above the cutoff,
 1 kHz continuation steps can hop to a different branch, so the extension needs
 the validated marcher's regime checks and not just the tracker.
 
-What is missing is a derivation rather than code: which Riemann sheet the `n=1`
-pole occupies below the cutoff. And there may be no pole to find — the
+**A narrower, probably-tractable piece has since split off.** Checking the
+leaky-mode attenuation turned up a defect in `n=0` — the part of the leaky
+solver that is supposed to work. `pseudo_rayleigh_dispersion` seeds its march at
+the highest requested frequency, and several leaky roots live near that seed, so
+the mode it returns depends on the caller's grid: 2486 m/s at 30 kHz for a grid
+ending at 40 kHz, 2952 m/s for one ending at 80 kHz, both genuine roots. Worse,
+a grid that is merely too coarse returns all-NaN rather than a coarse answer,
+with no warning. Unlike the `n=1` problem this needs no Riemann-sheet
+derivation: the roots are there and are found reliably once seeded. What is
+missing is enumerating them at the seed frequency and letting the caller pick a
+radial order instead of letting the frequency window pick for them. That makes
+it the one piece of item 1 a coding session could plausibly close.
+
+What is missing *for the `n=1` case* is a derivation rather than code: which
+Riemann sheet the `n=1` pole occupies below the cutoff. And there may be no pole to find — the
 fast-formation flexural mode may simply exist only above its cutoff, with the
 low-frequency dipole energy carried by a shear head wave. Settling that is what
 Schmitt 1988 fig 4 is for, which quietly puts this item behind item 3's
@@ -218,11 +245,29 @@ results, asymptotic limits and independent formulations of the same physics are
 all reachable, and each one that can be implemented from theory is worth more
 than another test of behaviour against itself.
 
-Candidates in that spirit, none yet attempted: the pseudo-Rayleigh geometric
-cutoff frequency against its rigid-pipe closed form (`_J1_FIRST_ZERO` is already
-in the code but unchecked against the solver); the quadrupole's high-frequency
-asymptote; and the leaky-mode attenuation against a thin-layer radiation
-estimate. Whether any of these bites is a measurement, not a promise.
+Three candidates were listed in that spirit, with the caveat that "whether any
+of these bites is a measurement, not a promise". All three have now been run,
+and all three bit:
+
+- **The pseudo-Rayleigh cutoff against its rigid-pipe closed form** (PR #61).
+  The `1/a` scaling holds to 1 part in 300; the absolute cutoff overshoots by
+  ~2.8x, so the docstring's advice to use it as a band guard would have
+  discarded valid data. Corrected.
+- **The quadrupole high-frequency asymptote** (PR #62). Validates the
+  slow-formation solver and exposed a fast-formation defect, which also
+  corrected a generator comment about `min_finite` filtering.
+- **The leaky-mode attenuation against a radiation estimate** (this one).
+  `leaky_radiation_attenuation` confirms the solver's attenuation to within a
+  factor of two with the right radius scaling, and turned up something the
+  check was not looking for: `pseudo_rayleigh_dispersion` returns a different
+  mode depending on the caller's frequency window, and fails silently to
+  all-NaN on grids that are merely too coarse. See item 1 below.
+
+So the pattern held three times out of three: every analytic oracle that could
+be implemented from theory found something, and two of the three found an error
+rather than a confirmation. That is a better hit rate than "more tests against
+existing behaviour" would have given, and it is the strongest argument for
+looking for a fourth oracle rather than concluding this environment is exhausted.
 
 This file has now twice been too pessimistic — about whether an open sonic
 gather exists, and about what was left to do here. Both times the error was a

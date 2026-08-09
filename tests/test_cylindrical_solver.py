@@ -13892,3 +13892,172 @@ def test_slow_formation_quadrupole_is_a_usable_curve():
     assert finite.sum() >= 10
     velocity = 1.0 / result.slowness[finite]
     assert np.all(np.diff(velocity) <= 1.0e-9)
+
+
+# ---------------------------------------------------------------------------
+# Known limitations of the pseudo-Rayleigh marcher's branch selection.
+#
+# These tests pin *defects*, not guarantees. They were found while checking
+# the solver's attenuation against the independent ray estimate in
+# ``fwap.leaky_radiation_attenuation`` (see tests/test_cylindrical.py), and
+# they are locked down here so the behaviour cannot change silently -- in
+# either direction. If a future change to the marcher makes one of them
+# fail, that is very likely an improvement, and the test should be rewritten
+# rather than worked around.
+# ---------------------------------------------------------------------------
+
+_LEAKY_FAST = {"vp": 4000.0, "vs": 2300.0, "rho": 2500.0}
+_LEAKY_BRINE = {"vf": 1500.0, "rho_f": 1000.0}
+
+
+def test_pseudo_rayleigh_result_depends_on_the_grid_top_frequency():
+    """The mode returned depends on where the caller starts the march.
+
+    The marcher is seeded just below ``1/V_S`` at the highest requested
+    frequency. More than one leaky root lives near that seed, so the branch
+    it latches onto -- and therefore the slowness and attenuation reported
+    at every *lower* frequency -- is a function of the caller's frequency
+    window rather than of the physics alone.
+
+    Both answers below are genuine roots of the modal determinant, not
+    numerical noise; ``test_pseudo_rayleigh_leaky_window_holds_two_roots``
+    confirms that independently. Nothing in the public signature warns the
+    caller, which is why this is filed as a limitation.
+    """
+    from fwap import pseudo_rayleigh_modal_dispersion
+
+    probe = 30.0e3
+    low = np.sort(np.unique(np.concatenate([np.linspace(2.0e3, 40.0e3, 400), [probe]])))
+    high = np.sort(
+        np.unique(np.concatenate([np.linspace(2.0e3, 80.0e3, 400), [probe]]))
+    )
+
+    got = []
+    for grid in (low, high):
+        mode = pseudo_rayleigh_modal_dispersion(
+            grid, **_LEAKY_FAST, **_LEAKY_BRINE, a=0.10
+        )
+        j = int(np.argmin(np.abs(grid - probe)))
+        got.append((1.0 / mode.slowness[j], mode.attenuation_per_meter[j]))
+
+    (c_low, att_low), (c_high, att_high) = got
+    assert c_low == pytest.approx(2486.2, rel=1.0e-3)
+    assert c_high == pytest.approx(2951.7, rel=1.0e-3)
+    assert abs(c_high / c_low - 1.0) > 0.15
+    assert att_low > 0.0 and att_high > 0.0
+
+
+def test_pseudo_rayleigh_leaky_window_holds_two_roots():
+    """Both answers above solve the determinant, so neither is spurious.
+
+    Each reported ``k_z`` is checked against the complex determinant and
+    compared with the magnitude on a small circle around it: a true root
+    sits many orders of magnitude below its own neighbourhood. Taking the
+    values straight from the solver rather than transcribing them keeps
+    this a statement about what the solver returns.
+    """
+    from fwap import pseudo_rayleigh_modal_dispersion
+    from fwap.cylindrical_solver._leaky import _modal_determinant_n0_complex
+
+    probe = 30.0e3
+    omega = 2.0 * np.pi * probe
+
+    def det(kz):
+        return _modal_determinant_n0_complex(
+            kz,
+            omega,
+            **_LEAKY_FAST,
+            **_LEAKY_BRINE,
+            a=0.10,
+            leaky_p=False,
+            leaky_s=True,
+        )
+
+    roots = []
+    for top in (40.0e3, 80.0e3):
+        grid = np.sort(
+            np.unique(np.concatenate([np.linspace(2.0e3, top, 400), [probe]]))
+        )
+        mode = pseudo_rayleigh_modal_dispersion(
+            grid, **_LEAKY_FAST, **_LEAKY_BRINE, a=0.10
+        )
+        j = int(np.argmin(np.abs(grid - probe)))
+        roots.append(complex(mode.slowness[j] * omega, mode.attenuation_per_meter[j]))
+
+    for kz in roots:
+        radius = 0.01 * abs(kz)
+        ring = np.median(
+            [
+                abs(det(kz + radius * np.exp(1j * t)))
+                for t in np.linspace(0.0, 2.0 * np.pi, 16, endpoint=False)
+            ]
+        )
+        assert abs(det(kz)) < 1.0e-10 * ring, kz
+
+    # ...and they really are different roots, not the same one twice.
+    assert abs(roots[0] - roots[1]) > 0.1 * abs(roots[0])
+
+
+def test_pseudo_rayleigh_needs_a_fine_enough_grid_and_fails_silently():
+    """Too coarse a grid returns all-NaN rather than a coarse answer.
+
+    For a 0.07 m borehole over 4-30 kHz the marcher recovers essentially
+    the whole band at 80 samples but returns *nothing at all* at 60. The
+    failure is total and silent -- there is no partial curve and no
+    warning -- so a caller who happened to pick the coarser grid would
+    conclude the mode does not exist.
+    """
+    from fwap import pseudo_rayleigh_modal_dispersion
+
+    medium = dict(**_LEAKY_FAST, **_LEAKY_BRINE, a=0.07)
+
+    coarse = pseudo_rayleigh_modal_dispersion(np.linspace(4.0e3, 30.0e3, 60), **medium)
+    fine = pseudo_rayleigh_modal_dispersion(np.linspace(4.0e3, 30.0e3, 120), **medium)
+
+    assert not np.any(np.isfinite(coarse.slowness))
+    assert np.isfinite(fine.slowness).sum() > 110
+
+
+def test_pseudo_rayleigh_sub_window_can_lose_a_mode_the_full_band_finds():
+    """Asking only about 24-32 kHz returns nothing; asking 2-40 kHz does not.
+
+    Same physics, same frequencies, different answer -- the mode is only
+    reachable by marching down into that band from higher frequency.
+    """
+    from fwap import pseudo_rayleigh_modal_dispersion
+
+    medium = dict(**_LEAKY_FAST, **_LEAKY_BRINE, a=0.10)
+    band = np.arange(24.0e3, 32.0e3 + 1.0, 100.0)
+
+    narrow = pseudo_rayleigh_modal_dispersion(band, **medium)
+    assert not np.any(np.isfinite(narrow.slowness))
+
+    wide_grid = np.arange(2.0e3, 40.0e3 + 1.0, 50.0)
+    wide = pseudo_rayleigh_modal_dispersion(wide_grid, **medium)
+    inside = (wide_grid >= 24.0e3) & (wide_grid <= 32.0e3)
+    assert np.all(np.isfinite(wide.slowness[inside]))
+
+
+def test_pseudo_rayleigh_is_independent_of_grid_density_where_it_converges():
+    """The flip side: once it converges, refinement changes nothing.
+
+    Halving the step reproduces the attenuation to machine precision, so
+    the window sensitivity above is about *which* root is tracked, not
+    about the accuracy of the tracking.
+    """
+    from fwap import pseudo_rayleigh_modal_dispersion
+
+    medium = dict(**_LEAKY_FAST, **_LEAKY_BRINE, a=0.10)
+    coarse_grid = np.arange(2.0e3, 40.0e3 + 1.0, 50.0)
+    fine_grid = np.arange(2.0e3, 40.0e3 + 1.0, 25.0)
+
+    coarse = pseudo_rayleigh_modal_dispersion(coarse_grid, **medium)
+    fine = pseudo_rayleigh_modal_dispersion(fine_grid, **medium)
+    shared = np.searchsorted(fine_grid, coarse_grid)
+
+    ok = np.isfinite(coarse.slowness) & np.isfinite(fine.slowness[shared])
+    assert ok.sum() > 700
+    rel = np.abs(
+        coarse.attenuation_per_meter[ok] / fine.attenuation_per_meter[shared][ok] - 1.0
+    )
+    assert rel.max() < 1.0e-10

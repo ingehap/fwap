@@ -39,7 +39,10 @@ Modules outside the scope of the 1994 book (added for completeness):
                               calculations (the latter an independent
                               plane-interface oracle for the
                               cylindrical Stoneley solver's
-                              high-frequency limit) and a
+                              high-frequency limit), a ray estimate of
+                              leaky-mode radiation attenuation (an
+                              independent oracle for the leaky-mode
+                              solver) and a
                               physics-grounded flexural-mode
                               dispersion law
 * :mod:`fwap.geomechanics` -- brittleness / fracability / closure
@@ -272,6 +275,7 @@ from fwap.geomechanics import (
 # Cylindrical / surface-wave speeds
 from fwap.cylindrical import (
     scholte_speed,
+    leaky_radiation_attenuation,
     flexural_dispersion_physical,
     flexural_dispersion_vti_physical,
     rayleigh_speed,
@@ -450,6 +454,7 @@ __all__ = [
     # Surface-wave speeds / cylindrical
     "rayleigh_speed",
     "scholte_speed",
+    "leaky_radiation_attenuation",
     "flexural_dispersion_physical",
     "flexural_dispersion_vti_physical",
     # Cylindrical-borehole modal-determinant solver (Schmitt 1988)
