@@ -287,6 +287,8 @@ from fwap.cylindrical_solver import (
     BoreholeLayer,
     BoreholeMode,
     BranchSegment,
+    FluidAnnulus,
+    crack_wave_dispersion,
     flexural_dispersion,
     flexural_dispersion_layered,
     flexural_dispersion_vti,
@@ -295,6 +297,7 @@ from fwap.cylindrical_solver import (
     segments_from_kz_curve,
     stoneley_dispersion,
     stoneley_dispersion_layered,
+    stoneley_dispersion_microannulus,
     stoneley_dispersion_vti,
 )
 from fwap.cylindrical_solver import (
@@ -466,8 +469,11 @@ __all__ = [
     "BoreholeLayer",
     "BoreholeMode",
     "BranchSegment",
+    "FluidAnnulus",
+    "crack_wave_dispersion",
     "stoneley_dispersion",
     "stoneley_dispersion_layered",
+    "stoneley_dispersion_microannulus",
     "stoneley_dispersion_vti",
     "flexural_dispersion",
     "flexural_dispersion_layered",

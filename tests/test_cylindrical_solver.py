@@ -15969,3 +15969,779 @@ def test_microannulus_rejects_configurations_it_cannot_represent():
     for bad in ({"annulus_vf": 0.0}, {"annulus_rho": -1.0}):
         with pytest.raises(ValueError, match="must be positive"):
             _modal_determinant_n0_microannulus(kz, omega, **{**base, **bad})
+
+
+# ---------------------------------------------------------------------------
+# Public microannulus API (n=0), and the elastic-propagator identity found
+# while building it.
+#
+# The determinant tested above carries two root families, so the public entry
+# point's job is as much selection as evaluation. The rule used is structural:
+# the Stoneley-like mode is the fastest bound n=0 mode, so the first sign
+# change above the bound floor is it, whatever else the stack supports.
+#
+# The propagator identity is a separate find. `_layer_propagator_n0` has
+# shipped for a long time with no check on its *value* beyond composition and
+# round-trip; it turns out to have a closed-form determinant, in the same way
+# the fluid element does, and that pins it against arithmetic rather than
+# against itself.
+# ---------------------------------------------------------------------------
+
+
+def test_elastic_layer_propagator_determinant_is_the_radius_ratio_squared():
+    r"""``det P = (r_inner / r_outer)^2``, with nothing else in it.
+
+    The 4x4 elastic counterpart of the fluid annulus's Wronskian identity.
+    Each of the two ``(I, K)`` Bessel pairs in ``E`` contributes one factor
+    of ``1/r`` to ``det E``, so the material- and ``k_z``-dependent parts
+    cancel in the ratio and the propagator's determinant is pure geometry:
+    no frequency, no velocity, no density, no ``k_z``.
+
+    That makes it a check from outside the module, and it is a sharp one --
+    a swapped Bessel order or a sign slip in any of the sixteen entries
+    breaks it. It had not been checked: the existing propagator tests pin
+    the group law ``P(c|a) = P(c|b) P(b|a)`` and the round trip
+    ``P(b|a) P(a|b) = I``, both of which a systematically wrong ``E``
+    would still satisfy.
+    """
+    cases = [
+        (5900.0, 3200.0, 7800.0),
+        (2800.0, 1600.0, 1900.0),
+        (4000.0, 2300.0, 2500.0),
+        (2000.0, 1100.0, 1800.0),
+    ]
+    checked = 0
+    for vp, vs, rho in cases:
+        for freq in (1.0e3, 8.0e3, 4.0e4):
+            omega = 2.0 * np.pi * freq
+            for phase_velocity in (1400.0, 900.0, 600.0):
+                if phase_velocity >= vs:
+                    # Outside the bound regime for this layer: the radial
+                    # wavenumber is imaginary and E is NaN by contract.
+                    continue
+                kz = omega / phase_velocity
+                for r_inner, r_outer in ((0.10, 0.11), (0.11, 0.14), (0.09, 0.12)):
+                    # Only where the propagator is representable at all -- the
+                    # next test measures that boundary rather than assuming it.
+                    span = np.sqrt(kz * kz - (omega / vs) ** 2) * (r_outer - r_inner)
+                    if span > 2.0:
+                        continue
+                    propagator = _layer_propagator_n0(
+                        kz=kz,
+                        omega=omega,
+                        vp=vp,
+                        vs=vs,
+                        rho=rho,
+                        r_inner=r_inner,
+                        r_outer=r_outer,
+                    )
+                    assert np.linalg.det(propagator) == pytest.approx(
+                        (r_inner / r_outer) ** 2, rel=1.0e-9
+                    )
+                    checked += 1
+    # Guard against the span filter quietly emptying the test.
+    assert checked > 30
+
+
+def test_elastic_layer_propagator_identity_bounds_where_it_is_representable():
+    """Its accuracy tracks the Bessel span, exactly as the fluid element's does.
+
+    Same exponential-range failure, same measure: the error in the identity
+    against the dimensionless span ``s * dr`` with
+    ``s = sqrt(kz^2 - (omega/vs)^2)``. Machine precision below a span of
+    about 2, ~1e-9 by 5, and no significant digits by 20.
+
+    Recorded because it is a real limit on the *propagator*, and because
+    the next test shows it is emphatically not a limit on the *roots* --
+    a distinction that would be easy to get backwards.
+    """
+    layer = BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.03)
+    omega = 2.0 * np.pi * 8.0e3
+    r_inner = 0.11
+
+    def identity_error(phase_velocity):
+        kz = omega / phase_velocity
+        propagator = _layer_propagator_n0(
+            kz=kz,
+            omega=omega,
+            vp=layer.vp,
+            vs=layer.vs,
+            rho=layer.rho,
+            r_inner=r_inner,
+            r_outer=r_inner + layer.thickness,
+        )
+        expected = (r_inner / (r_inner + layer.thickness)) ** 2
+        with np.errstate(all="ignore"):
+            return abs(float(np.linalg.det(propagator)) / expected - 1.0)
+
+    def span(phase_velocity):
+        kz = omega / phase_velocity
+        return np.sqrt(kz * kz - (omega / layer.vs) ** 2) * layer.thickness
+
+    assert span(1400.0) < 1.0
+    assert identity_error(1400.0) < 1.0e-13
+    assert 2.0 < span(600.0) < 3.0
+    assert identity_error(600.0) < 1.0e-11
+    assert 4.0 < span(300.0) < 6.0
+    assert identity_error(300.0) < 1.0e-8
+    assert span(100.0) > 12.0
+    assert identity_error(100.0) > 1.0e-2
+
+
+def test_microannulus_crack_root_survives_the_propagator_precision_loss():
+    """The identity above fails by 1e232 where the crack root is exact to 1e-9.
+
+    This is the measurement that stopped the identity being used as a gate on
+    root quality, which was the obvious next move and would have been wrong.
+
+    The crack wave is confined to within ``~1 / k_z`` of the gap -- 1.35 mm at
+    a 1 um gap and 8 kHz. Once the outer block is much thicker than that, its
+    far field cannot influence the root, and the catastrophic error lives
+    entirely in the growing branch that the root condition never sees. So the
+    root is fixed to 1.5e-9 across a tenfold range of cement thickness over
+    which the propagator's own determinant identity degrades from 1e0 to
+    1e232.
+
+    The lesson generalises past this module: a conditioning measure on an
+    intermediate quantity bounds *that quantity*, and says nothing on its own
+    about a root computed from it.
+    """
+    from fwap.cylindrical_solver._cased import _modal_determinant_n0_microannulus
+
+    freq, thickness = 8.0e3, 1.0e-6
+    omega = 2.0 * np.pi * freq
+    casing = BoreholeLayer(vp=5900.0, vs=3200.0, rho=7800.0, thickness=0.05)
+
+    def crack_root(cement_thickness):
+        cement = BoreholeLayer(
+            vp=2800.0, vs=1600.0, rho=1900.0, thickness=cement_thickness
+        )
+
+        def det(c):
+            return _modal_determinant_n0_microannulus(
+                omega / c,
+                omega,
+                **_MA_FORMATION,
+                **_MA_FLUID,
+                a=_MA_A,
+                inner_layers=(casing,),
+                annulus_vf=1500.0,
+                annulus_rho=1000.0,
+                annulus_thickness=thickness,
+                outer_layers=(cement,),
+            )
+
+        found = _ma_roots(det, 20.0, 1400.0, samples=1200, log_grid=True)
+        return found[0]
+
+    def identity_error(cement_thickness, root):
+        cement = BoreholeLayer(
+            vp=2800.0, vs=1600.0, rho=1900.0, thickness=cement_thickness
+        )
+        propagator = _layer_propagator_n0(
+            kz=omega / root,
+            omega=omega,
+            vp=cement.vp,
+            vs=cement.vs,
+            rho=cement.rho,
+            r_inner=0.15,
+            r_outer=0.15 + cement_thickness,
+        )
+        expected = (0.15 / (0.15 + cement_thickness)) ** 2
+        with np.errstate(all="ignore"):
+            return abs(float(np.linalg.det(propagator)) / expected - 1.0)
+
+    thicknesses = (0.02, 0.05, 0.10, 0.20)
+    roots = [crack_root(t) for t in thicknesses]
+    errors = [identity_error(t, r) for t, r in zip(thicknesses, roots)]
+
+    # The root does not move ...
+    for root in roots:
+        assert root == pytest.approx(roots[-1], rel=1.0e-8)
+    # ... while the propagator it is computed through stops meaning anything.
+    assert errors[0] > 1.0
+    assert errors[-1] > 1.0e100
+    # Deliberately no ordering assertion on the errors in between. Once the
+    # identity is destroyed its value is arbitrary: a first pass asserted the
+    # sequence was monotonic, which held locally and failed on CI, where the
+    # 0.05 m case returned 1.0 against 1e38 here. Asserting the ordering of
+    # garbage is the same mistake as asserting where a spurious root lands.
+
+
+def _ma_public(freq, thickness=1.0e-4, inner=None, outer=None, **overrides):
+    """The public microannulus API, on the section's standard stack."""
+    from fwap.cylindrical_solver import FluidAnnulus, stoneley_dispersion_microannulus
+
+    kwargs = {
+        **_MA_FORMATION,
+        **_MA_FLUID,
+        "a": _MA_A,
+        "inner_layers": inner or (_MA_CASING,),
+        "outer_layers": outer or (_MA_CEMENT,),
+        "annulus": FluidAnnulus(vf=1500.0, rho=1000.0, thickness=thickness),
+    }
+    kwargs.update(overrides)
+    return stoneley_dispersion_microannulus(np.asarray(freq, dtype=float), **kwargs)
+
+
+def test_microannulus_public_api_reproduces_the_determinant_root():
+    """The API returns the fastest bound root of the determinant it wraps.
+
+    Checked against an independent scan rather than against a stored number,
+    so it pins the selection rule and not just today's arithmetic.
+    """
+    freqs = np.array([2.0e3, 5.0e3, 8.0e3, 1.2e4])
+    mode = _ma_public(freqs)
+    assert mode.name == "Stoneley"
+    assert mode.azimuthal_order == 0
+    assert mode.attenuation_per_meter is None
+    assert mode.freq.shape == freqs.shape
+
+    for i, freq in enumerate(freqs):
+        scanned = _ma_roots(lambda c: _ma_det(c, freq), 200.0, 1499.0)
+        assert 1.0 / mode.slowness[i] == pytest.approx(max(scanned), rel=1.0e-9)
+
+
+def test_microannulus_public_api_returns_the_stoneley_family_not_the_crack_wave():
+    """The structural claim the selection rule rests on.
+
+    The Stoneley-like root sits just below the borehole-fluid velocity at
+    every gap thickness, while the crack wave moves over an order of
+    magnitude with it. If the rule ever picked the wrong family the returned
+    velocity would collapse towards the crack wave as the gap thins; instead
+    it is fixed to within 0.06 % over three decades of thickness.
+    """
+    freq = np.array([8.0e3])
+    velocities = {}
+    for thickness in (1.0e-3, 1.0e-4, 1.0e-5, 1.0e-6):
+        velocities[thickness] = float(1.0 / _ma_public(freq, thickness).slowness[0])
+
+    for thickness, velocity in velocities.items():
+        assert 1300.0 < velocity < 1500.0, thickness
+        # Far above every crack-wave velocity measured for these gaps.
+        assert velocity > 2.0 * _krauklis_velocity(
+            8.0e3, thickness, _MA_CASING, _MA_CEMENT, 1000.0
+        )
+    spread = max(velocities.values()) / min(velocities.values()) - 1.0
+    assert spread < 1.0e-3
+
+
+def test_microannulus_public_api_is_grid_and_resolution_independent():
+    """No frequency marching, so the answer cannot depend on the grid.
+
+    Both knobs are turned: the frequency grid a caller passes, and the scan
+    resolution. The first is the property whose absence caused the ``n=0``
+    branch-selection defect; the second is what makes the default ``samples``
+    a detail rather than a tuning parameter.
+    """
+    probe = 8.0e3
+    # The probe has to sit *exactly* on every grid, or this compares different
+    # frequencies and passes for the wrong reason.
+    dense = np.sort(np.append(np.linspace(1.0e3, 2.0e4, 41), probe))
+    sparse = np.array([5.0e3, probe, 1.5e4])
+    assert probe in dense and probe in sparse
+
+    from_dense = float(_ma_public(dense).slowness[list(dense).index(probe)])
+    from_sparse = float(_ma_public(sparse).slowness[1])
+    alone = float(_ma_public(np.array([probe])).slowness[0])
+    assert from_dense == pytest.approx(alone, rel=1.0e-12)
+    assert from_sparse == pytest.approx(alone, rel=1.0e-12)
+
+    for samples in (120, 250, 400, 900):
+        got = float(_ma_public(np.array([probe]), samples=samples).slowness[0])
+        assert got == pytest.approx(alone, rel=1.0e-9)
+
+
+def test_microannulus_public_api_thin_gap_does_not_reach_the_bonded_stack():
+    """Through the public API, the slip-interface limit is still 1.2 % off.
+
+    The same claim the determinant-level test makes, repeated here because
+    this is the surface a caller sees and the temptation to read a thin gap
+    as a bonded stack lives at this level, not inside the assembly.
+    """
+    from fwap.cylindrical_solver import stoneley_dispersion_layered
+
+    freq = np.array([8.0e3])
+    bonded = float(
+        1.0
+        / stoneley_dispersion_layered(
+            freq,
+            **_MA_FORMATION,
+            **_MA_FLUID,
+            a=_MA_A,
+            layers=(_MA_CASING, _MA_CEMENT),
+        ).slowness[0]
+    )
+    debonded = [
+        float(1.0 / _ma_public(freq, thickness).slowness[0])
+        for thickness in (1.0e-5, 1.0e-6, 1.0e-7, 1.0e-8)
+    ]
+    steps = np.abs(np.diff(debonded))
+    assert np.all(steps[1:] < steps[:-1] / 5.0)
+    offsets = [bonded - c for c in debonded]
+    assert all(o > 15.0 for o in offsets)
+    assert offsets[-1] == pytest.approx(offsets[0], rel=1.0e-3)
+
+
+def test_microannulus_public_api_validates_its_inputs():
+    """Including the degenerate stacks that would silently produce nonsense."""
+    from fwap.cylindrical_solver import FluidAnnulus, stoneley_dispersion_microannulus
+
+    good = {
+        **_MA_FORMATION,
+        **_MA_FLUID,
+        "a": _MA_A,
+        "inner_layers": (_MA_CASING,),
+        "outer_layers": (_MA_CEMENT,),
+        "annulus": FluidAnnulus(vf=1500.0, rho=1000.0, thickness=1.0e-4),
+    }
+    freq = np.array([8.0e3])
+    assert np.isfinite(stoneley_dispersion_microannulus(freq, **good).slowness[0])
+
+    for bad, match in (
+        ({"inner_layers": ()}, "non-empty"),
+        ({"outer_layers": ()}, "non-empty"),
+        ({"vs": -1.0}, "must all be positive"),
+        ({"vp": 1000.0}, "require vp > vs"),
+        ({"vf": 0.0}, "vf and rho_f must be positive"),
+        ({"a": 0.0}, "a must be positive"),
+        ({"samples": 1}, "samples must be at least 2"),
+        ({"annulus": FluidAnnulus(vf=0.0, rho=1000.0, thickness=1e-4)}, "positive"),
+        ({"annulus": FluidAnnulus(vf=1500.0, rho=1000.0, thickness=0.0)}, "positive"),
+        ({"annulus": "not an annulus"}, "must be a FluidAnnulus"),
+    ):
+        with pytest.raises(ValueError, match=match):
+            stoneley_dispersion_microannulus(freq, **{**good, **bad})
+
+    with pytest.raises(ValueError, match="freq must be strictly positive"):
+        stoneley_dispersion_microannulus(np.array([0.0]), **good)
+
+
+def test_fluid_annulus_is_a_distinct_type_from_a_soft_layer():
+    """A gap is not a limiting case of an elastic layer, and the API says so.
+
+    `BoreholeLayer` cannot express a fluid -- it requires ``vs > 0`` -- and
+    the two are not interchangeable even in the limit, because a compliant
+    solid drags the bound-mode bracket floor down with its shear velocity
+    while a fluid gap's floor is its acoustic velocity. That is the whole
+    reason this configuration is reachable, so the type separation is load
+    bearing rather than cosmetic.
+    """
+    from fwap.cylindrical_solver import FluidAnnulus, _validate_fluid_annulus
+
+    annulus = FluidAnnulus(vf=1500.0, rho=1000.0, thickness=1.0e-4)
+    _validate_fluid_annulus(annulus)
+    assert (annulus.vf, annulus.rho, annulus.thickness) == (1500.0, 1000.0, 1.0e-4)
+    assert annulus == FluidAnnulus(vf=1500.0, rho=1000.0, thickness=1.0e-4)
+    with pytest.raises(AttributeError):
+        annulus.thickness = 2.0e-4  # type: ignore[misc]
+
+    with pytest.raises(ValueError, match="must be a FluidAnnulus"):
+        _validate_fluid_annulus(
+            BoreholeLayer(vp=1500.0, vs=1.0, rho=1000.0, thickness=1.0e-4)  # type: ignore[arg-type]
+        )
+
+    # The floor a fluid gap sets is its acoustic velocity, not a shear one.
+    from fwap.cylindrical_solver import _microannulus_kz_window
+
+    omega = 2.0 * np.pi * 8.0e3
+    kz_lo, _ = _microannulus_kz_window(
+        omega,
+        vs=2300.0,
+        rho=2500.0,
+        vf=1500.0,
+        rho_f=1000.0,
+        inner_layers=(_MA_CASING,),
+        annulus=annulus,
+        outer_layers=(_MA_CEMENT,),
+    )
+    assert kz_lo == pytest.approx(omega / 1500.0, rel=1.0e-6)
+    slow_gap = FluidAnnulus(vf=1200.0, rho=1000.0, thickness=1.0e-4)
+    kz_lo_slow, _ = _microannulus_kz_window(
+        omega,
+        vs=2300.0,
+        rho=2500.0,
+        vf=1500.0,
+        rho_f=1000.0,
+        inner_layers=(_MA_CASING,),
+        annulus=slow_gap,
+        outer_layers=(_MA_CEMENT,),
+    )
+    assert kz_lo_slow == pytest.approx(omega / 1200.0, rel=1.0e-6)
+
+
+def test_microannulus_public_api_degrades_gracefully_on_a_thick_gap():
+    """A gap far outside the microannulus regime still cannot produce junk.
+
+    At 0.30 m the gap is three hundred times a real debonding microannulus and
+    the fluid propagator's Bessel span leaves its usable range, so its runtime
+    determinant gate refuses more than half the scan window -- 208 of 400 grid
+    points at 8 kHz. The scan skips those rather than reading a sign change
+    across a NaN boundary, and the surviving root is still the Stoneley-like
+    one.
+
+    That it drifts *upward* towards the open-hole value (1416 m/s here) as the
+    gap thickens is the physically right direction: a thick enough fluid
+    annulus decouples the formation, and the stack starts to look like an open
+    hole of the wider radius.
+    """
+    from fwap.cylindrical_solver import FluidAnnulus, stoneley_dispersion_microannulus
+
+    freq = np.array([8.0e3])
+    velocities = []
+    for thickness in (1.0e-4, 0.05, 0.15, 0.30):
+        mode = stoneley_dispersion_microannulus(
+            freq,
+            **_MA_FORMATION,
+            **_MA_FLUID,
+            a=_MA_A,
+            inner_layers=(_MA_CASING,),
+            annulus=FluidAnnulus(vf=1500.0, rho=1000.0, thickness=thickness),
+            outer_layers=(_MA_CEMENT,),
+        )
+        assert np.isfinite(mode.slowness[0])
+        velocities.append(float(1.0 / mode.slowness[0]))
+
+    assert velocities == sorted(velocities)
+    assert velocities[0] < 1390.0
+    assert 1410.0 < velocities[-1] < 1420.0
+
+    # Push it further and the window is refused outright rather than yielding
+    # a number: at 20 kHz the same 0.30 m gap leaves no representable stretch
+    # containing a root, so the scan skips every NaN and reports NaN. That is
+    # the required direction of failure -- this module has twice shipped sign
+    # changes read across unrepresentable regions as roots.
+    refused = stoneley_dispersion_microannulus(
+        np.array([2.0e4]),
+        **_MA_FORMATION,
+        **_MA_FLUID,
+        a=_MA_A,
+        inner_layers=(_MA_CASING,),
+        annulus=FluidAnnulus(vf=1500.0, rho=1000.0, thickness=0.30),
+        outer_layers=(_MA_CEMENT,),
+    )
+    assert np.isnan(refused.slowness[0])
+
+
+# ---------------------------------------------------------------------------
+# Public crack-wave API (n=0): the second root family of the microannulus
+# determinant, and the spurious-root filter it needs.
+#
+# The Stoneley entry point above stops at the first sign change above the bound
+# floor and so never reaches the low phase velocities where the elastic
+# propagators lose precision. This one scans down to them deliberately, which
+# is why it is the function that needs the filter.
+# ---------------------------------------------------------------------------
+
+# The one configuration in 270 sampled that produced spurious roots: a
+# duplicated pair at 3.9499 m/s alongside the genuine 1434.78 and 72.0911.
+_CW_SPURIOUS = {
+    "vp": 3000.0 * 1.74,
+    "vs": 3000.0,
+    "rho": 2500.0,
+    "vf": 1500.0,
+    "rho_f": 1000.0,
+    "a": 0.10,
+    "inner_layers": (BoreholeLayer(vp=5900.0, vs=3200.0, rho=7800.0, thickness=0.01),),
+    "outer_layers": (
+        BoreholeLayer(vp=2000.0 * 1.75, vs=2000.0, rho=1900.0, thickness=0.03),
+    ),
+}
+
+
+def _cw_public(freq, thickness=1.0e-4, inner=None, outer=None, **overrides):
+    """The public crack-wave API on the thick-walled standard stack."""
+    from fwap.cylindrical_solver import FluidAnnulus, crack_wave_dispersion
+
+    kwargs = {
+        **_MA_FORMATION,
+        **_MA_FLUID,
+        "a": _MA_A,
+        "inner_layers": inner or (_MA_THICK_CASING,),
+        "outer_layers": outer or (_MA_THICK_CEMENT,),
+        "annulus": FluidAnnulus(vf=1500.0, rho=1000.0, thickness=thickness),
+    }
+    kwargs.update(overrides)
+    return crack_wave_dispersion(np.asarray(freq, dtype=float), **kwargs)
+
+
+def test_crack_wave_api_reproduces_the_analytic_crack_wave_speed():
+    """The headline check, and it is an absolute one.
+
+    ``_krauklis_velocity`` shares no code, no special functions and no geometry
+    with the solver, and the API's scan window is not derived from it -- the
+    window runs from the determinant's representability limit to the bound
+    floor -- so this stays an independent check rather than a self-confirming
+    one.
+
+    Ratios at 8 kHz on thick walls: 1.0002 at a 1 um gap, 0.998 at 10 um,
+    0.983 at 100 um, 0.915 at 1 mm. Converging where the thin-gap derivation
+    says it should and departing as ``k h`` grows.
+    """
+    for thickness, tol in ((1.0e-6, 2.0e-3), (1.0e-5, 1.0e-2), (1.0e-4, 3.0e-2)):
+        measured = float(1.0 / _cw_public(np.array([8.0e3]), thickness).slowness[0])
+        predicted = _krauklis_velocity(
+            8.0e3, thickness, _MA_THICK_CASING, _MA_THICK_CEMENT, 1000.0
+        )
+        assert measured == pytest.approx(predicted, rel=tol)
+
+
+def test_crack_wave_api_follows_the_cube_root_scaling():
+    """``c ~ (f h)^{1/3}`` in both variables, through the public surface.
+
+    The exponent is what identifies the mode, and it is measured rather than
+    assumed: a least-squares slope of ``log c`` against ``log h`` and against
+    ``log f``, both of which should be 1/3.
+    """
+    thicknesses = np.array([1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3])
+    by_thickness = np.array(
+        [float(1.0 / _cw_public(np.array([8.0e3]), h).slowness[0]) for h in thicknesses]
+    )
+    slope_h = np.polyfit(np.log(thicknesses), np.log(by_thickness), 1)[0]
+    assert slope_h == pytest.approx(1.0 / 3.0, abs=0.02)
+
+    freqs = np.array([1.0e3, 2.0e3, 5.0e3, 1.0e4, 2.0e4])
+    by_freq = np.array(1.0 / _cw_public(freqs, 1.0e-5).slowness)
+    assert np.all(np.isfinite(by_freq))
+    slope_f = np.polyfit(np.log(freqs), np.log(by_freq), 1)[0]
+    assert slope_f == pytest.approx(1.0 / 3.0, abs=0.02)
+
+
+def test_crack_wave_api_rejects_the_spurious_roots():
+    """The configuration that motivated the filter, asserted portably.
+
+    A raw scan of the same determinant over the same window finds the two
+    genuine modes and, on some machines, a duplicated pair near 4 m/s that is
+    not a mode -- sign changes read across propagators that have lost all
+    precision. The public API returns the genuine crack wave either way.
+
+    **The artefact's presence is deliberately not asserted.** A first version
+    of this test required the raw scan to find four roots; that held on the
+    development machine and failed on CI, which finds only the two genuine
+    ones. Lost-precision results have no stable value *or existence* across
+    platforms -- the same lesson the padded-layer measurements in
+    ``plans/log_output.md`` are marked machine-specific for. It argues for the
+    filter rather than against it: a caller cannot rely on the artefact being
+    absent on their machine either.
+    """
+    from fwap.cylindrical_solver import FluidAnnulus, crack_wave_dispersion
+    from fwap.cylindrical_solver._cased import (
+        _BESSEL_ARG_MAX,
+        _modal_determinant_n0_microannulus,
+    )
+
+    freq, thickness = 1.0e3, 1.0e-5
+    omega = 2.0 * np.pi * freq
+
+    def det(c):
+        return _modal_determinant_n0_microannulus(
+            omega / c,
+            omega,
+            vp=_CW_SPURIOUS["vp"],
+            vs=_CW_SPURIOUS["vs"],
+            rho=_CW_SPURIOUS["rho"],
+            vf=_CW_SPURIOUS["vf"],
+            rho_f=_CW_SPURIOUS["rho_f"],
+            a=_CW_SPURIOUS["a"],
+            inner_layers=_CW_SPURIOUS["inner_layers"],
+            annulus_vf=1500.0,
+            annulus_rho=1000.0,
+            annulus_thickness=thickness,
+            outer_layers=_CW_SPURIOUS["outer_layers"],
+        )
+
+    r_outermost = 0.10 + 0.01 + thickness + 0.03
+    c_lo = omega * r_outermost / _BESSEL_ARG_MAX * 1.001
+    # _ma_roots returns ascending phase velocity. The two genuine modes are
+    # always there; anything down at the propagators' precision floor may or
+    # may not be, depending on the machine.
+    raw = _ma_roots(det, c_lo, 1500.0 * (1.0 - 1.0e-9), samples=800, log_grid=True)
+    genuine = [r for r in raw if r > 20.0]
+    assert len(genuine) == 2
+    assert genuine[0] == pytest.approx(72.0911, rel=1.0e-4)
+    assert genuine[1] == pytest.approx(1434.78, rel=1.0e-4)
+
+    mode = crack_wave_dispersion(
+        np.array([freq]),
+        annulus=FluidAnnulus(vf=1500.0, rho=1000.0, thickness=thickness),
+        **_CW_SPURIOUS,
+    )
+    # The second-fastest genuine root, whatever the raw scan turned up below it.
+    assert float(1.0 / mode.slowness[0]) == pytest.approx(genuine[0], rel=1.0e-9)
+
+
+def test_crack_wave_api_never_returns_a_lost_precision_root_across_a_sweep():
+    """No sub-20 m/s answer anywhere in the parameter sweep that found the one.
+
+    A structural claim rather than a value: the crack wave for a gap this size
+    is tens to hundreds of m/s, so anything down at the propagators' precision
+    floor is the failure mode, not a mode.
+    """
+    from fwap.cylindrical_solver import FluidAnnulus, crack_wave_dispersion
+
+    casing = _CW_SPURIOUS["inner_layers"]
+    checked = 0
+    for freq in (1.0e3, 8.0e3, 2.0e4):
+        for thickness in (1.0e-6, 1.0e-4, 1.0e-3):
+            for formation_vs in (1700.0, 3000.0):
+                mode = crack_wave_dispersion(
+                    np.array([freq]),
+                    vp=formation_vs * 1.74,
+                    vs=formation_vs,
+                    rho=2500.0,
+                    vf=1500.0,
+                    rho_f=1000.0,
+                    a=0.10,
+                    inner_layers=casing,
+                    annulus=FluidAnnulus(vf=1500.0, rho=1000.0, thickness=thickness),
+                    outer_layers=_CW_SPURIOUS["outer_layers"],
+                )
+                value = float(mode.slowness[0])
+                if np.isfinite(value):
+                    assert 1.0 / value > 20.0
+                    checked += 1
+    assert checked > 12
+
+
+def test_crack_wave_api_is_grid_and_resolution_independent():
+    """Same two knobs as the Stoneley API, and the filter survives both."""
+    probe = 8.0e3
+    dense = np.sort(np.append(np.linspace(1.0e3, 2.0e4, 6), probe))
+    alone = float(_cw_public(np.array([probe]), 1.0e-5).slowness[0])
+    from_dense = float(_cw_public(dense, 1.0e-5).slowness[list(dense).index(probe)])
+    assert from_dense == pytest.approx(alone, rel=1.0e-12)
+
+    for samples in (60, 150, 400):
+        got = float(_cw_public(np.array([probe]), 1.0e-5, samples=samples).slowness[0])
+        assert got == pytest.approx(alone, rel=1.0e-8)
+
+
+def test_crack_wave_and_stoneley_apis_return_different_families():
+    """Two functions, two modes, moving in opposite directions with the gap.
+
+    This is the pair the single-root bracket would have confused. Thinning the
+    gap drives the crack wave towards zero while leaving the Stoneley-like root
+    essentially fixed, so the ratio between them is not a constant offset.
+    """
+    freq = np.array([8.0e3])
+    for thickness in (1.0e-3, 1.0e-4, 1.0e-5):
+        crack = float(1.0 / _cw_public(freq, thickness).slowness[0])
+        stoneley = float(
+            1.0
+            / _ma_public(
+                freq,
+                thickness,
+                inner=(_MA_THICK_CASING,),
+                outer=(_MA_THICK_CEMENT,),
+            ).slowness[0]
+        )
+        assert crack < 0.5 * stoneley
+        assert 1300.0 < stoneley < 1500.0
+
+    thin = float(1.0 / _cw_public(freq, 1.0e-6).slowness[0])
+    thick = float(1.0 / _cw_public(freq, 1.0e-3).slowness[0])
+    assert thick > 8.0 * thin
+
+
+def test_crack_wave_api_validates_its_inputs():
+    """Same contract as the Stoneley entry point."""
+    from fwap.cylindrical_solver import FluidAnnulus, crack_wave_dispersion
+
+    good = {
+        **_MA_FORMATION,
+        **_MA_FLUID,
+        "a": _MA_A,
+        "inner_layers": (_MA_THICK_CASING,),
+        "outer_layers": (_MA_THICK_CEMENT,),
+        "annulus": FluidAnnulus(vf=1500.0, rho=1000.0, thickness=1.0e-4),
+    }
+    freq = np.array([8.0e3])
+    assert np.isfinite(crack_wave_dispersion(freq, **good).slowness[0])
+
+    for bad, match in (
+        ({"inner_layers": ()}, "non-empty"),
+        ({"outer_layers": ()}, "non-empty"),
+        ({"rho": 0.0}, "must all be positive"),
+        ({"vp": 1000.0}, "require vp > vs"),
+        ({"rho_f": -1.0}, "vf and rho_f must be positive"),
+        ({"a": -0.1}, "a must be positive"),
+        ({"samples": 0}, "samples must be at least 2"),
+        ({"annulus": FluidAnnulus(vf=1500.0, rho=-1.0, thickness=1e-4)}, "positive"),
+    ):
+        with pytest.raises(ValueError, match=match):
+            crack_wave_dispersion(freq, **{**good, **bad})
+
+    with pytest.raises(ValueError, match="freq must be strictly positive"):
+        crack_wave_dispersion(np.array([-1.0]), **good)
+
+
+def test_crack_wave_api_reports_nan_where_no_second_root_survives():
+    """A gap far outside the model yields NaN rather than a number.
+
+    At 20 kHz a 0.30 m gap leaves no representable stretch of the window
+    containing a root at all, so neither scan finds a second family and the
+    result is NaN. Required direction of failure for a solver whose spurious
+    roots have twice been finite and plausible-looking.
+    """
+    from fwap.cylindrical_solver import FluidAnnulus, crack_wave_dispersion
+
+    mode = crack_wave_dispersion(
+        np.array([2.0e4]),
+        **_MA_FORMATION,
+        **_MA_FLUID,
+        a=_MA_A,
+        inner_layers=(_MA_CASING,),
+        annulus=FluidAnnulus(vf=1500.0, rho=1000.0, thickness=0.30),
+        outer_layers=(_MA_CEMENT,),
+    )
+    assert np.isnan(mode.slowness[0])
+
+    # And an upper frequency limit, from the same representability bound rather
+    # than from physics: the scan window runs from
+    # ``omega * r_outermost / _BESSEL_ARG_MAX`` up to the bound floor, and above
+    # about 240 kHz on this stack the two cross and there is no window left.
+    from fwap.cylindrical_solver._cased import _BESSEL_ARG_MAX
+
+    r_outermost = _MA_A + 0.05 + 1.0e-4 + 0.20
+    collapse_hz = _BESSEL_ARG_MAX * 1500.0 / (2.0 * np.pi * r_outermost)
+    assert 2.0e5 < collapse_hz < 3.0e5
+    above = _cw_public(np.array([collapse_hz * 1.5]), 1.0e-4)
+    assert np.isnan(above.slowness[0])
+
+
+def test_microannulus_stable_root_filter_drops_grid_dependent_roots():
+    """The filter's contract, tested directly rather than through the physics.
+
+    The configuration that motivated it produces its artefact on some machines
+    and not others, so the physical test above cannot assert that the filter
+    ever fires. This one can: a synthetic determinant with two sign changes,
+    one spanning a wide interval that any grid resolves and one confined to a
+    needle placed on a point of the first scan grid and between points of the
+    second. The wide root must survive and the needle must not.
+    """
+    from fwap.cylindrical_solver import _microannulus_stable_roots
+
+    c_lo, c_hi, samples = 5.0, 1000.0, 120
+    first = np.geomspace(c_lo, c_hi, samples)
+    second = np.geomspace(c_lo * 1.013, c_hi, int(samples * 1.37) + 1)
+
+    # A point of the first grid, low enough that the second grid's spacing
+    # there is far wider than the needle we hang on it.
+    needle_centre = float(first[3])
+    gaps = np.abs(second - needle_centre)
+    assert gaps.min() > 1.0e-3, "second grid must not sample the needle"
+    half_width = 1.0e-4
+
+    def det(c: float) -> float:
+        if abs(c - needle_centre) < half_width:
+            return -1.0
+        return c - 400.0
+
+    roots = _microannulus_stable_roots(det, c_lo, c_hi, samples)
+    assert len(roots) == 1
+    assert roots[0] == pytest.approx(400.0, rel=1.0e-9)
+
+    # And the needle really is visible to the first grid on its own, so the
+    # test is about the filter and not about the needle being unreachable.
+    solo = [c for c in first if abs(c - needle_centre) < half_width]
+    assert solo

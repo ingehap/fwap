@@ -33,8 +33,8 @@ package.
 | Open item | Why it matters |
 |-----------|----------------|
 | **F. Real-data fixtures** | Harness shipped; a real *sonic* gather is still missing. The binding constraint on every quantitative claim in the repo, `sonic_ml`'s included. |
-| **A.5 Fluid microannulus** | The debonded-regime forward model. Two of three pieces are on `main`; the last is a public dispersion function. **The only open item blocked on nothing.** |
-| **G. `sonic_ml` follow-ons** | Debonded-regime datasets, gated on A.5 rather than on the leaky `n=1` work (single-frame *and* joint multi-depth surrogate inversion are done). |
+| **G.2 Debonded-regime datasets** | The forward model A.5 was blocking on is now complete, so this is the item blocked on nothing. It is also where a CBL-amplitude baseline stops being a strawman. |
+| **A.5 Fluid microannulus** | *Forward model complete.* Elements, assembly and both public APIs are on `main`; kept for the reasoning and the measured limits. |
 | **A.1 Validation figures** | Ties the solver to published literature rather than to itself. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
 
@@ -262,8 +262,8 @@ needing formation-property variety.
 
 ### A.5 Fluid microannulus — the debonded-regime forward model
 
-Two of three pieces are on `main`; this is the only item in this document
-blocked on nothing. It arrived here from section G, where it had been filed as
+The forward model is complete and on `main`; what remains of this item is its
+`sonic_ml` consumer, tracked as G.2. It arrived here from section G, where it had been filed as
 needing a leaky-mode cased forward model — see the correction under A.2. A
 microannulus is a **bound**-mode problem.
 
@@ -282,9 +282,10 @@ down to 0.2 mm.
 
 **Shipped.** `_fluid_layer_e_matrix_n0` / `_fluid_layer_propagator_n0` (a fluid
 annulus carries two amplitudes rather than four, imposes no shear traction, and
-permits axial slip, so its state is the pair `(u_r, sigma_rr)`), and
+permits axial slip, so its state is the pair `(u_r, sigma_rr)`);
 `_modal_determinant_n0_microannulus`, an 11x11 assembly for
-`fluid | casing | microannulus | cement | formation`.
+`fluid | casing | microannulus | cement | formation`; and the public
+`stoneley_dispersion_microannulus` / `FluidAnnulus`.
 
 The assembly has **no reduction to the existing solver** to check against: the
 `annulus_thickness -> 0` limit is a frictionless slip interface, not the bonded
@@ -295,23 +296,35 @@ the sum of the wall compliances `(1 - nu)/mu` — an analytic result with no
 Bessel functions and no cylindrical geometry in it, reproduced to 0.02 % at a
 1 um gap.
 
-**What is left**, and the shape of it:
+Both public entry points and the `FluidAnnulus` type are now on `main`.
+`stoneley_dispersion_microannulus` selects structurally — the Stoneley-like
+mode is the fastest bound n=0 mode, so the first sign change above the bound
+floor is it — and `crack_wave_dispersion` returns the second family, the mode
+guided by the gap itself. Both are pinned as independent of the caller's
+frequency grid and of the scan resolution.
 
-- A **public dispersion function**. The determinant carries *two* root families
-  — a Stoneley-like mode and the gap mode, 68-620 m/s over four decades of gap
-  thickness — so bracketing has to choose. That is the same failure as the
-  closed `n=0` branch-selection defect, which is why the root set is already
-  pinned as independent of scan grid and window.
-- **Exposing the gap mode**, not only the Stoneley shift. It is the more
-  sensitive debonding indicator (`h^{1/3}`, against a Stoneley root that barely
-  moves) and it has a closed form, so it can be inverted for gap thickness
-  directly.
-- **A public way to express the configuration.** `BoreholeLayer` requires
-  `vs > 0` and cannot represent a fluid, so this needs a new type or an explicit
-  annulus argument — public API, and therefore the three-file lockstep
-  (`fwap/__init__.py`, `docs/api.rst`, `scripts/check_public_api.py`).
-- Then the `sonic_ml` consumer: a debonded-regime dataset, and with it the first
-  fair CBL-amplitude comparison.
+The crack wave needed a **spurious-root filter**, and the obvious candidate was
+measured and rejected on the way. Over 270 sampled configurations the bound
+window held exactly two roots in 269; the exception produced a duplicated pair
+near 4 m/s. The natural gate — the elastic propagator's determinant identity
+`det P = (r_inner/r_outer)^2`, found while building the Stoneley API — does
+**not** work: at a 1 um gap the genuine crack root is fixed to 1.5e-9 across a
+tenfold range of cement thickness over which that identity degrades to 1e232,
+because the mode is confined within `~1/k_z` of the gap and the error lives in
+the growing branch the root never sees. What shipped instead is grid-stability
+filtering, the technique that exposed the `n=0` defect: two scans at different
+resolutions and lower endpoints, keeping only the intersection. The spurious
+pair appears in one grid of six; the genuine roots in all six.
+
+**What is left:**
+
+- The `sonic_ml` consumer: a debonded-regime dataset, and with it the first
+  fair CBL-amplitude comparison. The forward model it needs now exists.
+- Optional, and not required by the above: a delta-matrix / Abo-Zena
+  reformulation of the elastic stack would remove the cancellation that makes
+  the filter necessary at all, and would raise the frequency ceiling — the
+  crack-wave window collapses above ~240 kHz on a typical stack purely because
+  the propagators stop being representable.
 
 `n=1` / `n=2` microannulus assemblies would be needed for *flexural* CBL work
 and are a separate, larger job. The `n=0` path is self-contained and does not
@@ -467,8 +480,11 @@ would be advertising rather than measuring.
    is right — a planted wavetrain would not do — and the second half is wrong.
    The standard debonding model is a **fluid microannulus**, which is a
    bound-mode problem needing no complex-plane tracking; two of its three pieces
-   have since shipped. This item is therefore gated on **A.5**, not on A.2, and
-   what it needs from A.5 is the public dispersion function.
+   have since shipped. This item is therefore gated on **A.5**, not on A.2 --
+   and as of this revision A.5's forward model is complete, so what remained of
+   that gate is gone: `stoneley_dispersion_microannulus` and
+   `crack_wave_dispersion` are both public. This is now the open item blocked
+   on nothing.
 
    Free pipe *proper* — casing surrounded by fluid, the classic CBL casing-ring
    amplitude — remains partly a phenomenological amplitude effect rather than a
