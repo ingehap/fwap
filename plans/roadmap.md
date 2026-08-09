@@ -642,6 +642,23 @@ independently of bond precisely so that no model can recover a planted
 relationship. What changed is that a better classical estimator now exists —
 one reading a signal the physics actually puts in the data.
 
+**The learned model exists; whether it is worth having is not yet measured.**
+`sonic_ml.models.debond` predicts the *residual* of the closed-form estimate,
+with a zero-initialised head so an untrained model reproduces the classical
+answer exactly. That makes any gain attributable — the residual is the
+finite-layer correction the half-space law cannot express, and the features
+expose exactly what the baseline lacks, the layer thicknesses.
+
+What is *not* yet established is whether it beats the baseline at a usable
+sample count. A 24-sample trial found the training loss reaching exactly zero
+with best validation at **epoch 6 of 400**, and on its 3 held-out samples the
+learned model scored *worse* than the closed form. That trial settled nothing
+except that validation-based weight selection was necessary, which is now in
+place. Both outcomes remain live, and the null one is a real result rather
+than a failure: an analytic law leaving only ~18 % residual is a hard thing to
+beat, and "the classical estimator is sufficient here" would be worth knowing.
+The comparison needs a few hundred samples, which is an hour of generation.
+
 **Costs, because they bound what is practical.** A debonded sample runs ~14 s
 against ~0.5 s bonded (the microannulus solvers are ~0.45 s per frequency for
 both branches), so `--debonded` defaults to a 32-point grid and a useful set is

@@ -31,6 +31,22 @@ the project uses [Semantic Versioning](https://semver.org/).
   `debond_features` drops that column, and a test perturbs the stored gap by
   7.3x while holding the dispersion curve fixed and asserts that not one
   feature moves.
+  **Weights are selected on the validation split**, which is not a formality
+  here. Run against real solver output the training loss reached exactly zero
+  while validation loss rose, with the best validation epoch at **6 of 400** —
+  a debonded dataset costs ~14 s a sample, so the feature count is comparable
+  to the sample count it can afford, and keeping the last epoch returns a
+  memorised model. `history` is now `(train, val)` pairs so that divergence is
+  visible rather than inferred.
+  **The learned-versus-classical comparison at a usable sample count is not
+  yet measured**, and no claim is made here. A 24-sample trial was run and is
+  reported for what it is: uninformative, with 3 held-out samples, on which the
+  learned model scored *worse* than the closed form (5.8 % against 4.6 %). The
+  whole-dataset figure from that trial (21.6 % → 9.5 %) is largely training
+  fit and is not evidence. The honest possible outcomes are both live — that
+  the residual model learns the finite-layer correction, or that the analytic
+  estimator is simply sufficient here and the residual is not learnable from
+  the few hundred samples this dataset can afford.
 - **A closed-form microannulus-thickness baseline** (roadmap G.2, the `sonic_ml`
   consumer). `sonic_ml.baselines.CrackWaveThicknessBaseline` inverts the
   Krauklis law, `h = c^3 C rho_f / omega` with `C = sum (1-nu)/mu` over the two
