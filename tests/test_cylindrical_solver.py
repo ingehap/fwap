@@ -13803,3 +13803,92 @@ def test_the_rigid_pipe_estimate_is_not_usable_as_a_cutoff_guard():
     assert measured < 0.5 * estimate
     # and the discarded band is wide enough to matter
     assert estimate - measured > 5000.0
+
+
+# ----------------------------------------------------------------------
+# Quadrupole high-frequency asymptote, and where it stops being usable
+#
+# At short wavelength the borehole wall looks flat to every azimuthal
+# order, so the n=2 quadrupole must approach the same plane-interface
+# Scholte speed the n=0 Stoneley does. `scholte_speed` computes that from
+# a different equation, so this is an external check on the n=2 solver.
+#
+# It holds in slow formations. In fast ones the mode is leaky and the
+# real-axis search returns a non-monotone scatter between the Rayleigh and
+# shear speeds -- the same failure as the n=1 flexural case (roadmap A.2),
+# now known to affect n=2 as well.
+# ----------------------------------------------------------------------
+
+_QUAD_SLOW = dict(vp=2200.0, vs=800.0, rho=2200.0)
+_QUAD_MID = dict(vp=3000.0, vs=1400.0, rho=2300.0)
+_QUAD_FAST = dict(vp=4500.0, vs=2600.0, rho=2400.0)
+_QUAD_FLUID = dict(vf=1500.0, rho_f=1000.0)
+
+
+@pytest.mark.parametrize("rock", [_QUAD_SLOW, _QUAD_MID], ids=["slow", "mid"])
+def test_quadrupole_converges_to_the_plane_scholte_speed(rock):
+    """n=2 approaches the same plane-interface limit as n=0.
+
+    Checked against `scholte_speed`, which solves a plane fluid/solid
+    interface problem -- a different equation from the n=2 modal
+    determinant -- so agreement is a cross-check rather than the solver
+    confirming itself.
+    """
+    from fwap import quadrupole_dispersion, scholte_speed
+
+    reference = scholte_speed(**rock, **_QUAD_FLUID)
+    frequencies = np.array([50.0e3, 100.0e3, 200.0e3, 400.0e3])
+    result = quadrupole_dispersion(frequencies, **rock, **_QUAD_FLUID, a=0.10)
+    assert np.all(np.isfinite(result.slowness))
+
+    error = np.abs(1.0 / result.slowness / reference - 1.0)
+    assert np.all(np.diff(error) < 0.0)  # converging, not merely close
+    assert error[-1] < 1.0e-3
+
+
+def test_quadrupole_and_stoneley_share_the_high_frequency_limit():
+    """Both azimuthal orders must land on the same flat-wall answer."""
+    from fwap import quadrupole_dispersion, stoneley_dispersion
+
+    high = np.array([400.0e3])
+    quad = quadrupole_dispersion(high, **_QUAD_SLOW, **_QUAD_FLUID, a=0.10)
+    stoneley = stoneley_dispersion(high, **_QUAD_SLOW, **_QUAD_FLUID, a=0.10)
+    assert 1.0 / quad.slowness[0] == pytest.approx(1.0 / stoneley.slowness[0], rel=1e-4)
+
+
+def test_fast_formation_quadrupole_is_not_a_usable_curve():
+    """In a fast formation the returned values are not a guided mode.
+
+    They are finite -- which is the hazard, since a caller filtering on
+    NaN keeps them -- but non-monotone, scattered between the Rayleigh and
+    shear speeds. A guided mode's phase velocity decreases with frequency;
+    this does not.
+
+    Pinned so that a future fix to the leaky-mode search shows up here as
+    a failure rather than passing unnoticed.
+    """
+    from fwap import quadrupole_dispersion
+
+    frequencies = np.array([10.0e3, 15.0e3, 20.0e3, 30.0e3, 60.0e3, 100.0e3])
+    result = quadrupole_dispersion(frequencies, **_QUAD_FAST, **_QUAD_FLUID, a=0.10)
+    finite = np.isfinite(result.slowness)
+    assert finite.sum() >= 4  # finite, so NaN-filtering does not catch it
+
+    velocity = 1.0 / result.slowness[finite]
+    assert not np.all(np.diff(velocity) <= 0.0)  # not a dispersion curve
+
+    v_rayleigh = rayleigh_speed(_QUAD_FAST["vp"], _QUAD_FAST["vs"])
+    assert np.all(velocity > 0.99 * v_rayleigh)
+    assert np.all(velocity < 1.10 * _QUAD_FAST["vs"])
+
+
+def test_slow_formation_quadrupole_is_a_usable_curve():
+    """The control: in the regime it is meant for, the curve is monotone."""
+    from fwap import quadrupole_dispersion
+
+    frequencies = np.linspace(5.0e3, 60.0e3, 12)
+    result = quadrupole_dispersion(frequencies, **_QUAD_SLOW, **_QUAD_FLUID, a=0.10)
+    finite = np.isfinite(result.slowness)
+    assert finite.sum() >= 10
+    velocity = 1.0 / result.slowness[finite]
+    assert np.all(np.diff(velocity) <= 1.0e-9)
