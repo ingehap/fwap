@@ -67,7 +67,7 @@ def test_registry_entries_are_well_formed():
     names = [d.name for d in fetch_real_data.DATASETS]
     assert len(names) == len(set(names)), "dataset names must be unique"
     for dataset in fetch_real_data.DATASETS:
-        assert dataset.kind in {"las", "segy"}
+        assert dataset.kind in {"las", "segy", "dlis"}
         assert dataset.url.startswith("https://")
         assert len(dataset.sha256) == 64
         # Provenance and licence are not optional: a fixture whose origin is
@@ -220,3 +220,54 @@ def test_foreign_segy_round_trips_through_our_writer():
     # SEG-Y IBM/IEEE float conversion is lossy in the last bits; compare at
     # single-precision tolerance rather than demanding equality.
     np.testing.assert_allclose(again.data, original.data, rtol=1e-6, atol=1e-9)
+
+
+def test_reads_a_real_schlumberger_sonic_log():
+    """The first *sonic* log in the registry, and the first vendor picks.
+
+    The KGS log above tests LAS parsing against real service-company oddities.
+    This one tests something the package could not test at all before: whether
+    its answers agree with a vendor's on the same rock. It is a Schlumberger
+    DSI run whose curve set is the tool's own slowness-time processing output --
+    compressional and shear slowness plus the per-mode coherence peaks.
+    """
+    from fwap import read_las
+
+    las = read_las(str(_require("forge_dsi_las")))
+
+    assert las.well.get("WELL") == "MU-ESW1"
+    assert las.well.get("SRVC") == "Schlumberger"
+    # 0.5 ft sampling over the logged interval.
+    assert las.depth.size > 10_000
+    assert 2150.0 < las.depth.min() < 2151.0
+    assert 7568.0 < las.depth.max() < 7570.0
+
+    # The reference picks, and the coherence peaks that produced them.
+    for expected in ("DTCO", "DTSM", "CHRP", "CHR1", "CHR2"):
+        assert expected in las.curves, f"missing DSI output {expected}"
+    assert las.units.get("DTCO") == "US/F"
+
+    for name, values in las.curves.items():
+        assert values.shape == las.depth.shape, f"{name} is depth-misaligned"
+
+
+def test_real_sonic_reference_picks_are_physically_ordered():
+    """Shear is slower than compressional at every depth where both are picked.
+
+    A property of the rock rather than of the tool, so it holds for any honest
+    log and fails loudly for a mis-mapped curve. It is also the invariant
+    ``quality_control_picks`` enforces on our own picks, checked here against a
+    vendor's -- which is what makes it evidence rather than a tautology.
+    """
+    from fwap import read_las
+
+    las = read_las(str(_require("forge_dsi_las")))
+    dtco, dtsm = las.curves["DTCO"], las.curves["DTSM"]
+    both = np.isfinite(dtco) & np.isfinite(dtsm) & (dtco > 0) & (dtsm > 0)
+    assert both.sum() > 10_000
+
+    assert np.all(dtsm[both] > dtco[both]), "shear must be slower than P"
+    # Vp/Vs stays in the range real rock occupies; a units slip would break it.
+    vp_vs = dtsm[both] / dtco[both]
+    assert 1.4 < np.median(vp_vs) < 2.4
+    assert np.all(vp_vs < 5.0)
