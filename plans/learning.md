@@ -131,6 +131,14 @@ closing the balance inside the fluid is a mathematical identity. A conservation
 law tests something only if the control volume contains the constraint you are
 testing. Full treatment below, under *Attempted and withdrawn*.
 
+**An invariance borrowed from the wrong geometry.** "Swapping layer order
+leaves the dispersion invariant" is true of nothing in a *cylindrical* stack —
+the layers sit at different radii, so exchanging them changes the medium, by
+about 1 % here. The premise came from plane-layered intuition and survived into
+a written candidate list unchecked. Neighbouring geometry is where false
+invariances come from; the replacement (subdividing one annulus) is the version
+that survives the change of geometry.
+
 **A test premise that is simply false.** A test asserted TV regularisation
 "prefers a single contact"; true TV is exactly indifferent, and the smoothing
 offset tips it the other way. The measurement was fine and the physics
@@ -261,20 +269,74 @@ formation field grows — so the next attempt starts from the result rather than
 from the derivation. Nothing was added to the public API: shipping a check that
 cannot fail would be worse than shipping none.
 
+## Attempted: layered-solver invariance — misstated, with a working replacement
+
+This list said "swapping layer order in a stack where the physics is symmetric
+should leave the dispersion invariant". **That is false for a cylindrical
+stack**, and not marginally: the layers sit at *different radii*, so exchanging
+two of them moves material from one radius to another and changes the medium.
+Measured, it shifts the Stoneley slowness by about 1 %. There is no symmetry to
+exploit — the premise was borrowed from plane-layered intuition and never
+checked.
+
+The invariance that does hold is **subdivision**: relabelling one homogeneous
+annulus as several adjacent layers with the same properties changes the
+description and not the medium. It holds to 1e-15 across n=0, n=1 and n=2, for
+an open-hole mudcake and a cased steel-plus-cement stack, splitting the inner
+or the outer layer, in slow and fast formations. It is a good oracle for the
+reason the order-swap idea was reaching for: it exercises interface matching
+and propagator composition across more than one boundary, which no
+single-layer test can. It is also demonstrably not vacuous — a thickness error
+of one part in ten thousand moves the answer nine orders above the noise floor.
+
+Two caveats worth carrying forward. It is a *consistency* oracle: an error
+common to every interface cancels and goes undetected. And a prior screening
+pass mattered again — the suite already had twenty-plus tests for the
+neighbouring invariance (a layer whose properties equal the formation reducing
+to the unlayered solver), so most of what looked like new ground was already
+covered.
+
+**What it found.** That neighbouring invariance turns out to hold only in a
+window. Appending a formation-equal layer — physically nothing at all — is
+transparent while the added layer is thin, and stops being transparent when it
+is not: a 0.15 m one moves the 100 kHz answer by 14 %, a 0.05 m one fails at
+400 kHz, and both calls return finite, plausible slownesses. Which side is
+wrong was settled with an oracle from outside the layered solver entirely:
+`scholte_speed`. At 100 kHz the wavelength in the 2 cm mudcake is ~1.6 cm, so
+the mode rides the innermost layer and must approach *that* layer's Scholte
+speed. The plain stack does, to 0.05 %; the padded stack lands on the
+*formation's* Scholte speed instead — a spurious root belonging to the far
+interface.
+
+Calibration matters here and the first reading of it was too alarming. Genuine
+thick layers, with real contrast, keep converging correctly at every thickness
+tried and fail cleanly to NaN rather than to a wrong number. The defect belongs
+to a *redundant* layer — a construction used to verify the solver rather than
+one it exists to model — so the honest headline is that the verification
+technique has a validity range, not that the solver is wrong for realistic
+stacks. The existing transparency tests use a 0.005 m layer over 0.5-8 kHz,
+comfortably inside that range, which is why this went unnoticed rather than
+being a regression.
+
+**The general lesson: an invariance used to verify a solver has a validity
+range of its own, and it is not the solver's.** Establish where the check
+itself stops working before reading a failure as the code's fault — and before
+reading a pass as coverage.
+
 ## Candidate oracles not yet attempted
 
 Kept concrete so the next session does not have to re-derive the list. Whether
-any of these bites is a measurement, not a promise — the previous list went
-four for four, and the fifth candidate on it (energy balance, above) turned out
-to be vacuous. Four for five.
+any of these bites is a measurement, not a promise. Of the six candidates
+tried so far, four became working oracles, one was vacuous (energy balance) and
+one was misstated but had a working replacement nearby (layer subdivision).
+Both of the misses were caught by measuring, and neither was obvious from the
+armchair.
 
 Add one screening step before starting any of them, learned the hard way on the
 tube-wave check: **grep the implementation for the formula first.** If the
 solver already uses it — as a bracket, a seed, an initial guess — the check is
 not independent, and the test has to be built to route around that use.
 
-- **Reciprocity / symmetry of the layered solver.** Swapping layer order in a
-  stack where the physics is symmetric should leave the dispersion invariant.
 - **The `n=1` and `n=2` cutoffs against their rigid-pipe forms**, the same
   check #61 ran for `n=0`, using the appropriate Bessel zeros.
 - **Attenuation vs the bound-mode limit.** `Im(k_z)` must go to zero
