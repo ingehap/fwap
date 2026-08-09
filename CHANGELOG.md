@@ -7,6 +7,38 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **A closed-form microannulus-thickness baseline** (roadmap G.2, the `sonic_ml`
+  consumer). `sonic_ml.baselines.CrackWaveThicknessBaseline` inverts the
+  Krauklis law, `h = c^3 C rho_f / omega` with `C = sum (1-nu)/mu` over the two
+  solids bounding the gap, to read the gap width straight off the crack-wave
+  dispersion curve.
+  It is a genuinely independent estimator rather than a circular one: the
+  dataset's curves are numerical roots of the full modal determinant, and this
+  law is the analytic asymptote that validated that determinant to 0.02 %. And
+  it needs **no fitted calibration**, unlike the bonded
+  `StoneleyBondBaseline` — so it is a harder bar for a learned model, spending
+  none of the training split.
+  A CBL-amplitude baseline is still not available and would still be a
+  strawman: these gathers carry no casing-ring arrival, and
+  `CasingRingAugmentation` deliberately draws ring amplitude independently of
+  bond. The crack wave is the signal that is genuinely present.
+  Scored in the ratio domain (`median_ratio`, `ratio_iqr`, `log_rmse`,
+  `rank_correlation`) because the gap spans two decades, so an RMS in metres
+  would be set by the widest samples alone — and because that separates a
+  constant bias, which a recalibration fixes, from scatter, which it does not.
+  The Krauklis law treats the bounding solids as half-spaces while the dataset
+  has ~10 mm of casing and ~45 mm of cement against a comparable crack
+  wavelength, so a systematic bias is expected; the score reports it rather
+  than absorbing it. Measured on 24 generated samples spanning 11-837 µm (a
+  76x range): **rank correlation 0.991**, median ratio 0.935 — so the
+  half-space bias is only ~6.5 % — and `log_rmse` 0.085, about **21 % in h**,
+  falling to **18.1 %** once that single constant is removed. A learned model
+  has to beat ~18 % across two decades, from an estimator that spent no
+  training data at all.
+  The debonded bundle needed **no loader change**: `DatasetBundle` already
+  reads `mode_names` and `layer_params` from the file, and `cased_features`
+  was already generic over layer count, so a 3-layer 2-mode bundle loads as
+  `is_cased` schema v4 unmodified.
 - **A debonded cased-hole dataset generator** (roadmap G.2), and a measurement
   that changed what it should be. `scripts/gen_surrogate_dataset.py` gains
   `MicroannulusPriors`, `DEBONDED_MODES`, `generate_debonded_dataset` and a

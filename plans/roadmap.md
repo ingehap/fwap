@@ -608,6 +608,40 @@ in the debonded regime: the signal it reads has largely gone there, which is a
 different and worse problem than a domain shift. Whatever is built on this
 dataset should be scored against that, not around it.
 
+**The classical bar is now in place, and it is a strict one.**
+`sonic_ml.baselines.CrackWaveThicknessBaseline` inverts the Krauklis law in
+closed form for the gap width. Two things make it a harder baseline than the
+bonded `StoneleyBondBaseline` rather than an easier one: it needs no fitted
+calibration, so it spends none of the training split; and it is genuinely
+independent of the data it scores, since the curves are numerical roots of the
+full determinant and the law is the analytic asymptote that validated that
+determinant to 0.02 %. Its known weakness is stated rather than hidden — the
+law assumes half-space walls, while the stack has ~10 mm of casing and ~45 mm
+of cement against a comparable crack wavelength, so the score reports a median
+ratio (the bias) separately from the spread (what a recalibration could not
+fix).
+
+**Measured, on 24 generated samples spanning 11-837 um:** rank correlation
+**0.991**, median ratio 0.935 — the half-space bias is only ~6.5 %, smaller
+than expected — and a log RMSE of 0.085, about **21 % in gap width**, falling
+to **18.1 %** after removing that one constant. So the closed-form estimator
+recovers the gap to under a fifth across two decades having spent no training
+data, which is the bar the learned model inherits. It also confirms the
+identifiability prediction that reshaped this item.
+
+The bundle needed **no loader change**: `DatasetBundle` reads `mode_names` and
+`layer_params` from the file and `cased_features` was already generic over
+layer count, so a three-layer two-mode debonded set loads as `is_cased` schema
+v4 unmodified.
+
+A CBL-amplitude baseline is *still* not available here, which corrects a
+long-standing expectation in this file. The hope was that the debonded regime
+would make one fair. It does not: these gathers carry no casing-ring arrival at
+all, and `CasingRingAugmentation` deliberately draws ring amplitude
+independently of bond precisely so that no model can recover a planted
+relationship. What changed is that a better classical estimator now exists —
+one reading a signal the physics actually puts in the data.
+
 **Costs, because they bound what is practical.** A debonded sample runs ~14 s
 against ~0.5 s bonded (the microannulus solvers are ~0.45 s per frequency for
 both branches), so `--debonded` defaults to a 32-point grid and a useful set is
@@ -649,9 +683,19 @@ would be advertising rather than measuring.
    claim above.
 2. **Free-pipe / debonded cased regime.** The cased dataset spans the *bonded*
    regime, where the cased Stoneley stays bound, so the bond inverse grades
-   cement quality and is explicitly not a free-pipe detector. It is also the
-   regime where a CBL-amplitude baseline would finally be a fair comparison
-   rather than a strawman.
+   cement quality and is explicitly not a free-pipe detector. The debonded
+   generator and its classical baseline have since shipped — see section G.2
+   above for both, and for the measurements that reshaped them. What is left
+   here is the learned model and its benchmark entry.
+
+   *Correction, second one on this entry.* It used to add that the debonded
+   regime "is also where a CBL-amplitude baseline would finally be a fair
+   comparison rather than a strawman". Withdrawn: these gathers carry no
+   casing-ring arrival whatever the bond, and `CasingRingAugmentation` draws
+   ring amplitude independently of bond on purpose, so a CBL gate would still
+   be measuring nothing. The debonded regime supplies a *different* honest
+   baseline instead — the crack-wave gap inversion — rather than rehabilitating
+   that one.
 
    *Correction.* This entry used to continue "reaching the debonded regime needs
    a leaky-mode cased forward model, not a planted wavetrain", which filed it
