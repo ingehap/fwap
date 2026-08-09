@@ -12,7 +12,7 @@ their ordering, because only one kind can be worked on from a coding session.
 
 | # | Item | Kind | Blocked on |
 |---|------|------|-----------|
-| 1 | Leaky-mode root tracking (A.2 + G.2) | modelling | nothing — this is the work |
+| 1 | Leaky-mode root tracking (A.2 + G.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
 | 2 | A real full-waveform sonic gather (F) | sourcing | licensing + network access |
 | 3 | Digitised validation figures (A.1, second half) | sourcing | access to the books |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
@@ -50,6 +50,22 @@ would finally be a fair comparison rather than a strawman.
 
 Both need complex-plane root tracking. Doing them together is the difference
 between one hard piece of modelling and two.
+
+**Attempted; it is not a wiring job.** The complex machinery already exists and
+works for `n=0`, so pointing it at the `n=1` determinant looks like an
+afternoon. It is not. Continuation from high frequency reproduces the real
+branch to floating-point noise and stops dead at the cutoff; fresh leaky-S
+seeding below the cutoff yields incoherent spurious roots; strict fine-step
+continuation from the cutoff fails on its first step. Even above the cutoff,
+1 kHz continuation steps can hop to a different branch, so the extension needs
+the validated marcher's regime checks and not just the tracker.
+
+What is missing is a derivation rather than code: which Riemann sheet the `n=1`
+pole occupies below the cutoff. And there may be no pole to find — the
+fast-formation flexural mode may simply exist only above its cutoff, with the
+low-frequency dipole energy carried by a shear head wave. Settling that is what
+Schmitt 1988 fig 4 is for, which quietly puts this item behind item 3's
+literature access too.
 
 **Measured consequence for the dataset**, over the generator's own cased priors
 (50 draws): fast formations average 28 % band coverage (5/47 fully converged);
@@ -106,8 +122,12 @@ anything above.
 
 ## Recommendation
 
-**Item 1 is the only substantial thing that can be built from here**, and it now
-buys two roadmap entries instead of one.
+Item 1 was the only substantial thing that looked buildable from here, and
+attempting it moved it: the coding part is ready, the *derivation* part is not,
+and it may itself depend on the literature access items 2 and 3 need. So there
+is currently **no large piece of work that a coding session can carry to
+completion unaided** — which is worth saying plainly rather than discovering
+again.
 
 If a near-term dataset improvement is wanted without that modelling work, the
 bounded option is a two-mode cased dataset restricted to slow formations, with
