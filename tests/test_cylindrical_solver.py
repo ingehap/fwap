@@ -15050,6 +15050,10 @@ def test_trapped_pseudo_rayleigh_rejects_slow_formations_and_bad_input():
     with pytest.raises(ValueError, match="freq must be strictly positive"):
         trapped_pseudo_rayleigh_dispersion(np.array([0.0]), **_TRAP_MEDIUM)
 
+    for bad in ({"vs": -1.0}, {"rho_f": 0.0}, {"a": -0.1}):
+        with pytest.raises(ValueError, match="must (all )?be positive"):
+            trapped_pseudo_rayleigh_dispersion(freq, **{**_TRAP_MEDIUM, **bad})
+
 
 def test_trapped_root_scan_resolution_does_not_decide_how_many_modes_exist():
     """The scan density must not set the branch count, or `branch` drifts."""
