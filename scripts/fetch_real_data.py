@@ -75,7 +75,7 @@ class RealDataset:
         Expected SHA-256 of the downloaded bytes. A mismatch is an error, not a
         warning: silently testing against different content than the assertions
         were written for is worse than not testing at all.
-    kind : {"las", "segy"}
+    kind : {"las", "segy", "dlis"}
         Which reader the file exercises.
     what_it_tests : str
         The specific failure mode this file can catch that a synthetic cannot.
@@ -123,6 +123,47 @@ DATASETS: tuple[RealDataset, ...] = (
             "published by the KGS, and the file header additionally carries "
             "'DATA COPYRIGHT - RILEYS DATASHARE INTERNATIONAL'. That notice is "
             "precisely why this file is fetched rather than vendored."
+        ),
+    ),
+    RealDataset(
+        name="forge_dsi_las",
+        filename="forge_D5RL-00187_ME-ESW1_DSI.las",
+        url=(
+            "https://gdr.openei.org/files/1006/"
+            "D5RL-00187_University%20of%20%20Utah_ME-ESW1_Run1_DSI%20Sonic.las"
+        ),
+        sha256="30cbc94a3596b6ccb061398fbb832793012795b360d5a452210696adf719e3ad",
+        kind="las",
+        what_it_tests=(
+            "The first *sonic* log in the registry, and the first real "
+            "service-company reference picks. A Schlumberger DSI run over "
+            "2150.5-7569.0 ft at 0.5 ft, carrying DTCO and DTSM alongside the "
+            "per-mode coherence peaks (CHRP, CHR1, CHR2) the tool's own "
+            "slowness-time processing produced. That makes it scoreable: the "
+            "package's picks can be compared against a vendor's on identical "
+            "depths, which no synthetic can provide. The KGS log tests LAS "
+            "*parsing* oddities; this one tests whether the processing is right."
+        ),
+        provenance=(
+            "Utah FORGE, well ME-ESW1 (the 58-32 monitor well), University of "
+            "Utah / DOE Geothermal Data Repository submission 1006. Logged "
+            "15-Sep-2017 by Schlumberger. The companion DLIS in the same "
+            "submission holds the per-receiver waveforms this file is the "
+            "processed export of: DTCO and DTSM agree between the two to "
+            "5e-5 us/ft over all 10 837 common depths, so they are the same "
+            "processing run.\n"
+            "CHECKSUM CAVEAT: the SHA-256 above was computed from a copy "
+            "obtained through a mirror, because gdr.openei.org was not "
+            "reachable from the session that added this entry. It has NOT been "
+            "confirmed against the canonical URL. The first successful fetch "
+            "should verify it and correct this note."
+        ),
+        licence=(
+            "CC BY 4.0. DOE Geothermal Technologies Office data published "
+            "through the Geothermal Data Repository is openly licensed, so this "
+            "file is redistributable as well as fetchable -- unlike the KGS log "
+            "above. It is still fetched rather than vendored, for consistency "
+            "with the no-vendoring rule the data directory enforces."
         ),
     ),
     RealDataset(

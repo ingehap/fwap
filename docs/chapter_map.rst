@@ -63,10 +63,14 @@ the book.
 | (extension)         | Cylindrical-borehole surface-wave speeds (Rayleigh | :mod:`fwap.cylindrical`,       |
 |                     | + physics-grounded flexural dispersion law) and    | :mod:`fwap.cylindrical_solver` |
 |                     | the Schmitt (1988) cylindrical-Biot modal-         |                                |
-|                     | determinant solver: n=0 Stoneley (3x3) and n=1     |                                |
-|                     | dipole flexural (4x4) in the bound-mode regime,    |                                |
-|                     | with :func:`stoneley_dispersion` and               |                                |
-|                     | :func:`flexural_dispersion` public APIs            |                                |
+|                     | determinant solver: n=0 Stoneley, n=1 dipole       |                                |
+|                     | flexural and n=2 quadrupole, bound and leaky,      |                                |
+|                     | over layered / cased-hole stacks and VTI           |                                |
+|                     | formations, plus the debonded regime -- a fluid    |                                |
+|                     | microannulus with both its root families           |                                |
+|                     | (:func:`stoneley_dispersion_microannulus`,         |                                |
+|                     | :func:`crack_wave_dispersion`,                     |                                |
+|                     | :class:`FluidAnnulus`)                             |                                |
 +---------------------+----------------------------------------------------+--------------------------------+
 | (extension)         | LWD phenomenological layer: collar Mode factory,   | :mod:`fwap.lwd`                |
 |                     | slowness-band notch for collar rejection,          |                                |
