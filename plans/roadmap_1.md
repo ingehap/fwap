@@ -10,7 +10,7 @@ time, so check both against the tree before acting on either.
 
 ## The shape of it
 
-Five things are open, and they fall into three kinds — which matters more than
+Six things are open, and they fall into three kinds — which matters more than
 their ordering, because the kinds differ in whether they can be worked on from a
 coding session at all. The struck-out rows are kept because how they closed is
 the useful part of the story: each came loose from a larger item by measurement
@@ -23,29 +23,31 @@ rather than by planning.
 | ~~2~~ | ~~A real full-waveform sonic gather (F)~~ | **closed** (#74) | — |
 | ~~2a~~ | ~~The compressional-pick defect it exposed (F.1)~~ | **closed** (#75, #76) | — |
 | ~~2b~~ | ~~A waveform path in `read_dlis` (F.3)~~ | **closed** | — |
+| ~~5a~~ | ~~The debonded dataset generator, baseline and inverse (G.2)~~ | **closed** | — |
 | 1b | Leaky-mode root tracking, n=1 (A.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
-| 2c | A waveform fixture CI can fetch (F.2) | sourcing *and* a decision | hosting an extracted subset is redistribution |
+| 2c | A waveform fixture CI can fetch (F.2) | **a licence check, then wiring** | ODP 952A is in hand at 1.55 MB; its terms are unstated |
+| 2d | The ODP file's offsets and its 950-A/952A header (F.5) | sourcing | the SDT tool spec; nothing in the files settles it |
+| 6 | Wire the debond inverse into `sonic_ml.bench` (G.6) | **implementation** | nothing |
 | 3 | Digitised validation figures (A.1, curve shapes) | sourcing | access to the books |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
-| 5a | ~~The debonded dataset generator (G.2)~~ | **closed** | — |
-| 5 | The `sonic_ml` consumer of it (G.2) | **implementation** | nothing |
 
-**Item 5 is the one open row that is ordinary implementation work**, where for
-several revisions everything open was blocked on something outside the session
-— a file behind an unreachable host, a book, a derivation, a release. Item 2b
-was the other, and it is now closed: `read_dlis_waveforms` reads the
-per-receiver waveforms and recovers the acquisition geometry from the file's
-AXIS records, so the processing chain runs on a real log with no `dlisio` at
-the call site.
+**The shape has changed since the last revision, and mostly by closing.** G.2
+is finished end to end — generator, closed-form baseline at 18.1 % in gap
+width, learned residual inverse at 2.5 % held-out — and F.3 is finished with
+it. What that leaves is one piece of wiring (item 6), one licence question
+(2c), and one sourcing question (2d).
 
-Item 5 has since split. The **dataset generator** is done (5a) — and building
-it produced the more interesting half: measurement showed the item as planned
-would have made an uninvertible dataset, because the cased Stoneley mode is
-blind to the gap width (0.05 % over a 100× range) while the crack wave carries
-it at roughly 100:1. See `plans/roadmap.md` section G.2. What is left is the
-`sonic_ml` consumer, and it inherits a warning rather than a clean slate: a
-100 µm gap cuts the cement-stiffness sensitivity the shipped bond inverse keys
-on from 3.22 % to 0.48 %.
+Two of those came out of the work rather than off a list. Building the
+debonded dataset showed the item **as planned would have been uninvertible**:
+the cased Stoneley mode is blind to gap width (0.05 % over a 100× range) while
+the crack wave carries it at roughly 100:1. And a second real log — ODP Leg
+157 Hole 952A, handed over after F.3 shipped — showed the AXIS-only reader was
+right but not sufficient, since that file declares no AXIS at all.
+
+**2c is the most valuable row and is no longer blocked on work.** It was
+"hosting a subset is redistribution" for its whole life; ODP 952A is 1.55 MB as
+delivered, so the question is now whether its terms permit hosting, which is
+reading rather than engineering.
 
 Item 3 still cannot be closed by writing code here. Note the qualifier that
 survived from earlier revisions and turned out to be the important one: the
@@ -467,14 +469,23 @@ of this file got wrong, and the corrections are worth not losing.
 
 ## Recommendation
 
-**Do item 5.** It is now the only open row that is ordinary implementation
-work: it needs no new physics since A.5 shipped, and it is where a
-CBL-amplitude baseline stops being a strawman.
+**Settle item 2c, and settle it first.** It is the highest-value row and it is
+no longer engineering: ODP Leg 157 Hole 952A is in hand at 1.55 MB, so the
+only question left is whether its terms permit hosting. Until that is answered
+the 0.12 % shear result, the 95 % compressional result and the picker fix that
+produced the latter stay one-off measurements in a changelog rather than
+anything CI defends. Every other open row is smaller than this one.
 
-Item 2c is more valuable but is not work — it is a decision. Hosting an
-extracted waveform subset is redistribution, and until someone makes that call
-the 0.12 % shear result and the 95 % compressional result stay one-off
-measurements in a changelog rather than something CI defends.
+**Then item 6**, which is ordinary wiring: the debond inverse and its baseline
+are measured against each other in a script rather than scored by
+`sonic_ml.bench`, so they sit outside the harness — no bootstrap CIs, no
+per-regime rows — that every other model in the layer is compared through.
+
+A note on 2d that is easy to under-rate. The ODP file's receiver offsets are
+recorded nowhere in it, and its well header names a *different hole* than the
+archive does. Neither stops the waveforms being read, and both stop a registry
+entry from honestly claiming to know what it holds — which is the difference
+between a fixture and a file.
 
 The previous revision of this file recommended item 2, on the grounds that
 everything in the repository was measured against the forward model that
