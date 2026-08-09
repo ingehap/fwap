@@ -7,6 +7,30 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **A learned gap-width inverse for the debonded regime** (roadmap G.2).
+  `sonic_ml.models.debond` adds `debond_features`, `DebondResidualNet` and
+  `train_debond_inverse`.
+  **It is not asked to predict the gap from the waveform, and that is the
+  point.** The cased Stoneley mode is the only debonded branch that reaches the
+  receivers, and it moves 0.05 % across a 100x change in gap against 1.0-1.5 %
+  from the formation alone — so a waveform model would be fitting noise while
+  scoring respectably against a careless metric. The input is the crack-wave
+  dispersion curve, and the bar is the closed-form baseline above.
+  **It predicts the residual** `log10(h_true) - log10(h_krauklis)` rather than
+  the thickness. The output head is zero-initialised, so an untrained model
+  reproduces the classical answer exactly: training starts at a known-good
+  answer, a broken run degrades to it rather than to noise, and any gain is
+  attributable. The residual also has a physical name — the Krauklis law
+  assumes half-space walls, while the dataset has ~10 mm of casing against a
+  comparable crack wavelength, so what there is to learn is the finite-layer
+  correction. The features expose exactly what the baseline lacks: it sees the
+  bounding moduli only, through the compliance `C`, and never the layer
+  *thicknesses*.
+  **Leakage is guarded explicitly**, because the gap thickness sits in
+  `layer_params` one column from features that are legitimately used:
+  `debond_features` drops that column, and a test perturbs the stored gap by
+  7.3x while holding the dispersion curve fixed and asserts that not one
+  feature moves.
 - **A closed-form microannulus-thickness baseline** (roadmap G.2, the `sonic_ml`
   consumer). `sonic_ml.baselines.CrackWaveThicknessBaseline` inverts the
   Krauklis law, `h = c^3 C rho_f / omega` with `C = sum (1-nu)/mu` over the two
