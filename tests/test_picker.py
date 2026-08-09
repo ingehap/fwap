@@ -1674,15 +1674,24 @@ def test_track_to_log_curves_include_vti_with_numeric_null_value():
 
 
 # ---------------------------------------------------------------------------
-# Greedy-vs-joint mode confusion, reproduced from real data.
+# Mode confusion, reproduced from real data, and the rule that repairs it.
 #
 # Found by running the package against a Schlumberger DSI log (roadmap F): on
 # 143 of 400 real depths `track_modes` assigned the *same* STC peak to P and to
 # S, reporting the shear slowness as compressional. `viterbi_pick_joint` on the
 # identical STC surfaces confused 34.
 #
-# The gather below reproduces that with a weak compressional arrival under a
-# strong shear one, which is the configuration the real data presents.
+# The repair is `resolve_mode_collisions`, which refuses to give one arrival two
+# labels. On the same 400 depths it moved compressional agreement from 62 % to
+# 95 %, touching only collided depths, leaving shear bit-identical and damaging
+# none of the 250 depths that were already right.
+#
+# Which of the two labels is wrong is not decidable in general, and both
+# directions occur -- see
+# `test_collision_resolution_declines_to_guess_the_other_direction`.
+#
+# The gather below reproduces the failure with a weak compressional arrival
+# under a strong shear one, which is the configuration the real data presents.
 # ---------------------------------------------------------------------------
 
 _MC_GEOM = dict(n_rec=8, tr_offset=2.7432, dr=0.1524, dt=1.0e-5, n_samples=512)
@@ -1723,19 +1732,20 @@ def _median_pick(tracks, mode):
     return float(np.median(got)) if got else float("nan")
 
 
-def test_greedy_picker_confuses_p_with_a_more_coherent_shear():
-    """A documented limitation, pinned so it cannot change silently.
+def test_time_ordering_alone_confuses_p_with_a_more_coherent_shear():
+    """What ``resolve_mode_collisions=False`` still does, pinned deliberately.
 
-    This is not an assertion that the behaviour is *desirable*. It is the
-    failure the real-data comparison exposed, reduced to a seeded synthetic so
-    that the guidance in :func:`track_modes` has something concrete behind it
-    and so that any future repair shows up here as a change.
+    This is the failure the real-data comparison exposed, reduced to a seeded
+    synthetic. It is kept -- rather than deleted along with the defect -- for
+    two reasons: it is the opt-out path's contract, and it is the only thing
+    that shows the repaired test below is testing a repair rather than an
+    easy gather.
 
-    The mechanism: mode ordering is enforced on arrival *time*, never on
-    slowness, and the P prior window (40-140 us/ft) contains the shear
-    arrival at 92. When shear is the more coherent of the two, the
-    ``scored`` rule's ``time_penalty`` is too small to overcome the coherence
-    difference, so P and S select the same peak.
+    The mechanism: with ordering on arrival *time* only, nothing requires P to
+    be faster than S, and the P prior window (40-140 us/ft) contains the shear
+    arrival at 92. When shear is the more coherent of the two, the ``scored``
+    rule's ``time_penalty`` is too small to overcome the coherence difference,
+    so P and S select the same peak.
     """
     from fwap import find_peaks, track_modes
 
@@ -1750,7 +1760,7 @@ def test_greedy_picker_confuses_p_with_a_more_coherent_shear():
         coh[label] = max(c[2] for c in near)
     assert coh["S"] > coh["P"] + 0.05
 
-    tracks = track_modes(results, depths)
+    tracks = track_modes(results, depths, resolve_mode_collisions=False)
     picked_p = _median_pick(tracks, "P")
     picked_s = _median_pick(tracks, "S")
 
@@ -1760,14 +1770,167 @@ def test_greedy_picker_confuses_p_with_a_more_coherent_shear():
     assert abs(picked_p - 52.0) / 52.0 > 0.5
 
 
-def test_joint_viterbi_resolves_the_confusion_the_greedy_picker_creates():
-    """The reason the greedy limitation is documented rather than worked around.
+def test_collision_resolution_repairs_the_confusion_on_the_same_gather():
+    """The default repairs it, and takes the true compressional arrival.
 
-    Same STC surfaces, same priors, same runtime order: optimising the mode
-    tuple jointly rejects the assignment in which P and S claim one arrival,
-    because it leaves the other mode with nothing consistent to take. On the
-    real log this moved compressional agreement from 62 % to 89 % of depths
-    within 10 % of the vendor's own pick, with shear unchanged at 96 %.
+    Same surfaces, same priors, one rule added: two modes may not be the same
+    arrival, so P -- the faster-labelled of the pair -- re-picks from its own
+    candidate pool with the shear slowness as a strict upper bound. What it
+    finds is the weak compressional peak that was there all along and merely
+    out-scored.
+    """
+    from fwap import track_modes
+
+    results, depths = _mode_confusion_surfaces()
+    tracks = track_modes(results, depths)
+
+    picked_p = _median_pick(tracks, "P")
+    picked_s = _median_pick(tracks, "S")
+
+    assert picked_p == pytest.approx(52.0, rel=0.05)
+    assert picked_s == pytest.approx(92.0, rel=0.05)
+    for depth_picks in tracks:
+        p, s = depth_picks.picks.get("P"), depth_picks.picks.get("S")
+        assert p is not None and s is not None
+        assert p.slowness < s.slowness
+
+
+def test_collision_resolution_leaves_the_slower_mode_untouched():
+    """The rule only ever moves a mode to a *faster* candidate.
+
+    That is what makes it safe to switch on by default: shear -- the mode that
+    was already right on 96 % of real depths -- cannot be perturbed by it. On
+    the real log the shear pick was bit-identical at all 400 depths.
+    """
+    from fwap import track_modes
+
+    results, depths = _mode_confusion_surfaces()
+    loose = track_modes(results, depths, resolve_mode_collisions=False)
+    strict = track_modes(results, depths)
+
+    moved = 0
+    for a, b in zip(loose, strict):
+        assert ("S" in a.picks) == ("S" in b.picks)
+        if "S" in a.picks:
+            assert a.picks["S"].slowness == b.picks["S"].slowness
+            assert a.picks["S"].time == b.picks["S"].time
+        # ... while P is either untouched or moved to a faster arrival,
+        # never to a slower one.
+        assert b.picks["P"].slowness <= a.picks["P"].slowness
+        moved += b.picks["P"].slowness < a.picks["P"].slowness
+    # Eight of these twelve depths confuse the modes; the other four the
+    # greedy picker already gets right and the rule leaves alone.
+    assert moved == 8
+
+
+def test_collision_resolution_declines_to_guess_the_other_direction():
+    """A collision the rule cannot resolve is left exactly as it was.
+
+    In a slow formation the confusion runs the other way: S takes the *P*
+    arrival, because the compressional peak is both earlier and stronger and
+    the ``scored`` rule rewards both. Here P is the mode holding the right
+    arrival and S is the mislabel -- the opposite of the real-log case.
+
+    A rule that moved the slower mode of a colliding pair would be right on
+    the log and wrong here, so this one only moves the faster-labelled mode,
+    and only when it has an admissible faster candidate. P has none, so
+    nothing moves: the picks come out bit-identical with the rule on and off,
+    P is still correct, and the collision is left for
+    :func:`quality_control_picks` to flag rather than guessed at. That is the
+    "never worse than the greedy result" guarantee, on the case that tests it.
+
+    Found by ``tests/test_hypothesis.py`` against an earlier version of the
+    rule that resolved every collision in favour of the slower mode; that
+    version dropped P here.
+    """
+    from fwap import pick_modes, quality_control_picks, stc, synthesize_gather
+    from fwap.synthetic import ArrayGeometry, monopole_formation_modes
+
+    vp, vs = 3500.0, 1750.0  # Vp/Vs = 2, so S lands at 174 us/ft
+    geom = ArrayGeometry(n_rec=8, tr_offset=3.0, dr=0.1524, dt=1.0e-5, n_samples=2048)
+    surface = stc(
+        synthesize_gather(
+            geom,
+            monopole_formation_modes(vp=vp, vs=vs, v_stoneley=1400.0),
+            noise=0.05,
+            seed=0,
+        ),
+        dt=geom.dt,
+        offsets=geom.offsets,
+        slowness_range=(50e-6, 800e-6),
+        n_slowness=121,
+        window_length=4.0e-4,
+        time_step=2,
+    )
+
+    loose = pick_modes(surface, threshold=0.4, resolve_mode_collisions=False)
+    strict = pick_modes(surface, threshold=0.4)
+
+    # The premise: S has taken P's arrival, and P has nothing faster to move to.
+    assert loose["S"].slowness == loose["P"].slowness
+
+    assert strict.keys() == loose.keys()
+    for name, pick in loose.items():
+        assert strict[name].slowness == pick.slowness
+        assert strict[name].time == pick.time
+
+    assert strict["P"].slowness == pytest.approx(1.0 / vp, rel=0.05)
+    # Not silently accepted either: the collision makes Vp/Vs exactly 1.
+    flags = quality_control_picks(strict, depth=0.0)
+    assert not flags.vp_vs_in_band
+
+
+def test_pick_modes_resolves_collisions_too():
+    """The single-depth entry point carries the same rule and the same switch.
+
+    The confusion is a property of the surface, not of the depth tracking:
+    ``pick_modes`` and ``track_modes`` fail and recover on exactly the same
+    eight of these twelve gathers, so the continuity regulariser is neither
+    the cause nor the cure.
+    """
+    from fwap import pick_modes
+
+    results, _ = _mode_confusion_surfaces()
+    surface = results[1]  # one of the eight that confuse
+
+    loose = pick_modes(surface, resolve_mode_collisions=False)
+    assert loose["P"].slowness == loose["S"].slowness
+
+    strict = pick_modes(surface)
+    assert strict["P"].slowness < strict["S"].slowness
+    assert strict["P"].slowness / US_PER_FT == pytest.approx(52.0, rel=0.05)
+    assert strict["S"].slowness == loose["S"].slowness
+
+
+def test_collision_resolution_is_inert_when_there_is_no_collision():
+    """No cost, and no effect, on a gather the picker was already getting right.
+
+    The rule is a constraint, not a re-ranking: where the greedy result is
+    already physically ordered it must return it unchanged, on every mode.
+    """
+    from fwap import track_modes
+
+    results = [_make_stc(seed=s) for s in range(6)]
+    depths = np.arange(6) * 0.1524
+    loose = track_modes(results, depths, resolve_mode_collisions=False)
+    strict = track_modes(results, depths)
+
+    for a, b in zip(loose, strict):
+        assert a.picks.keys() == b.picks.keys()
+        for name, pick in a.picks.items():
+            assert pick.slowness == b.picks[name].slowness
+            assert pick.time == b.picks[name].time
+
+
+def test_joint_viterbi_also_resolves_the_confusion():
+    """The other route to the same answer, and still the better one on hard data.
+
+    Optimising the mode tuple jointly rejects the assignment in which P and S
+    claim one arrival, because it leaves the other mode with nothing consistent
+    to take. It gets there by a different mechanism than the greedy picker's
+    ordering rule -- a global cost rather than a local constraint -- so it also
+    repairs confusions that are *not* exact collisions, which the ordering rule
+    by construction leaves alone.
     """
     from fwap import viterbi_pick_joint
 

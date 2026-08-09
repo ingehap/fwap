@@ -41,12 +41,12 @@ both are ordinary work rather than blocked on anything.
 
 | Open item | Why it matters |
 |-----------|----------------|
-| **F.1 The compressional-pick defect** | *Diagnosed, documented, reproduced in CI; the greedy picker itself is unrepaired.* `track_modes` assigns the same peak to P and S when shear is more coherent. `viterbi_pick_joint` already avoids it (62 % → 89 % agreement with the vendor). What is left is deciding whether the greedy picker should be repaired too. |
 | **F.2 A waveform fixture CI can use** | The waveforms exist but live in an 808 MB DLIS inside a 471 MB zip, and `read_dlis` cannot read multi-dimensional channels at all. Until both are fixed, the shear result above cannot be regression-tested. |
 | **G.2 Debonded-regime datasets** | The forward model A.5 was blocking on is now complete, so this needs no new physics. It is also where a CBL-amplitude baseline stops being a strawman. |
 | **A.1 Validation figures** | Ties the solver to published literature rather than to itself. Still needs the books. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
 | ~~**F. A real sonic log**~~ | *Largely closed.* A Schlumberger DSI log is registered and tested; the package's shear picks match the vendor's to **0.12 %** median on real rock. |
+| ~~**F.1 The compressional-pick defect**~~ | *Closed.* It was mode confusion, not imprecision. `track_modes` and `pick_modes` now refuse to assign one arrival to two modes (`resolve_mode_collisions`); vendor agreement went 62 % → **95 %**, with shear bit-identical and nothing dropped. Kept below for the reasoning and the residual limits. |
 | ~~**A.5 Fluid microannulus**~~ | *Forward model complete.* Elements, assembly and both public APIs are on `main`; kept below for the reasoning and the measured limits. |
 
 A note on how this file is kept honest: items are marked closed only when the
@@ -397,41 +397,70 @@ See `plans/log_output.md` for the full reading. In brief:
   on identical rock.
 * **Measured, and this is what the item existed to find.** Over 400 contiguous
   frames, `fwap.stc` + `track_modes`: shear matches `DTSM` to a median
-  **+0.12 %** (MAD 2.6 %, 96 % within 10 %). Compressional does not -- median
-  +2.29 % but mean 27 % high and only 62 % of depths within 10 %, which is a
-  bimodal failure rather than noise. About a third of depths pick a later
-  arrival as P. Not yet diagnosed.
+  **+0.12 %** (MAD 2.6 %, 96 % within 10 %). Compressional did not -- median
+  +2.29 % but mean 27 % high and only 62 % of depths within 10 %, a bimodal
+  failure rather than noise, with about a third of depths picking a later
+  arrival as P. That became item F.1, and it is now fixed.
+
+**F.1, closed: the compressional-pick defect.**
+
+* **It was mode confusion, not imprecision.** On 143 of the 150 bad depths
+  `track_modes` assigned the *same* STC peak to P and to S. Mode ordering was
+  enforced on arrival time, never on slowness, and the P prior window
+  (40-140 us/ft) contains the shear arrival; when shear is the more coherent of
+  the two, the `scored` rule's `time_penalty` cannot overcome the 0.139
+  coherence deficit.
+* **The repair refuses to give one arrival two labels.** `pick_modes` and
+  `track_modes` now take `resolve_mode_collisions=True`: when two modes have
+  selected the same STC peak, the faster-labelled one re-picks from its own
+  candidate pool with that slowness as a strict upper bound.
+* **It deliberately does not decide which label is wrong.** That is not
+  decidable in general, and both directions occur. On the DSI log the shared
+  peak is the shear arrival and P is the mislabel; on a slow-formation
+  synthetic (Vp/Vs = 2, so S lands at 174 us/ft inside P's window) it is the
+  compressional arrival and S is. A rule that always trusted the slower mode
+  would be right on the log and wrong on the synthetic -- an earlier version
+  did exactly that, and `tests/test_hypothesis.py` caught it dropping a
+  correct P. So a mode with no admissible faster candidate is left exactly as
+  it was, on the reasoning that "nowhere faster to go" is evidence it holds
+  the right arrival. Nothing is dropped, nothing moves to a slower candidate,
+  and no depth can come out worse than the greedy result.
+* **Measured on the same 400 depths.** Vendor agreement 62 % -> **95 %**, with
+  coverage unchanged at 400/400; depths where P is not strictly faster than S,
+  143 -> **5**. The rule changed the P pick at 138 depths, every one a
+  collision, made 129 of them correct, left the shear pick **bit-identical at
+  all 400** (96 % throughout), and damaged **none** of the 250 depths that
+  were already right. Of the 150 wrong depths 21 still are: 14 collisions it
+  could not resolve or re-picked onto an intermediate peak, and 7 that were
+  never collisions.
+* **Confirmed on a second logging pass, which is what stops this being tuned
+  to one dataset.** The same well's 25-September run, a different depth
+  interval (7267-7466 ft): agreement 70 % -> **86 %**, unordered depths
+  72 -> **2**, 63 of 117 bad depths repaired, none dropped, and again **no
+  damage to any** of the 283 depths that were already right. Shear was
+  unchanged there too (66 % on that interval, before and after). There is no
+  constant to tune in the rule, which is the point: it transfers.
+* **Retuning `time_penalty` was the wrong lever**, and this is why the fix is
+  structural: the value that would flip those depths has median 0.18 and 90th
+  percentile 0.43 against a default of 0.1, and raising it that far biases
+  every late mode.
+* **`viterbi_pick_joint` is still the better tool on the hard residue.** It
+  reaches 89 % on identical surfaces in the same runtime, by a different
+  mechanism — a global cost over the mode tuple rather than a local rule — so
+  it also repairs confusions that are not exact collisions, of which this log
+  has 7. The collision rule by construction leaves those alone, as it does the
+  3 depths where P and S end up one slowness cell apart.
+* **The ceiling was known in advance and was hit.** 13 of the 150 bad depths
+  have a true-P peak below `coherence_min` and 8 have none at all, so no
+  selection rule reaches beyond about 95 % of all depths here. The repair
+  reaches 95 %.
+* Seeded synthetics reproduce the pre-repair failure, the repair, and the
+  case the rule declines to guess, all in CI without the 808 MB fixture; the
+  old behaviour stays reachable, and tested, via
+  `resolve_mode_collisions=False`.
 
 **What is still open:**
 
-* **The P-pick failure above — diagnosed, and mostly answered by code that
-  already exists.** It is mode confusion, not imprecision: on 143 of the 150
-  bad depths `track_modes` assigned the *same* STC peak to P and to S. Mode
-  ordering is enforced on arrival time, never on slowness, and the P prior
-  window (40-140 us/ft) contains the shear arrival; when shear is the more
-  coherent of the two, the `scored` rule's `time_penalty` cannot overcome the
-  0.139 coherence deficit.
-
-  `viterbi_pick_joint` on identical STC surfaces confuses 34 rather than 143,
-  and raises compressional agreement from 62 % to 89 % of depths with shear
-  unchanged, in the same runtime. So the package already contains the answer;
-  what it lacked was anything at the call site saying so. `track_modes` now
-  carries a warning with the measured numbers, and a seeded synthetic
-  reproduces both behaviours in CI without the 808 MB fixture.
-
-  **What remains is a decision, not a diagnosis.** Should the greedy picker be
-  repaired as well? Retuning `time_penalty` is measured to be the wrong lever —
-  the value that would flip these depths has median 0.18 and 90th percentile
-  0.43 against a default of 0.1, and raising it that far biases every late
-  mode. A structural rule ("distinct modes cannot be the same arrival",
-  re-picking P when it collides with S) would recover about 86 % of the bad
-  depths, which is the fraction where the true P peak exists and is merely
-  out-scored. That is a change to shipped selection behaviour and is left as a
-  deliberate decision rather than folded in on the evidence of one well.
-
-  A ceiling worth knowing: 13 of the 150 bad depths have a true-P peak below
-  `coherence_min`, and 8 have none at all, so no selection rule reaches beyond
-  about 95 %.
 * **A waveform fixture the CI can actually use.** The waveforms live in an
   808 MB DLIS inside a 471 MB zip, which is not a viable fetch-on-demand test
   fixture. A small extracted subset would be, but hosting one is redistribution

@@ -27,14 +27,41 @@ the project uses [Semantic Versioning](https://semver.org/).
   Two new tests reproduce both behaviours on a seeded synthetic — a weak
   compressional arrival under a strong shear one — so the finding survives
   without the 808 MB fixture.
-  **The greedy picker itself is deliberately not repaired.** Retuning
-  `time_penalty` is measured to be the wrong lever: the value that would flip
-  those depths has median 0.18 and 90th percentile 0.43 against a default of
-  0.1, and raising it that far would bias every late mode, which is what the
-  `max_coherence` rule exists to prevent. A structural repair is possible and is
-  left as a decision, with its expected gain measured (86 % of the bad depths
-  have a true-P peak that is merely out-scored; 9 % are below `coherence_min`
-  and 5 % are undetected, so no selection rule exceeds ~95 %).
+  Retuning `time_penalty` is measured to be the wrong lever: the value that
+  would flip those depths has median 0.18 and 90th percentile 0.43 against a
+  default of 0.1, and raising it that far would bias every late mode, which is
+  what the `max_coherence` rule exists to prevent. The repair that *was* made
+  is structural instead — see the next entry.
+- **The greedy picker no longer assigns one arrival to two modes** (roadmap
+  F.1), which repairs the confusion above at its cause.
+  `fwap.picker.pick_modes` and `fwap.picker.track_modes` gained
+  `resolve_mode_collisions=True`: after the greedy pass, when two modes have
+  selected the same STC peak the faster-labelled one re-picks from its own
+  candidate pool with that slowness as a strict upper bound.
+  **Which label is wrong is not decidable in general, and the rule does not
+  guess.** Both directions occur in real data — on the DSI log the shared peak
+  is the shear arrival and P is the mislabel; on a slow-formation synthetic it
+  is the compressional arrival and S is. So a mode with no admissible faster
+  candidate is left exactly as it was, on the reasoning that "nowhere faster to
+  go" is evidence it holds the *right* arrival. Nothing is ever dropped and no
+  mode is ever moved to a slower candidate, so a depth can never come out worse
+  than the greedy result.
+  On the same 400 DSI depths, agreement with the vendor's `DTCO` rises from
+  62 % to **95 %**, and the count of depths where P is not strictly faster than
+  S falls from 143 to **5**. It beats `viterbi_pick_joint` on this log (89 %)
+  at the same runtime and with two more depths picked. The rule changed the P
+  pick at 138 depths, every one a collision, made 129 of them correct, left the
+  shear pick **bit-identical at all 400** (96 % throughout), and damaged **none**
+  of the 250 depths that were already right.
+  Confirmed on an independent second logging pass of the same well, over a
+  different depth interval: 70 % → 86 %, 72 unordered depths → 2, and again no
+  damage to any of the 283 depths that were already right.
+  `viterbi_pick_joint` is still the better tool where the confusion is not an
+  exact collision — a global cost can reject an assignment a local rule cannot
+  see — and 7 of these 400 depths are of that kind, plus 3 that end up a single
+  slowness cell apart, which is deliberately not treated as a collision.
+  **This changes shipped picker output.** Pass `resolve_mode_collisions=False`
+  for the previous behaviour; the tests that pin it are kept under that flag.
 - **The first real sonic log in the test registry, and the first time this
   package has been scored against a vendor's answers** (roadmap F). A
   Schlumberger DSI run from Utah FORGE well ME-ESW1 is registered as
