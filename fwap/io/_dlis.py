@@ -63,6 +63,22 @@ _LENGTH_UNIT_TO_M: Mapping[str, float] = {
 }
 
 
+# Service-company PARAMETER records naming a digitiser sample interval.
+# RP66 v1 puts acquisition geometry in AXIS objects, which carry a declared
+# unit; this prefix is a *convention*, not a standard, and is used only as a
+# fallback -- see ``DlisWaveforms.sample_interval``. Files that declare no
+# AXIS at all are real: ODP Leg 157 Hole 952A carries none, and ``DSI0`` is
+# the only place its 10 us sample interval appears.
+_SAMPLE_INTERVAL_PARAM_PREFIX: str = "DSI"
+
+# A digitiser sample interval is quoted in microseconds by every file seen,
+# but the parameter carries no declared unit, so the assumption is checked
+# rather than trusted: the implied record length must be sonic-plausible.
+# 10 us x 500 samples = 5 ms lands inside this; the same 10 read as
+# milliseconds (5 s) or nanoseconds (5 us) does not.
+_PLAUSIBLE_RECORD_SECONDS: tuple[float, float] = (1.0e-4, 1.0e-1)
+
+
 # ``dliswriter`` buffers file bytes before each write() syscall, and its
 # default buffer is 2**32 bytes -- a 4 GiB allocation for a file of any
 # size. Measured on a 7.5 kB output: 62.6 s and 8.3 GB peak RSS with the
@@ -237,6 +253,7 @@ class DlisWaveforms:
     axes: list[DlisAxis]
     units: str
     frame_name: str
+    sample_interval_parameters: dict[str, float] = field(default_factory=dict)
 
     def _sole_axis(
         self, table: Mapping[str, float], kind: str
@@ -257,25 +274,8 @@ class DlisWaveforms:
             f"expected exactly 1; declared axes: {declared}"
         )
 
-    def sample_interval(self) -> float:
-        """
-        Time between samples, in seconds, ready for :func:`fwap.stc`.
-
-        Taken from the SPACING of the single axis whose declared unit is
-        a time unit. Selecting on the *unit* rather than on the AXIS-ID
-        string is deliberate: AXIS-ID values are producer-defined, units
-        are not.
-
-        Returns
-        -------
-        float
-
-        Raises
-        ------
-        ValueError
-            If the channel does not have exactly one time-unit axis, or
-            that axis declares no usable spacing.
-        """
+    def _from_axis(self) -> float:
+        """Sample interval from the single time-unit AXIS, in seconds."""
         axis, scale = self._sole_axis(_TIME_UNIT_TO_S, "time")
         spacing = axis.spacing
         if not np.isfinite(spacing):
@@ -287,6 +287,107 @@ class DlisWaveforms:
                 )
             spacing = float(values[1] - values[0])
         return float(spacing) * scale
+
+    def _from_parameter(self) -> tuple[float, str]:
+        """Sample interval from the vendor parameter fallback, in seconds."""
+        found = self.sample_interval_parameters
+        if not found:
+            raise ValueError(
+                f"channel {self.channel!r} declares no AXIS and the file "
+                f"carries no {_SAMPLE_INTERVAL_PARAM_PREFIX}* parameter to "
+                "fall back on, so its sample interval is not recorded anywhere"
+            )
+        distinct = sorted({round(v, 9) for v in found.values()})
+        if len(distinct) != 1:
+            listed = ", ".join(f"{k}={v:g}" for k, v in sorted(found.items()))
+            raise ValueError(
+                f"channel {self.channel!r} declares no AXIS, and the file's "
+                f"{_SAMPLE_INTERVAL_PARAM_PREFIX}* parameters disagree "
+                f"({listed}) -- which one belongs to this channel is a "
+                "vendor-specific question this reader will not guess at. "
+                "Pass the interval explicitly."
+            )
+        seconds = distinct[0] * _TIME_UNIT_TO_S["us"]
+        record = seconds * float(self.data.shape[-1])
+        low, high = _PLAUSIBLE_RECORD_SECONDS
+        if not low <= record <= high:
+            raise ValueError(
+                f"the {_SAMPLE_INTERVAL_PARAM_PREFIX}* fallback for channel "
+                f"{self.channel!r} implies a {record:g} s record over "
+                f"{self.data.shape[-1]} samples, which is not a sonic "
+                "waveform; the microsecond convention does not hold here"
+            )
+        name = ", ".join(sorted(found))
+        return seconds, f"parameter {name} (microseconds assumed)"
+
+    def sample_interval(self) -> float:
+        """
+        Time between samples, in seconds, ready for :func:`fwap.stc`.
+
+        Taken from the SPACING of the single axis whose declared unit is
+        a time unit. Selecting on the *unit* rather than on the AXIS-ID
+        string is deliberate: AXIS-ID values are producer-defined, units
+        are not.
+
+        **Falls back to a vendor parameter when the file declares no AXIS
+        at all**, which happens: ODP Leg 157 Hole 952A carries zero AXIS
+        objects, and its ``DSI0`` parameter is the only record of the 10 us
+        interval. The fallback is deliberately timid, because a parameter
+        carries no declared unit and guessing wrong is a factor-of-1000
+        error:
+
+        * it fires only when the file's ``DSI*`` parameters agree on one
+          value -- if they disagree, as in a file carrying a separate
+          interval per waveform, deciding which belongs to this channel is
+          a vendor-specific question and this raises instead;
+        * the microsecond convention is *checked*, not assumed: the implied
+          record length must be sonic-plausible.
+
+        Use :meth:`sample_interval_source` to see which route answered.
+
+        Returns
+        -------
+        float
+
+        Raises
+        ------
+        ValueError
+            If neither route yields an unambiguous, plausible interval.
+        """
+        return self._sample_interval_with_source()[0]
+
+    def sample_interval_source(self) -> str:
+        """
+        Where :meth:`sample_interval` got its number.
+
+        Returns
+        -------
+        str
+            e.g. ``"axis 'MICRO_TIME' (us)"`` or
+            ``"parameter DSI0 (microseconds assumed)"``. Worth recording
+            alongside any result derived from it: the first is read from a
+            unit-bearing standard record, the second rests on a convention.
+        """
+        return self._sample_interval_with_source()[1]
+
+    def _sample_interval_with_source(self) -> tuple[float, str]:
+        """
+        Sample interval and the provenance of the number.
+
+        The fallback fires only when *no* axis carries a time unit. Several
+        that do is a different situation -- the file said something, and it
+        said too much -- so that keeps the AXIS diagnostics rather than
+        reporting the file as silent when it is not.
+        """
+        matches = [
+            ax for ax in self.axes if ax.units.strip().lower() in _TIME_UNIT_TO_S
+        ]
+        if len(matches) > 1:
+            self._sole_axis(_TIME_UNIT_TO_S, "time")  # raises, naming them all
+        if not matches:
+            return self._from_parameter()
+        axis = matches[0]
+        return self._from_axis(), f"axis {axis.axis_id!r} ({axis.units})"
 
     def offsets(self) -> np.ndarray:
         """
@@ -461,6 +562,31 @@ def _read_axes(channel: Any, dimensions: tuple[int, ...]) -> list[DlisAxis]:
     return out
 
 
+def _sample_interval_parameters(logical_file: Any) -> dict[str, float]:
+    """
+    Numeric ``DSI*`` PARAMETER records, the sample-interval fallback source.
+
+    Read whether or not they are needed, so that
+    :meth:`DlisWaveforms.sample_interval` can explain itself either way and
+    a caller can inspect what the file offered. Non-numeric records are
+    skipped: files carry companion entries like ``DSIN='DS10'`` that name a
+    mode rather than a value.
+    """
+    out: dict[str, float] = {}
+    for param in getattr(logical_file, "parameters", []) or []:
+        name = str(param.name)
+        if not name.upper().startswith(_SAMPLE_INTERVAL_PARAM_PREFIX):
+            continue
+        values = list(param.values) if param.values is not None else []
+        if len(values) != 1:
+            continue
+        try:
+            out[name] = float(values[0])
+        except (TypeError, ValueError):
+            continue  # a mode string such as 'DS10', not an interval
+    return out
+
+
 def read_dlis_waveforms(
     path: str,
     channel: str,
@@ -560,6 +686,7 @@ def read_dlis_waveforms(
         axes = _read_axes(target, tuple(int(n) for n in data.shape[1:]))
         units = str(target.units) if target.units else ""
         frame_name = str(frame.name)
+        interval_params = _sample_interval_parameters(lf)
 
     return DlisWaveforms(
         channel=channel,
@@ -569,6 +696,7 @@ def read_dlis_waveforms(
         axes=axes,
         units=units,
         frame_name=frame_name,
+        sample_interval_parameters=interval_params,
     )
 
 

@@ -602,23 +602,25 @@ def test_waveform_geometry_ignores_a_unitless_axis():
     assert wf.offsets().shape == (8,)
 
 
-@pytest.mark.parametrize(
-    "axes, kind",
-    [
-        ([], "time"),
-        (
-            [
-                DlisAxis("A", np.array([0.0]), 10.0, "us", 8),
-                DlisAxis("B", np.array([0.0]), 40.0, "ms", 512),
-            ],
-            "time",
-        ),
-    ],
-)
-def test_waveform_sample_interval_refuses_when_ambiguous(axes, kind):
-    """Zero or two time axes is not a number this can report."""
-    with pytest.raises(ValueError, match=f"{kind} unit"):
+def test_waveform_sample_interval_refuses_when_two_axes_claim_time():
+    """Two time axes is the file saying too much, not saying nothing.
+
+    It must keep the AXIS diagnostics rather than fall through to the
+    vendor-parameter path and report the file as silent about an interval
+    it in fact declared twice.
+    """
+    axes = [
+        DlisAxis("A", np.array([0.0]), 10.0, "us", 8),
+        DlisAxis("B", np.array([0.0]), 40.0, "ms", 512),
+    ]
+    with pytest.raises(ValueError, match="2 axes with a time unit"):
         _waveforms(axes).sample_interval()
+
+
+def test_waveform_sample_interval_reports_a_file_that_records_it_nowhere():
+    """No axes and no parameters: say that, rather than blaming the axes."""
+    with pytest.raises(ValueError, match="not recorded anywhere"):
+        _waveforms([]).sample_interval()
 
 
 def test_waveform_offsets_refuse_when_no_length_axis_exists():
@@ -677,6 +679,12 @@ class _StubFrame:
         self.channels = channels
 
 
+class _StubParam:
+    def __init__(self, name, values):
+        self.name = name
+        self.values = values
+
+
 class _StubFiles(list):
     def __enter__(self):
         return self
@@ -685,7 +693,7 @@ class _StubFiles(list):
         return False
 
 
-def _stub_sonic_file(n_depth=4, n_rec=8, n_sample=512, n_axes=2):
+def _stub_sonic_file(n_depth=4, n_rec=8, n_sample=512, n_axes=2, parameters=None):
     """The object graph dlisio hands back for a monopole array-sonic frame."""
     data = np.arange(n_depth * n_rec * n_sample, dtype=np.int16).reshape(
         n_depth, n_rec, n_sample
@@ -701,7 +709,9 @@ def _stub_sonic_file(n_depth=4, n_rec=8, n_sample=512, n_axes=2):
             _StubChannel("PWF4", data, units="", axis=axes),
         ],
     )
-    logical_file = type("LF", (), {"frames": [frame]})()
+    logical_file = type(
+        "LF", (), {"frames": [frame], "parameters": list(parameters or [])}
+    )()
     return _StubFiles([logical_file]), data
 
 
@@ -749,7 +759,7 @@ def test_read_dlis_waveforms_declines_a_partial_axis_list(monkeypatch):
 
     assert wf.data.shape == (4, 8, 512)
     assert wf.axes == []
-    with pytest.raises(ValueError, match="time unit"):
+    with pytest.raises(ValueError, match="not recorded anywhere"):
         wf.sample_interval()
 
 
@@ -760,3 +770,118 @@ def test_waveform_sample_interval_refuses_a_single_coordinate_with_no_spacing():
     )
     with pytest.raises(ValueError, match="fewer than two coordinates"):
         wf.sample_interval()
+
+
+# --- The vendor-parameter fallback, and why it is timid ----------------
+#
+# RP66 puts acquisition geometry in AXIS objects. Real files sometimes
+# carry none: ODP Leg 157 Hole 952A declares zero AXIS objects, and its
+# `DSI0` parameter is the only record of the 10 us sample interval. So a
+# fallback is necessary -- but a parameter carries no declared unit, and
+# guessing wrong is a factor-of-1000 error, hence the two guards below.
+
+
+def test_sample_interval_falls_back_to_a_lone_vendor_parameter(monkeypatch):
+    """No AXIS, one unambiguous DSI parameter: use it, and say so."""
+    from fwap.io import _dlis
+
+    files, _ = _stub_sonic_file(
+        n_axes=0, n_sample=500, parameters=[_StubParam("DSI0", [10.0])]
+    )
+    monkeypatch.setattr(_dlis.dlisio_dlis, "load", lambda _p: files)
+
+    wf = read_dlis_waveforms("ignored.dlis", "PWF4")
+    assert wf.axes == []
+    assert wf.sample_interval_parameters == {"DSI0": 10.0}
+    assert wf.sample_interval() == pytest.approx(1.0e-5)
+    assert "DSI0" in wf.sample_interval_source()
+    assert "assumed" in wf.sample_interval_source(), "the convention is flagged"
+
+
+def test_axis_wins_over_the_parameters_even_when_they_disagree(monkeypatch):
+    """A unit-bearing standard record beats a naming convention.
+
+    This is the real FORGE configuration: AXIS says 10 us while the file
+    also carries DSI1..DSI4 and DSIX at 40, 40, 40, 10, 40. Reading the
+    parameters there would be a coin flip; reading the AXIS is not.
+    """
+    from fwap.io import _dlis
+
+    files, _ = _stub_sonic_file(
+        parameters=[
+            _StubParam("DSI1", [40.0]),
+            _StubParam("DSI4", [10.0]),
+            _StubParam("DSIX", [40.0]),
+        ]
+    )
+    monkeypatch.setattr(_dlis.dlisio_dlis, "load", lambda _p: files)
+
+    wf = read_dlis_waveforms("ignored.dlis", "PWF4")
+    assert wf.sample_interval() == pytest.approx(1.0e-5)
+    assert wf.sample_interval_source().startswith("axis ")
+
+
+def test_fallback_refuses_when_the_parameters_disagree(monkeypatch):
+    """Which DSI belongs to this channel is a vendor question, not a guess.
+
+    A file with a separate interval per waveform and no AXIS to disambiguate
+    gets an error naming every candidate -- not one of them picked at random.
+    """
+    from fwap.io import _dlis
+
+    files, _ = _stub_sonic_file(
+        n_axes=0,
+        n_sample=500,
+        parameters=[_StubParam("DSI1", [40.0]), _StubParam("DSI4", [10.0])],
+    )
+    monkeypatch.setattr(_dlis.dlisio_dlis, "load", lambda _p: files)
+
+    wf = read_dlis_waveforms("ignored.dlis", "PWF4")
+    with pytest.raises(ValueError, match="disagree"):
+        wf.sample_interval()
+    with pytest.raises(ValueError, match="DSI1=40.*DSI4=10"):
+        wf.sample_interval()
+
+
+def test_fallback_refuses_when_the_microsecond_convention_fails(monkeypatch):
+    """The unit assumption is checked against the implied record length.
+
+    A 10 000 "us" interval over 500 samples is a 5 s record: not a sonic
+    waveform, so the convention does not hold and the reader says so rather
+    than returning a number three orders of magnitude out.
+    """
+    from fwap.io import _dlis
+
+    files, _ = _stub_sonic_file(
+        n_axes=0, n_sample=500, parameters=[_StubParam("DSI0", [10_000.0])]
+    )
+    monkeypatch.setattr(_dlis.dlisio_dlis, "load", lambda _p: files)
+
+    with pytest.raises(ValueError, match="not a sonic"):
+        read_dlis_waveforms("ignored.dlis", "PWF4").sample_interval()
+
+
+def test_fallback_says_so_when_the_file_records_the_interval_nowhere(monkeypatch):
+    from fwap.io import _dlis
+
+    files, _ = _stub_sonic_file(n_axes=0, n_sample=500)
+    monkeypatch.setattr(_dlis.dlisio_dlis, "load", lambda _p: files)
+
+    with pytest.raises(ValueError, match="not recorded anywhere"):
+        read_dlis_waveforms("ignored.dlis", "PWF4").sample_interval()
+
+
+def test_non_numeric_vendor_parameters_are_skipped(monkeypatch):
+    """Files carry companion records like ``DSIN='DS10'`` that name a mode."""
+    from fwap.io import _dlis
+
+    files, _ = _stub_sonic_file(
+        n_axes=0,
+        n_sample=500,
+        parameters=[_StubParam("DSIN", ["DS10"]), _StubParam("DSI0", [10.0])],
+    )
+    monkeypatch.setattr(_dlis.dlisio_dlis, "load", lambda _p: files)
+
+    wf = read_dlis_waveforms("ignored.dlis", "PWF4")
+    assert wf.sample_interval_parameters == {"DSI0": 10.0}
+    assert wf.sample_interval() == pytest.approx(1.0e-5)

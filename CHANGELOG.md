@@ -7,6 +7,33 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`read_dlis_waveforms` falls back to a vendor parameter when a file
+  declares no AXIS**, which a second real file showed is necessary. ODP Leg
+  157 Hole 952A (LDEO-BRG, SDT tool, 1994) carries **zero AXIS objects**, and
+  its `DSI0` parameter is the only record of the 10 µs sample interval — so
+  the AXIS-only reader could read its waveforms but not say how they were
+  sampled.
+  That partly overturns the reasoning shipped with the reader. Preferring the
+  RP66 standard record over a vendor naming convention is still right, but one
+  file made it look sufficient and two show it is not.
+  The fallback is deliberately timid, because a parameter carries no declared
+  unit and guessing wrong is a factor-of-1000 error. It fires **only** when
+  the file declares no time-unit axis *and* its `DSI*` parameters agree on one
+  value; where they disagree — as on the FORGE file, which carries 40, 40, 40,
+  10, 40 — deciding which belongs to a given channel is a vendor question and
+  it raises instead, naming every candidate. The microsecond convention is
+  *checked* rather than trusted: the implied record length must be
+  sonic-plausible, so a value that would mean a 5 s record is refused.
+  `sample_interval_source()` reports which route answered, since one is a
+  unit-bearing standard record and the other rests on a convention.
+  Verified on both files: ODP resolves to 10 µs via `DSI0` — independently
+  confirmed by the archive's binary header, which came through a different
+  conversion path entirely — and FORGE still resolves to 10 µs via its AXIS,
+  the route that protects it from its own disagreeing parameters.
+  A related diagnostics regression was caught and fixed in the same change: a
+  channel with *two* time axes now keeps its "2 axes with a time unit" error
+  instead of falling through and reporting the file as silent about something
+  it declared twice.
 - **A learned gap-width inverse for the debonded regime** (roadmap G.2).
   `sonic_ml.models.debond` adds `debond_features`, `DebondResidualNet` and
   `train_debond_inverse`.
