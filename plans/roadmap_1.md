@@ -1,28 +1,36 @@
 # What remains to be done
 
-A prioritised reading of the open items in `docs/roadmap.md`, current through
-the analytic-oracle programme (PRs #59-#66) and the trapped-mode work on this
-branch.
-`docs/roadmap.md` stays the authoritative status file; this is a snapshot of
-*priority and reasoning* at one point in time, so check it against the tree
-before acting on it.
+A prioritised reading of the open items in `docs/roadmap_old.m`, current through
+the analytic-oracle programme (PRs #59-#66) and the fluid-microannulus work
+(PRs #67-#69).
+`docs/roadmap_old.m` — the archived roadmap, renamed out of the Sphinx source
+set from `docs/roadmap.md` — remains the fuller status file; this is a snapshot
+of *priority and reasoning* at one point in time, so check both against the tree
+before acting on either.
 
 ## The shape of it
 
-Four things are open, and they fall into two kinds — which matters more than
-their ordering, because only one kind can be worked on from a coding session.
-The struck-out rows are kept because how they closed is the useful part of the
-story: both came loose from larger items by measurement rather than by
-planning.
+Five things are open, and they fall into three kinds — which matters more than
+their ordering, because the kinds differ in whether they can be worked on from a
+coding session at all. The struck-out rows are kept because how they closed is
+the useful part of the story: each came loose from a larger item by measurement
+rather than by planning.
 
 | # | Item | Kind | Blocked on |
 |---|------|------|-----------|
 | ~~1a~~ | ~~Leaky-mode branch selection, n=0 (A.3)~~ | **closed** (#64) | — |
 | ~~1c~~ | ~~Trapped pseudo-Rayleigh modes unexposed (A.4)~~ | **closed** (#66) | — |
-| 1b | Leaky-mode root tracking, n=1 (A.2 + G.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
+| 1b | Leaky-mode root tracking, n=1 (A.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
 | 2 | A real full-waveform sonic gather (F) | sourcing | fetching one **named** file from a host this sandbox cannot reach |
 | 3 | Digitised validation figures (A.1, curve shapes) | sourcing | access to the books |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
+| 5 | Fluid microannulus, third piece (G.2) | **implementation** | nothing — two of three pieces are on `main` |
+
+**Item 5 is new in kind, and it changes how the rest of this file should be
+read.** For several revisions everything open was blocked on something outside
+the session: a file behind an unreachable host, a book, a derivation, a release.
+Item 5 is not. It is ordinary implementation work, with real user value, that
+can be finished from here — see section 5.
 
 Items 2 and 3 cannot be closed by writing code here. Note the qualifier: an
 earlier revision said this sandbox's egress "reaches GitHub only", which probing
@@ -39,27 +47,41 @@ some no public function returned. Neither needed a derivation or literature
 access. That is now four claims in this file about what is *not* available here
 overturned by measuring instead of reasoning.
 
-**The headline for this revision is different in kind, though: the oracle
-programme has run its course.** Nine candidates have been tried. Five became
-working oracles, one was vacuous, and three failed because a check was
-transplanted across a boundary its mechanism does not cross. The endorsed
-candidate list is now empty, and rather than manufacture a tenth it is worth
-saying plainly that the cheap wins from this direction are spent.
-`plans/learning.md` is the retrospective and `plans/log_output.md` holds the
-measurements.
+**The previous revision's headline was that the oracle programme had run its
+course. It was wrong, and it said so itself.** That revision concluded the
+endorsed candidate list was empty, and closed with the warning that this claim
+"is the same shape" as four earlier absence claims the file had already had to
+withdraw, "and should be read with the same suspicion."
 
-That matters for prioritisation because it removes the alternative. For several
-revisions this file could honestly say "item 2 is blocked, but there is
-worthwhile analytic work available instead". There no longer is, in quantity.
-**Item 2 is now not merely the most valuable item but very nearly the only one
-that can move**, and it is an errand: a named CC BY 4.0 file, in a format the
-library already reads, from a host this sandbox cannot reach.
+One more arrived two revisions later, and it is the strongest of the set: the
+**Krauklis crack wave**, which validates the microannulus assembly to 0.02 % on
+an absolute velocity (section 5). So the tally is now **twelve candidates: eight
+working oracles, one vacuous, three transplant failures** (the previous
+revision's "nine / five" was an arithmetic slip against its own list — see the
+correction further down), and the file's own prediction about its pessimism has
+been borne out for the fifth time.
 
-## 1. Leaky-mode root tracking (A.2 + G.2), and the two n=0 pieces that split off
+The useful part is *how* it arrived, because it was not by working the list. It
+was not on the candidate list and was not reasoned out in advance; it appeared
+because an unexplained extra root in a new determinant was characterised instead
+of dismissed, and its measured scaling identified it. `plans/learning.md` argues
+that the best oracles come from asking what a check would do to a wrong answer.
+This one is the other route — **measure the surprise first, and the oracle is
+what explains it** — and that route is not exhausted by an empty candidate list,
+because it is fed by new code rather than by a list.
 
-One roadmap item needs the machinery; two smaller ones turned out not to need it
-at all and are closed; and a fourth (G.2, free pipe) turned out not to belong
-here either — see below.
+What this means for prioritisation is the opposite of what the last revision
+said. It claimed item 2 was "very nearly the only one that can move". That is no
+longer true: item 5 can move, from here, today. Item 2 remains the most
+*valuable* — it is what makes every quantitative claim in the repository mean
+something — but it is an errand blocked on a host, and there is now real work
+available beside it rather than instead of it.
+
+## 1. Leaky-mode root tracking (A.2), and the three items that split off it
+
+One roadmap item still needs the machinery; two smaller ones turned out not to
+need it at all and are closed; and a fourth (G.2, the debonded regime) turned
+out not to belong here either and is now **item 5**.
 
 **A.2, the fast-formation flexural sparsity.** A fast formation behind casing
 converges over only ~38 % of a 1-12 kHz band. It was filed as a *cased-hole
@@ -71,102 +93,6 @@ only beside the shear branch point at high frequency. Widening a real bracket
 cannot recover it — no sign change exists below the cutoff in any sub-window,
 and the middle window is singular for the propagator formulation anyway. Tests
 pin the open-hole-vs-cased comparison so the attribution cannot drift back.
-
-**G.2, the free-pipe / debonded regime — re-diagnosed, and it is no longer
-part of item 1.** The cased dataset spans only the *bonded* regime, so the bond
-inverse grades cement quality and is explicitly not a free-pipe detector. That
-much stands. What was wrong is the next sentence, which used to read "reaching
-debonding needs a leaky-mode cased forward model" and so filed this item behind
-the derivation-blocked `n=1` work.
-
-Measurement says otherwise, and the distinction is between two different
-physical models of debonding:
-
-* **Soft cement.** The documented restriction is real: the cased Stoneley
-  converges over the whole band down to `cement_vs = V_f`, is partial just
-  below, and is gone by `1200 m/s`. The mechanism is in
-  `_stoneley_kz_bracket_cased`, which sets the bound-regime floor from
-  `min(V_S, V_f, *(layer V_S))` — the *softest shear velocity anywhere in the
-  stack*. Once that drops below the fluid velocity there is no bound window
-  containing the physical Stoneley mode.
-* **A fluid microannulus**, which is the standard model of debonding in
-  cement-bond logging, is a different configuration and is *not* excluded by
-  that argument. A fluid has no shear wave at all, so it contributes no floor
-  to that bracket. It cannot be approximated by a very compliant elastic layer
-  either — precisely because an elastic layer, however soft, does drag the
-  floor down. Measured: a compliant layer breaks convergence at any thickness
-  tried, down to 0.2 mm.
-
-So the blocker for the microannulus case is not a Riemann-sheet derivation. It
-is that `BoreholeLayer` cannot express a fluid (it requires `vs > 0`) and the
-propagator has no fluid-annulus element. That is an implementation task with a
-known shape: a fluid layer carries two amplitudes rather than four, imposes no
-shear traction, and permits slip, so it changes the size and structure of the
-global matrix rather than dropping into the existing 4x4 stack. It is
-substantial — the n=0 path alone is a new E-matrix, a new propagator element and
-a reworked 7x7 assembly, and n=1/n=2 would be needed for flexural CBL work — but
-it needs no literature access and no derivation that is not standard.
-
-This item is therefore **decoupled from item 1**: the two no longer share a
-blocker. Free pipe proper (casing surrounded by fluid, the classic CBL
-casing-ring amplitude) remains partly a phenomenological amplitude effect rather
-than a modal one, and that part is unchanged.
-
-A defect was found and fixed on the way. Compliant layers did not merely fail to
-converge: the propagator's dynamic range ran past double precision, the 7x7
-determinant became meaningless, and the bracket search reported sign changes in
-the garbage as roots — finite phase velocities of 3-12 m/s against a 1500 m/s
-fluid. Some configurations produced these with no warning at all. A magnitude
-check before the propagator product now returns `NaN` instead; the bonded regime
-is bit-identical, and four tests pin both halves. This also removes the
-intermittent `overflow encountered in matmul` / `invalid value encountered in
-det` warnings that had been appearing in coverage runs.
-
-**Two of the three microannulus pieces are now built, and the oracle problem
-they posed had a better answer than expected.** The fluid element landed first
-(2 amplitudes, `sigma_rz = 0`, axial slip, state `(u_r, sigma_rr)`, pinned by the
-Bessel Wronskian). The global assembly followed: an 11x11 determinant for
-`fluid | casing | microannulus | cement | formation`, with the gap amplitudes
-folded out through the fluid propagator so extra layers in either block leave
-the size unchanged.
-
-The obstacle was that this configuration has **no reduction to the existing
-solver**. The `annulus_thickness -> 0` limit is a frictionless slip interface,
-not the bonded stack — shear traction stays zero on both faces and `u_z` stays
-free however thin the gap — so the usual "check the new code against the old
-code in a shared limit" is unavailable. Measured at 8 kHz, the Stoneley-like
-root converges as `O(h)` to 1383.45 m/s against 1400.04 m/s bonded, a 1.2 %
-offset that does not close.
-
-What replaced it was better than the reduction would have been. The assembly
-turns out to carry a **second root family**: a slow mode, 68-620 m/s over four
-decades of gap thickness, whose phase velocity scales as `(f h)^{1/3}`. That is
-the Krauklis crack wave, and its speed has a closed form —
-`c = (omega h / (C rho_f))^{1/3}` with `C` the sum of the wall compliances
-`(1 - nu)/mu` — derivable in a dozen lines from lubrication flow plus the
-quasi-static half-space response, with no Bessel functions and no cylinder in
-it. The solver matches it to **0.02 % at a 1 um gap**, and departs exactly as
-`k h` grows. That is an absolute-value check on the whole assembly, not a
-scaling check and not a self-consistency check: a wrong row would move the
-prefactor by an O(1) factor.
-
-So the oracle programme was not quite spent after all — but note *how* this one
-arrived. It was not on the candidate list and was not reasoned out in advance.
-It appeared because an unexplained extra root was characterised instead of
-dismissed, and its measured `(f h)^{1/3}` scaling identified it. `plans/learning.md`
-argues that the best oracles come from asking what a check would do to a wrong
-answer; this one is a case of the other route — measure the surprise first, and
-the oracle is what explains it.
-
-Two things follow for the third piece, the public dispersion function. Two root
-families means bracketing must **choose** one, which is precisely the shape of
-the `n=0` branch-selection defect closed in #64; the root set is already pinned
-as grid- and window-independent so a regression would show. And the gap mode is
-not a nuisance — it is a debonding indicator in its own right, with a known
-analytic form, so exposing it may be worth as much as the Stoneley shift.
-
-Both need complex-plane root tracking. Doing them together is the difference
-between one hard piece of modelling and two.
 
 **Attempted; it is not a wiring job.** The complex machinery already exists and
 works for `n=0`, so pointing it at the `n=1` determinant looks like an
@@ -189,8 +115,9 @@ answer, with no warning.
 Unlike the `n=1` problem this needed no Riemann-sheet derivation — the roots sit
 on the principal sheet and are found reliably once seeded — so the fix was to
 enumerate them at the seed frequency and expose a `branch` argument. Done; see
-`docs/roadmap.md` A item 3. The one non-obvious part was checking that the root
-*count* does not depend on the seed-scan density, because otherwise `branch=1`
+`docs/roadmap_old.m` A item 3. The one non-obvious part was checking that the
+root *count* does not depend on the seed-scan density, because otherwise
+`branch=1`
 would silently mean different things at different resolutions.
 
 **A second piece split off and is also closed.** Building the biorthogonality
@@ -298,6 +225,94 @@ Packaging only, and unblocked once the first PyPI release is live. Reversible
 and low-risk; listed for completeness rather than because it competes with
 anything above.
 
+## 5. The fluid microannulus (G.2) — two pieces on `main`, one left
+
+The only open item that is blocked on nothing. It began as part of item 1 and
+was re-diagnosed out of it in PR #67.
+
+### Why it was mis-filed, and the two models of debonding
+
+The cased dataset spans only the *bonded* regime, so the bond inverse grades
+cement quality and is explicitly not a free-pipe detector. That much always
+stood. What was wrong was the next sentence, which used to read "reaching
+debonding needs a leaky-mode cased forward model", and so filed the whole item
+behind the derivation-blocked `n=1` work. The distinction it missed is between
+two different physical models:
+
+* **Soft cement.** The documented restriction is real: the cased Stoneley
+  converges over the whole band down to `cement_vs = V_f`, is partial just
+  below, and is gone by `1200 m/s`. The mechanism is in
+  `_stoneley_kz_bracket_cased`, which sets the bound-regime floor from
+  `min(V_S, V_f, *(layer V_S))` — the *softest shear velocity anywhere in the
+  stack*. Once that drops below the fluid velocity there is no bound window
+  containing the physical Stoneley mode.
+* **A fluid microannulus**, the standard model of debonding in cement-bond
+  logging, is a different configuration and is *not* excluded by that argument.
+  It cannot be approximated by a very compliant elastic layer either — precisely
+  because an elastic layer, however soft, does drag the floor down. Measured: a
+  compliant layer breaks convergence at any thickness tried, down to 0.2 mm.
+
+One correction to how that was first written here. "A fluid contributes no floor
+to that bracket" is not quite right — it contributes one at its *acoustic*
+velocity. What matters is that this is ~1500 m/s rather than a near-zero shear
+velocity, so it does not drag the floor below the fluid and collapse the window.
+
+Free pipe proper — casing surrounded by fluid, the classic CBL casing-ring
+amplitude — remains partly a phenomenological amplitude effect rather than a
+modal one, and that part is unchanged by any of this.
+
+### What is built (PRs #68, #69)
+
+1. **The fluid element.** `_fluid_layer_e_matrix_n0` /
+   `_fluid_layer_propagator_n0`: two amplitudes rather than four, shear traction
+   identically zero, axial slip permitted, so the propagated state is the pair
+   `(u_r, sigma_rr)`. Pinned by the Bessel Wronskian, which collapses
+   `det E_f` to `-1/(rho omega^2 r)` and `det P_f` to `r_inner/r_outer` — no
+   dependence on frequency, velocity, density or `k_z`. Its accuracy range is
+   measured rather than assumed (machine precision to a Bessel span of ~2,
+   useless by 20; a debonding gap sits below 0.1).
+2. **The global assembly.** `_modal_determinant_n0_microannulus`: an 11x11
+   determinant for `fluid | casing | microannulus | cement | formation`, with
+   the gap amplitudes folded out through the fluid propagator so extra layers in
+   either block leave the size unchanged.
+
+The assembly had no reduction to the existing solver to check against — the
+`annulus_thickness -> 0` limit is a frictionless *slip* interface, not the
+bonded stack, since shear traction stays zero on both faces and `u_z` stays free
+however thin the gap. Measured at 8 kHz the Stoneley-like root converges as
+`O(h)` to 1383.45 m/s against 1400.04 m/s bonded, a 1.2 % offset that does not
+close. What replaced the reduction was the **Krauklis crack wave** — see the
+headline note at the top of this file, and `plans/log_output.md` for the
+numbers.
+
+### What is left
+
+**The public dispersion function.** Everything below it exists; this is the
+wiring plus one real decision.
+
+* **Branch selection is the decision, not the wiring.** The determinant carries
+  **two root families** — a Stoneley-like mode just below the fluid velocity,
+  and the gap mode at 68-620 m/s over four decades of gap thickness — and they
+  move in opposite directions as the gap closes. A bracket that assumes one root
+  is exactly the `n=0` defect closed in #64. The root set is already pinned as
+  independent of scan grid and window, so a regression would show.
+* **Expose the gap mode too, not just the Stoneley shift.** It is a debonding
+  indicator in its own right, and it is the *better* one: its speed depends on
+  gap thickness as `h^{1/3}` where the Stoneley root barely moves at all. It
+  also has a closed form, so a caller can invert it for gap thickness directly.
+* **A public way to express the configuration.** `BoreholeLayer` requires
+  `vs > 0` and cannot represent a fluid. This needs a type — or an explicit
+  annulus argument — and whichever is chosen becomes public API, so it needs the
+  three-file lockstep (`fwap/__init__.py`, `docs/api.rst`,
+  `scripts/check_public_api.py`).
+* **Then the `sonic_ml` consumer**, which is what section G item 2 in
+  `docs/roadmap_old.m` actually wants: a debonded-regime dataset, and with it
+  the first fair CBL-amplitude comparison rather than a strawman.
+
+Not required for any of the above, and worth stating so it is not assumed:
+`n=1` / `n=2` microannulus assemblies would be needed for *flexural* CBL work,
+and those are a separate, larger job. The `n=0` path is self-contained.
+
 ## Loose ends
 
 - Whether `penalty="tv"` should be the default in `sonic_ml.models.joint` —
@@ -342,6 +357,19 @@ of this file got wrong, and the corrections are worth not losing.
 - **Trapped pseudo-Rayleigh modes exposed** (PR #66). Item 1c;
   `trapped_pseudo_rayleigh_dispersion`. Found by an oracle aimed at something
   else, and validated by the same one.
+- **G.2 re-diagnosed out of item 1** (PR #67). Filed for revisions behind the
+  derivation-blocked `n=1` work on the grounds that "reaching debonding needs a
+  leaky-mode cased forward model". It does not: a fluid microannulus is a
+  different configuration from soft cement, and is an implementation task. Now
+  item 5. The same PR fixed compliant cased layers returning spurious 3-12 m/s
+  roots instead of `NaN`, some with no warning at all.
+- **The fluid-annulus element** (PR #68) and **the microannulus global
+  assembly** (PR #69). Items 5.1 and 5.2. The assembly brought the twelfth
+  oracle candidate and the best of them, and fixed two more ways a determinant
+  sweep could warn or raise instead of returning `NaN`. Worth keeping for the
+  method as much as the code: the oracle was found by characterising an
+  unexplained extra root rather than by working a list, which is a route the
+  "programme is finished" conclusion did not account for.
 - **The attenuation module's test synthetic is acausal** (PR #66). Constant-Q
   amplitude loss with the phase left untouched violates Kramers-Kronig. Not a
   bug — both estimators read `|S(f)|` only — but the recovered Q moves by about
@@ -366,15 +394,23 @@ entry. Everything downstream of it — every quantitative claim in the repositor
 model that generated the training data. One real gather changes what those
 numbers mean.
 
-After that, item 3 (the digitised figures) for whoever has the books; item 1
+**Do item 5 from inside a coding session.** It is the only open item blocked on
+nothing, two of its three pieces are already on `main`, and what remains is a
+public dispersion function plus one genuine decision about branch selection. It
+is also the item most likely to throw off another finding, on the evidence: the
+two PRs that built it produced the strongest oracle in the programme, two
+determinant-contract defect fixes, and one correction to this file's own
+reasoning — none of which were planned.
+
+The two recommendations do not compete. Item 2 is an errand for whoever has
+network reach; item 5 is work for whoever has a session. The previous revision
+paired "do item 2 first" with "and there is nothing else you can do", which was
+the part that was wrong.
+
+After those, item 3 (the digitised figures) for whoever has the books; item 1
 needs a derivation before any code is worth writing; item 4 waits on a release.
 
-The recommendation is firmer than in previous revisions for a reason that has
-nothing to do with item 2 changing. It is that the alternative has gone: for
-several revisions there was worthwhile analytic work available as a fallback,
-and there is no longer a queue of it.
-
-If work continues in this environment regardless, the previous revision said the
+If work continues in this environment regardless, an earlier revision said the
 only options were "more tests against existing behaviour, or documentation".
 That turned out to be wrong — the Scholte oracle (PR #59) was neither, and it is
 a real check the repository did not have. So the honest version is narrower:
@@ -401,16 +437,24 @@ and all three bit:
   mode depending on the caller's frequency window, and fails silently to
   all-NaN on grids that are merely too coarse. See item 1 above.
 
-Six more were tried after those three, and the programme is now finished. The
-full tally is nine candidates: **five working oracles, one vacuous, three
-transplant failures.**
+Six more were tried after those three, and one arrived later without being
+tried at all. The full tally is twelve candidates: **eight working oracles, one
+vacuous, three transplant failures.**
+
+*Arithmetic correction.* The previous revision gave this as "nine candidates:
+five working oracles, one vacuous, three transplant failures", while listing
+seven working ones immediately below it. The list was right and the count was
+wrong; 8 + 1 + 3 = 12 is the tally that matches the entries. Recorded rather
+than quietly fixed, because a summary figure that disagrees with the list under
+it is the kind of error that survives several readings.
 
 - Working: Scholte high-frequency limit (#59), rigid-pipe pseudo-Rayleigh
   cutoff (#61), quadrupole asymptote (#62), ray radiation estimate (#63), White
-  tube-wave low-frequency limit (#64), layer-subdivision invariance (#65) and
-  modal biorthogonality (#66). Between them they corrected two pieces of
-  documentation that would have led a careful user wrong, exposed two code
-  defects, and turned up one entire unexposed mode family.
+  tube-wave low-frequency limit (#64), layer-subdivision invariance (#65),
+  modal biorthogonality (#66) and the Krauklis crack wave (#69). Between them
+  they corrected two pieces of documentation that would have led a careful user
+  wrong, exposed four code defects, and turned up one entire unexposed mode
+  family.
 - Vacuous: the leaky-mode energy balance (#64). It reproduces `Im(k_z)`
   exactly — and does so for `k_z` values that are roots of nothing, because
   closing the balance inside the fluid is an identity.

@@ -109,6 +109,25 @@ the project uses [Semantic Versioning](https://semver.org/).
   coverage runs.
 
 ### Changed
+- **`docs/roadmap.md` is renamed to `docs/roadmap_old.m`.** `.m` is outside the
+  Sphinx source suffixes, so the file is no longer parsed as a document in its
+  own right. Content is unchanged; this is a rename plus the reference updates
+  it forces.
+  A side effect is that `docs/roadmap.rst` starts working. It is a stub whose
+  stated job is to reproduce the roadmap, but it shared a document name with
+  `roadmap.md`, so Sphinx resolved `roadmap` to the Markdown file, ignored the
+  stub, and emitted `multiple files found for the document "roadmap"` on every
+  build. With the Markdown file out of the source set the stub is the sole
+  `roadmap` document and renders as intended. Measured against the build before
+  the rename: exactly one warning removed, none introduced.
+  Cross-references updated in `docs/possible_extensions.md`,
+  `plans/roadmap_1.md`, `plans/learning.md`, `plans/log_output.md`,
+  `.pre-commit-config.yaml`, `pyproject.toml` and four code comments
+  (`fwap/cylindrical_solver/_leaky.py`, `fwap/anisotropy/_vti_inversion.py`,
+  `scripts/gen_surrogate_dataset.py`, `tests/test_cylindrical_solver.py`).
+  Historical `CHANGELOG.md` entries and the archived session notes in
+  `plans/log_output.md` keep the old path, since both record the tree as it
+  stood at the time.
 - **The free-pipe / debonded item (roadmap G.2) is re-diagnosed and decoupled
   from the `n=1` leaky-mode work.** It had been filed behind that item on the
   grounds that "reaching debonding needs a leaky-mode cased forward model".
