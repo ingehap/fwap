@@ -7,6 +7,34 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **The compressional-pick defect real data exposed is diagnosed, documented
+  and reproduced in CI** (roadmap F.1). It is mode confusion, not imprecision:
+  on 143 of 150 bad depths `track_modes` assigned the *same* STC peak to P and
+  to S, reporting shear slowness (91.6 us/ft median) as compressional (52.0
+  true). The error histogram is sharply bimodal — one cluster at 0 %, one at
+  +77 %, nothing between +15 % and +55 %.
+  The mechanism is structural. Mode ordering is enforced on arrival *time*,
+  never on slowness, so nothing requires P to be faster than S; and the P prior
+  window (40-140 us/ft) contains the shear arrival of most formations. When
+  shear is the more coherent of the two — 0.946 against 0.791 here — the
+  `scored` rule's `time_penalty` cannot cover the gap, and both modes take the
+  same peak.
+  **`viterbi_pick_joint` already avoids it**: on identical STC surfaces, in the
+  same runtime, it confuses 34 rather than 143 and raises compressional
+  agreement with the vendor from 62 % to 89 % of depths, with shear unchanged
+  at 96 %. So the package contained the answer and said nothing at the call
+  site; `track_modes` now carries a warning with these numbers and a pointer.
+  Two new tests reproduce both behaviours on a seeded synthetic — a weak
+  compressional arrival under a strong shear one — so the finding survives
+  without the 808 MB fixture.
+  **The greedy picker itself is deliberately not repaired.** Retuning
+  `time_penalty` is measured to be the wrong lever: the value that would flip
+  those depths has median 0.18 and 90th percentile 0.43 against a default of
+  0.1, and raising it that far would bias every late mode, which is what the
+  `max_coherence` rule exists to prevent. A structural repair is possible and is
+  left as a decision, with its expected gain measured (86 % of the bad depths
+  have a true-P peak that is merely out-scored; 9 % are below `coherence_min`
+  and 5 % are undetected, so no selection rule exceeds ~95 %).
 - **The first real sonic log in the test registry, and the first time this
   package has been scored against a vendor's answers** (roadmap F). A
   Schlumberger DSI run from Utah FORGE well ME-ESW1 is registered as

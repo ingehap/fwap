@@ -1671,3 +1671,112 @@ def test_track_to_log_curves_include_vti_with_numeric_null_value():
     # C44 / VSV are finite (S is picked).
     assert curves["C44"][0] != -999.25
     assert curves["VSV"][0] != -999.25
+
+
+# ---------------------------------------------------------------------------
+# Greedy-vs-joint mode confusion, reproduced from real data.
+#
+# Found by running the package against a Schlumberger DSI log (roadmap F): on
+# 143 of 400 real depths `track_modes` assigned the *same* STC peak to P and to
+# S, reporting the shear slowness as compressional. `viterbi_pick_joint` on the
+# identical STC surfaces confused 34.
+#
+# The gather below reproduces that with a weak compressional arrival under a
+# strong shear one, which is the configuration the real data presents.
+# ---------------------------------------------------------------------------
+
+_MC_GEOM = dict(n_rec=8, tr_offset=2.7432, dr=0.1524, dt=1.0e-5, n_samples=512)
+_MC_P = 52.0 * US_PER_FT  # the real well's compressional slowness
+_MC_S = 92.0 * US_PER_FT  # ... and its shear
+
+
+def _mode_confusion_surfaces():
+    """STC surfaces for a gather whose shear arrival out-coheres its P."""
+    from fwap import stc, synthesize_gather
+    from fwap.synthetic import ArrayGeometry, Mode
+
+    geom = ArrayGeometry(**_MC_GEOM)
+    offsets = geom.tr_offset + geom.dr * np.arange(geom.n_rec)
+    modes = [
+        Mode(name="P", slowness=_MC_P, f0=12000.0, amplitude=0.12),
+        Mode(name="S", slowness=_MC_S, f0=8000.0, amplitude=1.0),
+    ]
+    results, depths = [], []
+    for k in range(12):
+        gather = synthesize_gather(geom, modes, noise=0.15, seed=100 + k)
+        results.append(
+            stc(
+                gather,
+                geom.dt,
+                offsets,
+                slowness_range=(40e-6, 400e-6),
+                n_slowness=361,
+                window_length=4.0e-4,
+            )
+        )
+        depths.append(k * geom.dr)
+    return results, np.array(depths)
+
+
+def _median_pick(tracks, mode):
+    got = [d.picks[mode].slowness / US_PER_FT for d in tracks if mode in d.picks]
+    return float(np.median(got)) if got else float("nan")
+
+
+def test_greedy_picker_confuses_p_with_a_more_coherent_shear():
+    """A documented limitation, pinned so it cannot change silently.
+
+    This is not an assertion that the behaviour is *desirable*. It is the
+    failure the real-data comparison exposed, reduced to a seeded synthetic so
+    that the guidance in :func:`track_modes` has something concrete behind it
+    and so that any future repair shows up here as a change.
+
+    The mechanism: mode ordering is enforced on arrival *time*, never on
+    slowness, and the P prior window (40-140 us/ft) contains the shear
+    arrival at 92. When shear is the more coherent of the two, the
+    ``scored`` rule's ``time_penalty`` is too small to overcome the coherence
+    difference, so P and S select the same peak.
+    """
+    from fwap import find_peaks, track_modes
+
+    results, depths = _mode_confusion_surfaces()
+
+    # The premise: shear really is the more coherent arrival here.
+    peaks = find_peaks(results[0], threshold=0.4)
+    coh = {}
+    for label, target in (("P", _MC_P), ("S", _MC_S)):
+        near = [c for c in peaks if abs(c[0] - target) / target < 0.12]
+        assert near, f"no candidate near the {label} arrival"
+        coh[label] = max(c[2] for c in near)
+    assert coh["S"] > coh["P"] + 0.05
+
+    tracks = track_modes(results, depths)
+    picked_p = _median_pick(tracks, "P")
+    picked_s = _median_pick(tracks, "S")
+
+    # P lands on the shear arrival, not the compressional one.
+    assert picked_p == pytest.approx(92.0, rel=0.05)
+    assert picked_p == pytest.approx(picked_s, rel=0.02)
+    assert abs(picked_p - 52.0) / 52.0 > 0.5
+
+
+def test_joint_viterbi_resolves_the_confusion_the_greedy_picker_creates():
+    """The reason the greedy limitation is documented rather than worked around.
+
+    Same STC surfaces, same priors, same runtime order: optimising the mode
+    tuple jointly rejects the assignment in which P and S claim one arrival,
+    because it leaves the other mode with nothing consistent to take. On the
+    real log this moved compressional agreement from 62 % to 89 % of depths
+    within 10 % of the vendor's own pick, with shear unchanged at 96 %.
+    """
+    from fwap import viterbi_pick_joint
+
+    results, depths = _mode_confusion_surfaces()
+    tracks = viterbi_pick_joint(results, depths)
+
+    picked_p = _median_pick(tracks, "P")
+    picked_s = _median_pick(tracks, "S")
+
+    assert picked_p == pytest.approx(52.0, rel=0.05)
+    assert picked_s == pytest.approx(92.0, rel=0.05)
+    assert picked_p < picked_s

@@ -190,6 +190,34 @@ def track_modes(
     """
     Per-depth picking with a depth-aware continuity regulariser.
 
+    .. warning::
+
+       **This picker confuses P with a more coherent shear arrival**, and on
+       real monopole data that is common rather than exotic. Prefer
+       :func:`viterbi_pick_joint` when compressional slowness matters.
+
+       Mode ordering here is enforced on arrival *time*, never on slowness, so
+       nothing requires P to be faster than S; and the ``P`` prior window
+       (40-140 us/ft) contains the shear arrival of most formations. When shear
+       is the more coherent of the two, the ``scored`` rule's ``time_penalty``
+       is too small to overcome the coherence difference and both modes select
+       the same peak.
+
+       Measured against a Schlumberger DSI log over 400 depths: this function
+       reported the shear slowness as compressional at 143 of them, agreeing
+       with the vendor's own compressional pick on 62 % of depths.
+       :func:`viterbi_pick_joint`, on identical STC surfaces and in the same
+       runtime, confused 34 and agreed on 89 %. Shear was unaffected either way
+       (96 %). The greedy failure is inherent to greedy selection rather than a
+       tuning error: the ``time_penalty`` that would flip those depths has a
+       median of 0.18 but a 90th percentile of 0.43, against a default of 0.1,
+       and raising it that far would bias every late mode.
+
+       ``tests/test_picker.py`` reproduces both behaviours on a seeded
+       synthetic, and :func:`quality_control_picks` flags the resulting picks
+       (it checks the same shear-slower-than-compressional invariant this
+       violates).
+
     The continuity constraint stores both the last successful pick's
     slowness and the depth at which it was picked per mode. The
     effective jump tolerance grows with the depth gap since the last
