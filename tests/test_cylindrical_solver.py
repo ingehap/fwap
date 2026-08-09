@@ -16508,12 +16508,21 @@ def test_crack_wave_api_follows_the_cube_root_scaling():
 
 
 def test_crack_wave_api_rejects_the_spurious_roots():
-    """The configuration that motivated the filter, from both sides.
+    """The configuration that motivated the filter, asserted portably.
 
-    A raw scan of the same determinant over the same window finds four roots,
-    two of them a duplicated pair at 3.9499 m/s that is not a mode -- the
-    signature of sign changes read across propagators that have lost all
-    precision. The public API returns 72.0911 m/s, the genuine crack wave.
+    A raw scan of the same determinant over the same window finds the two
+    genuine modes and, on some machines, a duplicated pair near 4 m/s that is
+    not a mode -- sign changes read across propagators that have lost all
+    precision. The public API returns the genuine crack wave either way.
+
+    **The artefact's presence is deliberately not asserted.** A first version
+    of this test required the raw scan to find four roots; that held on the
+    development machine and failed on CI, which finds only the two genuine
+    ones. Lost-precision results have no stable value *or existence* across
+    platforms -- the same lesson the padded-layer measurements in
+    ``plans/log_output.md`` are marked machine-specific for. It argues for the
+    filter rather than against it: a caller cannot rely on the artefact being
+    absent on their machine either.
     """
     from fwap.cylindrical_solver import FluidAnnulus, crack_wave_dispersion
     from fwap.cylindrical_solver._cased import (
@@ -16543,22 +16552,22 @@ def test_crack_wave_api_rejects_the_spurious_roots():
 
     r_outermost = 0.10 + 0.01 + thickness + 0.03
     c_lo = omega * r_outermost / _BESSEL_ARG_MAX * 1.001
-    # _ma_roots returns ascending phase velocity, so the junk pair is at the
-    # bottom and the two genuine modes are above it.
+    # _ma_roots returns ascending phase velocity. The two genuine modes are
+    # always there; anything down at the propagators' precision floor may or
+    # may not be, depending on the machine.
     raw = _ma_roots(det, c_lo, 1500.0 * (1.0 - 1.0e-9), samples=800, log_grid=True)
-    assert len(raw) == 4
-    assert raw[0] == pytest.approx(raw[1], rel=1.0e-12)
-    assert raw[0] < 5.0
-    assert raw[2] == pytest.approx(72.0911, rel=1.0e-4)
-    assert raw[3] == pytest.approx(1434.78, rel=1.0e-4)
+    genuine = [r for r in raw if r > 20.0]
+    assert len(genuine) == 2
+    assert genuine[0] == pytest.approx(72.0911, rel=1.0e-4)
+    assert genuine[1] == pytest.approx(1434.78, rel=1.0e-4)
 
     mode = crack_wave_dispersion(
         np.array([freq]),
         annulus=FluidAnnulus(vf=1500.0, rho=1000.0, thickness=thickness),
         **_CW_SPURIOUS,
     )
-    # The second-fastest genuine root, not the pair the raw scan reports.
-    assert float(1.0 / mode.slowness[0]) == pytest.approx(raw[2], rel=1.0e-9)
+    # The second-fastest genuine root, whatever the raw scan turned up below it.
+    assert float(1.0 / mode.slowness[0]) == pytest.approx(genuine[0], rel=1.0e-9)
 
 
 def test_crack_wave_api_never_returns_a_lost_precision_root_across_a_sweep():
@@ -16698,3 +16707,41 @@ def test_crack_wave_api_reports_nan_where_no_second_root_survives():
     assert 2.0e5 < collapse_hz < 3.0e5
     above = _cw_public(np.array([collapse_hz * 1.5]), 1.0e-4)
     assert np.isnan(above.slowness[0])
+
+
+def test_microannulus_stable_root_filter_drops_grid_dependent_roots():
+    """The filter's contract, tested directly rather than through the physics.
+
+    The configuration that motivated it produces its artefact on some machines
+    and not others, so the physical test above cannot assert that the filter
+    ever fires. This one can: a synthetic determinant with two sign changes,
+    one spanning a wide interval that any grid resolves and one confined to a
+    needle placed on a point of the first scan grid and between points of the
+    second. The wide root must survive and the needle must not.
+    """
+    from fwap.cylindrical_solver import _microannulus_stable_roots
+
+    c_lo, c_hi, samples = 5.0, 1000.0, 120
+    first = np.geomspace(c_lo, c_hi, samples)
+    second = np.geomspace(c_lo * 1.013, c_hi, int(samples * 1.37) + 1)
+
+    # A point of the first grid, low enough that the second grid's spacing
+    # there is far wider than the needle we hang on it.
+    needle_centre = float(first[3])
+    gaps = np.abs(second - needle_centre)
+    assert gaps.min() > 1.0e-3, "second grid must not sample the needle"
+    half_width = 1.0e-4
+
+    def det(c: float) -> float:
+        if abs(c - needle_centre) < half_width:
+            return -1.0
+        return c - 400.0
+
+    roots = _microannulus_stable_roots(det, c_lo, c_hi, samples)
+    assert len(roots) == 1
+    assert roots[0] == pytest.approx(400.0, rel=1.0e-9)
+
+    # And the needle really is visible to the first grid on its own, so the
+    # test is about the filter and not about the needle being unreachable.
+    solo = [c for c in first if abs(c - needle_centre) < half_width]
+    assert solo
