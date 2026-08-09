@@ -6,6 +6,183 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **`read_dlis_waveforms` falls back to a vendor parameter when a file
+  declares no AXIS**, which a second real file showed is necessary. ODP Leg
+  157 Hole 952A (LDEO-BRG, SDT tool, 1994) carries **zero AXIS objects**, and
+  its `DSI0` parameter is the only record of the 10 µs sample interval — so
+  the AXIS-only reader could read its waveforms but not say how they were
+  sampled.
+  That partly overturns the reasoning shipped with the reader. Preferring the
+  RP66 standard record over a vendor naming convention is still right, but one
+  file made it look sufficient and two show it is not.
+  The fallback is deliberately timid, because a parameter carries no declared
+  unit and guessing wrong is a factor-of-1000 error. It fires **only** when
+  the file declares no time-unit axis *and* its `DSI*` parameters agree on one
+  value; where they disagree — as on the FORGE file, which carries 40, 40, 40,
+  10, 40 — deciding which belongs to a given channel is a vendor question and
+  it raises instead, naming every candidate. The microsecond convention is
+  *checked* rather than trusted: the implied record length must be
+  sonic-plausible, so a value that would mean a 5 s record is refused.
+  `sample_interval_source()` reports which route answered, since one is a
+  unit-bearing standard record and the other rests on a convention.
+  Verified on both files: ODP resolves to 10 µs via `DSI0` — independently
+  confirmed by the archive's binary header, which came through a different
+  conversion path entirely — and FORGE still resolves to 10 µs via its AXIS,
+  the route that protects it from its own disagreeing parameters.
+  A related diagnostics regression was caught and fixed in the same change: a
+  channel with *two* time axes now keeps its "2 axes with a time unit" error
+  instead of falling through and reporting the file as silent about something
+  it declared twice.
+- **A learned gap-width inverse for the debonded regime** (roadmap G.2).
+  `sonic_ml.models.debond` adds `debond_features`, `DebondResidualNet` and
+  `train_debond_inverse`.
+  **It is not asked to predict the gap from the waveform, and that is the
+  point.** The cased Stoneley mode is the only debonded branch that reaches the
+  receivers, and it moves 0.05 % across a 100x change in gap against 1.0-1.5 %
+  from the formation alone — so a waveform model would be fitting noise while
+  scoring respectably against a careless metric. The input is the crack-wave
+  dispersion curve, and the bar is the closed-form baseline above.
+  **It predicts the residual** `log10(h_true) - log10(h_krauklis)` rather than
+  the thickness. The output head is zero-initialised, so an untrained model
+  reproduces the classical answer exactly: training starts at a known-good
+  answer, a broken run degrades to it rather than to noise, and any gain is
+  attributable. The residual also has a physical name — the Krauklis law
+  assumes half-space walls, while the dataset has ~10 mm of casing against a
+  comparable crack wavelength, so what there is to learn is the finite-layer
+  correction. The features expose exactly what the baseline lacks: it sees the
+  bounding moduli only, through the compliance `C`, and never the layer
+  *thicknesses*.
+  **Leakage is guarded explicitly**, because the gap thickness sits in
+  `layer_params` one column from features that are legitimately used:
+  `debond_features` drops that column, and a test perturbs the stored gap by
+  7.3x while holding the dispersion curve fixed and asserts that not one
+  feature moves.
+  **Weights are selected on the validation split**, which is not a formality
+  here. Run against real solver output the training loss reached exactly zero
+  while validation loss rose, with the best validation epoch at **6 of 400** —
+  a debonded dataset costs ~14 s a sample, so the feature count is comparable
+  to the sample count it can afford, and keeping the last epoch returns a
+  memorised model. `history` is now `(train, val)` pairs so that divergence is
+  visible rather than inferred.
+  **Measured on 240 samples** (192 train / 24 val / 24 test), gap 10-961 µm:
+
+  | held-out test | log RMSE | error in *h* | median ratio | ratio IQR |
+  |---|---|---|---|---|
+  | classical (Krauklis) | 0.0721 | **18.1 %** | 0.978 | 0.104 |
+  | learned residual | 0.0107 | **2.5 %** | 0.998 | 0.018 |
+
+  About **7x better**, and not memorisation: best validation at epoch 88 of
+  400 with validation loss falling throughout (0.00152 → 0.00047), and
+  held-out 2.5 % against whole-dataset 2.3 %. The classical figure reproduces
+  the independent 24-sample measurement exactly.
+  **What that does and does not mean.** The residual model learned the
+  finite-layer correction, which is what it was built to learn and what the
+  layer-thickness features expose. But the dispersion curves it learned from
+  are **noiseless** — deterministic solver output, no measurement noise and no
+  picking error — so 2.5 % is the ceiling against a perfect forward model,
+  not a field expectation. On real data the crack wave would first have to be
+  *detected*, and at 63-620 m/s it arrives outside a normal record. The bar
+  this clears is a modelling bar.
+- **A closed-form microannulus-thickness baseline** (roadmap G.2, the `sonic_ml`
+  consumer). `sonic_ml.baselines.CrackWaveThicknessBaseline` inverts the
+  Krauklis law, `h = c^3 C rho_f / omega` with `C = sum (1-nu)/mu` over the two
+  solids bounding the gap, to read the gap width straight off the crack-wave
+  dispersion curve.
+  It is a genuinely independent estimator rather than a circular one: the
+  dataset's curves are numerical roots of the full modal determinant, and this
+  law is the analytic asymptote that validated that determinant to 0.02 %. And
+  it needs **no fitted calibration**, unlike the bonded
+  `StoneleyBondBaseline` — so it is a harder bar for a learned model, spending
+  none of the training split.
+  A CBL-amplitude baseline is still not available and would still be a
+  strawman: these gathers carry no casing-ring arrival, and
+  `CasingRingAugmentation` deliberately draws ring amplitude independently of
+  bond. The crack wave is the signal that is genuinely present.
+  Scored in the ratio domain (`median_ratio`, `ratio_iqr`, `log_rmse`,
+  `rank_correlation`) because the gap spans two decades, so an RMS in metres
+  would be set by the widest samples alone — and because that separates a
+  constant bias, which a recalibration fixes, from scatter, which it does not.
+  The Krauklis law treats the bounding solids as half-spaces while the dataset
+  has ~10 mm of casing and ~45 mm of cement against a comparable crack
+  wavelength, so a systematic bias is expected; the score reports it rather
+  than absorbing it. Measured on 24 generated samples spanning 11-837 µm (a
+  76x range): **rank correlation 0.991**, median ratio 0.935 — so the
+  half-space bias is only ~6.5 % — and `log_rmse` 0.085, about **21 % in h**,
+  falling to **18.1 %** once that single constant is removed. A learned model
+  has to beat ~18 % across two decades, from an estimator that spent no
+  training data at all.
+  The debonded bundle needed **no loader change**: `DatasetBundle` already
+  reads `mode_names` and `layer_params` from the file, and `cased_features`
+  was already generic over layer count, so a 3-layer 2-mode bundle loads as
+  `is_cased` schema v4 unmodified.
+- **A debonded cased-hole dataset generator** (roadmap G.2), and a measurement
+  that changed what it should be. `scripts/gen_surrogate_dataset.py` gains
+  `MicroannulusPriors`, `DEBONDED_MODES`, `generate_debonded_dataset` and a
+  `--debonded` CLI flag, drawing a fluid microannulus between casing and cement
+  — the standard debonding model, and a bound-mode problem now that A.5 has
+  shipped.
+  **The obvious build would not have been invertible.** The item was framed as
+  the cased dataset in the debonded regime: same Stoneley mode, gap width as
+  the label. Measured over 1–12 kHz, the cased Stoneley curve moves **0.05 %**
+  when the gap goes from 10 µm to 1 mm — a 100× range — while the formation
+  shear velocity alone moves it 1.0–1.5 %. The mode responds to the *slip
+  interface*, not its width: bonded → debonded is a **4.14 %** shift and it is
+  the same shift at every thickness.
+  **The crack wave carries the width, at roughly 100:1.** Over that same range
+  its velocity moves **+301 %** (4.78× measured, against 4.64× from the
+  Krauklis `h^(1/3)` law) while the formation moves it 0.03 %. So the dataset
+  carries both branches: Stoneley for a bonded/debonded state, crack wave for
+  the gap. Thickness is sampled log-uniformly, which is uniform-in-observable
+  for a cube-root law.
+  The crack wave is **recorded but not injected** — `ModeSpec` gained
+  `inject=True` for it. At 63–620 m/s it reaches the 3 m near offset between
+  4.8 ms and 47.6 ms against a 5.12 ms record, so a planted arrival would be
+  fiction. Its dispersion curve is the product.
+  No schema change: the gap is written into `layer_params` as an ordinary
+  layer with `vs = 0`, so its thickness is already carried by v4.
+  `bond_index` keeps its range and its direction (1 = best bond) but is driven
+  by gap width here and cement stiffness in `generate_cased_dataset`, so the
+  two datasets **must not be pooled**.
+  Cost is the reason `--debonded` defaults to a 32-point grid: ~14 s a sample
+  against ~0.5 s bonded, since the microannulus solvers run ~0.45 s per
+  frequency for the two branches together.
+- **`fwap.io.read_dlis_waveforms` reads the per-receiver waveforms in a DLIS**
+  (roadmap F.3). `read_dlis` returns one value per depth and skips everything
+  else, which is exactly where a full-waveform sonic record lives — so until
+  now the package could not reach, through its own API, the data it was
+  measured on. Every real-data number in this changelog was produced by calling
+  `dlisio` directly.
+  The new reader returns `DlisWaveforms`: the channel as
+  `(n_depth, n_receiver, n_sample)`, the depth axis, and one `DlisAxis` per
+  trailing dimension. **The acquisition geometry comes out of the file**, not
+  out of a constant: `sample_interval()` and `offsets()` read the RP66 v1 AXIS
+  records and convert from whatever unit is declared there. On the Utah FORGE
+  DSI file that is 10 µs and eight receivers 6 in apart starting at 7.874 m.
+  Which axis is which is decided by the declared **unit**, never by the
+  AXIS-ID string, because AXIS-ID values are producer-defined and units are
+  not. An axis list that does not match the channel's dimensions is reported
+  as no axes at all rather than guessed at.
+  Only the requested channel and the index channel are read, so this does not
+  pay for the rest of the frame: one monopole channel out of the 88 MB FORGE
+  pass takes **1.1 s**, against ~100 s to materialise the frame.
+  `DlisCurves` gained `waveform_channels`, a `{name: shape}` map of the
+  channels `read_dlis` skipped, so they are discoverable rather than invisible.
+  End-to-end on the real log through the public API only — no `dlisio` import
+  at the call site — `stc` + `track_modes` reproduce the previously
+  hand-assembled result exactly (compressional 86 % agreement, median −0.57 %),
+  including with the file's true 7.874 m first offset rather than the 2.7432 m
+  that had been assumed. Slowness depends on receiver *spacing*, so the two
+  agree; arrival times do not, and the file's value is the right one.
+
+### Fixed
+- **`write_dlis` allocated a 4 GiB buffer for every file, whatever its size.**
+  `dliswriter`'s `output_chunk_size` defaults to `2**32`; fwap now passes 8 MiB.
+  Measured on a 9124-byte output: **59.16 s and ~8.3 GB peak RSS before, 0.34 s
+  and ~89 MB after**, byte-identical. On a memory-constrained machine the old
+  path could fail outright rather than merely crawl. `tests/test_io.py` drops
+  from minutes to **2 s**.
+
 ### Documentation
 - **The Sphinx build renders correctly again.** Six docstrings produced wrong
   output rather than merely warnings: `track_to_log_curves`'s VTI table was

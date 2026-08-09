@@ -321,10 +321,13 @@ from fwap.lwd import (
 
 # File I/O (optional dependencies imported lazily inside each function)
 from fwap.io import (
+    DlisAxis,
     DlisCurves,
+    DlisWaveforms,
     LasCurves,
     SegyGather,
     read_dlis,
+    read_dlis_waveforms,
     read_las,
     read_segy,
     write_dlis,
@@ -524,10 +527,13 @@ __all__ = [
     # I/O (optional deps)
     "LasCurves",
     "DlisCurves",
+    "DlisAxis",
+    "DlisWaveforms",
     "SegyGather",
     "read_las",
     "write_las",
     "read_dlis",
+    "read_dlis_waveforms",
     "write_dlis",
     "read_segy",
     "write_segy",

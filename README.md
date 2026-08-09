@@ -253,16 +253,28 @@ comparison, including against `viterbi_pick_joint`, which reaches 89 % on the
 same surfaces by a different route and is still the better tool on confusions
 that are not exact collisions.
 
-Three limitations remain. The waveform comparison is not part of CI, because the
-fixture is a 471 MB archive containing an 808 MB file — so what defends the fix
-in CI is a seeded synthetic, not the log that found it. `fwap.io.read_dlis`
-skips multi-dimensional channels, so the waveforms are not reachable from the
-public API at all and every number above was produced by calling `dlisio`
-directly. And the registered LAS's SHA-256 was computed from a mirror copy,
-because `gdr.openei.org` was unreachable from the session that added it; the
-entry's `provenance` says so. Until the first two are addressed, `sonic_ml`'s
-headline numbers are still measured against the same forward model that
-generated their training data.
+The whole comparison now runs through fwap's own API.
+`fwap.io.read_dlis_waveforms` reads the per-receiver waveforms a DLIS carries
+and recovers the acquisition geometry from the file's RP66 AXIS records — 10 µs
+sampling and eight receivers 6 in apart starting at 7.874 m, on this tool —
+rather than from constants at the call site:
+
+```python
+curves = read_dlis(path)
+curves.waveform_channels                 # {'PWF4': (8, 512), ...}
+
+wf = read_dlis_waveforms(path, "PWF4")
+surface = stc(wf.data[i], wf.sample_interval(), wf.offsets())
+```
+
+Two limitations remain. The waveform comparison is not part of CI, because the
+fixture is a 471 MB archive containing an 808 MB file — so what defends the
+picker fix in CI is a seeded synthetic, not the log that found it. And the
+registered LAS's SHA-256 was computed from a mirror copy, because
+`gdr.openei.org` was unreachable from the session that added it; the entry's
+`provenance` says so. Until the first is addressed, `sonic_ml`'s headline
+numbers are still measured against the same forward model that generated their
+training data.
 
 ## Recommended companion references
 

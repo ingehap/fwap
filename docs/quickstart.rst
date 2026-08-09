@@ -168,6 +168,23 @@ into the ``{mnemonic: ndarray}`` dict the LAS / DLIS writers consume:
    # curves carries DTP / DTS / DTST / COHP / COHS / COHST / AMP* /
    # VPVS in the standard fwap mnemonics; slowness in us/ft.
 
+A DLIS written by a logging company usually carries the per-receiver
+waveforms alongside the processed curves.
+:func:`~fwap.io.read_dlis` skips those channels -- it returns one
+value per depth -- and :func:`~fwap.io.read_dlis_waveforms` reads one
+of them, recovering the acquisition geometry from the file's RP66
+AXIS records rather than needing it supplied:
+
+.. code-block:: python
+
+   from fwap import read_dlis, read_dlis_waveforms, stc
+
+   curves = read_dlis("run.dlis")
+   curves.waveform_channels           # {'PWF4': (8, 512), ...}
+
+   wf = read_dlis_waveforms("run.dlis", "PWF4")
+   surface = stc(wf.data[depth_index], wf.sample_interval(), wf.offsets())
+
 VTI Thomsen-:math:`\gamma` from the combined dipole shear (:math:`C_{44}`)
 and Stoneley low-frequency tube-wave inversion (:math:`C_{66}`):
 

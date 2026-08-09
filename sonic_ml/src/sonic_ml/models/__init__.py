@@ -35,6 +35,15 @@ from sonic_ml.models.cased_train import (
     train_cased_operator,
 )
 from sonic_ml.models.dataset import ForwardDataset, SlownessNormalizer
+from sonic_ml.models.debond import (
+    DEBOND_FEATURE_NAMES,
+    DebondResidualNet,
+    TrainedDebondInverse,
+    debond_features,
+    debond_scores,
+    debond_targets,
+    train_debond_inverse,
+)
 from sonic_ml.models.forward import ForwardSurrogate, TrainedForwardSurrogate
 from sonic_ml.models.inverse import InverseNet, TrainedInverseNet
 from sonic_ml.models.inverse_dataset import InverseDataset, normalize_gathers
@@ -157,6 +166,14 @@ __all__ = [
     "NeuralBondPredictor",
     "cased_target_mae",
     "cased_residual_zscore_std",
+    # debonded-regime gap-width inverse (G.2)
+    "DEBOND_FEATURE_NAMES",
+    "DebondResidualNet",
+    "TrainedDebondInverse",
+    "debond_features",
+    "debond_scores",
+    "debond_targets",
+    "train_debond_inverse",
     # surrogate-in-the-loop inversion (G.4)
     "InversionResult",
     "invert_with_surrogate",

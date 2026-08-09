@@ -433,3 +433,176 @@ def test_slow_two_mode_cased_dataset_reproducible():
         assert sa.params == sb.params
         assert sa.bond_index == sb.bond_index
         np.testing.assert_array_equal(sa.gather, sb.gather)
+
+
+# ---------------------------------------------------------------------
+# Debonded (fluid-microannulus) cased sampling -- roadmap G.2.
+#
+# The measurements behind the design live in `MicroannulusPriors`; these
+# pin the parts a change could break silently. The dataset itself is not
+# generated here: a debonded sample costs ~14 s against ~0.5 s bonded,
+# so end-to-end generation is a batch job rather than a unit test.
+# ---------------------------------------------------------------------
+
+
+def test_microannulus_priors_draw_ranges_and_layers():
+    priors = gen.MicroannulusPriors()
+    rng = np.random.default_rng(0)
+    lo, hi = priors.gap_thickness
+    for _ in range(50):
+        draw = priors.draw(rng)
+        assert draw.layer_names == ("casing", "microannulus", "cement")
+        assert draw.layer_params.shape == (3, len(gen.LAYER_PARAM_NAMES))
+        assert 0.0 <= draw.bond_index <= 1.0
+
+        casing, gap, cement = draw.layer_params
+        assert priors.casing_vp[0] <= casing[0] <= priors.casing_vp[1]
+        assert priors.cement_vs[0] <= cement[1] <= priors.cement_vs[1]
+        # The gap is a fluid: no shear velocity, and a thickness in range.
+        assert gap[1] == 0.0
+        assert lo <= gap[3] <= hi
+        assert gap[0] == priors.gap_vf
+
+
+def test_microannulus_draw_builds_the_microannulus_solver_signature():
+    """A debonded prior calls a different solver signature than a bonded one.
+
+    That is the whole reason `AnnulusDraw` exists: `generate_sample` hands
+    `solver_kwargs` straight through, so the two priors are interchangeable
+    without it knowing which kind of stack it drew.
+    """
+    draw = gen.MicroannulusPriors().draw(np.random.default_rng(1))
+    assert set(draw.solver_kwargs) == {"inner_layers", "annulus", "outer_layers"}
+    assert isinstance(draw.solver_kwargs["annulus"], gen.FluidAnnulus)
+    assert len(draw.solver_kwargs["inner_layers"]) == 1  # casing
+    assert len(draw.solver_kwargs["outer_layers"]) == 1  # cement
+
+    bonded = gen.CasingCementPriors().draw(np.random.default_rng(1))
+    assert set(bonded.solver_kwargs) == {"layers"}
+    assert len(bonded.solver_kwargs["layers"]) == 2
+
+
+def test_microannulus_gap_is_sampled_log_uniformly():
+    """Uniform-in-log, because the crack wave goes as the cube root of gap.
+
+    A linear-uniform draw over 10 um-1 mm would put 90 % of the samples in
+    the top decade and leave the observable badly covered at the tight end,
+    which is the end that matters for detecting an incipient microannulus.
+    """
+    priors = gen.MicroannulusPriors()
+    rng = np.random.default_rng(4)
+    gaps = np.array([priors.draw(rng).layer_params[1, 3] for _ in range(4000)])
+    lo, hi = priors.gap_thickness
+
+    # Each decade of a two-decade range gets about half the samples.
+    lower_decade = np.mean(gaps < np.sqrt(lo * hi))
+    assert 0.45 < lower_decade < 0.55
+    # A linear-uniform draw would fail this badly (it would sit near 0.09).
+    assert np.median(gaps) == pytest.approx(np.sqrt(lo * hi), rel=0.1)
+
+
+def test_microannulus_bond_index_falls_as_the_gap_opens():
+    """`bond_index` keeps its meaning across both cased priors: 1 is best.
+
+    It is driven by cement stiffness when bonded and by gap width when
+    debonded, which is exactly why the two datasets must not be pooled --
+    same column, different question.
+    """
+    priors = gen.MicroannulusPriors()
+    rng = np.random.default_rng(5)
+    draws = [priors.draw(rng) for _ in range(200)]
+    gaps = np.array([d.layer_params[1, 3] for d in draws])
+    bonds = np.array([d.bond_index for d in draws])
+    assert np.corrcoef(np.log(gaps), bonds)[0, 1] < -0.99
+
+
+def test_debonded_modes_record_the_crack_wave_without_injecting_it():
+    """The crack wave is a label, not an arrival, and the spec says so.
+
+    At 63-620 m/s it reaches the 3 m near offset between 4.8 ms and 47.6 ms,
+    against a 5.12 ms record -- so injecting it would be planting something
+    the tool could not have recorded.
+    """
+    stoneley, crack = gen.DEBONDED_MODES
+    assert stoneley.name == "Stoneley"
+    assert stoneley.solver is gen.stoneley_dispersion_microannulus
+    assert stoneley.inject is True
+
+    assert crack.name == "crack_wave"
+    assert crack.solver is gen.crack_wave_dispersion
+    assert crack.inject is False
+
+
+def test_mode_spec_inject_defaults_true_for_every_shipped_set():
+    """`inject=False` is opt-in; no existing dataset changes behaviour."""
+    for modes in (gen.DEFAULT_MODES, gen.CASED_MODES, gen.CASED_TWO_MODES):
+        assert all(spec.inject for spec in modes)
+
+
+def test_generate_sample_records_a_non_injected_mode_curve(monkeypatch):
+    """A non-injected mode keeps its dispersion row and stays out of the gather.
+
+    Driven through `generate_sample` with a stub solver rather than the real
+    microannulus one, which costs seconds per call.
+    """
+    freq = gen.default_freq_grid(16)
+
+    def fake_solver(f, **_kw):
+        from fwap.cylindrical_solver import BoreholeMode
+
+        return BoreholeMode(
+            name="stub",
+            azimuthal_order=0,
+            freq=f,
+            slowness=np.full(f.shape, 1.0 / 1400.0),
+            attenuation_per_meter=None,
+        )
+
+    modes = (
+        gen.ModeSpec("kept", fake_solver, f0=3000.0, amplitude=1.0),
+        gen.ModeSpec("curve_only", fake_solver, f0=3000.0, amplitude=1.0, inject=False),
+    )
+    sample = gen.generate_sample(
+        np.random.default_rng(0),
+        gen.ArrayGeometry(),
+        freq,
+        priors=gen.FormationPriors(),
+        modes=modes,
+        noise_max=0.0,
+        min_finite=4,
+    )
+    assert sample is not None
+    assert sample.mode_names == ("kept", "curve_only")
+    # Both curves are recorded ...
+    assert np.isfinite(sample.slowness[0]).all()
+    assert np.isfinite(sample.slowness[1]).all()
+    # ... but only the injectable one reaches the gather.
+    assert sample.mode_in_gather.tolist() == [True, False]
+
+
+def test_cli_debonded_flag_selects_the_debonded_generator(monkeypatch, tmp_path):
+    """The wiring, without paying ~14 s a sample to check it.
+
+    Also pins the coarser default grid: `--debonded` drops to 32 points
+    unless the caller asks for something else, because the microannulus
+    solvers cost ~100x the bonded ones per frequency.
+    """
+    seen = {}
+
+    def fake_generate(n, **kwargs):
+        seen["n"] = n
+        seen["freq"] = kwargs["freq"]
+        return gen.generate_dataset(1, seed=0, freq=gen.default_freq_grid(8))
+
+    monkeypatch.setattr(gen, "generate_debonded_dataset", fake_generate)
+    out = tmp_path / "d.npz"
+    assert gen.main(["--debonded", "--n", "3", "--out", str(out)]) == 0
+    assert seen["n"] == 3
+    assert seen["freq"].size == 32
+    assert out.exists()
+
+    seen.clear()
+    assert (
+        gen.main(["--debonded", "--n", "1", "--n-freq", "16", "--out", str(out)]) == 0
+    )
+    assert seen["freq"].size == 16, "an explicit --n-freq still wins"

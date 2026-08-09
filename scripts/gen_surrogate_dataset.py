@@ -52,6 +52,7 @@ References
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
@@ -60,13 +61,16 @@ import numpy as np
 from fwap import (
     ArrayGeometry,
     BoreholeLayer,
+    FluidAnnulus,
     Mode,
+    crack_wave_dispersion,
     flexural_dispersion,
     flexural_dispersion_layered,
     pseudo_rayleigh_modal_dispersion,
     quadrupole_dispersion,
     stoneley_dispersion,
     stoneley_dispersion_layered,
+    stoneley_dispersion_microannulus,
     synthesize_gather,
 )
 from fwap.cylindrical_solver import BoreholeMode
@@ -85,6 +89,13 @@ LAYER_PARAM_NAMES: tuple[str, ...] = ("vp", "vs", "rho", "thickness")
 # Layer labels for a cased-hole (casing + cement) sample, aligned with axis 1
 # of ``layer_params``.
 CASED_LAYER_NAMES: tuple[str, ...] = ("casing", "cement")
+
+# Layer labels for a *debonded* cased sample: the fluid microannulus sits
+# between casing and cement and is written into ``layer_params`` like any
+# other layer, with ``vs = 0`` because a fluid carries no shear. Its
+# ``thickness`` column is therefore the debonding gap, and no schema change
+# is needed to carry it.
+MICROANNULUS_LAYER_NAMES: tuple[str, ...] = ("casing", "microannulus", "cement")
 
 # Version of the ``.npz`` on-disk contract (key set, ``PARAM_NAMES``
 # order, per-array dtypes and shapes) written by :func:`stack_dataset` /
@@ -122,6 +133,12 @@ class ModeSpec:
         Source wavelet family passed to :class:`fwap.Mode`.
     sigma : float, default ``2.0e-4``
         Gabor half-width (s); only used when ``wavelet == "gabor"``.
+    inject : bool, default True
+        Whether to add this mode's arrival to the synthesised gather. Set
+        ``False`` for a mode whose dispersion curve is worth recording but
+        whose arrival does not physically fall inside the record -- see
+        :data:`CRACK_WAVE_MODE`. The curve is still written to
+        ``slowness``; only ``mode_in_gather`` and the gather change.
     """
 
     name: str
@@ -130,6 +147,7 @@ class ModeSpec:
     amplitude: float
     wavelet: str = "ricker"
     sigma: float = 2.0e-4
+    inject: bool = True
 
 
 DEFAULT_MODES: tuple[ModeSpec, ...] = (
@@ -213,6 +231,81 @@ CASED_FLEXURAL_MODE: ModeSpec = ModeSpec(
 
 # Two-mode cased set. Valid only over SLOW_TWO_MODE_PRIORS -- see there.
 CASED_TWO_MODES: tuple[ModeSpec, ...] = (CASED_STONELEY_MODE, CASED_FLEXURAL_MODE)
+
+# Debonded (fluid-microannulus) cased modes -- see :class:`MicroannulusPriors`
+# for the measurements that make this a two-mode set rather than one.
+#
+# The Stoneley branch responds to the *presence* of the slip interface and is
+# almost blind to how wide it is (0.05 % over a 100x range of gap), so it
+# labels a bonded/debonded state. The crack wave carries the width, going as
+# ``h**(1/3)`` -- 4.8x over that same range against 0.03 % for the formation.
+DEBONDED_STONELEY_MODE: ModeSpec = ModeSpec(
+    "Stoneley",
+    stoneley_dispersion_microannulus,
+    f0=3000.0,
+    amplitude=2.0,
+    wavelet="gabor",
+    sigma=3.0e-4,
+)
+
+# The crack wave is recorded but **not injected**, and that is physics rather
+# than convenience: at 63-620 m/s over this prior it arrives between 4.8 ms
+# and 47.6 ms at the 3 m near offset, against a 5.12 ms record. Only the very
+# widest gap would even enter the window. Its dispersion curve is the useful
+# product; a planted arrival would be fiction. ``amplitude`` is unused while
+# ``inject=False`` and is kept only so the spec reads like its neighbours.
+CRACK_WAVE_MODE: ModeSpec = ModeSpec(
+    "crack_wave",
+    crack_wave_dispersion,
+    f0=3000.0,
+    amplitude=1.0,
+    wavelet="gabor",
+    sigma=3.0e-4,
+    inject=False,
+)
+
+#: Debonded cased-hole mode set: the state branch and the thickness branch.
+DEBONDED_MODES: tuple[ModeSpec, ...] = (DEBONDED_STONELEY_MODE, CRACK_WAVE_MODE)
+
+
+def _layer_rows(layers: Sequence[BoreholeLayer]) -> np.ndarray:
+    """Pack layers into the ``(n_layer, 4)`` ``layer_params`` row order."""
+    if not layers:
+        return np.empty((0, len(LAYER_PARAM_NAMES)), dtype=float)
+    return np.array(
+        [[ly.vp, ly.vs, ly.rho, ly.thickness] for ly in layers], dtype=float
+    )
+
+
+@dataclass(frozen=True)
+class AnnulusDraw:
+    """
+    One sampled annular stack, in the form :func:`generate_sample` consumes.
+
+    Exists so that priors which build *different* solver call signatures can
+    be used interchangeably: a bonded stack passes ``layers=``, while a
+    debonded one passes ``inner_layers=`` / ``annulus=`` / ``outer_layers=``.
+    The caller does not need to know which.
+
+    Attributes
+    ----------
+    solver_kwargs : dict
+        Extra keyword arguments handed to every mode solver for this sample.
+    layer_params : ndarray, shape (n_layer, 4)
+        Rows of :data:`LAYER_PARAM_NAMES` for the sampled stack.
+    layer_names : tuple of str
+        Labels aligned with axis 0 of ``layer_params``.
+    bond_index : float
+        Normalised cement-quality proxy in ``[0, 1]``; 1 is the best bond
+        this prior can draw. What *drives* it differs by prior -- cement
+        stiffness when bonded, gap width when debonded -- which is the
+        point of keeping the name and the range fixed.
+    """
+
+    solver_kwargs: dict[str, object]
+    layer_params: np.ndarray
+    layer_names: tuple[str, ...]
+    bond_index: float
 
 
 @dataclass(frozen=True)
@@ -301,6 +394,160 @@ class CasingCementPriors:
         lo, hi = self.cement_vs
         bond_index = (cement_vs - lo) / (hi - lo) if hi > lo else 1.0
         return (casing, cement), float(bond_index)
+
+    def draw(self, rng: np.random.Generator) -> AnnulusDraw:
+        """One annulus draw in the form :func:`generate_sample` consumes."""
+        layers, bond_index = self.sample(rng)
+        return AnnulusDraw(
+            solver_kwargs={"layers": layers},
+            layer_params=_layer_rows(layers),
+            layer_names=self.layer_names,
+            bond_index=bond_index,
+        )
+
+
+@dataclass(frozen=True)
+class MicroannulusPriors:
+    """
+    Sampling ranges for a **debonded** casing + cement annulus.
+
+    Draws the same steel casing and cement as :class:`CasingCementPriors`
+    with a fluid **microannulus** between them -- the standard model of
+    casing-to-cement debonding, and a bound-mode problem needing no
+    complex-plane tracking (``plans/roadmap.md`` A.5).
+
+    What the dataset can and cannot be asked
+    ----------------------------------------
+    Measured on a representative stack over a 1-12 kHz band, holding
+    everything but the named quantity fixed:
+
+    ==================================== ============== ==============
+    quantity varied                      Stoneley curve crack wave
+    ==================================== ============== ==============
+    gap 10 -> 1000 um                    0.05 %         **+301 %**
+    formation ``vs`` across its prior    1.0-1.5 %      0.03 %
+    cement ``vs`` across its prior       0.48 %         1.0-3.3 %
+    bonded -> debonded (any gap)         **4.14 %**     n/a
+    ==================================== ============== ==============
+
+    Two things follow, and they set the shape of this prior.
+
+    **The cased Stoneley mode is blind to the gap width.** It responds to
+    the *slip interface* -- shear traction is zero on both faces of a fluid
+    layer however thin it is -- and that response is the same at 10 um as
+    at 1 mm. So the Stoneley curve supports a bonded/debonded *state*, at
+    roughly 3:1 against the nuisance parameters, and not a thickness
+    regression. Training a regressor on it would fit noise.
+
+    **The crack wave carries the thickness, at roughly 100:1.** The
+    Krauklis crack-wave velocity goes as ``h**(1/3)``, so a 100x range of
+    gap moves it 4.8x while the formation moves it 0.03 %. That is why
+    :data:`DEBONDED_MODES` carries both branches and why ``gap_thickness``
+    is sampled **log-uniformly**: uniform-in-log is uniform-in-observable
+    for a cube-root law.
+
+    A third measured result is a caution rather than a design input: a
+    100 um gap cuts the cement-stiffness sensitivity of the Stoneley curve
+    from 3.22 % to 0.48 %. The bonded cement-bond inverse keys on exactly
+    that sensitivity, so it is not merely untested in this regime -- the
+    signal it reads has largely gone.
+
+    Attributes
+    ----------
+    casing_vp, casing_vs, casing_rho, casing_thickness
+        As :class:`CasingCementPriors`.
+    gap_thickness : (float, float)
+        Microannulus thickness range (m), sampled log-uniformly. The
+        default ``1e-5`` to ``1e-3`` spans 10 um to 1 mm, the range
+        cement-bond logging treats as a microannulus.
+    gap_vf, gap_rho : float
+        Velocity (m/s) and density (kg/m^3) of the fluid in the gap;
+        defaults match the borehole fluid.
+    cement_vp, cement_vs, cement_rho, cement_thickness
+        As :class:`CasingCementPriors`. The ``cement_vs`` floor may sit at
+        ``vf`` here as it does there -- measured, the microannulus Stoneley
+        root stays bound and fully finite at ``cement_vs == vf``.
+    vf : float
+        Borehole-fluid velocity (m/s).
+    """
+
+    casing_vp: tuple[float, float] = (5700.0, 6000.0)
+    casing_vs: tuple[float, float] = (3050.0, 3230.0)
+    casing_rho: float = 7800.0
+    casing_thickness: tuple[float, float] = (0.008, 0.012)
+    gap_thickness: tuple[float, float] = (1.0e-5, 1.0e-3)
+    gap_vf: float = 1500.0
+    gap_rho: float = 1000.0
+    cement_vp: tuple[float, float] = (2000.0, 2600.0)
+    cement_vs: tuple[float, float] = (1500.0, 1950.0)
+    cement_rho: tuple[float, float] = (1700.0, 2000.0)
+    cement_thickness: tuple[float, float] = (0.03, 0.06)
+    vf: float = 1500.0
+
+    @property
+    def layer_names(self) -> tuple[str, ...]:
+        """Layer labels aligned with the sampled layer stack."""
+        return MICROANNULUS_LAYER_NAMES
+
+    def draw(self, rng: np.random.Generator) -> AnnulusDraw:
+        """
+        Draw one debonded stack.
+
+        Parameters
+        ----------
+        rng : numpy.random.Generator
+
+        Returns
+        -------
+        AnnulusDraw
+            ``solver_kwargs`` carries ``inner_layers`` / ``annulus`` /
+            ``outer_layers`` for the microannulus solvers;
+            ``layer_params`` carries the gap as a ``vs = 0`` row, so the
+            sampled thickness is recoverable from the dataset without a
+            schema change; ``bond_index`` is 1 at the tightest gap this
+            prior can draw and 0 at the widest, on a log scale so that it
+            is linear in what the crack wave actually shows.
+        """
+        casing = BoreholeLayer(
+            vp=float(rng.uniform(*self.casing_vp)),
+            vs=float(rng.uniform(*self.casing_vs)),
+            rho=self.casing_rho,
+            thickness=float(rng.uniform(*self.casing_thickness)),
+        )
+        lo, hi = self.gap_thickness
+        gap = float(np.exp(rng.uniform(np.log(lo), np.log(hi))))
+        cement = BoreholeLayer(
+            vp=float(rng.uniform(*self.cement_vp)),
+            vs=float(rng.uniform(*self.cement_vs)),
+            rho=float(rng.uniform(*self.cement_rho)),
+            thickness=float(rng.uniform(*self.cement_thickness)),
+        )
+        annulus = FluidAnnulus(vf=self.gap_vf, rho=self.gap_rho, thickness=gap)
+        bond_index = (
+            1.0 - (np.log(gap) - np.log(lo)) / (np.log(hi) - np.log(lo))
+            if hi > lo
+            else 1.0
+        )
+        # The gap joins ``layer_params`` as an ordinary layer with no shear
+        # velocity, between casing and cement.
+        layer_params = np.array(
+            [
+                [casing.vp, casing.vs, casing.rho, casing.thickness],
+                [self.gap_vf, 0.0, self.gap_rho, gap],
+                [cement.vp, cement.vs, cement.rho, cement.thickness],
+            ],
+            dtype=float,
+        )
+        return AnnulusDraw(
+            solver_kwargs={
+                "inner_layers": (casing,),
+                "annulus": annulus,
+                "outer_layers": (cement,),
+            },
+            layer_params=layer_params,
+            layer_names=self.layer_names,
+            bond_index=float(bond_index),
+        )
 
 
 @dataclass(frozen=True)
@@ -552,7 +799,7 @@ def generate_sample(
     *,
     priors: FormationPriors,
     modes: Sequence[ModeSpec] = DEFAULT_MODES,
-    cased_priors: CasingCementPriors | None = None,
+    cased_priors: CasingCementPriors | MicroannulusPriors | None = None,
     noise_max: float = 0.06,
     min_finite: int = 8,
 ) -> SurrogateSample | None:
@@ -576,7 +823,7 @@ def generate_sample(
         Sampling ranges for the formation.
     modes : sequence of ModeSpec, default :data:`DEFAULT_MODES`
         Modes to forward-model and try to inject.
-    cased_priors : CasingCementPriors or None, default None
+    cased_priors : CasingCementPriors or MicroannulusPriors or None, default None
         When given, draws a casing + cement annulus and passes it as
         ``layers=`` to each mode solver (a cased-hole sample); the sampled
         layer stack and its bond index are recorded on the sample. ``None``
@@ -597,13 +844,13 @@ def generate_sample(
     """
     params = priors.sample(rng)
     if cased_priors is not None:
-        layers, bond_index = cased_priors.sample(rng)
-        layer_names = cased_priors.layer_names
-        layer_params = np.array(
-            [[L.vp, L.vs, L.rho, L.thickness] for L in layers], dtype=float
-        )
+        draw = cased_priors.draw(rng)
+        solver_kwargs = draw.solver_kwargs
+        bond_index = draw.bond_index
+        layer_names = draw.layer_names
+        layer_params = draw.layer_params
     else:
-        layers = ()
+        solver_kwargs = {}
         bond_index = float("nan")
         layer_names = ()
         layer_params = np.empty((0, len(LAYER_PARAM_NAMES)), dtype=float)
@@ -616,12 +863,11 @@ def generate_sample(
 
     for i, spec in enumerate(modes):
         try:
-            # Only the layered solvers accept ``layers=``; open-hole solvers
-            # are called with the bare formation kwargs (bit-identical path).
-            if layers:
-                bm = spec.solver(freq, **params, layers=layers)
-            else:
-                bm = spec.solver(freq, **params)
+            # Open-hole solvers take the bare formation kwargs (bit-identical
+            # path); annular ones take whatever their prior built -- ``layers``
+            # for a bonded stack, ``inner_layers`` / ``annulus`` /
+            # ``outer_layers`` for a debonded one.
+            bm = spec.solver(freq, **params, **solver_kwargs)
         except ValueError:
             # Physically invalid draw for this solver/regime; leave the
             # curve NaN and skip injection.
@@ -632,7 +878,9 @@ def generate_sample(
         if bm.attenuation_per_meter is not None:
             attenuation[i] = bm.attenuation_per_meter
         callable_s = dispersion_callable(bm, min_finite)
-        if callable_s is None:
+        if callable_s is None or not spec.inject:
+            # ``inject=False`` keeps the curve and skips the arrival; see
+            # :data:`CRACK_WAVE_MODE`.
             continue
         disp_modes.append(
             Mode(
@@ -677,7 +925,7 @@ def generate_dataset(
     freq: np.ndarray | None = None,
     priors: FormationPriors | None = None,
     modes: Sequence[ModeSpec] = DEFAULT_MODES,
-    cased_priors: CasingCementPriors | None = None,
+    cased_priors: CasingCementPriors | MicroannulusPriors | None = None,
     noise_max: float = 0.06,
     min_finite: int = 8,
     max_attempts: int | None = None,
@@ -700,7 +948,7 @@ def generate_dataset(
         Sampling ranges; defaults to :class:`FormationPriors`.
     modes : sequence of ModeSpec, default :data:`DEFAULT_MODES`
         Modes to model.
-    cased_priors : CasingCementPriors or None, default None
+    cased_priors : CasingCementPriors or MicroannulusPriors or None, default None
         When given, every sample is a cased-hole draw (casing + cement
         annulus passed as ``layers=`` to the layered mode solvers); ``None``
         produces open-hole samples. Pair with ``modes=``:data:`CASED_MODES`
@@ -770,7 +1018,7 @@ def generate_cased_dataset(
     geom: ArrayGeometry | None = None,
     freq: np.ndarray | None = None,
     priors: FormationPriors | None = None,
-    cased_priors: CasingCementPriors | None = None,
+    cased_priors: CasingCementPriors | MicroannulusPriors | None = None,
     modes: Sequence[ModeSpec] = CASED_MODES,
     noise_max: float = 0.06,
     min_finite: int = 8,
@@ -793,7 +1041,7 @@ def generate_cased_dataset(
     seed, geom, freq : as in :func:`generate_dataset`.
     priors : FormationPriors or None
         Formation ranges; defaults to a fast-only prior.
-    cased_priors : CasingCementPriors or None
+    cased_priors : CasingCementPriors or MicroannulusPriors or None
         Casing/cement ranges; defaults to :class:`CasingCementPriors`.
     modes : sequence of ModeSpec, default :data:`CASED_MODES`
         Cased-hole (layered-solver) modes.
@@ -822,13 +1070,112 @@ def generate_cased_dataset(
     )
 
 
+def debonded_freq_grid(n_freq: int = 32) -> np.ndarray:
+    """
+    Frequency grid for a debonded dataset -- coarser, and deliberately so.
+
+    The microannulus solvers cost about 0.45 s per frequency per sample for
+    the two modes together, against 0.004 s for the bonded layered solver:
+    at the 128-point :func:`default_freq_grid` a debonded sample takes
+    ~54 s, so the CLI's default ``--n 1000`` would run for 15 hours. At 32
+    points it is ~14 s a sample, which is a few hours for a useful set.
+
+    That is a real trade and not a free one -- a coarser curve is a coarser
+    label. It is affordable here because both debonded branches are smooth:
+    the Stoneley curve is nearly flat in gap width by construction, and the
+    crack wave follows a cube-root law with no structure to alias.
+
+    Parameters
+    ----------
+    n_freq : int, default 32
+        Number of grid points over the standard 1-12 kHz band.
+
+    Returns
+    -------
+    ndarray, shape (n_freq,)
+    """
+    return default_freq_grid(n_freq)
+
+
+def generate_debonded_dataset(
+    n: int,
+    *,
+    seed: int = 0,
+    geom: ArrayGeometry | None = None,
+    freq: np.ndarray | None = None,
+    priors: FormationPriors | None = None,
+    annulus_priors: MicroannulusPriors | None = None,
+    modes: Sequence[ModeSpec] = DEBONDED_MODES,
+    noise_max: float = 0.06,
+    min_finite: int = 8,
+    max_attempts: int | None = None,
+) -> list[SurrogateSample]:
+    """
+    Generate ``n`` **debonded** cased-hole pairs (casing + gap + cement).
+
+    Roadmap G.2. Pins the debonded configuration: a
+    :class:`MicroannulusPriors` annulus, the two-branch
+    :data:`DEBONDED_MODES`, a fast-formation :class:`FormationPriors`, and
+    :func:`debonded_freq_grid` unless a grid is given.
+
+    Read :class:`MicroannulusPriors` before using this. In short: the
+    Stoneley branch labels a bonded/debonded *state* and is blind to the gap
+    width; the crack-wave branch carries the width at roughly 100:1 and is
+    recorded without being injected, because at these velocities it arrives
+    outside the record. ``bond_index`` is driven by gap width here and by
+    cement stiffness in :func:`generate_cased_dataset`, so the two datasets
+    share a column name and not a meaning -- **do not pool them**.
+
+    Parameters
+    ----------
+    n : int
+        Number of samples to accept.
+    seed, geom, freq : as in :func:`generate_dataset`.
+    priors : FormationPriors or None
+        Formation ranges; defaults to the same fast-only prior the bonded
+        cased dataset uses.
+    annulus_priors : MicroannulusPriors or None
+        Debonded annulus ranges; defaults to :class:`MicroannulusPriors`.
+    modes : sequence of ModeSpec, default :data:`DEBONDED_MODES`
+    noise_max, min_finite, max_attempts : as in :func:`generate_dataset`.
+
+    Returns
+    -------
+    list of SurrogateSample
+
+    Notes
+    -----
+    This is slow: ~14 s a sample on the default grid, against ~0.5 s for a
+    bonded cased sample. Budget accordingly, and see
+    :func:`debonded_freq_grid` for why the grid is coarser.
+    """
+    return generate_dataset(
+        n,
+        seed=seed,
+        geom=geom,
+        freq=debonded_freq_grid() if freq is None else freq,
+        priors=(
+            priors
+            if priors is not None
+            else FormationPriors(vs_min=1700.0, vs_max=3000.0)
+        ),
+        cased_priors=(
+            annulus_priors if annulus_priors is not None else MicroannulusPriors()
+        ),
+        modes=modes,
+        noise_max=noise_max,
+        min_finite=min_finite,
+        max_attempts=max_attempts,
+    )
+
+
 def generate_slow_two_mode_cased_dataset(
     n: int,
     *,
     seed: int = 0,
     geom: ArrayGeometry | None = None,
     freq: np.ndarray | None = None,
-    cased_priors: CasingCementPriors | None = None,
+    cased_priors: CasingCementPriors | MicroannulusPriors | None = None,
     noise_max: float = 0.06,
     min_finite: int = 8,
     max_attempts: int | None = None,
@@ -856,7 +1203,7 @@ def generate_slow_two_mode_cased_dataset(
     n : int
         Number of samples to accept.
     seed, geom, freq : as in :func:`generate_dataset`.
-    cased_priors : CasingCementPriors or None
+    cased_priors : CasingCementPriors or MicroannulusPriors or None
         Casing/cement ranges; defaults to :class:`CasingCementPriors`.
     noise_max, min_finite, max_attempts : as in :func:`generate_dataset`.
 
@@ -1008,6 +1355,16 @@ def _build_parser() -> argparse.ArgumentParser:
             "Stoneley mode, fast-formation prior) instead of the open-hole default"
         ),
     )
+    parser.add_argument(
+        "--debonded",
+        action="store_true",
+        help=(
+            "generate a debonded cased-hole dataset (casing + fluid "
+            "microannulus + cement, Stoneley and crack-wave branches). "
+            "Slow: ~14 s a sample, so --n-freq defaults to 32 here. "
+            "Overrides --cased"
+        ),
+    )
     return parser
 
 
@@ -1026,8 +1383,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         Process exit status (``0`` on success).
     """
     args = _build_parser().parse_args(argv)
-    freq = default_freq_grid(args.n_freq, args.f_min, args.f_max)
-    generate = generate_cased_dataset if args.cased else generate_dataset
+    # The three generators share a call shape but not a signature (the
+    # debonded one names its annulus prior differently), so the variable is
+    # typed by what main() actually uses of it.
+    generate: Callable[..., list[SurrogateSample]]
+    if args.debonded:
+        # The debonded solvers cost ~100x the bonded ones per frequency, so
+        # this dataset defaults to a coarser grid unless asked otherwise.
+        n_freq = args.n_freq if "--n-freq" in (argv or sys.argv[1:]) else 32
+        freq = default_freq_grid(n_freq, args.f_min, args.f_max)
+        generate = generate_debonded_dataset
+    else:
+        freq = default_freq_grid(args.n_freq, args.f_min, args.f_max)
+        generate = generate_cased_dataset if args.cased else generate_dataset
     samples = generate(
         args.n,
         seed=args.seed,

@@ -204,10 +204,13 @@ FROZEN_PUBLIC_API: tuple[str, ...] = (
     # I/O (optional deps)
     "LasCurves",
     "DlisCurves",
+    "DlisAxis",
+    "DlisWaveforms",
     "SegyGather",
     "read_las",
     "write_las",
     "read_dlis",
+    "read_dlis_waveforms",
     "write_dlis",
     "read_segy",
     "write_segy",
