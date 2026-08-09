@@ -406,3 +406,61 @@ it; `--durations` settled it in one run.**
 > verified, and unexposed by any public function, and roadmap item F (a real
 > sonic gather) remains the binding constraint on every quantitative claim in
 > the repo.
+
+## Session note: the trapped-modes reply
+
+> Committed and pushed (`223e4c0`). All three tasks are on **PR #66**.
+>
+> Targeted gates all pass — `ruff`, `ruff format`, `mypy`,
+> `check_public_api` (176 names), and the six new trapped-mode tests under
+> `-W error`. The full `pytest --cov` run is still going; I'll report it and CI
+> when they land, and fix anything that fails.
+>
+> **Task 1** — previous answer appended to `plans/log_output.md`.
+>
+> **Task 2** — sign correctness, at the end of `plans/learning.md`. The core
+> observation is that signs defeat the checks people habitually run: right
+> magnitude, right shape, right units, right asymptotics. What worked instead
+> was measuring the *physical effect the sign encodes* (causality, via
+> pre-arrival energy: 4.9e-12 correct vs 8.4e-7 wrong), reading exact integers
+> in residuals as messages rather than failures, and preferring existence over
+> value when the value can't discriminate. Plus the trap: a check homogeneous
+> in the flipped quantity is blind to the flip — which is exactly why
+> `sigma_rz = 0` passed at 1e-5 while the inhomogeneous conditions were off by
+> exactly 2.
+>
+> **Task 3** — `trapped_pseudo_rayleigh_dispersion` is public. It fills a real
+> gap between the two existing functions, exposes several coexisting modes with
+> a `branch` selector, and is exactly grid-independent because it needs no
+> marching — a pointed contrast with the leaky side's branch-selection defect.
+>
+> The test I'd single out checks Auld's relation across all three trapped modes
+> *and* the Stoneley mode together. That ties the new function to physics rather
+> than to itself: a spurious root wouldn't be orthogonal to the Stoneley mode.
+> The oracle that discovered these modes now guards them, which is the first
+> time in this programme that a finding and its verification have closed a loop
+> like that.
+
+### Outcome, recorded after the fact
+
+Full gate on that tree: **1093 passed, 96.60 % coverage.** Coverage then showed
+three documented `raise` branches in the new function had never executed — the
+non-positive `vp/vs/rho`, `vf/rho_f` and `a` checks. The validation test had
+covered the *interesting* rejections (slow formation, negative branch,
+`vp <= vs`, non-positive frequency) and skipped the dull ones, which is the
+usual way a validation branch stays untested. Closed in a follow-up commit.
+
+Trapped-mode phase velocities, fast formation 4000/2300/2500, V_f=1500,
+a=0.10 — the data behind the new public function. **Asserted by tests**
+(ordering, window, cutoff sequence; not these exact values).
+
+| f (kHz) | branch 0 | branch 1 | branch 2 |
+|---|---|---|---|
+| 10 | 2186.8 | — | — |
+| 20 | 1637.3 | 2128.9 | — |
+| 30 | 1551.5 | 1754.6 | 2126.4 |
+| 50 | 1515.3 | 1575.9 | 1690.4 |
+
+Each branch switches on near `V_S` = 2300 at its own cutoff and descends toward
+`V_f` = 1500, so at any one frequency the fundamental is the *slowest* — which
+is why the `branch` ordering is by descending `k_z`.
