@@ -30,13 +30,24 @@ modes, quadrupole, layered / cased-hole and VTI; and a machine-learning layer
 that was not contemplated when the file was written now sits alongside the
 package.
 
+**The headline for this revision is that real data arrived**, and with it the
+first defect no synthetic could have found. For most of this project's life the
+binding constraint was that every quantitative claim was measured against the
+same forward model that generated its data. A real Schlumberger sonic log now
+sits in the registry, and scoring the package against the vendor's own picks
+split cleanly in two: shear to **0.12 %** median, and a compressional failure on
+a third of depths. The top two rows below are both consequences of that, and
+both are ordinary work rather than blocked on anything.
+
 | Open item | Why it matters |
 |-----------|----------------|
-| **F. Real-data fixtures** | *Partly closed.* A real Schlumberger DSI sonic log is now registered and tested, and the package's shear picks match the vendor's to **0.12 %** median on real rock. The compressional picks do not — see F. |
-| **G.2 Debonded-regime datasets** | The forward model A.5 was blocking on is now complete, so this is the item blocked on nothing. It is also where a CBL-amplitude baseline stops being a strawman. |
-| **A.5 Fluid microannulus** | *Forward model complete.* Elements, assembly and both public APIs are on `main`; kept for the reasoning and the measured limits. |
-| **A.1 Validation figures** | Ties the solver to published literature rather than to itself. |
+| **F.1 The compressional-pick defect** | The first defect real data found. `track_modes` picks a later arrival as P on about a third of depths — median error looks fine, mean runs 27 % high. A defect in shipped code, blocked on nothing. |
+| **F.2 A waveform fixture CI can use** | The waveforms exist but live in an 808 MB DLIS inside a 471 MB zip, and `read_dlis` cannot read multi-dimensional channels at all. Until both are fixed, the shear result above cannot be regression-tested. |
+| **G.2 Debonded-regime datasets** | The forward model A.5 was blocking on is now complete, so this needs no new physics. It is also where a CBL-amplitude baseline stops being a strawman. |
+| **A.1 Validation figures** | Ties the solver to published literature rather than to itself. Still needs the books. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
+| ~~**F. A real sonic log**~~ | *Largely closed.* A Schlumberger DSI log is registered and tested; the package's shear picks match the vendor's to **0.12 %** median on real rock. |
+| ~~**A.5 Fluid microannulus**~~ | *Forward model complete.* Elements, assembly and both public APIs are on `main`; kept below for the reasoning and the measured limits. |
 
 A note on how this file is kept honest: items are marked closed only when the
 code and its tests are on `main`, and status claims are checked against the tree

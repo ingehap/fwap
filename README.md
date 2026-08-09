@@ -32,7 +32,7 @@ acquisition layer, and LAS / DLIS / SEG-Y log-format I/O.
 | (extension) | Elastic moduli (K, μ, E, ν), Reuss / Voigt / Hill mixing, Gassmann fluid substitution | [`fwap.rockphysics`](fwap/rockphysics.py) |
 | (extension) | Stoneley-wave permeability / fracture indicators, Tang-Cheng-Toksoz inversion, Hornby aperture, slow-formation V<sub>s</sub> | [`fwap.stoneley`](fwap/stoneley.py) |
 | (extension) | Geomechanics drilling-decision pipeline: indices, pore pressure (Eaton / Bowers), vertical and inclined wellbore stability | [`fwap.geomechanics`](fwap/geomechanics/) |
-| (extension) | Cylindrical-Biot modal solver: n=0 Stoneley, n=1 flexural, n=2 quadrupole (bound + leaky) | [`fwap.cylindrical`](fwap/cylindrical.py), [`fwap.cylindrical_solver`](fwap/cylindrical_solver/) |
+| (extension) | Cylindrical-Biot modal solver: n=0 Stoneley, n=1 flexural, n=2 quadrupole (bound + leaky), layered / cased hole, VTI, and the debonded regime (fluid microannulus + crack wave) | [`fwap.cylindrical`](fwap/cylindrical.py), [`fwap.cylindrical_solver`](fwap/cylindrical_solver/) |
 | (extension) | LWD collar rejection + quadrupole-ring stack    | [`fwap.lwd`](fwap/lwd.py) |
 | (extension) | LAS / DLIS / SEG-Y log-format I/O               | [`fwap.io`](fwap/io/) |
 
@@ -198,7 +198,9 @@ makes it assertable, and also what bounds it: a synthetic file is produced by
 the same assumptions the reader holds, so it cannot catch a convention the
 reader failed to anticipate. `tests/test_real_data.py` covers that gap using
 files written by *other* software — a real Kansas Geological Survey well log
-(wrapped LAS, 26 service-company curves) and a SEG-Y written by `segyio`.
+(wrapped LAS, 26 service-company curves), a SEG-Y written by `segyio`, and a
+Schlumberger DSI sonic log from Utah FORGE carrying the tool's own
+compressional and shear picks.
 
 Those files are **not** in this repository. They are third-party, published
 under their own terms, and are fetched on demand into a git-ignored directory:
@@ -211,13 +213,38 @@ pytest tests/test_real_data.py
 
 Without them those tests skip, so a normal `pytest` run and CI are unaffected.
 
-**A limitation worth stating plainly:** neither file is a full-waveform sonic
-gather, because no openly redistributable one is known to exist — that data is
-almost always proprietary. So the sonic processing chain, and every quantitative
-claim built on it including `sonic_ml`'s, is still validated only against the
-same forward model that generated its data. Adding a real sonic gather is a
-one-entry change to the registry in `scripts/fetch_real_data.py`, and it would
-do more for confidence in this package than further synthetic work.
+#### What the real sonic log establishes, and what it does not
+
+An earlier version of this section said no openly redistributable sonic log was
+known to exist. That was wrong and is withdrawn: the Utah FORGE data is CC BY
+4.0, and one of its logs is now registered.
+
+The registered LAS carries Schlumberger's processed picks. The companion DLIS in
+the same submission — 808 MB, not a viable test fixture — carries the
+per-receiver waveforms those picks were derived from: eight receivers, 512
+samples, monopole and both dipoles. Running fwap's own slowness-time coherence
+and mode tracking over 400 contiguous frames and comparing against the vendor's
+picks at the same depths:
+
+| mode | median error | within 10 % |
+|------|--------------|-------------|
+| shear vs `DTSM` | **+0.12 %** | 96 % |
+| compressional vs `DTCO` | +2.29 % | 62 % |
+
+The shear result is the strongest external evidence this package has. The
+compressional result is **a known defect**: the median is respectable while the
+mean runs 27 % high, which is a bimodal failure in which roughly a third of
+depths pick a later arrival as P. It is undiagnosed, it is tracked in
+`plans/roadmap.md`, and it is exactly the kind of thing no synthetic test could
+have found — the synthetic gathers are produced by the same forward model the
+picker is scored against.
+
+Two limitations remain. The waveform comparison is not part of CI, because the
+fixture is a 471 MB archive containing an 808 MB file; and `fwap.io.read_dlis`
+skips multi-dimensional channels, so the waveforms are not reachable from the
+public API at all. Until both are addressed, `sonic_ml`'s headline numbers are
+still measured against the same forward model that generated their training
+data.
 
 ## Recommended companion references
 
