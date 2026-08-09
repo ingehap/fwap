@@ -14411,9 +14411,16 @@ def test_swapping_layer_order_is_not_an_invariance():
 # Appending a layer whose properties equal the formation is a no-op on the
 # medium, so it must be a no-op on the dispersion. It is -- until the radial
 # dynamic range across the added layer gets large, at which point the root
-# search locks onto a different mode and returns finite, plausible, wrong
-# values. These tests pin the boundary and, importantly, establish *which*
-# side is right using an oracle outside the layered solver entirely.
+# search returns finite, plausible, wrong values. These tests pin that the
+# boundary exists and, importantly, establish *which* side is right using an
+# oracle outside the layered solver entirely.
+#
+# They pin a limitation, so a future fix should make the second one fail; it
+# should then be rewritten as a guarantee rather than worked around.
+#
+# Nothing about the size or location of the error is asserted. Both proved
+# platform-dependent, and two earlier versions of these tests failed in CI by
+# pinning first where the spurious root lands and then how far off it is.
 #
 # The existing single-layer transparency tests use a 0.005 m layer over
 # 0.5-8 kHz, which is far inside the safe region -- which is why the
@@ -14441,45 +14448,49 @@ def test_transparent_layer_is_a_no_op_while_the_dynamic_range_is_moderate():
 def test_transparent_layer_stops_being_a_no_op_when_it_is_thick():
     """...and stops being one well before it returns NaN.
 
-    A formation-equal layer of 0.12-0.18 m is physically nothing at all, yet
-    it changes the 100 kHz answer by more than a factor of four. The failure
-    is silent: both calls return finite slownesses that look like dispersion
-    curves.
+    A formation-equal layer is physically nothing at all, so the padded and
+    plain stacks must agree to the same ~1e-15 that layer subdivision
+    achieves. For thin layers they do -- the previous test asserts 1e-10.
+    Somewhere above 0.1 m at 100 kHz they stop agreeing, silently: both
+    calls return finite slownesses that look like dispersion curves.
 
-    Which one is wrong is settled from outside the layered solver.
-    ``scholte_speed`` is a plane-interface calculation with no Bessel
-    functions and no layer stack in it, and at 100 kHz the wavelength in the
-    mudcake (~1.6 cm) is shorter than the 2 cm cake, so the mode rides the
-    *innermost* layer and must approach that layer's Scholte speed. The
-    single-layer answer does, to 0.05 %; the padded answer does not.
+    Which one is wrong is settled from outside the layered solver, with
+    ``scholte_speed``: at 100 kHz the wavelength in the 2 cm mudcake is
+    ~1.6 cm, so the mode rides the *innermost* layer and must approach that
+    layer's Scholte speed. The plain stack does, to 0.05 %.
 
-    **Where the padded answer lands is deliberately not asserted.** It moves
-    between a handful of spurious roots on the smallest numerical
-    difference -- 289 m/s at 0.12 m and 0.18 m, 1095 m/s at 0.15 m locally,
-    and 289 m/s at 0.15 m on CI. An earlier version of this test pinned one
-    of those values and failed on another platform. The instability is not
-    noise to be tolerated but the diagnosis: a root search that lands
-    somewhere different for the same physics has lost precision, rather than
-    found a different branch.
+    **Nothing about the size or location of the error is asserted, because
+    neither is a property of the physics.** Both move with thickness and
+    with platform: the padded answer has been seen at 289 m/s and at
+    1095 m/s for the same stack, disagreeing with the plain answer by 7 % on
+    one machine and by a factor of four on another, and two earlier versions
+    of this test failed in CI by pinning first the location and then the
+    magnitude. What is stable, and all that is claimed here, is that
+    transparency is lost somewhere in this range -- which is the finding.
     """
     from fwap import BoreholeLayer, scholte_speed, stoneley_dispersion_layered
 
     medium = dict(**_SUB_SLOW, **_SUB_FLUID, a=0.10)
     stack = (BoreholeLayer(**_SUB_MUD, thickness=0.02),)
     freq = np.array([100.0e3])
-    mud_scholte = scholte_speed(**_SUB_MUD, **_SUB_FLUID)
 
     plain = stoneley_dispersion_layered(freq, **medium, layers=stack).slowness[0]
     assert np.isfinite(plain)
+    mud_scholte = scholte_speed(**_SUB_MUD, **_SUB_FLUID)
     assert abs((1.0 / plain) / mud_scholte - 1.0) < 1.0e-3
 
-    for thickness in (0.12, 0.15, 0.18):
+    # Transparency means agreement to ~1e-15; 1e-3 is twelve orders looser
+    # than that and seven looser than the thin-layer test's tolerance, so
+    # exceeding it cannot be round-off on any platform.
+    def is_transparent(thickness):
         padded = stack + (BoreholeLayer(**_SUB_SLOW, thickness=thickness),)
-        thick = stoneley_dispersion_layered(freq, **medium, layers=padded).slowness[0]
-        if not np.isfinite(thick):
-            continue  # a clean failure is acceptable; a wrong answer is not
-        assert abs(thick / plain - 1.0) > 0.10, thickness
-        assert abs((1.0 / thick) / mud_scholte - 1.0) > 0.05, thickness
+        got = stoneley_dispersion_layered(freq, **medium, layers=padded).slowness[0]
+        if not np.isfinite(got):
+            return False  # NaN is a clean failure, but still not transparent
+        return abs(got / plain - 1.0) < 1.0e-3
+
+    thicknesses = (0.12, 0.15, 0.18, 0.20, 0.25)
+    assert not all(is_transparent(t) for t in thicknesses), thicknesses
 
 
 def test_genuine_thick_layers_still_converge_to_the_right_limit():

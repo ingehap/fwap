@@ -34,12 +34,13 @@ the project uses [Semantic Versioning](https://semver.org/).
   `scholte_speed`: at 100 kHz the wavelength in the 2 cm mudcake is ~1.6 cm, so
   the mode rides the innermost layer and must approach *that* layer's Scholte
   speed. The plain stack does, to 0.05 %; the padded stack does not. Where the
-  padded answer lands is not stable — it moves between a few spurious roots on
-  the smallest numerical difference (289 m/s at 0.12 and 0.18 m, 1095 m/s at
-  0.15 m locally, 289 m/s at 0.15 m on CI), which is itself the diagnosis: a
-  root search that lands somewhere different for identical physics has lost
-  precision rather than found another branch. The test asserts that the padded
-  answer is wrong, not where it lands.
+  padded answer lands is not stable, and neither is how far off it is — the same
+  stack has returned 289 m/s and 1095 m/s, disagreeing with the plain answer by
+  7 % on one machine and by a factor of four on another. That is itself the
+  diagnosis: a root search returning somewhere different for identical physics
+  has lost precision rather than found another branch. The test asserts only
+  that transparency is lost somewhere in the range, which is the one stable
+  claim.
   **Calibration, because the first reading was too alarming:** genuine layers
   with real contrast keep converging correctly at every thickness tried and fail
   cleanly to `NaN` rather than to a wrong number. The defect belongs to a

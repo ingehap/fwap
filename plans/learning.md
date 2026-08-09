@@ -299,25 +299,29 @@ covered.
 **What it found.** That neighbouring invariance turns out to hold only in a
 window. Appending a formation-equal layer — physically nothing at all — is
 transparent while the added layer is thin, and stops being transparent when it
-is not: a 0.15 m one moves the 100 kHz answer by 14 %, a 0.05 m one fails at
-400 kHz, and both calls return finite, plausible slownesses. Which side is
-wrong was settled with an oracle from outside the layered solver entirely:
+is not, somewhere above 0.1 m at 100 kHz, with both calls returning finite,
+plausible slownesses. Which side is wrong was settled with an oracle from
+outside the layered solver entirely:
 `scholte_speed`. At 100 kHz the wavelength in the 2 cm mudcake is ~1.6 cm, so
 the mode rides the innermost layer and must approach *that* layer's Scholte
 speed. The plain stack does, to 0.05 %; the padded stack does not.
 
-Where the padded answer lands is *not* stable, and that turned out to be the
-sharper part of the finding. It moves between a handful of spurious roots on
-the smallest numerical difference — 289 m/s at 0.12 and 0.18 m, 1095 m/s at
-0.15 m locally, 289 m/s at 0.15 m on CI. The first version of the test pinned
-one of those values, having measured it once, and failed on another platform.
+Neither the location nor the size of the error is stable, and that turned out
+to be the sharper part of the finding. The padded answer has been seen at
+289 m/s and at 1095 m/s for the same stack, disagreeing with the plain answer
+by 7 % on one machine and by a factor of four on another. Two successive
+versions of the test failed in CI — the first pinned where the spurious root
+lands, the second how far off it is — before the assertion was reduced to the
+only stable claim: that transparency is lost somewhere in the range.
 That is failure mode "write the assertion after the measurement" recurring in a
-subtler form: the measurement *was* done, on one machine, and the quantity
-measured simply had no stable value to record. **Before asserting a number, ask
-not only whether it was measured but whether it is a property of the system or
-of the run.** The instability is also the diagnosis — a root search that lands
-somewhere different for identical physics has lost precision rather than found
-another branch.
+subtler form, and recurring *twice*: the measurement was done both times, on one
+machine, and the quantity measured simply had no stable value to record.
+**Before asserting a number, ask not only whether it was measured but whether it
+is a property of the system or of the run** — and when the answer is "of the
+run", assert the structural claim instead of a tighter threshold. Chasing the
+threshold is how a flaky test gets written. The instability is also the
+diagnosis: a root search that lands somewhere different for identical physics
+has lost precision rather than found another branch.
 
 Calibration matters here and the first reading of it was too alarming. Genuine
 thick layers, with real contrast, keep converging correctly at every thickness
