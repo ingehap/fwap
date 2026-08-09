@@ -122,6 +122,49 @@ is bit-identical, and four tests pin both halves. This also removes the
 intermittent `overflow encountered in matmul` / `invalid value encountered in
 det` warnings that had been appearing in coverage runs.
 
+**Two of the three microannulus pieces are now built, and the oracle problem
+they posed had a better answer than expected.** The fluid element landed first
+(2 amplitudes, `sigma_rz = 0`, axial slip, state `(u_r, sigma_rr)`, pinned by the
+Bessel Wronskian). The global assembly followed: an 11x11 determinant for
+`fluid | casing | microannulus | cement | formation`, with the gap amplitudes
+folded out through the fluid propagator so extra layers in either block leave
+the size unchanged.
+
+The obstacle was that this configuration has **no reduction to the existing
+solver**. The `annulus_thickness -> 0` limit is a frictionless slip interface,
+not the bonded stack — shear traction stays zero on both faces and `u_z` stays
+free however thin the gap — so the usual "check the new code against the old
+code in a shared limit" is unavailable. Measured at 8 kHz, the Stoneley-like
+root converges as `O(h)` to 1383.45 m/s against 1400.04 m/s bonded, a 1.2 %
+offset that does not close.
+
+What replaced it was better than the reduction would have been. The assembly
+turns out to carry a **second root family**: a slow mode, 68-620 m/s over four
+decades of gap thickness, whose phase velocity scales as `(f h)^{1/3}`. That is
+the Krauklis crack wave, and its speed has a closed form —
+`c = (omega h / (C rho_f))^{1/3}` with `C` the sum of the wall compliances
+`(1 - nu)/mu` — derivable in a dozen lines from lubrication flow plus the
+quasi-static half-space response, with no Bessel functions and no cylinder in
+it. The solver matches it to **0.02 % at a 1 um gap**, and departs exactly as
+`k h` grows. That is an absolute-value check on the whole assembly, not a
+scaling check and not a self-consistency check: a wrong row would move the
+prefactor by an O(1) factor.
+
+So the oracle programme was not quite spent after all — but note *how* this one
+arrived. It was not on the candidate list and was not reasoned out in advance.
+It appeared because an unexplained extra root was characterised instead of
+dismissed, and its measured `(f h)^{1/3}` scaling identified it. `plans/learning.md`
+argues that the best oracles come from asking what a check would do to a wrong
+answer; this one is a case of the other route — measure the surprise first, and
+the oracle is what explains it.
+
+Two things follow for the third piece, the public dispersion function. Two root
+families means bracketing must **choose** one, which is precisely the shape of
+the `n=0` branch-selection defect closed in #64; the root set is already pinned
+as grid- and window-independent so a regression would show. And the gap mode is
+not a nuisance — it is a debonding indicator in its own right, with a known
+analytic form, so exposing it may be worth as much as the Stoneley shift.
+
 Both need complex-plane root tracking. Doing them together is the difference
 between one hard piece of modelling and two.
 

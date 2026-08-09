@@ -511,3 +511,50 @@ still appears in the coverage run. A plain `pytest -q` run shows none, which is
 the same signature as the coverage-layer artefact seen earlier in the session.
 Identified rather than assumed is the standard here, so the claim stands only
 for the compliant-layer warnings.
+
+## Session note: the fluid-annulus element reply
+
+> Both tasks done, on **PR #68** (draft). Check-in armed.
+>
+> ## Task 1 — log appended, with a correction
+>
+> I'd claimed the #67 fix "closes the intermittent overflow warnings." The gate
+> afterwards still showed 1 warning under coverage, so that was too strong. The
+> compliant-layer warnings *are* gone — the four tests there run under
+> `warnings.simplefilter("error")` — but one remains in coverage runs and none
+> appears without coverage reporting. Three consistent checks now bound it as
+> the coverage-layer artifact seen earlier. The claim is narrowed to what was
+> measured.
+>
+> ## Task 2 — the fluid-annulus element
+>
+> A fluid annulus isn't a soft elastic one: two amplitudes instead of four,
+> shear traction identically zero, axial slip permitted — so the propagated
+> state is `(u_r, sigma_rr)` rather than the elastic four-vector. That's why it
+> changes the assembly's shape and not just its numbers.
+>
+> **Verified against an identity from outside the module.** The Bessel Wronskian
+> collapses the determinant to `det E_f = -1/(rho w^2 r)`, hence
+> `det P_f = r_in/r_out` — with no dependence on frequency, velocity, density or
+> `k_z`. A sign slip or swapped Bessel order breaks it immediately.
+>
+> Separately, the state matrix is checked against a **numerical derivative of
+> the pressure** — testing it against the momentum equation it encodes rather
+> than the algebra used to derive it. That's the check that would have caught
+> the two sign errors made earlier in this session, applied from the start this
+> time rather than after a failure.
+>
+> **The accuracy range is measured, not assumed.** I first wrote the determinant
+> test over a 0.05-0.50 m annulus and it failed. The response was to
+> characterise where the element stops working — error tracks the Bessel span
+> `F*dr`, machine precision to ~2, useless by 20 — and pin that, rather than
+> loosen the tolerance until it passed. A debonding gap puts the span below 0.1,
+> so it's a documented limit rather than a practical one, but it's documented
+> because the identical exponential-range failure caused the spurious roots in
+> #67.
+>
+> **Nothing public yet, deliberately.** `BoreholeLayer` can't express a fluid and
+> the global assembly changes shape when one is present. Shipping a public layer
+> type no solver accepts would be worse than shipping nothing — so the
+> foundation is verified in isolation first, and when the assembly lands any
+> failure is attributable to the assembly rather than to this.

@@ -15418,3 +15418,554 @@ def test_fluid_annulus_rejects_a_propagating_radial_wavenumber():
         _fluid_layer_propagator_n0(kz, _FA_OMEGA, **_FA_FLUID, r_inner=0.0, r_outer=0.1)
     with pytest.raises(ValueError, match="require r_outer >= r_inner"):
         _fluid_layer_propagator_n0(kz, _FA_OMEGA, **_FA_FLUID, r_inner=0.2, r_outer=0.1)
+
+
+# ---------------------------------------------------------------------------
+# Microannulus global assembly (n=0): the 11x11 determinant for
+# `fluid | casing | microannulus | cement | formation`.
+#
+# The fluid element above is verified in isolation; this section verifies the
+# assembly that uses it. There is no reduction to the existing solver available
+# here -- the `annulus_thickness -> 0` limit is a frictionless slip interface,
+# not the bonded stack -- so the checks are:
+#
+# * the Krauklis (fluid-filled-crack) wave, an analytic result derived from
+#   lubrication flow and quasi-static wall compliance, with no Bessel functions
+#   and no cylindrical geometry in it at all. This is the strong one: it fixes
+#   the absolute phase velocity of the slow root, not just its scaling, so a
+#   wrong row or a swapped condition would show up as an O(1) prefactor error.
+# * an independently assembled 13x13 form that keeps the annulus amplitudes as
+#   explicit unknowns. Different size, different column layout -- an index slip
+#   in one does not reproduce in the other.
+# * subdivision invariance of the elastic blocks.
+#
+# The assembly is deliberately not reachable from the public API yet: choosing
+# which root family a dispersion curve should follow is a separate decision,
+# and this section shows there are two.
+# ---------------------------------------------------------------------------
+
+_MA_FORMATION = {"vp": 4000.0, "vs": 2300.0, "rho": 2500.0}
+_MA_FLUID = {"vf": 1500.0, "rho_f": 1000.0}
+_MA_ANNULUS = {"annulus_vf": 1500.0, "annulus_rho": 1000.0}
+_MA_A = 0.10
+_MA_CASING = BoreholeLayer(vp=5900.0, vs=3200.0, rho=7800.0, thickness=0.01)
+_MA_CEMENT = BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.03)
+# Blocks thick compared with the gap mode's decay length ~ 1 / k_z, so the
+# half-space idealisation the Krauklis formula assumes actually applies. The
+# confinement test below measures what happens when they are not.
+_MA_THICK_CASING = BoreholeLayer(vp=5900.0, vs=3200.0, rho=7800.0, thickness=0.05)
+_MA_THICK_CEMENT = BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.20)
+
+
+def _ma_det(
+    phase_velocity,
+    freq,
+    *,
+    thickness=1.0e-4,
+    inner=(_MA_CASING,),
+    outer=(_MA_CEMENT,),
+    **overrides,
+):
+    """The 11x11 microannulus determinant as a function of phase velocity."""
+    from fwap.cylindrical_solver._cased import _modal_determinant_n0_microannulus
+
+    omega = 2.0 * np.pi * freq
+    kwargs = {
+        **_MA_FORMATION,
+        **_MA_FLUID,
+        **_MA_ANNULUS,
+        "a": _MA_A,
+        "inner_layers": inner,
+        "outer_layers": outer,
+        "annulus_thickness": thickness,
+    }
+    kwargs.update(overrides)
+    return _modal_determinant_n0_microannulus(omega / phase_velocity, omega, **kwargs)
+
+
+def _ma_roots(det_fn, lo, hi, samples=800, log_grid=False):
+    """Every sign change of ``det_fn`` on ``[lo, hi]``, refined by brentq.
+
+    800 samples rather than the few thousand a first pass used: the root set
+    is unchanged from 200 samples upward and under moved endpoints, measured
+    below in ``test_microannulus_carries_two_root_families``.
+    """
+    from scipy import optimize
+
+    grid = np.geomspace(lo, hi, samples) if log_grid else np.linspace(lo, hi, samples)
+    values = np.array([det_fn(c) for c in grid])
+    finite = np.isfinite(values)
+    found = []
+    for i in range(grid.size - 1):
+        if not (finite[i] and finite[i + 1]):
+            continue
+        if np.sign(values[i]) != np.sign(values[i + 1]):
+            found.append(
+                optimize.brentq(det_fn, grid[i], grid[i + 1], xtol=1e-13, rtol=1e-15)
+            )
+    return found
+
+
+def _krauklis_velocity(freq, thickness, inner, outer, rho_annulus):
+    r"""Phase velocity of the crack (Krauklis) wave in a thin fluid gap.
+
+    Derived outside this module and with none of its machinery. Pressure in a
+    gap thin compared with the wavelength is uniform across it, so the fluid
+    accelerates along the gap under its own pressure gradient,
+    ``u_z = i k p / (rho_f omega^2)``, and volume conservation ties the flow to
+    the opening ``Delta`` of the two walls:
+
+        d(h u_z)/dz + Delta = 0   =>   Delta = h k^2 p / (rho_f omega^2).
+
+    Each wall is a half-space loaded by a normal traction ``p e^{ikz}``, whose
+    quasi-static surface displacement is ``p (1 - nu) / (mu k)``. Summing the
+    two compliances, ``C = sum (1 - nu) / mu``, and eliminating ``p``:
+
+        k^3 = C rho_f omega^2 / h,   c = omega / k = (omega h / (C rho_f))^{1/3}.
+
+    Bessel-free, cylinder-free, and independent of the borehole fluid and the
+    formation. Valid when the gap is thin compared with both the wavelength and
+    the wall thicknesses.
+
+    Parameters
+    ----------
+    freq : float
+        Frequency (Hz).
+    thickness : float
+        Gap thickness (m).
+    inner, outer : BoreholeLayer
+        The two walls; only their elastic moduli are used.
+    rho_annulus : float
+        Gap fluid density (kg/m^3).
+
+    Returns
+    -------
+    float
+        Phase velocity (m/s).
+    """
+    compliance = 0.0
+    for wall in (inner, outer):
+        mu = wall.rho * wall.vs**2
+        poisson = (wall.vp**2 - 2.0 * wall.vs**2) / (2.0 * (wall.vp**2 - wall.vs**2))
+        compliance += (1.0 - poisson) / mu
+    omega = 2.0 * np.pi * freq
+    return float((omega * thickness / (compliance * rho_annulus)) ** (1.0 / 3.0))
+
+
+def _ma_gap_root(freq, thickness, inner=None, outer=None, rho_annulus=1000.0):
+    """The slow gap-mode root, searched on a log grid well below the fluid."""
+    inner = inner or _MA_THICK_CASING
+    outer = outer or _MA_THICK_CEMENT
+
+    def det(c):
+        return _ma_det(
+            c,
+            freq,
+            thickness=thickness,
+            inner=(inner,),
+            outer=(outer,),
+            annulus_rho=rho_annulus,
+        )
+
+    found = _ma_roots(det, 5.0, 1400.0, log_grid=True)
+    assert found, "no gap-mode root found"
+    return found[0]
+
+
+def test_microannulus_slow_root_is_the_krauklis_crack_wave():
+    """The slow root converges to the analytic crack-wave speed as the gap thins.
+
+    This is the check that the assembly is right rather than merely
+    self-consistent. ``_krauklis_velocity`` shares no code, no special
+    functions and no geometry with the solver, and it predicts an absolute
+    velocity: if the shear-traction-free rows at the two gap faces, or the
+    ``(u_r, sigma_rr)`` pair carried across the gap, were wrong, the prefactor
+    would be off by an O(1) factor rather than by the O(k h) thin-gap error.
+
+    Measured ratios at 8 kHz, thick walls: 1.0002 at a 1 um gap, 0.998 at
+    10 um, 0.983 at 100 um, 0.915 at 1 mm -- converging to the analytic value
+    exactly where the derivation says it should, and departing as ``k h``
+    stops being small.
+    """
+    for thickness, tol in ((1.0e-6, 2.0e-3), (1.0e-5, 1.0e-2), (1.0e-4, 3.0e-2)):
+        measured = _ma_gap_root(8.0e3, thickness)
+        predicted = _krauklis_velocity(
+            8.0e3, thickness, _MA_THICK_CASING, _MA_THICK_CEMENT, 1000.0
+        )
+        assert measured == pytest.approx(predicted, rel=tol)
+
+    # The approximation degrades monotonically in k h, and does so in the
+    # direction the derivation implies (fluid inertia neglected across the gap
+    # makes the analytic wave too fast), so the ordering is a claim too.
+    ratios = [
+        _ma_gap_root(8.0e3, h)
+        / _krauklis_velocity(8.0e3, h, _MA_THICK_CASING, _MA_THICK_CEMENT, 1000.0)
+        for h in (1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3)
+    ]
+    assert ratios == sorted(ratios, reverse=True)
+    assert ratios[-1] < 0.95
+
+
+def test_microannulus_gap_mode_follows_the_crack_wave_parameter_scaling():
+    """``c ~ (omega h / (C rho_f))^{1/3}`` in every variable separately.
+
+    A prefactor match at one operating point could be a coincidence of the
+    chosen numbers. Varying frequency, wall stiffness and gap-fluid density
+    -- each of which enters the analytic formula differently -- makes that
+    much harder: the cube-root scaling in ``omega`` and ``h``, the linear
+    scaling in wall compliance, and the inverse scaling in gap-fluid density
+    are four independent predictions.
+    """
+    soft = BoreholeLayer(vp=2000.0, vs=1100.0, rho=1800.0, thickness=0.20)
+    stiff = BoreholeLayer(vp=4500.0, vs=2600.0, rho=2400.0, thickness=0.20)
+    cases = [
+        (500.0, 1.0e-5, _MA_THICK_CEMENT, 1000.0),
+        (2.0e3, 1.0e-5, _MA_THICK_CEMENT, 1000.0),
+        (2.0e4, 1.0e-5, _MA_THICK_CEMENT, 1000.0),
+        (8.0e3, 1.0e-5, soft, 1000.0),
+        (8.0e3, 1.0e-5, stiff, 1000.0),
+        (8.0e3, 1.0e-5, _MA_THICK_CEMENT, 700.0),
+        (8.0e3, 1.0e-5, _MA_THICK_CEMENT, 1500.0),
+    ]
+    for freq, thickness, outer, rho_annulus in cases:
+        measured = _ma_gap_root(freq, thickness, outer=outer, rho_annulus=rho_annulus)
+        predicted = _krauklis_velocity(
+            freq, thickness, _MA_THICK_CASING, outer, rho_annulus
+        )
+        assert measured == pytest.approx(predicted, rel=2.0e-2)
+
+
+def test_microannulus_gap_mode_needs_walls_thicker_than_its_decay_length():
+    """Where the analytic oracle stops applying, and why -- measured, not assumed.
+
+    The crack wave is confined to within ``~1 / k_z`` of the gap, so the
+    half-space compliance the formula uses is only right when the walls are
+    thicker than that. At 8 kHz and a 100 um gap the mode's ``1 / k_z`` is
+    about 6 mm: a 2 mm casing gives 0.64 of the analytic speed, a 5 mm casing
+    0.87, and the ratio saturates near 0.98 once the casing exceeds ~1 cm.
+    Recorded so the oracle's domain is a measurement rather than a hope.
+    """
+    ratios = {}
+    for casing_thickness in (0.002, 0.005, 0.01, 0.05):
+        casing = BoreholeLayer(
+            vp=5900.0, vs=3200.0, rho=7800.0, thickness=casing_thickness
+        )
+        measured = _ma_gap_root(8.0e3, 1.0e-4, inner=casing)
+        ratios[casing_thickness] = measured / _krauklis_velocity(
+            8.0e3, 1.0e-4, casing, _MA_THICK_CEMENT, 1000.0
+        )
+    assert ratios[0.002] < 0.7
+    assert ratios[0.005] < ratios[0.01] < ratios[0.05]
+    assert ratios[0.05] == pytest.approx(0.98, abs=0.02)
+
+
+def _ma_det_13(phase_velocity, freq, thickness, inner, outer):
+    """Independent 13x13 assembly keeping the annulus amplitudes explicit.
+
+    Same physics, different bookkeeping: instead of folding the two gap
+    amplitudes out through the fluid propagator, they stay as unknowns and
+    ``(u_r, sigma_rr)`` is matched at both gap faces. Thirteen unknowns
+    (1 borehole + 4 + 2 + 4 + 2) against thirteen equations (3 + 3 + 3 + 4).
+    """
+    from scipy import special
+
+    from fwap.cylindrical_solver._cased import _fluid_layer_e_matrix_n0
+
+    omega = 2.0 * np.pi * freq
+    kz = omega / phase_velocity
+
+    def block(layers, r_start):
+        e_inner = _layer_e_matrix_n0(
+            kz=kz,
+            omega=omega,
+            vp=layers[0].vp,
+            vs=layers[0].vs,
+            rho=layers[0].rho,
+            r=r_start,
+        )
+        transfer = np.eye(4)
+        r_lo = r_start
+        for layer in layers:
+            transfer = (
+                _layer_propagator_n0(
+                    kz=kz,
+                    omega=omega,
+                    vp=layer.vp,
+                    vs=layer.vs,
+                    rho=layer.rho,
+                    r_inner=r_lo,
+                    r_outer=r_lo + layer.thickness,
+                )
+                @ transfer
+            )
+            r_lo += layer.thickness
+        return e_inner, transfer, r_lo
+
+    e_in_a, transfer_in, r_b = block(inner, _MA_A)
+    r_c = r_b + thickness
+    e_out_c, transfer_out, r_d = block(outer, r_c)
+    e_form = _layer_e_matrix_n0(kz=kz, omega=omega, **_MA_FORMATION, r=r_d)
+    fluid_kwargs = {"vf": _MA_ANNULUS["annulus_vf"], "rho": _MA_ANNULUS["annulus_rho"]}
+    e_gap_b = _fluid_layer_e_matrix_n0(kz, omega, **fluid_kwargs, r=r_b)
+    e_gap_c = _fluid_layer_e_matrix_n0(kz, omega, **fluid_kwargs, r=r_c)
+    state_b = transfer_in @ e_in_a
+    state_d = transfer_out @ e_out_c
+
+    f_core = np.sqrt(kz * kz - (omega / _MA_FLUID["vf"]) ** 2)
+    i0 = float(special.iv(0, f_core * _MA_A))
+    i1 = float(special.iv(1, f_core * _MA_A))
+
+    # Columns: [A | inner (4) | gap (2) | outer (4) | formation (2)]
+    m = np.zeros((13, 13))
+    m[0, 0] = f_core * i1 / (_MA_FLUID["rho_f"] * omega**2)
+    m[0, 1:5] = -e_in_a[0, :]
+    m[1, 0] = -i0
+    m[1, 1:5] = -e_in_a[2, :]
+    m[2, 1:5] = e_in_a[3, :]
+    m[3, 1:5] = state_b[0, :]
+    m[3, 5:7] = -e_gap_b[0, :]
+    m[4, 1:5] = state_b[2, :]
+    m[4, 5:7] = -e_gap_b[1, :]
+    m[5, 1:5] = state_b[3, :]
+    m[6, 5:7] = e_gap_c[0, :]
+    m[6, 7:11] = -e_out_c[0, :]
+    m[7, 5:7] = e_gap_c[1, :]
+    m[7, 7:11] = -e_out_c[2, :]
+    m[8, 7:11] = e_out_c[3, :]
+    for state in range(4):
+        m[9 + state, 7:11] = state_d[state, :]
+        m[9 + state, 11] = -e_form[state, 1]
+        m[9 + state, 12] = -e_form[state, 3]
+    if not np.all(np.isfinite(m)):
+        return float("nan")
+    return float(np.linalg.det(m))
+
+
+def test_microannulus_matches_an_independent_explicit_amplitude_assembly():
+    """The 11x11 and a 13x13 that never folds the gap amplitudes out agree.
+
+    The two matrices differ in size, column layout and row content -- the
+    11x11 carries ``(u_r, sigma_rr)`` across the gap with the fluid
+    propagator and matches at ``r = c`` only, the 13x13 matches at both gap
+    faces -- so a transposed index or a dropped sign in one does not
+    reproduce in the other. Both call ``_fluid_layer_e_matrix_n0``, so this
+    checks the assembly and not the fluid element; the Wronskian test above
+    covers that separately.
+    """
+    for freq in (2.0e3, 8.0e3, 1.2e4):
+        folded = _ma_roots(lambda c: _ma_det(c, freq), 200.0, 1499.0)
+        explicit = _ma_roots(
+            lambda c: _ma_det_13(c, freq, 1.0e-4, (_MA_CASING,), (_MA_CEMENT,)),
+            200.0,
+            1499.0,
+        )
+        assert len(folded) == len(explicit)
+        for lhs, rhs in zip(folded, explicit):
+            assert lhs == pytest.approx(rhs, rel=1.0e-9)
+
+
+def test_microannulus_roots_are_invariant_under_layer_subdivision():
+    """Splitting either elastic block into sub-layers leaves the roots fixed.
+
+    The established invariance oracle for propagator stacks, applied to the
+    two-block form: subdivision changes the number of propagator factors and
+    the radii they are evaluated at, but not the physics, so any residual is
+    the assembly's own bookkeeping error.
+    """
+
+    def split(layer, pieces):
+        piece = layer.thickness / pieces
+        return tuple(
+            BoreholeLayer(vp=layer.vp, vs=layer.vs, rho=layer.rho, thickness=piece)
+            for _ in range(pieces)
+        )
+
+    freq = 8.0e3
+    whole = _ma_roots(lambda c: _ma_det(c, freq), 200.0, 1499.0)
+    assert len(whole) == 2
+    for inner_pieces, outer_pieces in ((3, 1), (1, 4), (2, 5)):
+        subdivided = _ma_roots(
+            lambda c: _ma_det(
+                c,
+                freq,
+                inner=split(_MA_CASING, inner_pieces),
+                outer=split(_MA_CEMENT, outer_pieces),
+            ),
+            200.0,
+            1499.0,
+        )
+        assert len(subdivided) == len(whole)
+        for lhs, rhs in zip(whole, subdivided):
+            assert lhs == pytest.approx(rhs, rel=1.0e-9)
+
+
+def test_microannulus_thin_gap_limit_is_a_slip_interface_not_the_bonded_stack():
+    """``h -> 0`` converges, and not to the bonded root. That is the point.
+
+    A vanishing gap still forbids shear traction on both faces and still lets
+    ``u_z`` slip, so the limit is frictionless contact, not welded contact.
+    There is therefore no reduction of this assembly to the all-elastic 7x7 to
+    validate against -- which is why the checks above had to come from
+    outside. Measured at 8 kHz: the Stoneley-like root converges as O(h) to
+    1383.446 m/s while the bonded stack gives 1400.038 m/s, a 16.6 m/s
+    (1.2 %) offset that does not shrink as the gap closes.
+    """
+    from fwap.cylindrical_solver._cased import _modal_determinant_n0_cased
+
+    freq = 8.0e3
+    omega = 2.0 * np.pi * freq
+
+    def bonded(c):
+        return _modal_determinant_n0_cased(
+            omega / c,
+            omega,
+            **_MA_FORMATION,
+            **_MA_FLUID,
+            a=_MA_A,
+            layers=(_MA_CASING, _MA_CEMENT),
+        )
+
+    bonded_root = _ma_roots(bonded, 1000.0, 1499.0)
+    assert len(bonded_root) == 1
+
+    thicknesses = [1.0e-5, 1.0e-6, 1.0e-7, 1.0e-8]
+    stoneley = [
+        _ma_roots(lambda c: _ma_det(c, freq, thickness=h), 1000.0, 1499.0)[0]
+        for h in thicknesses
+    ]
+    # Cauchy convergence: each tenfold thinning moves the root ~10x less.
+    steps = np.abs(np.diff(stoneley))
+    assert np.all(steps[1:] < steps[:-1] / 5.0)
+    # ... but not towards the bonded root.
+    offsets = [bonded_root[0] - c for c in stoneley]
+    assert all(o > 15.0 for o in offsets)
+    assert offsets[-1] == pytest.approx(offsets[0], rel=1.0e-3)
+
+
+def test_microannulus_carries_two_root_families():
+    """Two roots, not one: a Stoneley-like mode and the slow gap mode.
+
+    Recorded because it is a trap for the root finder that would come next.
+    The n=0 branch-selection defect fixed earlier in this module came from
+    exactly this -- a bracket that assumed a single root, silently returning
+    whichever one the grid happened to straddle. The two families are far
+    apart and move in opposite directions with gap thickness: thinning the gap
+    slows the crack wave towards zero while leaving the Stoneley-like root
+    essentially fixed.
+    """
+    freq = 8.0e3
+    for thickness in (1.0e-3, 1.0e-4, 1.0e-5):
+        found = _ma_roots(
+            lambda c: _ma_det(c, freq, thickness=thickness),
+            5.0,
+            1499.0,
+            log_grid=True,
+        )
+        assert len(found) == 2
+        gap_mode, stoneley = found
+        assert gap_mode < 0.5 * stoneley
+        assert 1300.0 < stoneley < 1400.0
+
+    thin = _ma_roots(
+        lambda c: _ma_det(c, freq, thickness=1.0e-5), 5.0, 1499.0, log_grid=True
+    )
+    thick = _ma_roots(
+        lambda c: _ma_det(c, freq, thickness=1.0e-3), 5.0, 1499.0, log_grid=True
+    )
+    assert thin[0] < thick[0] / 3.0
+    assert thin[1] == pytest.approx(thick[1], rel=1.0e-3)
+
+    # "Exactly two" is only a claim about the assembly if it survives a change
+    # of grid. The n=0 branch-selection defect looked like solver noise on one
+    # grid and was only exposed by moving the endpoints, so both knobs are
+    # turned here: sample count and window.
+    reference = _ma_roots(
+        lambda c: _ma_det(c, freq), 5.0, 1499.0, samples=6000, log_grid=True
+    )
+    for samples, lo, hi in (
+        (200, 5.0, 1499.0),
+        (800, 3.1, 1499.9),
+        (400, 11.0, 1490.0),
+    ):
+        found = _ma_roots(
+            lambda c: _ma_det(c, freq), lo, hi, samples=samples, log_grid=True
+        )
+        assert len(found) == len(reference)
+        for lhs, rhs in zip(found, reference):
+            assert lhs == pytest.approx(rhs, rel=1.0e-9)
+
+
+def test_microannulus_returns_nan_rather_than_warning_or_raising():
+    """The determinant contract: NaN everywhere it cannot be formed.
+
+    A root scan evaluates this at arbitrary trial velocities, so an escaping
+    ``RuntimeWarning`` or ``LinAlgError`` is a defect, not a diagnostic. Both
+    happened while this assembly was being built: unscaled ``I_n`` overflows
+    at low phase velocity, and the fluid propagator's ``solve`` hits an
+    exactly singular matrix once the Bessel dynamic range collapses. Three
+    regimes are covered -- above the bound floor (including the gap fluid's
+    own floor, which the borehole fluid's does not imply), past the Bessel
+    argument cap, and past the span where the fluid propagator is meaningful.
+    """
+    import warnings
+
+    from fwap.cylindrical_solver._cased import _BESSEL_ARG_MAX
+
+    # Above the bound floor: the borehole fluid and the gap fluid each set one.
+    assert np.isnan(_ma_det(1600.0, 8.0e3))
+    assert np.isnan(_ma_det(1450.0, 8.0e3, annulus_vf=1400.0))
+    assert np.isfinite(_ma_det(1450.0, 8.0e3, annulus_vf=1500.0))
+
+    # Past the Bessel argument cap: kz * r_outermost > log(sqrt(DBL_MAX)).
+    r_outermost = _MA_A + _MA_CASING.thickness + 1.0e-4 + _MA_CEMENT.thickness
+    c_cap = 2.0 * np.pi * 8.0e3 * r_outermost / _BESSEL_ARG_MAX
+    assert np.isnan(_ma_det(c_cap * 0.9, 8.0e3))
+    assert np.isfinite(_ma_det(c_cap * 1.5, 8.0e3))
+
+    # Past the fluid propagator's usable Bessel span, where its exact
+    # determinant identity fails long before its entries become non-finite.
+    assert np.isnan(_ma_det(300.0, 8.0e3, thickness=0.5))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        for phase_velocity in np.geomspace(0.05, 1600.0, 400):
+            for thickness in (1.0e-6, 1.0e-4, 1.0e-2, 0.3):
+                _ma_det(phase_velocity, 8.0e3, thickness=thickness)
+
+
+def test_microannulus_rejects_configurations_it_cannot_represent():
+    """Both blocks must exist, and the gap must be a real fluid gap.
+
+    A zero-thickness inner block is refused rather than accommodated: it makes
+    the two ``sigma_rz = 0`` rows at ``r = a`` and ``r = b`` the same row, so
+    the determinant vanishes identically and every trial ``k_z`` looks like a
+    root.
+    """
+    from fwap.cylindrical_solver._cased import _modal_determinant_n0_microannulus
+
+    base = {
+        **_MA_FORMATION,
+        **_MA_FLUID,
+        **_MA_ANNULUS,
+        "a": _MA_A,
+        "inner_layers": (_MA_CASING,),
+        "outer_layers": (_MA_CEMENT,),
+        "annulus_thickness": 1.0e-4,
+    }
+    omega = 2.0 * np.pi * 8.0e3
+    kz = omega / 1400.0
+    assert np.isfinite(_modal_determinant_n0_microannulus(kz, omega, **base))
+
+    for bad in (
+        {"inner_layers": ()},
+        {"outer_layers": ()},
+    ):
+        with pytest.raises(ValueError, match="non-empty"):
+            _modal_determinant_n0_microannulus(kz, omega, **{**base, **bad})
+    with pytest.raises(ValueError, match="annulus_thickness must be positive"):
+        _modal_determinant_n0_microannulus(
+            kz, omega, **{**base, "annulus_thickness": 0.0}
+        )
+    for bad in ({"annulus_vf": 0.0}, {"annulus_rho": -1.0}):
+        with pytest.raises(ValueError, match="must be positive"):
+            _modal_determinant_n0_microannulus(kz, omega, **{**base, **bad})
