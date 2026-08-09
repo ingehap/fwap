@@ -16161,7 +16161,11 @@ def test_microannulus_crack_root_survives_the_propagator_precision_loss():
     # ... while the propagator it is computed through stops meaning anything.
     assert errors[0] > 1.0
     assert errors[-1] > 1.0e100
-    assert errors == sorted(errors)
+    # Deliberately no ordering assertion on the errors in between. Once the
+    # identity is destroyed its value is arbitrary: a first pass asserted the
+    # sequence was monotonic, which held locally and failed on CI, where the
+    # 0.05 m case returned 1.0 against 1e38 here. Asserting the ordering of
+    # garbage is the same mistake as asserting where a spurious root lands.
 
 
 def _ma_public(freq, thickness=1.0e-4, inner=None, outer=None, **overrides):
@@ -16364,3 +16368,56 @@ def test_fluid_annulus_is_a_distinct_type_from_a_soft_layer():
         outer_layers=(_MA_CEMENT,),
     )
     assert kz_lo_slow == pytest.approx(omega / 1200.0, rel=1.0e-6)
+
+
+def test_microannulus_public_api_degrades_gracefully_on_a_thick_gap():
+    """A gap far outside the microannulus regime still cannot produce junk.
+
+    At 0.30 m the gap is three hundred times a real debonding microannulus and
+    the fluid propagator's Bessel span leaves its usable range, so its runtime
+    determinant gate refuses more than half the scan window -- 208 of 400 grid
+    points at 8 kHz. The scan skips those rather than reading a sign change
+    across a NaN boundary, and the surviving root is still the Stoneley-like
+    one.
+
+    That it drifts *upward* towards the open-hole value (1416 m/s here) as the
+    gap thickens is the physically right direction: a thick enough fluid
+    annulus decouples the formation, and the stack starts to look like an open
+    hole of the wider radius.
+    """
+    from fwap.cylindrical_solver import FluidAnnulus, stoneley_dispersion_microannulus
+
+    freq = np.array([8.0e3])
+    velocities = []
+    for thickness in (1.0e-4, 0.05, 0.15, 0.30):
+        mode = stoneley_dispersion_microannulus(
+            freq,
+            **_MA_FORMATION,
+            **_MA_FLUID,
+            a=_MA_A,
+            inner_layers=(_MA_CASING,),
+            annulus=FluidAnnulus(vf=1500.0, rho=1000.0, thickness=thickness),
+            outer_layers=(_MA_CEMENT,),
+        )
+        assert np.isfinite(mode.slowness[0])
+        velocities.append(float(1.0 / mode.slowness[0]))
+
+    assert velocities == sorted(velocities)
+    assert velocities[0] < 1390.0
+    assert 1410.0 < velocities[-1] < 1420.0
+
+    # Push it further and the window is refused outright rather than yielding
+    # a number: at 20 kHz the same 0.30 m gap leaves no representable stretch
+    # containing a root, so the scan skips every NaN and reports NaN. That is
+    # the required direction of failure -- this module has twice shipped sign
+    # changes read across unrepresentable regions as roots.
+    refused = stoneley_dispersion_microannulus(
+        np.array([2.0e4]),
+        **_MA_FORMATION,
+        **_MA_FLUID,
+        a=_MA_A,
+        inner_layers=(_MA_CASING,),
+        annulus=FluidAnnulus(vf=1500.0, rho=1000.0, thickness=0.30),
+        outer_layers=(_MA_CEMENT,),
+    )
+    assert np.isnan(refused.slowness[0])
