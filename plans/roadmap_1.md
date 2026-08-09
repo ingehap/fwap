@@ -1,7 +1,7 @@
 # What remains to be done
 
 A prioritised reading of the open items in `docs/roadmap.md`, current through
-PR #54. `docs/roadmap.md` stays the authoritative status file; this is a
+PR #57. `docs/roadmap.md` stays the authoritative status file; this is a
 snapshot of *priority and reasoning* at one point in time, so check it against
 the tree before acting on it.
 
@@ -13,19 +13,23 @@ their ordering, because only one kind can be worked on from a coding session.
 | # | Item | Kind | Blocked on |
 |---|------|------|-----------|
 | 1 | Leaky-mode root tracking (A.2 + G.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
-| 2 | A real full-waveform sonic gather (F) | sourcing | opening one candidate file — network access |
+| 2 | A real full-waveform sonic gather (F) | sourcing | fetching one **named** file from a host this sandbox cannot reach |
 | 3 | Digitised validation figures (A.1, second half) | sourcing | access to the books |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
 
-Items 2 and 3 cannot be closed by writing code, and this sandbox's egress
-reaches GitHub only, so neither can even be fetched from here. They are work for
-someone with a network and a library.
+Items 2 and 3 cannot be closed by writing code here. Note the qualifier: an
+earlier revision said this sandbox's egress "reaches GitHub only", which probing
+disproved — the AWS Open Data S3 buckets are reachable and downloads from them
+work. They simply do not host the files in question. The obstacle is which host
+serves a file, not a blanket network wall.
 
 **The headline, as of this revision: there is no longer a large piece of work a
-coding session can carry to completion unaided.** Item 1 was the candidate;
-attempting it moved the blocker from code to derivation. The bounded fallback
-that stood behind it has now been built and closed. What is left is one hard
-derivation and three things that need something this environment does not have.
+coding session can carry to completion unaided — but item 2 has shrunk a lot.**
+Item 1 was the large candidate, and attempting it moved the blocker from code to
+derivation; the bounded fallback behind it is built and closed. Item 2, however,
+went from "no such data is known to exist" to a named file, in a format the
+library already reads, under CC BY 4.0. That is now an errand rather than a
+research problem, and it is still the most valuable thing on this list.
 
 ## 1. Leaky-mode root tracking (A.2 + G.2)
 
@@ -160,14 +164,28 @@ of this file got wrong, and the corrections are worth not losing.
 - **A.2 re-diagnosed** (PR #51). Filed as cased-hole bracketing; measurement
   showed the open hole is equally sparse, relocating it into item 1.
 - **A.1 machinery** (PR #50). See item 3.
+- **Sonic-gather candidates found** (PRs #56, #57) — not closed, but item 2
+  moved further in these two than in anything before. Withdrew "no openly
+  redistributable gather is known to exist", then withdrew the replacement's own
+  error that Utah FORGE is "mirrored on AWS Open Data" (the reachable buckets
+  carry DAS and geophone data, not wireline logs). Two wrong claims in
+  succession on the same item is worth remembering when reading the rest of
+  this file: statements about what does *not* exist are the ones that age worst.
 
 ## Recommendation
 
-Nothing here can be finished from a coding session alone. Ranked by value rather
-than by feasibility, items 2 and 3 dominate everything else and should be queued
-for whoever has the books and a network; item 1 needs a derivation before any
-code is worth writing; item 4 waits on a release.
+**Do item 2, and do it first.** It is the highest-value item on the list and it
+is now the cheapest: fetch the Utah FORGE dipole sonic DLIS from
+`gdr.openei.org`, open it, confirm it carries per-receiver waveforms rather than
+processed slowness curves, then compute a SHA-256 and add one `RealDataset`
+entry. Everything downstream of it — every quantitative claim in the repository,
+`sonic_ml`'s headline included — is currently measured against the same forward
+model that generated the training data. One real gather changes what those
+numbers mean.
 
-If work continues here regardless, the honest options are small: more tests
-against existing behaviour, or documentation. Both are worth less than the
-sourcing work, and this file should not pretend otherwise.
+After that, item 3 (the digitised figures) for whoever has the books; item 1
+needs a derivation before any code is worth writing; item 4 waits on a release.
+
+If work continues in this environment regardless, the honest options are small:
+more tests against existing behaviour, or documentation. Both are worth much
+less than fetching one file, and this file should not pretend otherwise.
