@@ -885,9 +885,26 @@ def pseudo_rayleigh_dispersion(
                          {2 \pi a \sqrt{V_S^2 - V_f^2}}
 
     where ``j_{1,1} \approx 3.832`` is the first positive zero of
-    :math:`J_1`. This rigid-pipe-limit estimate is exposed as
-    :data:`_J1_FIRST_ZERO` for callers that want to guard against
-    requesting frequencies below the cutoff explicitly.
+    :math:`J_1`, exposed as :data:`_J1_FIRST_ZERO`.
+
+    **Do not use that estimate as a guard on the requested frequency
+    band.** It is a rigid-pipe limit, and a compliant elastic wall
+    admits the mode well below it: at ``V_S = 2600``, ``V_f = 1500``,
+    ``a = 0.10`` the formula gives 11.2 kHz while this routine
+    converges down to about 4.1 kHz, so guarding with it would throw
+    away a valid band nearly 3 kHz wide. What the estimate *does*
+    capture is the geometry --- the measured cutoff scales as
+    :math:`1/a` exactly as the formula says, to about 1 part in 300
+    over a 3.3x range of radius, which is what
+    ``tests/test_cylindrical_solver.py`` pins.
+
+    The offset is not a universal constant that could simply be
+    folded in: it varies strongly with formation velocity, and for
+    some parameter combinations the marcher's termination frequency
+    is not a stable quantity at all (a 1 % change in ``vp`` moved it
+    by 20 % in one measured case). Treat the returned ``NaN``
+    boundary as this implementation's convergence limit rather than
+    as a physical cutoff.
 
     See Also
     --------

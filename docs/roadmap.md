@@ -261,6 +261,20 @@ essentially complete -- plan items A through H in
    solver confirming itself, and it is the part of A.1 that was
    reachable without the books.
 
+   *A second analytic check, and a correction it produced.* The
+   rigid-pipe pseudo-Rayleigh cutoff formula had sat in `_leaky.py`
+   unchecked, with a docstring recommending it as a guard on the
+   requested frequency band. Comparing it against the solver splits
+   in two: the geometric `1/a` scaling is reproduced to about 1 part
+   in 300 over a 3.3x range of radius (pinned by a test, and enough
+   to catch a radius/diameter confusion), but as an *absolute*
+   cutoff it overshoots by ~2.8x, so the documented use would have
+   discarded a valid band. The docstring is corrected. The offset is
+   not a constant that could be folded in --- it varies strongly with
+   formation velocity, and for some parameter sets the marcher's
+   termination frequency is not stable at all, which is now recorded
+   as a caveat on reading the `NaN` boundary as physics.
+
    *The machinery is done.* `fwap.validation` scores an fwap curve
    against a digitised reference and the notebook asserts a 5 % RMS
    budget per curve, verified to fail on a 12 %-perturbed reference.
