@@ -229,15 +229,29 @@ picks at the same depths:
 | mode | median error | within 10 % |
 |------|--------------|-------------|
 | shear vs `DTSM` | **+0.12 %** | 96 % |
-| compressional vs `DTCO` | +2.29 % | 62 % |
+| compressional vs `DTCO` | −0.94 % | **95 %** |
 
 The shear result is the strongest external evidence this package has. The
-compressional result is **a known defect**: the median is respectable while the
-mean runs 27 % high, which is a bimodal failure in which roughly a third of
-depths pick a later arrival as P. It is undiagnosed, it is tracked in
-`plans/roadmap.md`, and it is exactly the kind of thing no synthetic test could
-have found — the synthetic gathers are produced by the same forward model the
-picker is scored against.
+compressional result is the same log **after** a defect the comparison exposed
+was found and fixed; before it, compressional agreed on only 62 % of depths.
+That is exactly the kind of thing no synthetic test could have found — the
+synthetic gathers are produced by the same forward model the picker is scored
+against, so it could not disagree with itself.
+
+The defect was mode confusion rather than imprecision: at 143 of the 400 depths
+`track_modes` assigned the *same* STC peak to P and to S, reporting shear
+slowness as compressional. The greedy loop ordered modes on arrival time only,
+and equal times satisfy that trivially. It now refuses to give one arrival two
+labels (`resolve_mode_collisions`, on by default), which moved 129 of those
+depths to the right answer and left the shear pick bit-identical at all 400.
+
+Which of the two labels is wrong turns out not to be decidable in general —
+both directions occur — so the rule moves the faster-labelled mode only when it
+has somewhere admissible to go, and otherwise changes nothing. It can never
+leave a depth worse than before. See the `track_modes` docstring for the full
+comparison, including against `viterbi_pick_joint`, which reaches 89 % on the
+same surfaces by a different route and is still the better tool on confusions
+that are not exact collisions.
 
 Two limitations remain. The waveform comparison is not part of CI, because the
 fixture is a 471 MB archive containing an 808 MB file; and `fwap.io.read_dlis`

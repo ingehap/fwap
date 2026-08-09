@@ -578,7 +578,11 @@ def lwd_quadrupole_priors() -> dict[str, dict[str, float]]:
     is therefore picked first (``order=0``) with
     ``FormationShear`` after it (``order=1``). On fast-formation
     records that ordering can be reversed; pass a custom priors
-    dict in that regime.
+    dict in that regime. Note that the pickers also refuse to give
+    one arrival two labels (see ``resolve_mode_collisions`` in
+    :func:`fwap.picker.pick_modes`), so a fast-formation record whose
+    collar and formation-shear picks land on the same peak has the
+    collar pick moved to a faster candidate where one exists.
 
     Note
     ----
