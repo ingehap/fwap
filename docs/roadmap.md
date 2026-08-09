@@ -301,6 +301,44 @@ essentially complete -- plan items A through H in
    item G.2 needs, so the two should be planned together rather than
    as separate efforts.
 
+   **Attempted, and it is not a wiring job.** The complex-plane
+   machinery already exists and is proven for `n=0`
+   (`_track_complex_root`, `_march_complex_dispersion`,
+   `pseudo_rayleigh_dispersion`), so the obvious move is to point it
+   at the `n=1` determinant. Three approaches were tried and all
+   fail, which is worth recording so the next attempt starts further
+   along:
+
+   1. *Continuation from high frequency.* Reproduces the real-axis
+      branch to floating-point noise (`Im(k_z) ~ 1e-16`) and then
+      stops exactly at the cutoff. The step never leaves the real
+      axis, so it cannot follow a root that does.
+   2. *Fresh leaky-S seeding below the cutoff* (the trick the `n=0`
+      code uses: seed above `V_S` with a positive imaginary part).
+      Converges only sporadically and to incoherent values --- phase
+      velocity jumping 2681, 2918, 2789 m/s at 6, 4, 3 kHz with
+      attenuations of order 0.6 Np/m. These are numerical artefacts
+      of the Hankel formulation, not a branch.
+   3. *Strict fine-step continuation from the cutoff* with an
+      imaginary nudge. The nudged seed converges back onto the real
+      axis, and the first step below the cutoff fails outright.
+
+   A fourth observation constrains any future attempt: even *above*
+   the cutoff, continuation across 1 kHz steps can hop to a
+   different root (one below the formation Rayleigh speed), so the
+   leaky extension needs the validated marcher's regime checks
+   rather than the bare tracker.
+
+   What is missing is not code but a derivation: which Riemann sheet
+   the `n=1` pole occupies below the cutoff, and a determinant
+   formulated consistently on it. Note also the possibility that
+   there is simply no leaky continuation to find --- that the
+   fast-formation flexural mode exists only above its cutoff and the
+   low-frequency dipole energy travels as a shear head wave instead.
+   Distinguishing those two cases is exactly what Schmitt 1988 fig 4
+   would settle, which puts this item behind the same literature
+   access A.1 needs.
+
    Scale of the consequence, measured over the generator's own cased
    priors (50 draws): fast formations average **28 %** band coverage
    with 5/47 fully converged, while slow formations converge fully

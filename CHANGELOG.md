@@ -7,6 +7,33 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Leaky-mode root tracking for `n=1` attempted; recorded as blocked on a
+  derivation rather than on code.** The complex-plane machinery already exists
+  and is proven for `n=0` (`_track_complex_root`,
+  `_march_complex_dispersion`, `pseudo_rayleigh_dispersion`), so extending it to
+  the `n=1` cased determinant looks like wiring. It is not. Three approaches all
+  fail, and each is now written down so the next attempt starts further along:
+  continuation from high frequency reproduces the real-axis branch to
+  floating-point noise (`Im(k_z) ~ 1e-16`) and then stops exactly at the cutoff;
+  fresh leaky-S seeding below the cutoff converges only sporadically and to
+  incoherent values (phase velocity 2681/2918/2789 m/s at 6/4/3 kHz, attenuation
+  ~0.6 Np/m — artefacts of the Hankel formulation, not a branch); and strict
+  fine-step continuation from the cutoff has its nudged seed fall back onto the
+  real axis and then fails on the first step below.
+  A fourth observation constrains any future attempt: even *above* the cutoff,
+  continuation across 1 kHz steps can hop to a root below the formation Rayleigh
+  speed, so the extension needs the validated marcher's regime checks rather
+  than the bare tracker. A new test pins the composition that does hold —
+  seeded at each frequency, the complex tracker and the `n=1` cased determinant
+  reproduce the real-axis solver to 1e-6 — which is the prerequisite any leaky
+  work would build on.
+  No leaky `n=1` API is shipped, deliberately. The roots found below the cutoff
+  are not physical, and publishing them would produce numbers that look like
+  dispersion data and are not. What is missing is which Riemann sheet the `n=1`
+  pole occupies below the cutoff — and possibly there is no pole at all, the
+  mode existing only above its cutoff with the low-frequency dipole energy
+  travelling as a shear head wave. Schmitt 1988 fig 4 would settle it, which
+  puts this behind the same literature access A.1 needs.
 - **Roadmap A.2 re-diagnosed: the cased flexural sparsity is not a cased-hole
   problem.** The item was filed as layered-solver bracketing — "root-finding
   stays sparse for a typical casing + cement stack" — and measuring it says

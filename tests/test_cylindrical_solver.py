@@ -13672,3 +13672,58 @@ def test_converged_fast_formation_points_sit_below_the_shear_velocity():
     assert np.all(velocity > v_rayleigh)
     # and it is dispersive downward with frequency, not a flat artefact
     assert velocity[-1] < velocity[0]
+
+
+def test_complex_marcher_reproduces_the_real_cased_flexural_branch():
+    """The complex root tracker and the n=1 cased determinant compose.
+
+    Above the cutoff the cased flexural root is real, so marching it in the
+    complex plane must return the same curve the real-axis solver finds,
+    with an imaginary part at the level of floating-point noise. That is a
+    prerequisite for any future leaky-mode work on this determinant --- if
+    the marcher could not reproduce the part of the branch that is already
+    known, its results below the cutoff would not be trustworthy either.
+
+    Each frequency is seeded from the known root at that frequency rather
+    than by continuation from the previous one. That is deliberate: with
+    1 kHz steps, continuation seeding hops to a different branch (a root
+    below the formation Rayleigh speed), which is one of the reasons the
+    leaky extension needs the validated marcher's regime checks rather
+    than the bare tracker.
+
+    It is deliberately *not* a claim that the branch continues below the
+    cutoff; see the roadmap for why that remains open.
+    """
+    from fwap.cylindrical_solver._cased import _modal_determinant_n1_cased_complex
+    from fwap.cylindrical_solver._leaky import (
+        _detect_leaky_branches,
+        _track_complex_root,
+    )
+
+    def det(kz: complex, omega: float) -> complex:
+        _, leaky_p, leaky_s = _detect_leaky_branches(
+            kz, omega, _A2_FAST["vp"], _A2_FAST["vs"], _A2_BOREHOLE["vf"]
+        )
+        return _modal_determinant_n1_cased_complex(
+            kz,
+            omega,
+            **_A2_FAST,
+            **_A2_BOREHOLE,
+            layers=(_A2_CASING, _A2_CEMENT),
+            leaky_p=leaky_p,
+            leaky_s=leaky_s,
+        )
+
+    frequencies = np.array([12000.0, 11000.0, 10000.0, 9000.0])
+    reference = flexural_dispersion_layered(
+        frequencies, **_A2_FAST, **_A2_BOREHOLE, layers=(_A2_CASING, _A2_CEMENT)
+    )
+    assert np.all(np.isfinite(reference.slowness))
+
+    for frequency, expected in zip(frequencies, reference.slowness, strict=True):
+        omega = 2.0 * np.pi * float(frequency)
+        seed = complex(expected * omega, 0.0)
+        root = _track_complex_root(lambda kz, w=omega: det(kz, w), seed)
+        assert root is not None
+        assert abs(root.imag) < 1.0e-9 * abs(root.real)
+        assert root.real / omega == pytest.approx(expected, rel=1e-6)
