@@ -249,3 +249,117 @@ Kept so they are not re-derived and re-believed.
   DAS, geophone, CASSM and magnetotelluric data, no wireline logs (PR #57).
 * **Padded-stack error "14 %"** — holds on this machine at one thickness only;
   CI gives 7.5 % at a different thickness and a factor of four elsewhere.
+
+## Kramers-Kronig (this change)
+
+**Modal solver: KK does not apply.** Bound Stoneley mode, 2600/1300/2300,
+V_f=1500, a=0.10. `attenuation_per_meter` is `None` (identically lossless) and
+the phase velocity still moves 8.26 %:
+
+| f (Hz) | c (m/s) |
+|---|---|
+| 1 | 1193.769 |
+| 100 | 1193.105 |
+| 1e3 | 1176.560 |
+| 5e3 | 1135.455 |
+| 1e4 | 1115.911 |
+| 5e4 | 1097.746 |
+| 2e5 | 1095.462 |
+| 4e5 | 1095.144 |
+
+Tube-wave limit 1193.769, Scholte limit 1094.846 — both matched by the ends of
+the curve. Zero attenuation with non-zero dispersion is incompatible with a
+subtracted KK relation on modal slowness. **Asserted by a test.**
+
+**Attenuation module: the test synthetic is acausal.** Pre-arrival energy
+fraction at the farthest receiver, measured 3 source periods before the
+geometric arrival:
+
+| model | pre-arrival energy fraction |
+|---|---|
+| amplitude-only (what `_attenuated_gather` uses) | 1.482e-07 |
+| Kolsky phase, wrong sign (first attempt) | 8.429e-07 |
+| Kolsky phase, correct sign | 4.924e-12 |
+
+The middle row is how the sign error was caught — it moved the number in the
+wrong direction. **Asserted by a test** (the ratio between rows 1 and 3).
+
+Recovered Q on the two gathers, planted Q = 50:
+
+| model | centroid Q | spectral-ratio Q |
+|---|---|---|
+| acausal (existing tests) | 62.159 | 117.452 |
+| causal (Kolsky-Futterman) | 40.818 | 80.591 |
+
+Both estimators read `|S(f)|` only, so the difference arrives entirely through
+the time window, which dispersion reshapes. Both look *better* on the physical
+signal. **Asserted by tests** (bands, and that the two differ by >10 %).
+
+***Withdrawn:*** an earlier run of this table with the anti-causal sign gave
+centroid 140.053 and spectral-ratio 223.657, and would have supported a
+"causality doubles the recovered Q" claim. Both numbers are wrong.
+
+## Session note: the reply this log was asked to preserve
+
+Recorded verbatim in substance, because two of its four claims are corrections
+to earlier statements made in the same session and the pattern is the point.
+
+> Everything green. **PR #66**: all four CI checks pass; full local gate
+> **1083 passed, 96.65 % coverage**.
+>
+> Both tasks landed:
+>
+> **1. Reflections on choosing what to measure** — in `plans/learning.md`,
+> specific and general. The specific part is six questions ordered by what has
+> actually produced findings here. The general part is a single test: *what
+> would have to be true of the world, rather than of the program, for this to
+> come out right?* If the answer is "nothing in particular", it's a tautology
+> however elaborate — which is precisely what killed the fluid-only energy
+> balance and what marked biorthogonality as worth attempting.
+>
+> **2. Modal biorthogonality works** — off-diagonals vanish to ~1e-13 across
+> four coexisting bound n=0 modes while the diagonal stays O(1). The survey's
+> prediction held: it's the first check here that needs two independently
+> computed solutions, so it can't be satisfied by construction. Three tests,
+> including one asserting the *wrong* bilinear form fails at 1e-2, which makes
+> the tolerance evidence rather than a fitted constant.
+>
+> Two corrections to things I said in this exchange, both from measuring rather
+> than assuming:
+>
+> - I said the new tests "added ~65 s" to the solver suite. **Wrong** — I took
+>   that timing while a full suite was running in the background on the same
+>   machine. The file runs in 31 s and my new tests account for ~10 s. No
+>   optimisation needed.
+> - Before that, I guessed the cost was the root-scan. Also wrong — the scan is
+>   0.1 s. `--durations` found the real distribution in one shot.
+>
+> Both are small, but they're the same error the document now warns about:
+> quoting a number without asking whether it's a property of the system or of
+> the run.
+>
+> Tally: eight candidates → five working oracles, one vacuous, two transplant
+> failures. Kramers-Kronig is the one remaining candidate the "needs more than
+> one solution" criterion endorses; the trapped pseudo-Rayleigh modes surfaced
+> here are also unexposed by any public function, which may be worth its own
+> item.
+
+### The timing numbers, since they are the corrected ones
+
+`tests/test_cylindrical_solver.py`, 433 tests, run alone on an otherwise idle
+machine: **31.33 s**. Slowest entries:
+
+| test | duration |
+|---|---|
+| `test_n1_n2_cutoffs_are_shear_controlled_not_fluid_controlled` | 4.41 s |
+| `test_leaky_root_enumeration_count_is_insensitive_to_scan_density` | 4.01 s |
+| `test_n1_n2_cutoffs_scale_inversely_with_borehole_radius` | 3.99 s |
+| `test_pseudo_rayleigh_cutoff_scales_inversely_with_borehole_radius` | 2.98 s |
+| `test_pseudo_rayleigh_does_not_depend_on_the_grid_top_frequency` | 1.92 s |
+| `test_biorthogonality_check_rejects_the_wrong_bilinear_form` | 1.50 s |
+
+The discarded 88.64 s reading for the same file was taken while a full
+`pytest --cov` run occupied the machine. The bound-root scan, which was the
+first suspect, costs 0.10 s at 3000 points and finds the same 4 roots at 400.
+**Both wrong numbers came from reasoning about the cost instead of profiling
+it; `--durations` settled it in one run.**

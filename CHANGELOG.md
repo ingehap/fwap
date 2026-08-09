@@ -7,6 +7,35 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Kramers-Kronig checked; it does not apply to the modal solver, and the
+  place it does apply is the attenuation module's test synthetic.** The
+  candidate was listed on the grounds that KK relates `Re(k_z)` and `Im(k_z)`
+  across frequencies and so cannot be satisfied by a single root. One line of
+  data disproves it for modal dispersion: a subtracted KK relation says zero
+  attenuation at every frequency forces zero dispersion, and the bound Stoneley
+  mode is exactly lossless (`attenuation_per_meter is None`) while its phase
+  velocity moves **8.26 %** between the tube-wave and Scholte limits. KK follows
+  from causality of the *constitutive* relation; waveguide dispersion is
+  geometric, and a lossless hollow waveguide is dispersive for the same reason.
+- **The attenuation tests' synthetic gather is acausal, and a causal
+  counterpart is now covered alongside it.** `_attenuated_gather` multiplies the
+  spectrum by `exp(-pi f t / Q)` and leaves the phase alone; constant-Q
+  amplitude loss without the Kolsky-Futterman velocity dispersion violates KK,
+  and the result carries energy arriving before the geometric arrival —
+  pre-arrival energy fraction 1.5e-7, against 4.9e-12 for the causal version.
+  This is **not a bug**: both estimators read `|S(f)|` only, so the missing
+  phase cannot bias them directly. But they window in time, and dispersion
+  reshapes the waveform inside the window, so the route is real. On the causal
+  gather the centroid estimate moves from 62 to 41 against a planted Q of 50 and
+  the spectral-ratio estimate from 117 to 81 — both *closer* to truth, so the
+  existing tests understate the estimators rather than flattering them. Four new
+  tests cover the causal case, including one asserting the two gathers differ in
+  causality and one asserting they give materially different Q.
+  The dispersion sign was wrong on the first attempt, which makes the signal
+  more acausal rather than less and produced a spurious "causality doubles the
+  recovered Q" result. It was caught by measuring pre-arrival energy rather than
+  re-deriving the algebra; both the wrong numbers and the method that caught
+  them are recorded in `plans/log_output.md`.
 - **Modal biorthogonality checked; it holds to ~1e-13 and is the first oracle
   here that needs two solutions at once.** The conservation-law survey predicted
   this one would work, on the criterion that a check evaluated on a single mode

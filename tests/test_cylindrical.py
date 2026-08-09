@@ -749,3 +749,40 @@ def test_tube_wave_validity_floor_predicts_where_the_solver_stops_converging():
     freq = np.array([1.0, 10.0, 100.0])
     assert not np.any(np.isfinite(stoneley_dispersion(freq, **below).slowness))
     assert np.all(np.isfinite(stoneley_dispersion(freq, **above).slowness))
+
+
+def test_modal_dispersion_is_not_kramers_kronig_constrained():
+    """Waveguide dispersion is geometric, so no causality relation ties it.
+
+    Recorded because `plans/learning.md` listed Kramers-Kronig as a promising
+    remaining oracle for the modal solver, on the grounds that it relates
+    ``Re(k_z)`` and ``Im(k_z)`` across frequencies and so cannot be satisfied
+    by a single root. That is true of a *material* response and false here.
+
+    The disproof is one line of data. A subtracted Kramers-Kronig relation on
+    the complex slowness says that zero attenuation at every frequency forces
+    zero dispersion -- the dispersion integral has an identically zero
+    integrand. The bound Stoneley mode is exactly lossless: the solver returns
+    no attenuation field at all for it. If it were also KK-constrained its
+    phase velocity would have to be constant. It varies by more than 8 %
+    between the tube-wave and Scholte limits.
+
+    The physics: Kramers-Kronig follows from causality of the *constitutive*
+    relation. Here the medium is perfectly elastic and non-dispersive, and all
+    of the frequency dependence comes from the boundary conditions. A hollow
+    metallic waveguide is the textbook version of the same point -- strongly
+    dispersive with lossless walls.
+    """
+    from fwap import stoneley_dispersion
+
+    medium = dict(vp=2600.0, vs=1300.0, rho=2300.0, **_TUBE_BRINE, a=0.10)
+    freq = np.array([1.0, 1.0e3, 1.0e4, 4.0e5])
+    mode = stoneley_dispersion(freq, **medium)
+
+    # Lossless: no attenuation anywhere, not merely small.
+    assert mode.attenuation_per_meter is None
+
+    # ...and dispersive all the same.
+    speeds = 1.0 / mode.slowness
+    assert np.all(np.isfinite(speeds))
+    assert abs(speeds[-1] / speeds[0] - 1.0) > 0.05, speeds

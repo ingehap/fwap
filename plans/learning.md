@@ -436,12 +436,8 @@ something the single mode does not already contain:
   involves two eigenvectors, so it cannot be satisfied by construction from
   one of them, and it fails if either is wrong. This is the strongest
   remaining conservation-flavoured candidate.
-- **Causality (Kramers-Kronig).** `k_z(omega)` for a causal medium ties the
-  frequency dependence of `Re(k_z)` to that of `Im(k_z)` non-locally. It
-  relates the solver's output *across* frequencies rather than at one, so
-  nothing about a single root can satisfy it automatically. Harder to set up,
-  and the dispersion relation needs care about branch structure, but it is a
-  genuine constraint rather than an identity.
+- **Causality (Kramers-Kronig) — attempted; it does not apply to the modal
+  solver, and where it does apply is somewhere else entirely.** See below.
 
 Note what both survivors have in common: they involve more than one solution.
 Any law evaluated on a single mode in a region where that mode already
@@ -605,6 +601,63 @@ spends its error budget there. Fixed-node Gauss-Legendre over a modest span
 gives 1e-13. **When a residual moves the wrong way as you refine, the
 refinement parameter is the bug.**
 
+## Attempted: Kramers-Kronig — wrong target, but it found something next door
+
+Listed as the other candidate the "needs more than one solution" criterion
+endorsed, on the grounds that Kramers-Kronig relates `Re(k_z)` and `Im(k_z)`
+across frequencies and so cannot be satisfied by a single root. The criterion
+was right; the target was wrong.
+
+**One line of data disproves it.** A subtracted Kramers-Kronig relation on
+complex slowness says zero attenuation at every frequency forces zero
+dispersion — the dispersion integrand vanishes identically. The bound Stoneley
+mode is exactly lossless: the solver returns no attenuation field for it at
+all. Its phase velocity nevertheless moves **8.26 %** across the band, from the
+tube-wave limit to the Scholte speed. If modal slowness were KK-constrained
+that would be impossible.
+
+The physics is not subtle in hindsight. Kramers-Kronig follows from causality
+of the **constitutive relation** — a frequency-dependent modulus. Here the
+medium is perfectly elastic and non-dispersive, and every bit of the frequency
+dependence comes from the boundary conditions. Waveguide dispersion is
+*geometric*. A hollow metallic waveguide is the textbook case: strongly
+dispersive with perfectly lossless walls, and nobody expects KK to constrain
+its cutoff. **This is the transplant failure again — a check carried from
+material response to geometric dispersion, which is a boundary its mechanism
+does not cross.** Three of nine candidates have now died of that, and it is
+worth noticing that "needs more than one solution" is necessary but not
+sufficient: it screens out tautologies, not misapplications.
+
+**Where Kramers-Kronig does bite here.** Not the modal solver — the attenuation
+module, and not as an oracle for the code but as a correction to how it is
+tested. `tests/test_attenuation.py` builds its gather by multiplying the
+spectrum by `exp(-pi f t / Q)` and leaving the phase untouched. That waveform
+is acausal: constant-Q amplitude loss without the accompanying Kolsky-Futterman
+velocity dispersion violates KK, and the result carries energy arriving *before*
+the geometric arrival — measured at a pre-arrival energy fraction of 1.5e-7,
+against 4.9e-12 for the causal counterpart.
+
+It is not a bug. Both estimators read `|S(f)|` only, so the missing phase
+cannot bias them directly. But they *window in time*, and dispersion reshapes
+the waveform inside the window, so the route is real: on the causal gather the
+centroid estimate moves from 62 to 41 against a planted Q of 50, and the
+spectral-ratio estimate from 117 to 81. Both estimators look **better** on the
+physical signal than on the one the tests use — so the existing accuracy claims
+understate them rather than flattering them, which is the benign direction but
+still not what the tests say they are measuring. Four tests now cover the
+causal case alongside the original.
+
+**And the sign was wrong on the first attempt.** The Kolsky phase applied with
+the opposite sign makes high frequencies arrive *later*, which is the
+anti-causal direction; it raised pre-arrival energy from 1.5e-7 to 8.4e-7 and
+produced a spurious "causality doubles the recovered Q" result that was one
+step from being written up. What caught it was refusing to settle the sign by
+algebra and instead **measuring the property the sign is supposed to produce** —
+pre-arrival energy. The general form of that rule is already in this document
+(validate machinery you built before attributing its bugs to the code under
+test); this is the second time it has paid, and the second time the tell was a
+number moving in the wrong direction.
+
 ## Candidate oracles not yet attempted
 
 Kept concrete so the next session does not have to re-derive the list. Whether
@@ -615,10 +668,12 @@ does not cross (layer order, and the n=1/n=2 cutoffs) — one of those had a
 working replacement nearby, the other did not. All three misses were caught by
 measuring and none was obvious from the armchair.
 
-The survey above earned its keep: it predicted which of the remaining
-conservation-flavoured candidates would work, on the criterion that a check
-needs more than one solution, and biorthogonality then did. That leaves
-Kramers-Kronig as the other candidate the same criterion endorses.
+The survey above earned its keep once and misfired once. Its criterion — a
+check needs more than one solution — correctly predicted biorthogonality would
+work. It also endorsed Kramers-Kronig, which turned out not to apply to the
+modal solver at all, because the criterion screens for tautology and not for
+misapplication. Both filters are needed: *does this need more than one
+solution?* and *does the mechanism that makes it true survive the move?*
 
 Add one screening step before starting any of them, learned the hard way on the
 tube-wave check: **grep the implementation for the formula first.** If the
