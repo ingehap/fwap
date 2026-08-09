@@ -25,17 +25,17 @@ rather than by planning.
 | ~~2b~~ | ~~A waveform path in `read_dlis` (F.3)~~ | **closed** | — |
 | ~~5a~~ | ~~The debonded dataset generator, baseline and inverse (G.2)~~ | **closed** | — |
 | ~~6~~ | ~~The debond inverse in `sonic_ml.bench` (G.6)~~ | **closed** | — |
+| ~~2d~~ | ~~The ODP file's offsets and its 950-A/952A header (F.5)~~ | **closed** | — |
 | 1b | Leaky-mode root tracking, n=1 (A.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
 | 2c | A waveform fixture CI can fetch (F.2) | **a licence check, then wiring** | ODP 952A is in hand at 1.55 MB; its terms are unstated |
-| 2d | The ODP file's offsets and its 950-A/952A header (F.5) | sourcing | the SDT tool spec; nothing in the files settles it |
 | 3 | Digitised validation figures (A.1, curve shapes) | sourcing | access to the books |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
 
 **The shape has changed since the last revision, and mostly by closing.** G.2
 is finished end to end — generator, closed-form baseline at 18.1 % in gap
 width, learned residual inverse at 2.5 % held-out — and F.3 and G.6 are
-finished with it. What that leaves is one licence question (2c) and one
-sourcing question (2d) ahead of the two long-standing sourcing rows.
+finished with it, and F.5 with them. What that leaves is a single licence
+question (2c) ahead of the two long-standing sourcing rows.
 
 Item 6 is worth a line on the way out, because it was filed as ordinary wiring
 and did not behave like it. Scoring the closed form through the harness split
@@ -486,11 +486,23 @@ the 0.12 % shear result, the 95 % compressional result and the picker fix that
 produced the latter stay one-off measurements in a changelog rather than
 anything CI defends. Every other open row is smaller than this one.
 
-A note on 2d that is easy to under-rate. The ODP file's receiver offsets are
-recorded nowhere in it, and its well header names a *different hole* than the
-archive does. Neither stops the waveforms being read, and both stop a registry
-entry from honestly claiming to know what it holds — which is the difference
-between a fixture and a file.
+Item 2d is closed, and how it closed is the more useful part. It had been
+filed as sourcing — "the offsets need the SDT tool spec; nothing in the files
+settles the 950-A header" — and both halves of that were wrong in the same
+way. The hole identity was settled by a table sitting *inside the archive*,
+which matched all six logging runs by name and depth interval; the offsets
+were settled by picking first breaks on the waveforms and finding the
+signature the tool specification predicts, two of four paths coinciding and an
+intercept of −0.0 µs. Neither needed anything the project did not already
+have.
+
+The pattern is worth naming because it is cheap to repeat: **"I do not know
+this" had been written down as "the file does not say this."** They are
+different claims, and the second one is a research result that needs the
+archive read to the end before it can be made. Every unknown filed against an
+artefact deserves one pass of *have I actually opened all of it* before it
+becomes a roadmap row — and where a specification supplies a number, the
+question stops being sourcing and becomes whether the data agrees with it.
 
 The previous revision of this file recommended item 2, on the grounds that
 everything in the repository was measured against the forward model that
