@@ -242,13 +242,36 @@ essentially complete -- plan items A through H in
 
 **What is actually still open here** is narrow:
 
-1. **Validation-figure coverage** (plan item I, marked partial). The
-   validation notebook checks the solver against published oracle
-   values, but not yet against every figure in the reference set
-   (Paillet & Cheng 1991 Fig. 4.5; Schmitt 1988 Fig. 4; Tang & Cheng
-   2004 Fig. 3.4). Extending it is bounded, unglamorous work with
-   real payoff: these are the only checks that tie the solver to
-   literature rather than to itself.
+1. **Validation-figure coverage** (plan item I, marked partial).
+   These are the only checks that tie the solver to literature rather
+   than to itself, and the item splits cleanly in two.
+
+   *The machinery is done.* `fwap.validation` scores an fwap curve
+   against a digitised reference and the notebook asserts a 5 % RMS
+   budget per curve, verified to fail on a 12 %-perturbed reference.
+   Most of that module is input validation, because hand-tracing a
+   printed figure fails in a handful of ways that all produce
+   plausible files (µs/ft read as s/m, a velocity axis traced as a
+   slowness one, kHz left unconverted); each is refused with a named
+   diagnosis, and units are never silently rescaled, since a
+   reference adjusted to fit would agree with a wrong solver too.
+
+   *The data is not, and cannot be from here.* No reference CSV is
+   shipped, so the notebook currently validates nothing against
+   literature — its closing cell says so rather than letting green
+   plots imply otherwise. The remaining work is digitising three
+   figures (Paillet & Cheng 1991 fig 4.5; Schmitt 1988 fig 4; Tang &
+   Cheng 2004 figs 3.7/3.10, 7.1; Schmitt 1989 fig 5), which needs
+   the published figures themselves. This repository's sandbox
+   permits egress to GitHub only, so obtaining them is a task for a
+   human with the books, not a coding session. Once a CSV lands in
+   `docs/notebooks/_data/` under the documented name, no code changes:
+   the section scores and gates automatically.
+
+   Note the figure numbering: this list previously cited "Tang &
+   Cheng 2004 Fig. 3.4", which does not match the notebook's sections
+   (figs 3.7 and 3.10 for quadrupole, 7.1 for cased Stoneley). The
+   notebook is the accurate list.
 2. **Cased flexural bracketing.** The layered n=1 solver no longer
    refuses fast formations, but its root-finding stays sparse for a
    typical casing + cement stack (only a few frequencies converge).

@@ -26,3 +26,4 @@ book.
    fwap.synthetic
    fwap.io
    fwap.plotting
+   fwap.validation

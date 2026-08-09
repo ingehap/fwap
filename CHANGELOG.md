@@ -7,6 +7,31 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`fwap.validation`: scoring dispersion curves against digitised reference
+  figures** (roadmap A.1, the machinery half). The validation notebook had five
+  sections that plotted an fwap curve and described a 5 % RMS gate in prose;
+  the gate did not exist, and the `OVERLAY_AVAILABLE` flag its documentation
+  referred to was never implemented. Now `load_reference_curve` /
+  `score_against_reference` / `format_overlay_score` do the comparison, and each
+  notebook section calls `check_overlay(...)`, which prints an RMS verdict and
+  **asserts** the budget. Verified in both directions: with a reference the
+  notebook passes, and with that reference perturbed 12 % it fails with
+  `FAIL ... RMS 10.71% (budget 5.0%)`.
+  Most of the module is input validation, because the reference data is
+  hand-traced out of printed figures and every likely mistake produces a
+  plausible-looking file. A slowness column in µs/ft or µs/m, a *velocity* axis
+  digitised in place of a slowness one, a frequency axis left in kHz, click-order
+  rows, duplicate frequencies — each is detected and refused with a message
+  naming the suspected error. Units are never converted on the caller's behalf:
+  a reference silently rescaled to fit would agree with a wrong solver as
+  readily as with a right one. `OverlayScore` also reports the worst single
+  point and the fraction of the figure actually compared, since an RMS over
+  three points of a forty-point curve is not the check it appears to be.
+  **No reference CSV is shipped**, so nothing in the notebook is yet validated
+  against literature — and its closing cell now says exactly that rather than
+  letting a page of green plots imply otherwise. Adding a figure is a drop-in:
+  put the CSV in `docs/notebooks/_data/` under the documented name, with no
+  code to edit. 23 tests.
 - **Bed-boundary-aware coupling for joint inversion**: `invert_joint` gains
   `penalty="tv"`, a pseudo-Huber roughness cost, alongside the existing
   squared-difference `"l2"`. The motivation is a defect the previous release

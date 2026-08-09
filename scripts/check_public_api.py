@@ -207,6 +207,13 @@ FROZEN_PUBLIC_API: tuple[str, ...] = (
     # Plotting
     "wiggle_plot",
     "save_figure",
+    # Validation against digitised reference figures
+    "ReferenceCurve",
+    "ReferenceDataError",
+    "load_reference_curve",
+    "OverlayScore",
+    "score_against_reference",
+    "format_overlay_score",
 )
 
 
