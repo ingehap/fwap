@@ -2,7 +2,7 @@
 
 A retrospective on the analytic cross-checks added to `fwap` between PRs #50
 and #64, written to change how the next batch of work is chosen. It is not a
-status file — `docs/roadmap_old.m` (the archived roadmap) is that, and
+status file — `plans/roadmap.md` is that, and
 `plans/roadmap_1.md` is the priority snapshot. This one is about *method*.
 
 ## The short version

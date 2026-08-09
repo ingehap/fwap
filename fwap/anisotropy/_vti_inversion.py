@@ -184,7 +184,7 @@ def vti_moduli_from_logs(
     measurements that a vertical-well sonic acquisition cannot
     provide. Walkaway-VSP or cross-well processing is the standard
     route; both are outside fwap's scope today and are flagged in
-    :file:`docs/roadmap_old.m`.
+    :file:`plans/roadmap.md`.
 
     Parameters
     ----------

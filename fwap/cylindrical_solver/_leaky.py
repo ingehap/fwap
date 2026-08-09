@@ -48,7 +48,7 @@ from fwap.cylindrical_solver._dataclasses import BoreholeMode, BranchSegment
 # generalise the n=0 modal determinant to accept complex ``k_z`` and
 # return a complex value. Phase L3 (the complex-``k_z`` root finder)
 # and phases L4-L6 (the three public-API leaky-mode functions) are
-# planned follow-ups; see ``docs/roadmap_old.m`` item A for the full
+# planned follow-ups; see ``plans/roadmap.md`` section A for the full
 # sequencing.
 
 # ---------------------------------------------------------------------

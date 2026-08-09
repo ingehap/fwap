@@ -1,22 +1,25 @@
 Roadmap
 =======
 
-An archived snapshot. The roadmap that used to live at
-:file:`docs/roadmap.md` has been renamed to :file:`docs/roadmap_old.m`,
-which is outside the Sphinx source suffixes and so is no longer parsed
-as a document in its own right. Its content is reproduced verbatim
-below.
+The roadmap has moved into the repository, at :file:`plans/roadmap.md`.
+It is no longer part of the built documentation.
 
-For the current reading of what is open and why, see
-:file:`plans/roadmap_1.md` in the repository.
+It used to live at :file:`docs/roadmap.md`, where it had grown to about
+a thousand lines of which the great majority described work that had
+already shipped. The still-open items have been merged into
+:file:`plans/roadmap.md` and the closed ones dropped, since
+:doc:`changelog` is the record of what shipped and when.
 
-.. note::
+Two companion files sit beside it, both also in the repository rather
+than in these docs:
 
-   Until the rename this stub never rendered: it shared a document name
-   with :file:`roadmap.md`, so Sphinx resolved ``roadmap`` to the
-   Markdown file and reported ``multiple files found for the document``
-   on every build. The page below is what the stub was always meant to
-   show.
+* :file:`plans/roadmap_1.md` --- a *prioritised* reading of the same
+  items, with the reasoning about what can and cannot be worked on
+  from a coding session. ``roadmap.md`` is status; ``roadmap_1.md`` is
+  priority.
+* :file:`plans/learning.md` --- method rather than status: what the
+  analytic-oracle programme taught about choosing the next piece of
+  work.
 
-.. literalinclude:: roadmap_old.m
-   :language: markdown
+For the speculative, not-yet-scoped list, see
+:doc:`possible_extensions`.

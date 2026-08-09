@@ -109,24 +109,32 @@ the project uses [Semantic Versioning](https://semver.org/).
   coverage runs.
 
 ### Changed
-- **`docs/roadmap.md` is renamed to `docs/roadmap_old.m`.** `.m` is outside the
-  Sphinx source suffixes, so the file is no longer parsed as a document in its
-  own right. Content is unchanged; this is a rename plus the reference updates
-  it forces.
-  A side effect is that `docs/roadmap.rst` starts working. It is a stub whose
-  stated job is to reproduce the roadmap, but it shared a document name with
-  `roadmap.md`, so Sphinx resolved `roadmap` to the Markdown file, ignored the
-  stub, and emitted `multiple files found for the document "roadmap"` on every
-  build. With the Markdown file out of the source set the stub is the sole
-  `roadmap` document and renders as intended. Measured against the build before
-  the rename: exactly one warning removed, none introduced.
-  Cross-references updated in `docs/possible_extensions.md`,
-  `plans/roadmap_1.md`, `plans/learning.md`, `plans/log_output.md`,
-  `.pre-commit-config.yaml`, `pyproject.toml` and four code comments
+- **`docs/roadmap.md` becomes `plans/roadmap.md`, carrying only the open
+  items.** The old file had grown to about a thousand lines of which the great
+  majority described work that had already shipped, so the open items were
+  merged into a new `plans/roadmap.md` and the closed ones dropped: the 0.4.0
+  release notes and three post-0.4.0 completeness sweeps, the closed A.3 / A.4
+  solver items, sections B / C / E in full, three closed `sonic_ml` items, and
+  the pre-implementation problem statements for two solvers that now ship.
+  Nothing is lost — `CHANGELOG.md` is the record of what shipped and when, the
+  deleted file is in git history, and the new file ends with a table mapping
+  each dropped section to where its detail lives.
+  What is kept is deliberately verbatim where it carries measured numbers, and
+  the section labels (`A.1`, `A.2`, `A.5`, `D`, `F`, `G`) are unchanged, because
+  code comments in `fwap/`, `scripts/` and `tests/` cite them.
+  `docs/roadmap.rst` becomes a short pointer page: the roadmap is no longer part
+  of the built documentation. That stub previously never rendered at all — it
+  shared a document name with `roadmap.md`, so Sphinx resolved `roadmap` to the
+  Markdown file, ignored the stub, and emitted `multiple files found for the
+  document "roadmap"` on every build. Measured against the build before this
+  change: exactly one warning removed, none introduced.
+  References repointed in `docs/possible_extensions.md`, `plans/roadmap_1.md`,
+  `plans/learning.md`, `plans/log_output.md`, `.pre-commit-config.yaml`,
+  `pyproject.toml` and four code comments
   (`fwap/cylindrical_solver/_leaky.py`, `fwap/anisotropy/_vti_inversion.py`,
   `scripts/gen_surrogate_dataset.py`, `tests/test_cylindrical_solver.py`).
   Historical `CHANGELOG.md` entries and the archived session notes in
-  `plans/log_output.md` keep the old path, since both record the tree as it
+  `plans/log_output.md` keep the old paths, since both record the tree as it
   stood at the time.
 - **The free-pipe / debonded item (roadmap G.2) is re-diagnosed and decoupled
   from the `n=1` leaky-mode work.** It had been filed behind that item on the

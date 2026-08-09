@@ -2,9 +2,10 @@
 
 Raw and near-raw outputs from the oracle work (PRs #59-#65 and the n=1/n=2
 cutoff investigation), kept so the numbers quoted in `plans/learning.md`,
-`plans/roadmap_1.md`, `docs/roadmap_old.m` and the changelog can be traced to
+`plans/roadmap.md`, `plans/roadmap_1.md` and the changelog can be traced to
 something. The session notes below are appended verbatim and quote the paths as
-they stood at the time, so older entries still refer to `docs/roadmap.md`.
+they stood at the time, so older entries still refer to `docs/roadmap.md` and
+`docs/roadmap_old.m`, both of which are now merged into `plans/roadmap.md`.
 
 ## Provenance and how far to trust this
 
