@@ -59,7 +59,7 @@ file is too big" — it is licence and provenance work on a file already here.
 | Open item | Why it matters |
 |-----------|----------------|
 | **F.2 A waveform fixture CI can use** | **Now actionable rather than blocked.** ODP 952A is small enough at either size; what is needed is the licence check (ODP/IODP terms are not stated on the data page), a host, and a registry entry. Until it lands, what defends F.1 in CI is a seeded synthetic and not the log that found it. |
-| **F.5 The ODP file's unknowns** | Two, both small and both blocking a registry entry that could be trusted. Receiver **offsets** appear in neither the DLIS nor the binary header, so they need the SDT tool spec; and the DLIS well header reads **"ODP HOLE 950-A LEG 157"** against an archive labelled 952A, which cannot be resolved from the files alone. |
+| ~~**F.5 The ODP file's unknowns**~~ | *Closed.* Both answered, and the item was filed on a wrong premise — "not resolvable from the files" meant "nobody had opened the rest of the archive". The hole identity is settled by the archive's own run table (six runs matched by name and depth interval, six for six); the offsets are the LSS **8/10/10/12 ft** set, confirmed by first-break moveout to an intercept of −0.0 µs. Kept below. |
 | **A.1 Validation figures** | Ties the solver to published literature rather than to itself. Still needs the books. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
 | ~~**G.6 The debond inverse in the benchmark harness**~~ | *Closed.* `sonic_ml.bench.debond` scores both rivals on identical held-out indices. It paid for itself immediately: the per-regime rows show the closed form is **6× worse on wide gaps than tight** (16.5 % vs 2.5 %), which the single averaged number had hidden. Kept below. |
@@ -530,11 +530,11 @@ which reached the numbers through an entirely different conversion path
 
 **What is still open:**
 
-* **F.5 — the ODP file's two unknowns.** Receiver *offsets* are in neither the
-  DLIS nor the binary header, so they need the SDT tool specification; and the
-  DLIS well header reads "ODP HOLE 950-A LEG 157" while the archive is labelled
-  952A. Neither is resolvable from the files, and both would have to be settled
-  before a registry entry could claim to know what it holds.
+* ~~**F.5 — the ODP file's two unknowns.**~~ **Both answered.** See
+  "F.5 — what the ODP archive turned out to know about itself" below. The
+  claim that neither was "resolvable from the files" was wrong: one was
+  resolvable from the archive alone, and the other was resolvable from the
+  waveforms themselves once a specification supplied the numbers to test.
 * **F.2 — a waveform fixture the CI can actually use.** The FORGE waveforms
   live in an 808 MB DLIS inside a 471 MB zip, which is not a viable
   fetch-on-demand fixture, and extracting a subset is redistribution.
@@ -615,6 +615,123 @@ identifiability, not field accuracy, and no amount of additional synthetic work
 can close the gap. A single real gather with trustworthy reference picks would
 say more about whether any of this transfers than another milestone of
 modelling.
+
+## F.5 — what the ODP archive turned out to know about itself
+
+Both unknowns are answered, and the framing they were filed under was wrong.
+F.5 said the receiver offsets "need the SDT tool specification" and that the
+950-A header "cannot be resolved from the files alone". The first was half
+right and the second was simply false. The general lesson is the one worth
+keeping: *unknown to me* had been recorded as *not in the file*, and nobody
+had opened the rest of the archive to check.
+
+### The hole identity: resolved from the archive alone
+
+The DLIS carries **seven** logical files under **two** origins, not one:
+
+| origin | logical files | header | `well_name` | latitude / longitude | depth units |
+|---|---|---|---|---|---|
+| 3 | 6, **all with frames** | `PHASOR INDUCTION/LSS` | `ODP HOLE 950-A LEG 157` | 31°09.015′N 25°36.039′N *(sic)* | feet |
+| 12 | 1, **no frames** | `NEUTRON/DENSITY POROSITY LOG` | `ODP HOLE 952-A LEG 157` | 30°47.413′N 24°30.588′W | metres |
+
+So the waveforms live in the logical files that name the *wrong* hole. Three
+independent checks say the well-name and coordinate fields are stale and
+everything else in those origins is 952A's:
+
+1. **Both** origins declare `file_set_name = 'ODP/952-A'`. The file set knows
+   what it is even where the well header does not.
+2. The archive's own Leg 157 hole table lists `157-952A_1.dlis` (Inv. #421) as
+   holding exactly six runs — `DITE.003/.004/.005/.006/.007/.009`, with
+   intervals 5503.01–5617.62, 5642.15–5516.73, 5599.33–5498.29,
+   5612.28–5708.45, 5738.93–5604.08 and 5743.50–5702.35 m. The six framed
+   logical files match those names and intervals **six for six, to the
+   decimetre**. Hole 950A's own data is a different file (`157-950A_1.dlis`,
+   Inv. #416) with different run names (`DITE.011/.012/.014`).
+3. The toolstrings differ and ours matches 952A: the table gives
+   950A as `DIT/LSS/NGT` and 952A as `DIT/LSS/HLDT/CNTG/NGT`, and this file's
+   tool records include `HLDTA` and `CNTG`. Its own remark line reads
+   `Toolstring DITE/HLDT/CNTG/LSS/NGTC.`, and its `BSDF`/`BSDT` (5442.70 m /
+   5868.60 m) are 952A's documented sea floor and driller's TD.
+
+A stale header is also the mundane explanation: same leg, same logging unit
+(#718), same engineer, same witnesses, so a location block left over from an
+earlier hole is the ordinary kind of wellsite mistake. Note the limit of that
+last sentence — it is a *story*, not a finding. Whether 31°09.015′N
+25°36.039′W is in fact Site 950's position was not confirmed; the LDEO and
+ODP publication hosts are blocked from here (see below). What is established
+is that those coordinates are **not** 952A's while the three checks above say
+the data is, which is all the identification needs.
+
+### The receiver offsets: specification plus a measurement that tests it
+
+The tool is the **Long Spacing Sonic (LSS)** — stated in the remark line and
+in the hole table, run on SDT-C hardware (sonde `SLS-ZA`, serial 542, 220 in
+long, 3.375 in OD, from the DLIS `EQUIPMENT` records) in firing mode `LDDB`,
+which is the depth-derived borehole-compensated long-spacing mode the archive's
+info page describes in words. The LSS geometry is two sources 2 ft apart
+sitting 8 ft below a pair of receivers also 2 ft apart, giving source–receiver
+offsets of **8, 10, 10 and 12 ft**.
+
+That number came from a specification, so it was tested against the waveforms
+rather than assumed. First-break moveout across `WF1`–`WF4`, over all 532
+depths of the upper section:
+
+| | WF2 | WF1 | WF4 | WF3 |
+|---|---|---|---|---|
+| median first break (µs) | 1530 | 1910 | 1920 | 2300 |
+| implied offset (ft) | 8 | 10 | 10 | 12 |
+
+The signature the specification predicts is present and is not subtle: **two of
+the four paths coincide** (WF1 and WF4 differ by one 10 µs sample) and the two
+outer gaps are equal at 380 µs each. Regressing the four picks against
+8/10/10/12 ft gives a slope of **190.0 µs/ft** and an intercept of
+**−0.0 µs** (IQR −25 to +23). Two things follow:
+
+* The slope reproduces the vendor's own `DTLN` over the same interval —
+  median **190.0 µs/ft** — exactly. That is an independent confirmation from
+  Schlumberger's processing of the same trip.
+* The near-zero intercept pins the *absolute* offsets, not just their spacing.
+  A base offset wrong by Δ ft would shift the intercept by −190·Δ µs, so
+  ±25 µs bounds Δ at about **±0.04 m**. Moveout alone could only ever give the
+  2 ft increment; it is the intercept that rules out a different base.
+
+The lower section agrees: slope 187.5 µs/ft, intercept 2.5 µs.
+
+**Mapping for a registry entry:** `WF2` → 2.4384 m, `WF1` → 3.0480 m,
+`WF4` → 3.0480 m, `WF3` → 3.6576 m; 500 samples at 10 µs; depth increment
+0.1524 m; monopole.
+
+### Three smaller things the check turned up
+
+* **The archive's row counts are wrong.** Its info page states 539 depths for
+  the upper section and 592 for the lower. The binary headers say **532** and
+  **591**, and the file sizes settle it: at `4·(1 + 4·500) = 8004` bytes per
+  record, 8004·(1+532) and 8004·(1+591) reproduce 4 266 132 and 4 738 368 bytes
+  exactly. Total is **1123** depths, not 1131.
+* **Two hemisphere letters are wrong**, in two different files. The info page
+  writes the longitude as 24°30.570′**E** for a site on the Madeira Abyssal
+  Plain, which is west; and origin 3 in the DLIS writes its longitude as
+  25°36.039′**N**.
+* **The two nominally-10 ft paths are not interchangeable.** `WF1` − `WF4` runs
+  −10 µs on the upper section and −20 µs on the lower — one to two samples,
+  systematic. Small, unexplained, and worth carrying in a registry entry rather
+  than smoothing over.
+
+### What is left
+
+Nothing that blocks a fixture entry; F.5's remaining content is provenance
+wording rather than research. Two honest caveats to carry:
+
+* The 8 ft base offset rests on the LSS specification *and* on the intercept
+  measurement agreeing with it, not on any statement in the file. That is an
+  inference, and a registry entry should say so.
+* `mlp.ldeo.columbia.edu`, `brg.ldeo.columbia.edu` and `www-odp.tamu.edu` are
+  all blocked by this sandbox's egress proxy, so the LSS geometry was
+  corroborated through search-result text and the archive's own copies of the
+  LDEO pages rather than by fetching LDEO's tool page directly. The numbers
+  agree across two independent search sources and the waveforms, which is why
+  this is recorded as settled rather than pending — but the primary page has
+  not been read from here.
 
 ## G.2 The debonded regime — measured, and what it changed
 
