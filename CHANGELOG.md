@@ -6,6 +6,34 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Fluid-annulus propagator element for n=0 (`_fluid_layer_e_matrix_n0`,
+  `_fluid_layer_propagator_n0`) — the first piece of the microannulus model for
+  the debonded regime.** A fluid annulus differs from an elastic one in ways
+  that change the shape of the problem rather than its numbers: two wave
+  amplitudes rather than four, shear traction identically zero, and axial slip
+  permitted at both faces, so the propagated state is the reduced pair
+  `(u_r, sigma_rr)`.
+  Verified against an identity that comes from outside the module. The Bessel
+  Wronskian `I0(x)K1(x) + I1(x)K0(x) = 1/x` collapses the determinant to
+  `det E_f(r) = -1/(rho omega^2 r)` and hence `det P_f = r_inner/r_outer`,
+  with **no dependence on frequency, velocity, density or `k_z`** — so a sign
+  slip or a swapped Bessel order breaks it immediately. The state matrix is also
+  checked against a numerical derivative of the pressure, testing it against the
+  momentum equation it encodes rather than against the algebra used to derive
+  it.
+  Its accuracy range is characterised rather than assumed: error tracks the
+  Bessel span `F * (r_outer - r_inner)` — machine precision to about 2, ~1e-11
+  by 7, no significant digits by 20. A debonding gap is microns to millimetres,
+  putting the span below 0.1, so this is a documented limit rather than a
+  practical one. Recorded because the same exponential-range failure produced
+  spurious roots elsewhere in this module.
+  **Not reachable from the public API yet, deliberately.** `BoreholeLayer`
+  cannot express a fluid and the global assembly changes shape when one is
+  present. Shipping a public layer type no solver accepts would be worse than
+  shipping nothing; the element is verified in isolation first so that any later
+  failure is attributable to the assembly.
+
 ### Fixed
 - **Compliant layers in a cased stack returned spurious roots instead of
   `NaN`.** Found while starting the free-pipe / debonded item. A very compliant

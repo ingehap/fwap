@@ -507,6 +507,171 @@ def _layer_e_matrix_n0(
 # P(r2|r1) P(r1|r2) = I to floating-point precision.
 
 
+def _fluid_layer_e_matrix_n0(
+    kz: float,
+    omega: float,
+    *,
+    vf: float,
+    rho: float,
+    r: float,
+) -> np.ndarray:
+    r"""
+    2x2 amplitude-to-state matrix ``E_f(r)`` for a fluid annulus, n=0.
+
+    The fluid counterpart of :func:`_layer_e_matrix_n0`, and the first
+    piece of the microannulus model for the debonded regime (roadmap
+    G.2). A fluid annulus differs from an elastic one in three ways
+    that together change the shape of the problem rather than just its
+    numbers: it carries **two** wave amplitudes rather than four (there
+    is no shear potential), its shear traction vanishes identically,
+    and the axial displacement is free to slip at its boundaries. So
+    the propagated state is the reduced pair
+
+    .. math::
+
+        w(r) = \big(u_r(r),\; \sigma_{rr}(r)\big)
+
+    rather than the elastic four-vector
+    ``(u_r, u_z, sigma_rr, sigma_rz)``.
+
+    With pressure ``p = A_I I_0(F r) + A_K K_0(F r)`` and
+    ``F = sqrt(k_z^2 - omega^2 / V_f^2)``, the fluid momentum equation
+    ``u = grad p / (rho omega^2)`` gives
+
+    .. math::
+
+        u_r = \frac{F}{\rho \omega^2}
+              \big(A_I I_1(F r) - A_K K_1(F r)\big),
+        \qquad
+        \sigma_{rr} = -p .
+
+    Parameters
+    ----------
+    kz, omega : float
+        Trial axial wavenumber (rad/m) and angular frequency (rad/s).
+    vf : float
+        Fluid acoustic velocity of the annulus (m/s); must be positive.
+        This is the annulus fluid, which need not equal the borehole
+        fluid.
+    rho : float
+        Fluid density of the annulus (kg/m^3); must be positive.
+    r : float
+        Radius at which to evaluate (m); must be positive.
+
+    Returns
+    -------
+    ndarray
+        Real ``(2, 2)`` array mapping ``(A_I, A_K)`` to
+        ``(u_r, sigma_rr)`` at ``r``.
+
+    Notes
+    -----
+    The determinant has a closed form and no dependence on ``F`` at
+    all. The Bessel Wronskian ``I_0(x) K_1(x) + I_1(x) K_0(x) = 1/x``
+    collapses it to
+
+    .. math::
+
+        \det E_f(r) = -\frac{1}{\rho \omega^2 r},
+
+    which is the identity the tests use to check this matrix without
+    reference to any other implementation.
+    """
+    if vf <= 0.0 or rho <= 0.0:
+        raise ValueError("vf and rho must be positive")
+    if r <= 0.0:
+        raise ValueError("r must be positive")
+
+    f_radial = np.sqrt(complex(kz * kz - (omega / vf) ** 2))
+    if abs(f_radial.imag) > 1.0e-12 * max(abs(f_radial.real), 1.0):
+        raise ValueError(
+            "fluid annulus radial wavenumber is not real; the bound-mode "
+            "formulation requires kz > omega / vf for the annulus fluid"
+        )
+    f_real = float(f_radial.real)
+
+    i0, i1 = _i0_i1(f_real * r)
+    k0, k1 = _k0_k1(f_real * r)
+    scale = f_real / (rho * omega**2)
+
+    e_matrix = np.zeros((2, 2))
+    e_matrix[0, 0] = scale * i1
+    e_matrix[0, 1] = -scale * k1
+    e_matrix[1, 0] = -i0
+    e_matrix[1, 1] = -k0
+    return e_matrix
+
+
+def _fluid_layer_propagator_n0(
+    kz: float,
+    omega: float,
+    *,
+    vf: float,
+    rho: float,
+    r_inner: float,
+    r_outer: float,
+) -> np.ndarray:
+    r"""
+    2x2 propagator ``w(r_outer) = P_f w(r_inner)`` across a fluid annulus.
+
+    ``P_f = E_f(r_outer) E_f(r_inner)^{-1}`` with ``E_f`` from
+    :func:`_fluid_layer_e_matrix_n0`, mirroring
+    :func:`_layer_propagator_n0` for the elastic case.
+
+    Parameters
+    ----------
+    kz, omega : float
+        Trial axial wavenumber (rad/m) and angular frequency (rad/s).
+    vf, rho : float
+        Annulus fluid velocity (m/s) and density (kg/m^3).
+    r_inner, r_outer : float
+        Inner and outer radii of the annulus (m). Both positive;
+        ``r_outer >= r_inner``.
+
+    Returns
+    -------
+    ndarray
+        Real ``(2, 2)`` propagator for the state ``(u_r, sigma_rr)``.
+
+    Notes
+    -----
+    Its determinant is fixed by the Wronskian identity quoted in
+    :func:`_fluid_layer_e_matrix_n0`:
+
+    .. math::
+
+        \det P_f = \frac{\det E_f(r_{\text{outer}})}
+                          {\det E_f(r_{\text{inner}})}
+                  = \frac{r_{\text{inner}}}{r_{\text{outer}}},
+
+    independent of frequency, velocity, density and ``k_z``. That makes
+    it a sharp check on the implementation: a sign slip or a swapped
+    Bessel order breaks it immediately, and it holds for reasons
+    outside this module.
+
+    **Validity range.** The ``I`` and ``K`` Bessel functions grow and
+    decay across the annulus, so the dynamic range of ``E_f`` scales
+    with ``F * (r_outer - r_inner)`` and eventually exceeds double
+    precision. Using the determinant identity as the error measure:
+    machine precision up to a span of about 2, ~1e-11 by 7, and no
+    significant digits by 20. This is not a constraint for the
+    microannulus case the element exists for -- a debonding gap is
+    microns to millimetres, putting the span below 0.1 -- but a thick
+    fluid annulus at high ``k_z`` is outside what this formulation can
+    represent, and the same exponential-range failure has produced
+    spurious roots elsewhere in this module.
+    """
+    if r_inner <= 0.0 or r_outer <= 0.0:
+        raise ValueError("r_inner and r_outer must be positive")
+    if r_outer < r_inner:
+        raise ValueError("require r_outer >= r_inner")
+
+    e_inner = _fluid_layer_e_matrix_n0(kz, omega, vf=vf, rho=rho, r=r_inner)
+    e_outer = _fluid_layer_e_matrix_n0(kz, omega, vf=vf, rho=rho, r=r_outer)
+    # P = E_out @ inv(E_in), solved rather than inverted.
+    return np.linalg.solve(e_inner.T, e_outer.T).T
+
+
 def _layer_propagator_n0(
     kz: float,
     omega: float,
