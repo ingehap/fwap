@@ -646,7 +646,7 @@ metadata rather than from inspected files. Treat it as a lead, not a
 result.
 
 1. **Utah FORGE**, via the DOE Geothermal Data Repository
-   (`gdr.openei.org`, also mirrored on AWS Open Data). Wells 58-32
+   (`gdr.openei.org`). Wells 58-32
    and 16A(78)-32 carry Schlumberger dipole sonic logs in **DLIS**,
    which `fwap.io.read_dlis` already reads. The tool described for
    the site (DSST-B) is an **eight-receiver array with a monopole
@@ -668,6 +668,29 @@ result.
    the harness fetches on demand and never vendors, which is exactly
    how the KGS log with its third-party copyright is already
    handled.
+
+**Fetching was attempted from here, and the result narrows the
+handoff.** An earlier version of this entry added that Utah FORGE is
+"also mirrored on AWS Open Data", implying the logs could be pulled
+from S3. That is wrong and is removed. What was measured:
+
+* `gdr-data-lake.s3.amazonaws.com` and
+  `oedi-data-lake.s3.amazonaws.com` **are** reachable from this
+  sandbox, and object downloads work (a ranged GET returned real
+  bytes). So S3-hosted open data is fetchable in principle.
+* Those buckets do **not** carry wireline logs. The GDR lake holds
+  bulk monitoring data only -- FORGE has `DAS/`, `Geophone/` and a
+  stimulation prefix (a complete listing, not a truncated one);
+  the other prefixes are CASSM, magnetotellurics and DAS. No DLIS,
+  no LAS, nothing from a wireline sonic tool.
+* Every route that *does* host the log submissions is blocked:
+  `gdr.openei.org`, `data.openei.org`, `catalog.data.gov`,
+  `brg.ldeo.columbia.edu`, `www.osti.gov`, `iodp.tamu.edu` all fail
+  to connect.
+
+So the files are not reachable from here, and the reason is which
+host serves them rather than anything about the data. A session with
+ordinary web egress could fetch them directly.
 
 **What a person with network access needs to do next**, in order:
 open one file and confirm it contains per-receiver waveforms rather
