@@ -7,6 +7,47 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **The debond inverse is scored by `sonic_ml.bench`** (roadmap G.6), which
+  was the last open piece of G.2. `sonic_ml.bench.debond` adds
+  `evaluate_thickness`, the `ThicknessPredictor` protocol, `gap_regime_labels`,
+  `format_thickness_scorecard`, and two predictors — `KrauklisThicknessPredictor`
+  (the closed form, torch-free) and `MeanThicknessPredictor` (the no-skill
+  reference). A trained `TrainedDebondInverse` satisfies the protocol directly,
+  so both rivals go through one harness on identical held-out indices, with the
+  same bootstrap CIs and per-regime rows every other predictor in the layer gets.
+  **Two things differ from the Vs and bond harnesses, both deliberately.**
+  Errors are in **log10 metres**, because the gap spans two decades by
+  construction and a median error in metres would be set by the widest samples
+  alone; `format_thickness_scorecard` also prints them as a percentage of
+  thickness, which is the readable form. And the protocol takes **no
+  `ArrayGeometry`**: a gap-width estimator reads the crack-wave dispersion
+  curve, not the gather, so passing a geometry it cannot use would misdescribe
+  what is being measured.
+  **The per-regime rows immediately showed something the by-hand comparison
+  could not.** Scored over all 240 samples — legitimate, since the closed form
+  has no fitted state — the Krauklis estimator is not uniformly ~5 % off; its
+  error is **six times worse on wide gaps than tight ones**:
+
+  | krauklis_closed_form | n | medAE (decades) | error in *h* | 95 % CI |
+  |---|---|---|---|---|
+  | all | 240 | 0.0215 | 5.1 % | [0.0152, 0.0268] |
+  | tight (< 100 µm) | 142 | 0.0106 | **2.5 %** | [0.0076, 0.0125] |
+  | wide (≥ 100 µm) | 98 | 0.0664 | **16.5 %** | [0.0552, 0.0814] |
+
+  That is the direction the physics predicts and the reason the residual model
+  has anything to learn: a wider gap carries a faster crack wave and so a
+  longer wavelength, which makes the 10 mm casing and 45 mm cement look thinner
+  relative to it, and the half-space assumption fail harder. On the held-out
+  split the learned inverse flattens the contrast to 0.7 % tight / 1.3 % wide —
+  it does not merely lower the average, it removes the regime dependence.
+  The harness reproduces the recorded G.2 figures exactly (log RMSE 0.0721 /
+  18.1 % classical, 0.0107 / 2.5 % learned); it reports a **median** absolute
+  error rather than an RMS, which on these errors is about a third of it — the
+  gap between the two is the heavy tail, and both are now visible instead of
+  one.
+  One incidental fix: the drawn gap width was read out of `layer_params` in
+  three places. `baselines.debond.gap_thickness` is now the single reader and
+  the other two delegate to it.
 - **`read_dlis_waveforms` falls back to a vendor parameter when a file
   declares no AXIS**, which a second real file showed is necessary. ODP Leg
   157 Hole 952A (LDEO-BRG, SDT tool, 1994) carries **zero AXIS objects**, and

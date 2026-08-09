@@ -24,20 +24,30 @@ rather than by planning.
 | ~~2a~~ | ~~The compressional-pick defect it exposed (F.1)~~ | **closed** (#75, #76) | — |
 | ~~2b~~ | ~~A waveform path in `read_dlis` (F.3)~~ | **closed** | — |
 | ~~5a~~ | ~~The debonded dataset generator, baseline and inverse (G.2)~~ | **closed** | — |
+| ~~6~~ | ~~The debond inverse in `sonic_ml.bench` (G.6)~~ | **closed** | — |
 | 1b | Leaky-mode root tracking, n=1 (A.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
 | 2c | A waveform fixture CI can fetch (F.2) | **a licence check, then wiring** | ODP 952A is in hand at 1.55 MB; its terms are unstated |
 | 2d | The ODP file's offsets and its 950-A/952A header (F.5) | sourcing | the SDT tool spec; nothing in the files settles it |
-| 6 | Wire the debond inverse into `sonic_ml.bench` (G.6) | **implementation** | nothing |
 | 3 | Digitised validation figures (A.1, curve shapes) | sourcing | access to the books |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
 
 **The shape has changed since the last revision, and mostly by closing.** G.2
 is finished end to end — generator, closed-form baseline at 18.1 % in gap
-width, learned residual inverse at 2.5 % held-out — and F.3 is finished with
-it. What that leaves is one piece of wiring (item 6), one licence question
-(2c), and one sourcing question (2d).
+width, learned residual inverse at 2.5 % held-out — and F.3 and G.6 are
+finished with it. What that leaves is one licence question (2c) and one
+sourcing question (2d) ahead of the two long-standing sourcing rows.
 
-Two of those came out of the work rather than off a list. Building the
+Item 6 is worth a line on the way out, because it was filed as ordinary wiring
+and did not behave like it. Scoring the closed form through the harness split
+by gap width showed its error is **6× worse on wide gaps than tight** —
+16.5 % against 2.5 %, with confidence intervals nowhere near overlapping. A
+single averaged number had been hiding a regime dependence that the physics
+predicts and that the learned model removes. The general lesson is the one
+this file keeps re-learning: an average is a claim about a population, and the
+cheapest way to find out it is the wrong claim is to score the sub-populations
+you already have labels for.
+
+Two of the closed rows came out of the work rather than off a list. Building the
 debonded dataset showed the item **as planned would have been uninvertible**:
 the cased Stoneley mode is blind to gap width (0.05 % over a 100× range) while
 the crack wave carries it at roughly 100:1. And a second real log — ODP Leg
@@ -475,11 +485,6 @@ only question left is whether its terms permit hosting. Until that is answered
 the 0.12 % shear result, the 95 % compressional result and the picker fix that
 produced the latter stay one-off measurements in a changelog rather than
 anything CI defends. Every other open row is smaller than this one.
-
-**Then item 6**, which is ordinary wiring: the debond inverse and its baseline
-are measured against each other in a script rather than scored by
-`sonic_ml.bench`, so they sit outside the harness — no bootstrap CIs, no
-per-regime rows — that every other model in the layer is compared through.
 
 A note on 2d that is easy to under-rate. The ODP file's receiver offsets are
 recorded nowhere in it, and its well header names a *different hole* than the

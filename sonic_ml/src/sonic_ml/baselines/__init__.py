@@ -13,6 +13,7 @@ from sonic_ml.baselines.classical import (
 from sonic_ml.baselines.debond import (
     CrackWaveThicknessBaseline,
     crack_compliance,
+    gap_thickness,
     krauklis_thickness,
     solid_compliance,
 )
@@ -26,6 +27,7 @@ __all__ = [
     # debonded-regime gap-width baseline (G.2)
     "CrackWaveThicknessBaseline",
     "crack_compliance",
+    "gap_thickness",
     "krauklis_thickness",
     "solid_compliance",
 ]
