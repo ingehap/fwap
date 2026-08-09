@@ -17,20 +17,27 @@ from __future__ import annotations
 from sonic_ml import baselines, bench, determinism, gen_shim, mask, oracles, provenance
 from sonic_ml.baselines import (
     ClassicalSTCBaseline,
+    CrackWaveThicknessBaseline,
     FKDispersionBaseline,
     StoneleyBondBaseline,
 )
 from sonic_ml.bench import (
     BondPredictor,
+    KrauklisThicknessPredictor,
     MeanBondPredictor,
+    MeanThicknessPredictor,
     Predictor,
     RegimeScore,
     Scorecard,
     StubPredictor,
+    ThicknessPredictor,
     bond_regime_labels,
     evaluate,
     evaluate_bond,
+    evaluate_thickness,
     format_scorecard,
+    format_thickness_scorecard,
+    gap_regime_labels,
 )
 from sonic_ml.geometry import default_geometry
 from sonic_ml.loader import (
@@ -80,6 +87,14 @@ __all__ = [
     "bond_regime_labels",
     "MeanBondPredictor",
     "StoneleyBondBaseline",
+    # microannulus gap-width scoring + baseline (G.2 / G.6)
+    "ThicknessPredictor",
+    "evaluate_thickness",
+    "gap_regime_labels",
+    "format_thickness_scorecard",
+    "KrauklisThicknessPredictor",
+    "MeanThicknessPredictor",
+    "CrackWaveThicknessBaseline",
     # submodules
     "gen_shim",
     "mask",

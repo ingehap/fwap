@@ -60,9 +60,9 @@ file is too big" — it is licence and provenance work on a file already here.
 |-----------|----------------|
 | **F.2 A waveform fixture CI can use** | **Now actionable rather than blocked.** ODP 952A is small enough at either size; what is needed is the licence check (ODP/IODP terms are not stated on the data page), a host, and a registry entry. Until it lands, what defends F.1 in CI is a seeded synthetic and not the log that found it. |
 | **F.5 The ODP file's unknowns** | Two, both small and both blocking a registry entry that could be trusted. Receiver **offsets** appear in neither the DLIS nor the binary header, so they need the SDT tool spec; and the DLIS well header reads **"ODP HOLE 950-A LEG 157"** against an archive labelled 952A, which cannot be resolved from the files alone. |
-| **G.6 Wire the debond inverse into the benchmark harness** | The model and its classical baseline exist and are measured against each other by hand. They are not yet scored by `sonic_ml.bench`, so they sit outside the machinery every other model in the layer is compared through. |
 | **A.1 Validation figures** | Ties the solver to published literature rather than to itself. Still needs the books. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
+| ~~**G.6 The debond inverse in the benchmark harness**~~ | *Closed.* `sonic_ml.bench.debond` scores both rivals on identical held-out indices. It paid for itself immediately: the per-regime rows show the closed form is **6× worse on wide gaps than tight** (16.5 % vs 2.5 %), which the single averaged number had hidden. Kept below. |
 | ~~**F. A real sonic log**~~ | *Largely closed.* A Schlumberger DSI log is registered and tested; the package's shear picks match the vendor's to **0.12 %** median on real rock. |
 | ~~**G.2 Debonded regime**~~ | *Closed.* Generator, closed-form baseline (**18.1 %** in gap width) and learned residual inverse (**2.5 %** held-out) are all on `main`. Kept below for the measurements, which reshaped the item, and for what the result does *not* claim. |
 | ~~**F.3 A waveform path in `read_dlis`**~~ | *Closed.* `read_dlis_waveforms` reads a multi-dimensional channel and recovers the sample interval from the RP66 AXIS records, falling back to a vendor parameter for files that declare none. |
@@ -713,11 +713,34 @@ at 63-620 m/s means it arrives outside a normal record. What is established is
 that the finite-layer correction the half-space law discards is learnable from
 the geometry, which is a modelling result.
 
-**What is left of G.2, which is one thing.** The model and the baseline are
-measured against each other by hand, in a script. They are not scored by
-`sonic_ml.bench`, so they sit outside the harness that every other model in
-the layer is compared through — no bootstrap CIs, no per-regime rows, no
-report. That is tracked as **G.6** and is ordinary wiring.
+**G.6, which was expected to be ordinary wiring and was not.** The model and
+the baseline used to be compared by hand in a script; `sonic_ml.bench.debond`
+now scores both on identical held-out indices with the same bootstrap and the
+same regime rows every other predictor in the layer gets. Two things had to
+differ from its sibling harnesses, and both are about not misdescribing the
+measurement: errors are reported in **log10 metres**, because a median error
+in metres across a two-decade prior is set by the widest samples alone; and
+the protocol takes **no `ArrayGeometry`**, because a gap-width estimator reads
+the dispersion curve rather than the gather, and handing it a geometry it
+cannot use would imply otherwise.
+
+The wiring then found something the by-hand comparison could not. Split by gap
+width, the closed form is not uniformly ~5 % off — it is **2.5 % on gaps below
+100 µm and 16.5 % above** (n = 142 / 98 over the whole 240-sample set, which
+the baseline may legitimately be scored on since it fits nothing; CIs
+1.8-2.9 % and 13.6-20.6 %, nowhere near overlapping). That is the direction the
+physics predicts, and it is the clearest statement yet of what the residual
+model is for: a wider gap carries a faster crack wave and a longer wavelength,
+which makes the 10 mm casing and 45 mm cement look thinner relative to it, so
+the half-space assumption fails harder exactly where the gap is widest. On the
+held-out split the learned inverse reads 0.7 % tight and 1.3 % wide — it
+removes the regime dependence rather than just lowering the average.
+
+A note on the two numbers, since both are now in this file. The harness reports
+a **median** absolute error; the 18.1 % / 2.5 % figures above are **RMS** in
+log units. On these errors the median is about a third of the RMS, and the
+difference is the heavy tail — the same errors, two statistics, and the point
+of having both is that neither hides what the other shows.
 
 **Costs, because they bound what is practical.** A debonded sample runs ~14 s
 against ~0.5 s bonded (the microannulus solvers are ~0.45 s per frequency for

@@ -189,6 +189,56 @@ def test_training_is_reproducible():
     assert np.allclose(a.predict_log_thickness(bundle), b.predict_log_thickness(bundle))
 
 
+def test_trained_inverse_is_scored_by_the_benchmark_harness():
+    """G.6: the learned model and its rival go through the same machinery.
+
+    The point of wiring it in is that the comparison stops being two numbers
+    printed by a script and becomes two scorecards over identical held-out
+    indices, with the same regimes and the same bootstrap. This asserts the
+    plumbing, not the physics -- the measured win lives in `CHANGELOG.md`.
+    """
+    from sonic_ml.bench import (
+        KrauklisThicknessPredictor,
+        ThicknessPredictor,
+        evaluate_thickness,
+    )
+    from sonic_ml.split import stratified_split
+
+    bundle = _planted_bundle(_log_gaps(96, seed=13), bias=1.25, seed=13)
+    split = stratified_split(bundle, seed=0)
+    trained, _ = train_debond_inverse(bundle, split=split, epochs=120, seed=0)
+
+    assert isinstance(trained, ThicknessPredictor)
+    assert trained.name == "learned_debond_inverse"
+
+    learned = evaluate_thickness(trained, bundle, indices=split.test, n_boot=200)
+    classical = evaluate_thickness(
+        KrauklisThicknessPredictor(), bundle, indices=split.test, n_boot=200
+    )
+
+    # Same samples, same regimes -- which is the whole point of one harness.
+    assert learned.per_regime.keys() == classical.per_regime.keys()
+    for name, row in learned.per_regime.items():
+        assert row.n == classical.per_regime[name].n
+    assert learned.per_regime["all"].n == split.test.size
+    # The planted bias is a pure factor of 1.25**3, so the closed form has a
+    # fixed handicap the residual model is free to remove.
+    assert (
+        learned.per_regime["all"].median_abs_error
+        < classical.per_regime["all"].median_abs_error
+    )
+
+
+def test_indices_subset_matches_the_matching_rows_of_a_full_pass():
+    """A scorecard over a test split must be the full pass, restricted."""
+    bundle = _planted_bundle(_log_gaps(32, seed=14), bias=1.1, seed=14)
+    trained, _ = train_debond_inverse(bundle, epochs=20, seed=2)
+    idx = np.arange(0, 32, 3)
+    full = trained.predict_log_thickness(bundle)
+    assert np.array_equal(trained.predict_log_thickness(bundle, idx), full[idx])
+    assert np.allclose(trained.predict_thickness(bundle, idx), 10.0 ** full[idx])
+
+
 def test_scores_report_bias_and_spread_separately():
     truth = np.log10(np.array([1e-5, 1e-4, 1e-3]))
     doubled = truth + np.log10(2.0)

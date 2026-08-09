@@ -56,6 +56,7 @@ from sonic_ml.baselines.debond import (
     CRACK_WAVE_MODE_NAME,
     GAP_LAYER_NAME,
     crack_compliance,
+    gap_thickness,
     krauklis_thickness,
 )
 from sonic_ml.determinism import seed_everything
@@ -188,11 +189,7 @@ def debond_targets(
     -------
     ndarray, shape (N,)
     """
-    if bundle.layer_params is None:
-        raise ValueError("bundle carries no layer stack")
-    index = bundle.layer_names.index(gap_name)
-    thickness = LAYER_PARAM_NAMES.index("thickness")
-    return np.log10(np.asarray(bundle.layer_params[:, index, thickness], dtype=float))
+    return np.log10(gap_thickness(bundle, gap_name=gap_name))
 
 
 class DebondResidualNet(nn.Module):
@@ -239,25 +236,44 @@ class TrainedDebondInverse:
     """
     A trained residual inverse plus the standardizer its features expect.
 
+    It satisfies :class:`~sonic_ml.bench.debond.ThicknessPredictor`, so a
+    trained inverse is scored by :func:`~sonic_ml.bench.debond.evaluate_thickness`
+    against the same splits and the same bootstrap as its classical rival --
+    no adapter needed on this side.
+
     Attributes
     ----------
     model : DebondResidualNet
     feature_std : Standardizer
         Fitted on the training split; drops constant columns.
     feature_names : tuple of str
+    name : str
+        Predictor name shown on a benchmark scorecard.
     """
 
     model: DebondResidualNet
     feature_std: Standardizer
     feature_names: tuple[str, ...]
+    name: str = "learned_debond_inverse"
 
-    def predict_log_thickness(self, bundle: DatasetBundle) -> np.ndarray:
+    def predict_log_thickness(
+        self, bundle: DatasetBundle, indices: np.ndarray | None = None
+    ) -> np.ndarray:
         """
-        Predicted ``log10`` gap width (m) for every sample.
+        Predicted ``log10`` gap width (m).
+
+        Parameters
+        ----------
+        bundle : DatasetBundle
+        indices : ndarray of int or None
+            Samples to return. ``None`` returns every sample. The network is
+            evaluated on the whole bundle either way and subset afterwards:
+            it is stateless across samples, so a subset gives bit-identical
+            values to the corresponding rows of a full pass.
 
         Returns
         -------
-        ndarray, shape (N,)
+        ndarray, shape (N,) or (len(indices),)
         """
         features, _, baseline = debond_features(bundle)
         x = torch.as_tensor(
@@ -266,11 +282,14 @@ class TrainedDebondInverse:
         self.model.eval()
         with torch.no_grad():
             residual = self.model(x).squeeze(-1).numpy()
-        return baseline + residual
+        out = baseline + residual
+        return out if indices is None else out[np.asarray(indices, dtype=int)]
 
-    def predict_thickness(self, bundle: DatasetBundle) -> np.ndarray:
+    def predict_thickness(
+        self, bundle: DatasetBundle, indices: np.ndarray | None = None
+    ) -> np.ndarray:
         """Predicted gap width in metres."""
-        return 10.0 ** self.predict_log_thickness(bundle)
+        return 10.0 ** self.predict_log_thickness(bundle, indices)
 
 
 def train_debond_inverse(
