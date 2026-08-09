@@ -5,20 +5,18 @@ Implements the multichannel velocity-filter family described in Part 2
 of the book ("Wave separation in acoustic well logging"). Three
 complementary tools are provided:
 
-* :func:`fk_filter`              -- frequency-wavenumber pass-band
-* :func:`tau_p_forward`,
-  :func:`tau_p_inverse`,
-  :func:`tau_p_filter`            -- linear Radon (slant-stack)
-                                     pass-band
-* :func:`svd_project`,
-  :func:`sequential_kl_separation` -- moveout-corrected SVD / K-L
+* :func:`fk_filter` -- frequency-wavenumber pass-band
+* :func:`tau_p_forward`, :func:`tau_p_inverse`, :func:`tau_p_filter`
+  -- linear Radon (slant-stack) pass-band
+* :func:`svd_project`, :func:`sequential_kl_separation`
+  -- moveout-corrected SVD / K-L
 
 The book lists *both* f-k and tau-p as the textbook domains for
 multichannel velocity filtering ("working in the frequency-wavenumber
 (f-k) or tau-p domain"). f-k is unitary and exact-round-trip but
 requires uniform offset spacing; tau-p accepts arbitrary offsets and
 keeps a sharper localisation of linear-moveout events at the cost of
-needing the rho filter (|f| in the temporal frequency domain) for an
+needing the rho filter (``|f|`` in the temporal frequency domain) for an
 accurate inverse.
 
 References

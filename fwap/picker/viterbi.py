@@ -563,8 +563,7 @@ def viterbi_pick_joint(
     depths : ndarray, shape (n_depth,)
     priors : dict, optional
         Per-mode prior windows. Defaults to :data:`DEFAULT_PRIORS`.
-    threshold, slow_jump_sigma, time_order_slack, time_prior_weight,
-    absence_cost
+    threshold, slow_jump_sigma, time_order_slack, time_prior_weight, absence_cost
         See :func:`viterbi_pick`; same semantics.
     top_k_per_mode : int, optional
         If set, keep only the K most-coherent candidates per mode

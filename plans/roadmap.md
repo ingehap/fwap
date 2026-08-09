@@ -30,18 +30,25 @@ modes, quadrupole, layered / cased-hole and VTI; and a machine-learning layer
 that was not contemplated when the file was written now sits alongside the
 package.
 
-**The headline for this revision is that real data arrived**, and with it the
-first defect no synthetic could have found. For most of this project's life the
-binding constraint was that every quantitative claim was measured against the
-same forward model that generated its data. A real Schlumberger sonic log now
-sits in the registry, and scoring the package against the vendor's own picks
-split cleanly in two: shear to **0.12 %** median, and a compressional failure on
-a third of depths. The top two rows below are both consequences of that, and
-both are ordinary work rather than blocked on anything.
+**The headline for this revision is that real data arrived, found a defect, and
+the defect is fixed.** For most of this project's life the binding constraint
+was that every quantitative claim was measured against the same forward model
+that generated its data. A real Schlumberger sonic log now sits in the registry,
+and scoring the package against the vendor's own picks split cleanly in two:
+shear to **0.12 %** median, and compressional on only 62 % of depths. That
+second number was mode confusion rather than imprecision, and closing it (F.1)
+took compressional to **95 %**. No synthetic could have found it, because the
+synthetics are produced by the forward model the picker is scored against.
+
+What that leaves is an asymmetry worth naming: **the results exist but CI cannot
+defend them.** The two rows below are what would close that, and only one of
+them is blocked. (A third piece of F, confirming the registered checksum
+against its canonical host, is tracked as F.4 in the section itself.)
 
 | Open item | Why it matters |
 |-----------|----------------|
-| **F.2 A waveform fixture CI can use** | The waveforms exist but live in an 808 MB DLIS inside a 471 MB zip, and `read_dlis` cannot read multi-dimensional channels at all. Until both are fixed, the shear result above cannot be regression-tested. |
+| **F.3 A waveform path in `read_dlis`** | Unblocked, and the bottleneck. `read_dlis` skips multi-dimensional channels, so the waveforms both results above were measured on are unreachable from the public API — every one of those numbers came from calling `dlisio` directly. Prerequisite for F.2. |
+| **F.2 A waveform fixture CI can use** | The waveforms live in an 808 MB DLIS inside a 471 MB zip. A small extracted subset would work, but hosting one is redistribution and needs a decision rather than a commit. Until then what defends F.1 in CI is a seeded synthetic, not the log that found it. |
 | **G.2 Debonded-regime datasets** | The forward model A.5 was blocking on is now complete, so this needs no new physics. It is also where a CBL-amplitude baseline stops being a strawman. |
 | **A.1 Validation figures** | Ties the solver to published literature rather than to itself. Still needs the books. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
@@ -461,16 +468,21 @@ See `plans/log_output.md` for the full reading. In brief:
 
 **What is still open:**
 
-* **A waveform fixture the CI can actually use.** The waveforms live in an
-  808 MB DLIS inside a 471 MB zip, which is not a viable fetch-on-demand test
-  fixture. A small extracted subset would be, but hosting one is redistribution
-  and needs a decision.
-* **Confirming the registered checksum.** `gdr.openei.org` was unreachable from
-  the session that added the entry, so the SHA-256 was computed from a mirror
-  copy and is flagged as unconfirmed in the entry's `provenance`.
-* `fwap.io.read_dlis` deliberately skips multi-dimensional channels, so it
-  cannot read these waveforms at all. A waveform-reading path is a prerequisite
-  for any of this to be usable from the public API.
+* **F.3 — a waveform path in `fwap.io.read_dlis`.** It deliberately skips
+  multi-dimensional channels, so it cannot read these waveforms at all: every
+  real-data number above was produced by calling `dlisio` directly, outside the
+  package. Unblocked, ordinary work, and a prerequisite for F.2 and for any of
+  this being usable from the public API.
+* **F.2 — a waveform fixture the CI can actually use.** The waveforms live in
+  an 808 MB DLIS inside a 471 MB zip, which is not a viable fetch-on-demand
+  test fixture. A small extracted subset would be, but hosting one is
+  redistribution and needs a decision. Until then the results above are
+  measured but not regression-tested, and what defends F.1 in CI is a seeded
+  synthetic rather than the log that found it.
+* **F.4 — confirming the registered checksum.** `gdr.openei.org` was
+  unreachable from the session that added the entry, so the SHA-256 was
+  computed from a mirror copy and is flagged as unconfirmed in the entry's
+  `provenance`. It is the one unverified claim in the fixture registry.
 
 *This entry used to add "because no openly redistributable one is known to
 exist". That is withdrawn — a search turned up two credible candidate sources,

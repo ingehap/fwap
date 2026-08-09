@@ -105,6 +105,16 @@ coherence logs -- come straight off the picker:
        print(f"{name}: slow={p.slowness * 1e6 / 3.281:.2f} us/ft  "
              f"coh={p.coherence:.3f}  amp={p.amplitude:.3f}")
 
+The picker orders modes by arrival time, and two modes can satisfy
+that by landing on the *same* peak -- which is what happened at 143 of
+400 depths of a real Schlumberger log, reporting shear slowness as
+compressional. :func:`~fwap.picker.pick_modes` and
+:func:`~fwap.picker.track_modes` therefore refuse to give one arrival
+two labels; pass ``resolve_mode_collisions=False`` for the older
+behaviour. See the :func:`~fwap.picker.track_modes` docstring for what
+the rule is worth on that log, and for when
+:func:`~fwap.picker.viterbi_pick_joint` is the better choice.
+
 Cross-mode consistency QC flags depths where the picks aren't
 internally consistent (Vp/Vs out of band, or canonical mode time
 ordering violated):

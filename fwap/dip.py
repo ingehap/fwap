@@ -263,16 +263,18 @@ def estimate_dip(
     refine : bool
         If ``True``, polish the grid maximum with Nelder-Mead.
 
-    Strategy
-    --------
+    Returns
+    -------
+    DipResult
+
+    Notes
+    -----
+    Strategy:
+
     1. Coarse grid search over ``(alpha, phi)``.
     2. If ``refine=True``, Nelder-Mead polish starting at the grid
        maximum. The coherence surface near the true maximum is smooth
        and unimodal, so a simplex method converges quickly.
-
-    Returns
-    -------
-    DipResult
     """
     del axial_offsets  # see docstring for rationale
     alphas = np.linspace(*dip_range, n_dip)

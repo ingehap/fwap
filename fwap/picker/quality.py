@@ -391,17 +391,17 @@ def track_to_log_curves(
     ``rho_fluid`` / ``v_fluid`` inputs) the function additionally
     emits the seven VTI columns:
 
-    =========  ============================================  =====
-    Mnemonic   Quantity                                       Unit
-    =========  ============================================  =====
-    C33        :math:`\\rho V_P^2`                            Pa
-    C44        :math:`\\rho V_{Sv}^2`                         Pa
-    C66        Stoneley-derived horizontal shear modulus      Pa
-    GAMMA      Thomsen :math:`\\gamma = (C_{66}-C_{44})/(2 C_{44})` (-)
-    VP         :math:`\\sqrt{C_{33}/\\rho}`                   m/s
-    VSV        :math:`\\sqrt{C_{44}/\\rho}`                   m/s
-    VSH        :math:`\\sqrt{C_{66}/\\rho}`                   m/s
-    =========  ============================================  =====
+    ========  =====================================================  ====
+    Mnemonic  Quantity                                               Unit
+    ========  =====================================================  ====
+    C33       :math:`\\rho V_P^2`                                     Pa
+    C44       :math:`\\rho V_{Sv}^2`                                  Pa
+    C66       Stoneley-derived horizontal shear modulus              Pa
+    GAMMA     :math:`\\gamma = (C_{66}-C_{44})/(2 C_{44})` (Thomsen)  (-)
+    VP        :math:`\\sqrt{C_{33}/\\rho}`                             m/s
+    VSV       :math:`\\sqrt{C_{44}/\\rho}`                             m/s
+    VSH       :math:`\\sqrt{C_{66}/\\rho}`                             m/s
+    ========  =====================================================  ====
 
     Each VTI cell is computed only at depths where the underlying
     pick(s) are present:

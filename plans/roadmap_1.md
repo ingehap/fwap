@@ -1,15 +1,16 @@
 # What remains to be done
 
 A prioritised reading of the open items in `plans/roadmap.md`, current through
-the analytic-oracle programme (PRs #59-#66) and the fluid-microannulus work
-(PRs #67-#69).
+the analytic-oracle programme (PRs #59-#66), the fluid-microannulus work
+(PRs #67-#72) and the real-data arrival and the defect it exposed
+(PRs #74-#76).
 `plans/roadmap.md` — which absorbed the old `docs/roadmap.md` — is the fuller
 status file; this is a snapshot of *priority and reasoning* at one point in
 time, so check both against the tree before acting on either.
 
 ## The shape of it
 
-Five things are open, and they fall into three kinds — which matters more than
+Six things are open, and they fall into three kinds — which matters more than
 their ordering, because the kinds differ in whether they can be worked on from a
 coding session at all. The struck-out rows are kept because how they closed is
 the useful part of the story: each came loose from a larger item by measurement
@@ -19,25 +20,32 @@ rather than by planning.
 |---|------|------|-----------|
 | ~~1a~~ | ~~Leaky-mode branch selection, n=0 (A.3)~~ | **closed** (#64) | — |
 | ~~1c~~ | ~~Trapped pseudo-Rayleigh modes unexposed (A.4)~~ | **closed** (#66) | — |
+| ~~2~~ | ~~A real full-waveform sonic gather (F)~~ | **closed** (#74) | — |
+| ~~2a~~ | ~~The compressional-pick defect it exposed (F.1)~~ | **closed** (#75, #76) | — |
 | 1b | Leaky-mode root tracking, n=1 (A.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
-| 2 | A real full-waveform sonic gather (F) | sourcing | fetching one **named** file from a host this sandbox cannot reach |
+| 2b | A waveform path in `read_dlis` (F.3) | **implementation** | nothing |
+| 2c | A waveform fixture CI can fetch (F.2) | sourcing *and* a decision | hosting an extracted subset is redistribution |
 | 3 | Digitised validation figures (A.1, curve shapes) | sourcing | access to the books |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
 | 5 | Debonded-regime `sonic_ml` datasets (G.2) | **implementation** | nothing — the microannulus forward model it waited on is complete |
 
-**Item 5 is new in kind, and it changes how the rest of this file should be
-read.** For several revisions everything open was blocked on something outside
-the session: a file behind an unreachable host, a book, a derivation, a release.
-Item 5 is not. It is ordinary implementation work, with real user value, that
-can be finished from here — see section 5. The microannulus forward model that
-originally carried this row is now complete, and the row has moved down its own
-dependency chain to the consumer rather than closing.
+**Two rows are now unblocked implementation, where for several revisions
+everything open was blocked on something outside the session** — a file behind
+an unreachable host, a book, a derivation, a release. Items 2b and 5 are
+neither. Both are ordinary work with real user value that can be finished from
+here.
 
-Items 2 and 3 cannot be closed by writing code here. Note the qualifier: an
-earlier revision said this sandbox's egress "reaches GitHub only", which probing
-disproved — the AWS Open Data S3 buckets are reachable and downloads from them
-work. They simply do not host the files in question. The obstacle is which host
-serves a file, not a blanket network wall.
+Item 2b is the smaller and the more leveraged: `fwap.io.read_dlis` deliberately
+skips multi-dimensional channels, so the per-receiver waveforms this project
+was finally scored against are *still* unreachable from the public API. Every
+real-data measurement in this repository was taken with `dlisio` called
+directly, outside the package. Until that changes, item 2c has nothing to be a
+fixture *for*.
+
+Item 3 still cannot be closed by writing code here. Note the qualifier that
+survived from earlier revisions and turned out to be the important one: the
+obstacle was always *which host serves a file*, never a blanket network wall —
+which is exactly how item 2 eventually closed.
 
 **Items 1a and 1c both came and went inside a revision, and neither was on any
 list beforehand.** Both were found by an oracle aimed at something else. The
@@ -71,12 +79,14 @@ This one is the other route — **measure the surprise first, and the oracle is
 what explains it** — and that route is not exhausted by an empty candidate list,
 because it is fed by new code rather than by a list.
 
-What this means for prioritisation is the opposite of what the last revision
-said. It claimed item 2 was "very nearly the only one that can move". That is no
-longer true: item 5 can move, from here, today. Item 2 remains the most
-*valuable* — it is what makes every quantitative claim in the repository mean
-something — but it is an errand blocked on a host, and there is now real work
-available beside it rather than instead of it.
+What this means for prioritisation kept moving. An earlier revision claimed item
+2 was "very nearly the only one that can move"; the next said item 5 could move
+too. Item 2 has since closed outright, and its value was exactly what this file
+predicted: the first real log immediately exposed a defect that had been shipping
+for the project's whole life and that no synthetic could have found. Two of its
+consequences, 2b and 2c, are what remain of it — and 2b is the sort of small
+implementation job that earlier revisions of this file kept assuming did not
+exist.
 
 ## 1. Leaky-mode root tracking (A.2), and the three items that split off it
 
@@ -142,49 +152,75 @@ low-frequency dipole energy carried by a shear head wave. Settling that is what
 Schmitt 1988 fig 4 is for, which quietly puts this item behind item 3's
 literature access too.
 
-## 2. A real full-waveform sonic gather (F) — the one that matters most
+## 2. A real full-waveform sonic gather (F) — closed, and what it cost to learn
 
-The harness shipped; adding a dataset is a one-entry change to
-`scripts/fetch_real_data.py`. What is missing is the file. Neither registered
-fixture is a sonic gather, so **the entire sonic processing chain is validated
-only against synthetics.**
+**This item is closed, and it was worth what this file kept saying it was
+worth.** Everything below the first two paragraphs is the record of how; the
+live work is in 2b and 2c.
 
-This is the binding constraint on every quantitative claim in the repo, and it
-got worse when `sonic_ml` landed. The headline result — a learned inverse beats
-classical STC by roughly an order of magnitude on shear velocity — is measured
-on data drawn from *the same forward model that generated the training set*.
-That measures identifiability, not field accuracy, and no further synthetic work
-can close the gap.
+The Utah FORGE dipole sonic arrived: a Schlumberger DSI run from well ME-ESW1,
+registered as `forge_dsi_las` in `scripts/fetch_real_data.py`, with the
+companion 808 MB DLIS carrying the per-receiver waveforms those picks came from
+— eight receivers, 512 samples, monopole and both dipoles. `DTCO` and `DTSM`
+agree between the LAS and the DLIS to 5e-5 us/ft over ~10 800 common depths, so
+the data is *scoreable*: the package's own picks can be compared against a
+vendor's on identical rock.
 
-**Candidates now exist; an earlier revision of this file was too pessimistic.**
-It said "no openly redistributable full-waveform gather with trustworthy
-reference picks is known to exist". A search found two credible sources, so that
-is withdrawn:
+**What it found, immediately.** Shear matched `DTSM` to a median **+0.12 %**
+(96 % of depths within 10 %) — the strongest external evidence this package
+has. Compressional did not: 62 % of depths, with a mean 27 % high and a sharply
+bimodal error. That became F.1, and it turned out to be mode confusion rather
+than imprecision — `track_modes` assigning the *same* STC peak to P and to S at
+143 of 400 depths. It is now fixed (`resolve_mode_collisions`, PR #76) and the
+same log reads 95 %. **This is the entire argument for the item, realised in
+one sitting: a defect that had shipped for the project's whole life, invisible
+to every synthetic because the synthetics are generated by the forward model
+the picker is scored against.**
 
-- **Utah FORGE** via the DOE Geothermal Data Repository — Schlumberger dipole
-  sonic in **DLIS** (already readable by `fwap.io.read_dlis`), from an
-  eight-receiver array with monopole and dipole sources, and **CC BY 4.0**.
+**Two prior claims in this file were wrong, and the way they were wrong is the
+lesson.** The first: "no openly redistributable full-waveform gather with
+trustworthy reference picks is known to exist" — withdrawn when a search turned
+up two credible sources. The second, its replacement: that Utah FORGE is
+mirrored on AWS Open Data — the reachable buckets carry DAS and geophone data,
+no wireline logs. Both were statements about what does not exist, and both aged
+badly within a revision or two. The surviving formulation was the narrow one:
+the obstacle is *which host serves a file*, never a blanket network wall. That
+held. `gdr.openei.org` stayed unreachable throughout; the file arrived by
+another route, and the registry entry's SHA-256 is still computed from that
+copy rather than from the canonical host (item 2c below).
+
+The other candidate is untouched and remains a lead, not a result:
+
 - **IODP / ODP** via the LDEO Borehole Research Group — sonic waveforms for many
   holes, in DLIS plus a Python-friendly binary export, documented as eight
   waveforms × 512 samples at 10/40 µs every 15.24 cm. Licence unconfirmed;
   matters less than it looks, since the harness fetches on demand and never
-  vendors.
+  vendors. A second well would test whether F.1's repair generalises further
+  than the two logging passes it has been checked on.
 
-Neither has been downloaded or opened, so this is a shortlist from published
-metadata, not a verified result.
+### 2b. A waveform path in `read_dlis` (F.3) — unblocked, and the bottleneck
 
-Fetching was attempted and the result is more specific than "egress is blocked".
-The AWS Open Data buckets `gdr-data-lake` and `oedi-data-lake` **are** reachable
-and object downloads work — but they carry only bulk monitoring data (DAS,
-geophone, CASSM, magnetotellurics), no wireline logs at all. The hosts that do
-serve the log submissions (`gdr.openei.org`, `data.openei.org`,
-`brg.ldeo.columbia.edu`, `osti.gov`, `iodp.tamu.edu`) all refuse to connect. So
-the obstacle is which host serves the file, not the data: a session with
-ordinary web egress could fetch it directly.
+`fwap.io.read_dlis` skips multi-dimensional channels by design, so `PWF1`-`PWF4`
+are unreachable from the public API. Every number in the paragraphs above was
+obtained by calling `dlisio` directly, outside the package — which means the
+package cannot yet do, from its own API, the thing it was just shown to be good
+at. This is ordinary implementation work with nothing in front of it, and it is
+a prerequisite for 2c being useful.
 
-The next step is one person opening a file to confirm it holds per-receiver
-waveforms rather than processed curves, then a checksum and a one-line registry
-entry.
+### 2c. A waveform fixture CI can fetch (F.2), and the checksum
+
+Two loose ends, both small and neither purely technical:
+
+- The waveforms live in an 808 MB DLIS inside a 471 MB zip, which is not a
+  viable fetch-on-demand fixture. A small extracted subset would be — but
+  hosting one is redistribution and needs a decision rather than a commit.
+  Until then the 0.12 % shear result and the 95 % compressional result are
+  measured but not regression-tested, and only seeded synthetics stand behind
+  F.1 in CI.
+- The registered SHA-256 was computed from a mirror copy because
+  `gdr.openei.org` was unreachable from the session that added the entry. It is
+  flagged as unconfirmed in the entry's `provenance`, and it is the one
+  unverified claim in the fixture registry.
 
 ## 3. Validation figures (A.1) — the figures are blocked, the *tie* is not
 
@@ -379,24 +415,64 @@ of this file got wrong, and the corrections are worth not losing.
   bug — both estimators read `|S(f)|` only — but the recovered Q moves by about
   a third on a causal gather, in the direction that makes the existing tests
   understate the estimators. A causal counterpart is now covered alongside.
-- **Sonic-gather candidates found** (PRs #56, #57) — not closed, but item 2
-  moved further in these two than in anything before. Withdrew "no openly
+- **Sonic-gather candidates found** (PRs #56, #57) — not closed at the time, but
+  item 2 moved further in these two than in anything before. Withdrew "no openly
   redistributable gather is known to exist", then withdrew the replacement's own
   error that Utah FORGE is "mirrored on AWS Open Data" (the reachable buckets
   carry DAS and geophone data, not wireline logs). Two wrong claims in
   succession on the same item is worth remembering when reading the rest of
   this file: statements about what does *not* exist are the ones that age worst.
+- **The real sonic log, and the first score against a vendor** (PR #74). Item 2,
+  closed. A Schlumberger DSI run from Utah FORGE ME-ESW1 is registered and
+  tested; shear matches `DTSM` to **0.12 %** median on real rock. The file
+  arrived by a route this file had not considered — its host stayed unreachable
+  throughout — which is the fifth time an availability claim here has been
+  overturned by trying rather than reasoning.
+- **The compressional-pick defect: diagnosed** (PR #75). Item 2a. The
+  62 %-of-depths compressional result was mode confusion, not imprecision: P and
+  S claiming one STC peak at 143 of 400 depths. Reproduced on a seeded synthetic
+  so the finding survives without the 808 MB fixture. The greedy picker was
+  deliberately left unrepaired at that point, with the expected gain measured
+  rather than guessed — which is what made the next PR a decision rather than an
+  exploration.
+- **The compressional-pick defect: repaired** (PR #76). Item 2a, closed.
+  `resolve_mode_collisions` in `pick_modes` / `track_modes`; agreement
+  62 % → **95 %** with coverage unchanged, shear bit-identical, no damage to any
+  already-correct depth, confirmed on a second logging pass. Worth keeping for
+  the method: **the first version of the rule was wrong and a property test
+  proved it.** All 143 real collisions failed in the same direction — the shared
+  peak was the shear arrival — so the rule generalised that into "the slower
+  mode keeps it", which fits every observation and still breaks a slow formation
+  where the collision runs the other way. `tests/test_hypothesis.py` caught it
+  dropping a correct P. The shipped rule declines to choose. Written up in
+  `plans/learning.md` under the failure modes, where it is the first entry
+  contributed by a property test rather than by an analytic oracle.
 
 ## Recommendation
 
-**Do item 2, and do it first.** It is the highest-value item on the list and it
-is now the cheapest: fetch the Utah FORGE dipole sonic DLIS from
-`gdr.openei.org`, open it, confirm it carries per-receiver waveforms rather than
-processed slowness curves, then compute a SHA-256 and add one `RealDataset`
-entry. Everything downstream of it — every quantitative claim in the repository,
-`sonic_ml`'s headline included — is currently measured against the same forward
-model that generated the training data. One real gather changes what those
-numbers mean.
+**Do item 2b, and do it first.** `fwap.io.read_dlis` skips multi-dimensional
+channels, so the per-receiver waveforms this package was finally scored against
+cannot be read through its own API — every real-data number here was produced by
+calling `dlisio` directly. It is unblocked, it is small, and it is the
+prerequisite for item 2c, which is what would put the 0.12 % shear result and the
+95 % compressional result under CI instead of leaving them as one-off
+measurements in a changelog.
+
+Item 5 is the larger piece of available work and is worth doing next: it needs
+no new physics now that A.5 has shipped, and it is where a CBL-amplitude
+baseline stops being a strawman.
+
+The previous revision of this file recommended item 2, on the grounds that
+everything in the repository was measured against the forward model that
+generated its own data, and that one real gather would change what those numbers
+mean. That recommendation was taken, and it was right — but the interesting part
+is *how* it was right. The value did not come from confirmation. It came from
+the log disagreeing: 62 % on compressional, a defect that had shipped for the
+project's whole life and that no synthetic could expose, because the synthetics
+are generated by the model the picker is scored against. **The argument for real
+data is not that it validates; it is that it is the only thing in the repository
+capable of disagreeing.** Item 2c is what keeps that capability, and it is why a
+fixture matters more than the numbers already banked.
 
 **Do item 5 from inside a coding session.** It is the only open item blocked on
 nothing, two of its three pieces are already on `main`, and what remains is a

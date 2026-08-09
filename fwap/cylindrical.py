@@ -132,7 +132,7 @@ def scholte_speed(
     real and the wave is bound to the interface.
 
     Why this function exists
-    -----------------------
+    ------------------------
     It is an **independent oracle for the cylindrical solver**. The
     borehole Stoneley mode of :func:`fwap.stoneley_dispersion` approaches
     this speed as the wavelength becomes short compared with the borehole
@@ -249,7 +249,7 @@ def tube_wave_speed(
     one than the value.
 
     Why this function exists
-    -----------------------
+    ------------------------
     It is the **low-frequency counterpart to :func:`scholte_speed`**.
     Between them the two pin both ends of the borehole Stoneley
     dispersion curve against closed forms: this one as
@@ -443,7 +443,7 @@ def leaky_radiation_attenuation(
                    {\sqrt{1 - V_s^2/c^2}}.
 
     Why this function exists
-    -----------------------
+    ------------------------
     It is an **independent oracle for the leaky-mode solver**, in the
     same spirit as :func:`scholte_speed`. Nothing here touches the
     cylindrical modal determinant: there are no Bessel functions and no

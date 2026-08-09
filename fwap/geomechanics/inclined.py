@@ -590,7 +590,8 @@ def inclined_safe_mud_weight_window(
     Convenience wrapper that calls
     :func:`inclined_breakout_pressure` and
     :func:`inclined_breakdown_pressure` with consistent inputs and
-    returns the two pressures bundled in a :class:`MudWeightWindow`
+    returns the two pressures bundled in a
+    :class:`~fwap.geomechanics.vertical.MudWeightWindow`
     (the same dataclass used by the vertical-well counterpart
     :func:`safe_mud_weight_window`).
 

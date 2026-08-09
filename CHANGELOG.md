@@ -6,6 +6,26 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Documentation
+- **The Sphinx build renders correctly again.** Six docstrings produced wrong
+  output rather than merely warnings: `track_to_log_curves`'s VTI table was
+  malformed (a cell overflowed its column, so the table silently lost its
+  shape); `viterbi_pick_joint`, `viterbi_posterior_marginals` and
+  `synthesize_lwd_gather` wrapped a comma-separated parameter-name list across
+  lines, which breaks the numpydoc field list and dropped the descriptions
+  after it; `estimate_dip`'s custom `Strategy` section was swallowed into
+  `Parameters`, rendering its numbered steps as fake parameters
+  (`:param 1. Coarse grid search over ``(alpha:`); and `fwap.wavesep`'s module
+  docstring had an over-indented continuation plus a bare `|f|` that RST read
+  as an undefined substitution. Three section underlines in `fwap.cylindrical`
+  were a character short.
+- **Twenty-six documents under `docs/` were built but unreachable** — the
+  solver design plans, the book reading notes, the notebooks' data README and
+  `possible_extensions`. They are now listed in hidden toctrees, which keeps
+  the links the validation notebook and `roadmap.rst` make into them working.
+- One `myst` link in `docs/plans/cylindrical_biot_F_2.md` still pointed at
+  `fwap/cylindrical_solver.py`, which became a package directory.
+
 ### Added
 - **The compressional-pick defect real data exposed is diagnosed, documented
   and reproduced in CI** (roadmap F.1). It is mode confusion, not imprecision:
