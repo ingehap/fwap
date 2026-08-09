@@ -217,11 +217,15 @@ class DebondResidualNet(nn.Module):
         for size in hidden:
             layers += [nn.Linear(width, size), nn.SiLU()]
             width = size
-        layers.append(nn.Linear(width, 1))
+        # Held as a typed local: reading ``layers[-1].weight`` off a
+        # ``list[nn.Module]`` gives ``Tensor | Module``, which ``zeros_``
+        # rejects.
+        head = nn.Linear(width, 1)
         # Start at exactly the classical baseline: a zero residual reproduces
         # it, so training can only move away from a known-good answer.
-        nn.init.zeros_(layers[-1].weight)
-        nn.init.zeros_(layers[-1].bias)
+        nn.init.zeros_(head.weight)
+        nn.init.zeros_(head.bias)
+        layers.append(head)
         self.net = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
