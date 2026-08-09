@@ -44,6 +44,7 @@ holding the dispersion curve fixed must not move a single feature.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 
 import numpy as np
@@ -282,7 +283,7 @@ def train_debond_inverse(
     weight_decay: float = 1.0e-4,
     hidden: tuple[int, ...] = (32, 32),
     seed: int = 0,
-) -> tuple[TrainedDebondInverse, list[float]]:
+) -> tuple[TrainedDebondInverse, list[tuple[float, float]]]:
     """
     Train the residual gap-width inverse.
 
@@ -295,11 +296,18 @@ def train_debond_inverse(
     epochs, batch_size, lr, weight_decay, hidden : hyperparameters.
     seed : int, default 0
 
+    The validation split selects the returned weights. That is not a
+    formality here: the feature count is comparable to the sample count a
+    debonded dataset can afford (~14 s a sample), so the training loss reaches
+    zero long before the model generalises, and the last epoch is the wrong
+    one to keep.
+
     Returns
     -------
     trained : TrainedDebondInverse
-    history : list of float
-        Mean training MSE per epoch, in log10-thickness units.
+        Carrying the weights that scored best on the validation split.
+    history : list of (float, float)
+        ``(train_mse, val_mse)`` per epoch, in log10-thickness units.
     """
     seed_everything(seed)
     if split is None:
@@ -328,7 +336,14 @@ def train_debond_inverse(
         generator=generator,
     )
 
-    history: list[float] = []
+    x_val = torch.as_tensor(
+        feature_std.transform(features[split.val]), dtype=torch.float32
+    )
+    y_val = torch.as_tensor(residual[split.val], dtype=torch.float32)[:, None]
+
+    history: list[tuple[float, float]] = []
+    best_val = float("inf")
+    best_state = copy.deepcopy(model.state_dict())
     for _ in range(epochs):
         model.train()
         total, n_batches = 0.0, 0
@@ -339,8 +354,19 @@ def train_debond_inverse(
             optimizer.step()
             total += float(loss.detach())
             n_batches += 1
-        history.append(total / max(n_batches, 1))
+        model.eval()
+        with torch.no_grad():
+            val = (
+                float(nn.functional.mse_loss(model(x_val), y_val))
+                if x_val.shape[0]
+                else float("nan")
+            )
+        history.append((total / max(n_batches, 1), val))
+        if x_val.shape[0] and val < best_val:
+            best_val = val
+            best_state = copy.deepcopy(model.state_dict())
 
+    model.load_state_dict(best_state)
     return TrainedDebondInverse(model.eval(), feature_std, names), history
 
 

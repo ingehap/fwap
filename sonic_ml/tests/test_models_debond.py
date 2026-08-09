@@ -171,7 +171,7 @@ def test_residual_model_beats_the_closed_form_it_starts_from():
     classical_score = debond_scores(baseline[test], truth[test])
     learned_score = debond_scores(learned[test], truth[test])
 
-    assert history[-1] < history[0], "training did not reduce its own loss"
+    assert history[-1][0] < history[0][0], "training did not reduce its own loss"
     assert learned_score["log_rmse"] < 0.5 * classical_score["log_rmse"], (
         f"learned {learned_score['log_rmse']:.4f} vs "
         f"classical {classical_score['log_rmse']:.4f}"
