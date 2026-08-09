@@ -6,6 +6,130 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **`trapped_pseudo_rayleigh_dispersion` — the bound half of the
+  pseudo-Rayleigh family, which no public function reached before.** The family
+  splits by phase velocity: for `V_f < c < V_S` both formation waves are
+  evanescent while the fluid field oscillates radially, so the mode is a genuine
+  trapped resonance with a real `k_z` and no attenuation; above `V_S` the shear
+  wave propagates and `pseudo_rayleigh_dispersion` takes over with a complex
+  one. `stoneley_dispersion` cannot return these either — it brackets from
+  `omega/min(V_S, V_f)` upward and so covers only `c < V_f`.
+  Several coexist: three at 30 kHz in a 0.10 m hole through a 4000/2300/2500
+  formation, six by 50 kHz, each above its own cutoff. A `branch` argument
+  selects the radial order using the same convention as the leaky function
+  (descending `k_z`, so the fundamental is the slowest of the trapped modes),
+  and frequencies below a branch's cutoff return `NaN`.
+  They were found while building the biorthogonality oracle, and that oracle now
+  validates them: a test checks Auld's relation across the three trapped modes
+  *and* the Stoneley mode at the same frequency, so the new function is tied to
+  physics rather than to itself.
+  Unlike the leaky sister function this one needs no frequency marching — the
+  roots are real and simple, so each frequency is solved independently. A test
+  pins the consequence, that the result does not depend on the frequency grid at
+  all, and another pins that the scan resolution does not decide how many
+  branches exist.
+
+### Changed
+- **Kramers-Kronig checked; it does not apply to the modal solver, and the
+  place it does apply is the attenuation module's test synthetic.** The
+  candidate was listed on the grounds that KK relates `Re(k_z)` and `Im(k_z)`
+  across frequencies and so cannot be satisfied by a single root. One line of
+  data disproves it for modal dispersion: a subtracted KK relation says zero
+  attenuation at every frequency forces zero dispersion, and the bound Stoneley
+  mode is exactly lossless (`attenuation_per_meter is None`) while its phase
+  velocity moves **8.26 %** between the tube-wave and Scholte limits. KK follows
+  from causality of the *constitutive* relation; waveguide dispersion is
+  geometric, and a lossless hollow waveguide is dispersive for the same reason.
+- **The attenuation tests' synthetic gather is acausal, and a causal
+  counterpart is now covered alongside it.** `_attenuated_gather` multiplies the
+  spectrum by `exp(-pi f t / Q)` and leaves the phase alone; constant-Q
+  amplitude loss without the Kolsky-Futterman velocity dispersion violates KK,
+  and the result carries energy arriving before the geometric arrival —
+  pre-arrival energy fraction 1.5e-7, against 4.9e-12 for the causal version.
+  This is **not a bug**: both estimators read `|S(f)|` only, so the missing
+  phase cannot bias them directly. But they window in time, and dispersion
+  reshapes the waveform inside the window, so the route is real. On the causal
+  gather the centroid estimate moves from 62 to 41 against a planted Q of 50 and
+  the spectral-ratio estimate from 117 to 81 — both *closer* to truth, so the
+  existing tests understate the estimators rather than flattering them. Four new
+  tests cover the causal case, including one asserting the two gathers differ in
+  causality and one asserting they give materially different Q.
+  The dispersion sign was wrong on the first attempt, which makes the signal
+  more acausal rather than less and produced a spurious "causality doubles the
+  recovered Q" result. It was caught by measuring pre-arrival energy rather than
+  re-deriving the algebra; both the wrong numbers and the method that caught
+  them are recorded in `plans/log_output.md`.
+- **Modal biorthogonality checked; it holds to ~1e-13 and is the first oracle
+  here that needs two solutions at once.** The conservation-law survey predicted
+  this one would work, on the criterion that a check evaluated on a single mode
+  in a region where that mode already satisfies the governing equations must
+  come back exact and mean nothing. Auld's waveguide reciprocity relation
+  couples two *different* eigenvectors and so escapes that trap.
+  The test set is richer than expected: in a fast formation the n=0 bound
+  spectrum holds the Stoneley mode (`c < V_f`) **and** the trapped
+  pseudo-Rayleigh modes (`V_f < c < V_S`) — four bound modes at 30 kHz, six at
+  50 kHz, all azimuthal order 0, so orthogonality among them is not the trivial
+  angular-integral kind. (`stoneley_dispersion` returns only the first: its
+  bracket stops at `omega/V_f`, so the trapped modes are not exposed by any
+  public function.)
+  Three tests: the eigenfunctions satisfy the boundary conditions they were
+  built from, `S_mn - conj(S_nm)` vanishes to 1e-13 off-diagonal while the
+  diagonal stays O(1), and the *wrong* bilinear form — one term of the pairing
+  instead of the difference — leaves off-diagonals near 1e-2, ten orders worse.
+  That last one makes the tolerance evidence rather than a fitted constant.
+  Two measurement traps were hit and are recorded in `plans/learning.md`: a sign
+  convention mismatch between the determinant's matrix rows and the field
+  expressions, which the boundary-condition check caught before it could be
+  mistaken for a failed orthogonality relation; and adaptive quadrature
+  manufacturing a 1e-4 residual that *grew* with integration span, the tell that
+  the error was numerical rather than physical.
+- **`plans/learning.md` gains a section on choosing what to measure**, specific
+  and general. The specific part is six questions in the order they have
+  actually produced findings here — which return *fields* nothing has looked at;
+  what the closed form leaves out; what the check would do to a wrong answer;
+  whether the answer depends on something it must not; where the check itself
+  expires; and whether a quantity is a property of the system or of the run. The
+  general part is one test: what would have to be true of the *world*, rather
+  than of the program, for this measurement to come out right? If the answer is
+  "nothing in particular", it is a tautology however elaborate — which is what
+  killed the fluid-only energy balance, the momentum balance and interface flux
+  continuity, and what marked biorthogonality as worth attempting.
+- **The n=1 / n=2 rigid-pipe cutoff candidate does not work, and the reason is
+  structural.** `plans/learning.md` proposed checking the flexural and
+  quadrupole cutoffs against their rigid-pipe closed forms, as PR #61 did for
+  n=0 using the appropriate Bessel zeros. The zeros are the easy part
+  (`j'_{n,1}` = 3.8317 / 1.8412 / 3.0542); the premise is wrong. The n=0 check
+  applies to `pseudo_rayleigh_dispersion`, a *fluid-column* resonance, whereas
+  `flexural_dispersion` and `quadrupole_dispersion` return the *fundamental*
+  interface modes at their orders. The solver exposes no n=1 or n=2 counterpart
+  of pseudo-Rayleigh, so there is nothing for the formula to describe.
+  Measurement settles it independently. The cutoff does scale cleanly as `1/a`
+  (`f_c * a` constant to 1.4 % and 0.5 % over a 3.3x span of radius), but its
+  log-log sensitivities are **0.87-0.89 on `V_S` and 0.08-0.13 on `V_f`** — a
+  58 % change in `V_f` moves the cutoff 4 %. A fluid-column cutoff is
+  fluid-controlled; these are shear-controlled. And the rigid-pipe form is only
+  defined for `V_S > V_f`, where both solvers are separately known to be
+  defective (roadmap A.2), so the comparison cannot be rescued by changing
+  regime either. Three tests pin the `1/a` scaling, the shear-control, and the
+  mismatch with the closed form.
+- **`plans/learning.md`** gains the full energy-balance derivation (fluxes,
+  the `2 Im(k_z) P_z = P_r` balance, and why the amplitude cancels), and a
+  survey of which *other* conservation laws are worth trying. Linear momentum
+  is not: for a single mode the axial momentum flux is the energy flux times
+  `|k_z|^2 / (omega Re(k_z))`, a constant across the cross-section, verified to
+  six digits — so its balance reduces to the same identity. Angular momentum
+  and interface flux continuity fail the same way. Modal biorthogonality and
+  Kramers-Kronig causality survive the filter, because both involve more than
+  one solution.
+
+### Added
+- **`plans/log_output.md`** — the measured tables behind the numbers quoted in
+  the plans, the roadmap and this changelog, with provenance stated: which
+  values are asserted by tests (and so trustworthy), which are one-time
+  readings, and which are machine-specific. Withdrawn numbers are kept and
+  marked rather than deleted, so they are not re-derived and re-believed.
+
 ### Changed
 - **Layer-subdivision invariance added as an oracle for the layered propagator;
   the layer-order candidate it replaced was simply wrong.** `plans/learning.md`

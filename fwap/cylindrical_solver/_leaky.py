@@ -886,6 +886,191 @@ def _enumerate_leaky_roots_n0(
     return sorted(roots, key=lambda z: -z.real)
 
 
+def _scan_bound_roots(
+    det_fn, kz_lo: float, kz_hi: float, samples: int = 2000
+) -> list[float]:
+    """
+    Real roots of ``det_fn`` in ``(kz_lo, kz_hi)``, ordered by descending k_z.
+
+    Straight sign-change scan plus :func:`scipy.optimize.brentq`. Descending
+    order means ascending radial order, matching
+    :func:`_enumerate_leaky_roots_n0`.
+
+    Parameters
+    ----------
+    det_fn : callable
+        Real-valued determinant of one real argument.
+    kz_lo, kz_hi : float
+        Open interval to scan (rad/m).
+    samples : int, default 2000
+        Scan resolution. The trapped roots are simple and well separated,
+        so this sits far above the density where any are missed; see the
+        resolution-independence test in ``tests/test_cylindrical_solver.py``.
+
+    Returns
+    -------
+    list of float
+        Converged ``k_z`` values (rad/m), largest first. Empty if the
+        window holds no root.
+    """
+    grid = np.linspace(kz_lo, kz_hi, samples)
+    values = np.array([det_fn(float(k)) for k in grid])
+    roots: list[float] = []
+    for i in range(grid.size - 1):
+        if not (np.isfinite(values[i]) and np.isfinite(values[i + 1])):
+            continue
+        if np.sign(values[i]) != np.sign(values[i + 1]):
+            roots.append(
+                float(
+                    optimize.brentq(
+                        det_fn, grid[i], grid[i + 1], xtol=1.0e-14, rtol=8.9e-16
+                    )
+                )
+            )
+    return sorted(roots, reverse=True)
+
+
+def trapped_pseudo_rayleigh_dispersion(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    branch: int = 0,
+) -> BoreholeMode:
+    r"""
+    Trapped (fully bound) pseudo-Rayleigh dispersion from the n=0 determinant.
+
+    The pseudo-Rayleigh family splits in two by phase velocity, and this
+    function covers the half that does not radiate. For
+    :math:`V_f < c < V_S` the formation P and S waves are both evanescent
+    while the fluid field oscillates radially, so the mode is a genuine
+    trapped resonance of the borehole fluid column with a real ``k_z`` and
+    no attenuation. Above :math:`V_S` the shear wave propagates, the mode
+    leaks, and :func:`pseudo_rayleigh_dispersion` takes over with a complex
+    ``k_z``.
+
+    These modes exist in fast formations only (``V_S > V_f``), each above
+    its own cutoff, and several coexist at a given frequency: at 30 kHz in
+    a 0.10 m hole through a ``4000/2300/2500`` formation there are three,
+    alongside the Stoneley mode. They are what
+    :func:`stoneley_dispersion` cannot return -- its bracket starts at
+    ``omega / min(V_S, V_f)`` and so covers only ``c < V_f``.
+
+    Parameters
+    ----------
+    freq : ndarray
+        Frequency grid (Hz), shape ``(n_freq,)``. Must be strictly
+        positive. Frequencies are solved independently, so the grid need
+        not be ordered or evenly spaced.
+    vp, vs, rho : float
+        Formation P-wave velocity (m/s), S-wave velocity (m/s) and bulk
+        density (kg/m^3). Require ``vp > vs > 0`` and ``rho > 0``.
+    vf, rho_f : float
+        Borehole-fluid velocity (m/s) and density (kg/m^3). Require
+        ``vs > vf > 0``: a slow formation has no trapped window.
+    a : float
+        Borehole radius (m); must be positive.
+    branch : int, default 0
+        Radial order, ``0`` being the fundamental. Roots are ordered by
+        descending ``k_z``, i.e. ascending radial order -- the same
+        convention :func:`pseudo_rayleigh_dispersion` uses, and the
+        fundamental is the slowest of the trapped modes at any frequency.
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "trapped_pseudo_rayleigh"``, ``azimuthal_order = 0``,
+        ``freq`` echoed, and ``slowness`` of shape ``(n_freq,)`` in s/m.
+        ``attenuation_per_meter`` is ``None``: these modes are bound and
+        lossless, which is the substantive difference from the leaky
+        sister function. ``slowness`` is ``NaN`` at frequencies below the
+        requested branch's cutoff, where that mode does not exist.
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive, ``vp <= vs``, ``vs <= vf`` (no
+        trapped window), ``branch`` is negative, or ``freq`` contains a
+        non-positive entry.
+
+    Notes
+    -----
+    Each frequency is solved independently by scanning the trapped window
+    ``omega/V_S < k_z < omega/V_f`` for sign changes of the modal
+    determinant and polishing with :func:`scipy.optimize.brentq`. There is
+    no frequency marching and therefore none of the branch-continuity
+    machinery :func:`pseudo_rayleigh_dispersion` needs: the roots are real
+    and simple here, and ordering them at each frequency is enough to keep
+    a branch identified. A consequence worth relying on is that the result
+    does not depend on the frequency grid at all.
+
+    In this window the determinant is real to rounding -- the fluid radial
+    wavenumber is imaginary, which turns the modified Bessel functions into
+    ordinary ones -- so its imaginary part is discarded rather than being
+    carried through a complex root finder.
+
+    See Also
+    --------
+    pseudo_rayleigh_dispersion : The leaky half of the same family,
+        ``c > V_S``, with a complex ``k_z``.
+    stoneley_dispersion : The other bound n=0 mode, ``c < V_f``.
+
+    References
+    ----------
+    * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
+      Boreholes.* CRC Press, sect. 4.4 and fig 4.5.
+    * Cheng, C. H., & Toksoz, M. N. (1981). Elastic wave propagation in a
+      fluid-filled borehole and synthetic acoustic logs. *Geophysics*
+      46(7), 1042-1053.
+    """
+    if vp <= 0 or vs <= 0 or rho <= 0:
+        raise ValueError("vp, vs, rho must all be positive")
+    if vf <= 0 or rho_f <= 0:
+        raise ValueError("vf and rho_f must be positive")
+    if a <= 0:
+        raise ValueError("a must be positive")
+    if vp <= vs:
+        raise ValueError("require vp > vs")
+    if vs <= vf:
+        raise ValueError(
+            f"trapped pseudo-Rayleigh modes require a fast formation "
+            f"(vs > vf); got vs={vs}, vf={vf}"
+        )
+    if branch < 0:
+        raise ValueError(f"branch must be non-negative, got {branch}")
+
+    f_arr = np.asarray(freq, dtype=float)
+    if np.any(f_arr <= 0):
+        raise ValueError("freq must be strictly positive")
+
+    slowness = np.full(f_arr.shape, np.nan, dtype=float)
+    for i, f in enumerate(f_arr.ravel()):
+        omega = 2.0 * np.pi * float(f)
+
+        def det(kz: float, omega: float = omega) -> float:
+            return _modal_determinant_n0_complex(
+                kz, omega, vp, vs, rho, vf, rho_f, a, leaky_p=False, leaky_s=False
+            ).real
+
+        roots = _scan_bound_roots(
+            det, omega / vs * (1.0 + 1.0e-9), omega / vf * (1.0 - 1.0e-9)
+        )
+        if branch < len(roots):
+            slowness.ravel()[i] = roots[branch] / omega
+
+    return BoreholeMode(
+        name="trapped_pseudo_rayleigh",
+        azimuthal_order=0,
+        freq=f_arr,
+        slowness=slowness,
+        attenuation_per_meter=None,
+    )
+
+
 def pseudo_rayleigh_dispersion(
     freq: np.ndarray,
     *,

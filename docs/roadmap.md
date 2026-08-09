@@ -494,6 +494,28 @@ essentially complete -- plan items A through H in
    it ever stopped holding the `branch` argument would silently change
    meaning.
 
+4. **Trapped pseudo-Rayleigh modes** — **closed.** Found while building
+   the modal-biorthogonality check, which needed several coexisting bound
+   modes at one frequency and turned some up that no public function
+   returned. The pseudo-Rayleigh family splits by phase velocity: for
+   `V_f < c < V_S` both formation waves are evanescent and the mode is a
+   fully trapped, lossless resonance with real `k_z`; above `V_S` the
+   shear wave propagates and the mode leaks.
+   `pseudo_rayleigh_dispersion` covered only the leaky half, and
+   `stoneley_dispersion` brackets from `omega/min(V_S, V_f)` upward and so
+   covers only `c < V_f`. The trapped half fell between them.
+   `trapped_pseudo_rayleigh_dispersion` closes the gap, with a `branch`
+   argument on the same convention as the leaky function. Several modes
+   coexist — three at 30 kHz in a 0.10 m hole through a 4000/2300/2500
+   formation, six by 50 kHz — each above its own cutoff, and each
+   descending from near `V_S` toward `V_f` with frequency.
+   It needs no frequency marching: the roots are real and simple, so each
+   frequency is solved independently and the result is exactly grid
+   independent, which is pinned by a test. The oracle that turned the modes
+   up now also validates them — Auld's relation is checked across the three
+   trapped modes and the Stoneley mode together, so the new function is tied
+   to physics rather than to itself.
+
 For reference, the original from-scratch problem statement is
 preserved below.
 

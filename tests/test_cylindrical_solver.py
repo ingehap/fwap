@@ -14516,3 +14516,562 @@ def test_genuine_thick_layers_still_converge_to_the_right_limit():
         assert np.all(error < 5.0e-3), (thickness, error)
         # ...and it tightens with frequency, as a short-wavelength limit must.
         assert np.all(np.diff(error) < 0.0), (thickness, error)
+
+
+# ---------------------------------------------------------------------------
+# The n=1 / n=2 cutoffs are NOT rigid-pipe fluid-column cutoffs.
+#
+# `plans/learning.md` proposed checking them against the rigid-pipe closed form
+# with the appropriate Bessel zeros, as PR #61 did for n=0. The premise does not
+# survive measurement, and the reason is structural rather than numerical:
+#
+#   * The n=0 mode that check applies to is the *pseudo-Rayleigh* mode, which
+#     is a fluid-column resonance -- a higher-order mode of the borehole fluid,
+#     perturbed by the wall.
+#   * `flexural_dispersion` and `quadrupole_dispersion` return the
+#     *fundamental* modes at their azimuthal orders. Those are interface modes,
+#     not fluid-column ones, so there is no rigid-pipe resonance for them to be
+#     compared against. The solver exposes no n=1 or n=2 counterpart of
+#     pseudo-Rayleigh.
+#
+# What the measurement shows instead is recorded here, because a scaling law is
+# falsifiable even when a closed form is not available.
+# ---------------------------------------------------------------------------
+
+_CUT_GRID = np.linspace(100.0, 40.0e3, 2000)
+
+
+def _lowest_converged_frequency(solver, **medium):
+    mode = solver(_CUT_GRID, **medium)
+    ok = np.isfinite(mode.slowness)
+    return float(_CUT_GRID[ok].min()) if ok.any() else float("nan")
+
+
+def _cutoff_solvers():
+    from fwap import flexural_dispersion, quadrupole_dispersion
+
+    return (("flexural", flexural_dispersion), ("quadrupole", quadrupole_dispersion))
+
+
+def test_n1_n2_cutoffs_scale_inversely_with_borehole_radius():
+    """A geometric cutoff exists, and it goes as 1/a.
+
+    This much the rigid-pipe picture would also predict, so on its own it does
+    not discriminate; it is asserted because it establishes that there *is* a
+    clean geometric cutoff to reason about.
+    """
+    for name, solver in _cutoff_solvers():
+        products = []
+        for a in (0.06, 0.10, 0.20):
+            medium = dict(vp=2200.0, vs=1000.0, rho=2200.0, vf=1500.0, rho_f=1000.0)
+            cutoff = _lowest_converged_frequency(solver, **medium, a=a)
+            assert np.isfinite(cutoff), (name, a)
+            products.append(cutoff * a)
+        spread = max(products) / min(products) - 1.0
+        assert spread < 0.05, (name, products)
+
+
+def test_n1_n2_cutoffs_are_shear_controlled_not_fluid_controlled():
+    """The discriminating measurement, and the one that kills the candidate.
+
+    A rigid-pipe fluid-column cutoff is set by the *fluid*: on the n=0 form
+    it carries a full power of ``V_f`` and none of ``V_S`` in the rigid limit.
+    The n=1 and n=2 cutoffs behave the other way round. Measured as log-log
+    sensitivities over a factor ~2 in ``V_S`` and ~1.6 in ``V_f``, the
+    exponents are about 0.87 on ``V_S`` and 0.10 on ``V_f``.
+
+    Bounds are set well clear of the measured values rather than tight to
+    them, since the point is the qualitative ordering -- shear-controlled, not
+    fluid-controlled -- and not the exponent itself.
+    """
+    for name, solver in _cutoff_solvers():
+        slow_shear = _lowest_converged_frequency(
+            solver,
+            vp=2.2 * 700.0,
+            vs=700.0,
+            rho=2200.0,
+            vf=1500.0,
+            rho_f=1000.0,
+            a=0.10,
+        )
+        fast_shear = _lowest_converged_frequency(
+            solver,
+            vp=2.2 * 1450.0,
+            vs=1450.0,
+            rho=2200.0,
+            vf=1500.0,
+            rho_f=1000.0,
+            a=0.10,
+        )
+        slow_fluid = _lowest_converged_frequency(
+            solver, vp=2200.0, vs=1000.0, rho=2200.0, vf=1200.0, rho_f=1000.0, a=0.10
+        )
+        fast_fluid = _lowest_converged_frequency(
+            solver, vp=2200.0, vs=1000.0, rho=2200.0, vf=1900.0, rho_f=1000.0, a=0.10
+        )
+        assert all(
+            np.isfinite(x) for x in (slow_shear, fast_shear, slow_fluid, fast_fluid)
+        ), name
+
+        exponent_vs = np.log(fast_shear / slow_shear) / np.log(1450.0 / 700.0)
+        exponent_vf = np.log(fast_fluid / slow_fluid) / np.log(1900.0 / 1200.0)
+
+        assert exponent_vs > 0.6, (name, exponent_vs)
+        assert exponent_vf < 0.4, (name, exponent_vf)
+        assert exponent_vs > 3.0 * exponent_vf, (name, exponent_vs, exponent_vf)
+
+
+def test_n1_n2_cutoffs_do_not_match_the_rigid_pipe_closed_form():
+    """Stated as a test so the candidate cannot quietly come back.
+
+    Evaluated where the rigid-pipe form is even defined -- a fast formation,
+    ``V_S > V_f`` -- the closed form and the solver disagree, and by different
+    factors for the two orders, so no single constant reconciles them. In that
+    regime both solvers are separately known to be defective (roadmap A.2),
+    which is the second reason the comparison cannot be made to work.
+    """
+    from scipy.special import jnp_zeros
+
+    medium = dict(vp=4000.0, vs=2300.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.10)
+    rigid_pipe = {
+        order: jnp_zeros(order, 1)[0]
+        * medium["vf"]
+        * medium["vs"]
+        / (2.0 * np.pi * medium["a"] * np.sqrt(medium["vs"] ** 2 - medium["vf"] ** 2))
+        for order in (1, 2)
+    }
+
+    ratios = {}
+    for order, (name, solver) in zip((1, 2), _cutoff_solvers()):
+        cutoff = _lowest_converged_frequency(solver, **medium)
+        assert np.isfinite(cutoff), name
+        ratios[order] = cutoff / rigid_pipe[order]
+
+    # No single constant reconciles the two orders, so this is not the
+    # n=0 situation of a fixed offset that could be documented and used.
+    assert abs(ratios[1] / ratios[2] - 1.0) > 0.15, ratios
+
+
+# ---------------------------------------------------------------------------
+# Modal biorthogonality: the first oracle here that needs two solutions at once.
+#
+# Every earlier check evaluates something on a single mode, which is why the
+# energy balance turned out vacuous -- a law evaluated on one solution in a
+# region where that solution already satisfies the governing equations comes
+# back exact and means nothing. Auld's waveguide reciprocity relation does not
+# have that escape: it couples two *different* eigenvectors, so it cannot be
+# satisfied by construction from either.
+#
+# The test set is real. In a fast formation the n=0 bound spectrum holds the
+# Stoneley mode (c < V_f) *and* the trapped pseudo-Rayleigh modes
+# (V_f < c < V_S) -- four of them at 30 kHz, all bound, all azimuthal order 0.
+# Note that `stoneley_dispersion` returns only the first: its bracket stops at
+# omega/V_f, so the trapped modes are found here directly from the determinant.
+# ---------------------------------------------------------------------------
+
+_BIO_MEDIUM = {
+    "vp": 4000.0,
+    "vs": 2300.0,
+    "rho": 2500.0,
+    "vf": 1500.0,
+    "rho_f": 1000.0,
+    "a": 0.10,
+}
+
+
+def _bound_n0_roots(omega, medium):
+    """Every bound n=0 root at one frequency: Stoneley plus trapped modes."""
+    from scipy.optimize import brentq
+
+    from fwap.cylindrical_solver._leaky import _modal_determinant_n0_complex
+
+    def det(kz):
+        return _modal_determinant_n0_complex(
+            kz, omega, **medium, leaky_p=False, leaky_s=False
+        )
+
+    roots = []
+    windows = (
+        (omega / medium["vs"] * 1.0001, omega / medium["vf"] * 0.9999),
+        (omega / medium["vf"] * 1.0001, omega / medium["vf"] * 3.0),
+    )
+    for lo, hi in windows:
+        grid = np.linspace(lo, hi, 3000)
+        values = np.array([det(k) for k in grid])
+        use_real = np.nanmax(np.abs(values.real)) >= np.nanmax(np.abs(values.imag))
+        scalar = (lambda k: det(k).real) if use_real else (lambda k: det(k).imag)
+        flat = values.real if use_real else values.imag
+        for i in range(grid.size - 1):
+            if not (np.isfinite(flat[i]) and np.isfinite(flat[i + 1])):
+                continue
+            if np.sign(flat[i]) != np.sign(flat[i + 1]):
+                roots.append(
+                    brentq(scalar, grid[i], grid[i + 1], xtol=1e-14, rtol=8.9e-16)
+                )
+    return sorted(roots)
+
+
+def _mode_shape(kz, omega, medium):
+    """Null vector of the 3x3 bound matrix, plus the radial wavenumbers."""
+    from scipy import special
+
+    mu = medium["rho"] * medium["vs"] ** 2
+    a = medium["a"]
+    f_r = np.sqrt(complex(kz * kz - (omega / medium["vf"]) ** 2))
+    p = np.sqrt(complex(kz * kz - (omega / medium["vp"]) ** 2))
+    s = np.sqrt(complex(kz * kz - (omega / medium["vs"]) ** 2))
+    i0, i1 = complex(special.iv(0, f_r * a)), complex(special.iv(1, f_r * a))
+    k0p, k1p = complex(special.kv(0, p * a)), complex(special.kv(1, p * a))
+    k0s, k1s = complex(special.kv(0, s * a)), complex(special.kv(1, s * a))
+    two_kz2 = 2.0 * kz * kz - (omega / medium["vs"]) ** 2
+    matrix = np.array(
+        [
+            [f_r * i1 / (medium["rho_f"] * omega**2), p * k1p, kz * k1s],
+            [
+                -i0,
+                -mu * (two_kz2 * k0p + 2.0 * p * k1p / a),
+                -2.0 * kz * mu * (s * k0s + k1s / a),
+            ],
+            [0.0, 2.0 * kz * p * mu * k1p, mu * two_kz2 * k1s],
+        ],
+        dtype=complex,
+    )
+    _, _, vh = np.linalg.svd(matrix)
+    vec = vh[-1].conj()
+    # The matrix writes continuity as u_r(fluid) + u_r(solid) = 0, so the solid
+    # amplitudes carry the opposite sign to the field expressions below.
+    return (vec[0], -vec[1], -vec[2]), f_r, p, s
+
+
+def _mode_fields(r, kz, omega, medium, shape):
+    """u_r, u_z, sigma_rz, sigma_zz across the whole cross-section."""
+    from scipy import special
+
+    (amp_f, amp_p, amp_s), f_r, p, s = shape
+    mu = medium["rho"] * medium["vs"] ** 2
+    lam = medium["rho"] * (medium["vp"] ** 2 - 2.0 * medium["vs"] ** 2)
+    two_kz2 = 2.0 * kz * kz - (omega / medium["vs"]) ** 2
+
+    r = np.atleast_1d(r).astype(float)
+    u_r = np.zeros_like(r, dtype=complex)
+    u_z = np.zeros_like(r, dtype=complex)
+    s_rz = np.zeros_like(r, dtype=complex)
+    s_zz = np.zeros_like(r, dtype=complex)
+
+    inside = r < medium["a"]
+    if inside.any():
+        ri = r[inside]
+        i0, i1 = special.iv(0, f_r * ri), special.iv(1, f_r * ri)
+        u_r[inside] = amp_f * f_r * i1 / (medium["rho_f"] * omega**2)
+        u_z[inside] = 1j * kz * amp_f * i0 / (medium["rho_f"] * omega**2)
+        s_zz[inside] = -amp_f * i0  # sigma_rz vanishes in an inviscid fluid
+    if (~inside).any():
+        ro = r[~inside]
+        k0p, k1p = special.kv(0, p * ro), special.kv(1, p * ro)
+        k0s, k1s = special.kv(0, s * ro), special.kv(1, s * ro)
+        u_r[~inside] = amp_p * p * k1p + amp_s * kz * k1s
+        u_z[~inside] = -1j * (kz * amp_p * k0p + amp_s * s * k0s)
+        s_rz[~inside] = 1j * mu * (2.0 * kz * p * amp_p * k1p + amp_s * two_kz2 * k1s)
+        s_zz[~inside] = lam * (
+            omega**2 / medium["vp"] ** 2
+        ) * amp_p * k0p + 2.0 * mu * (kz * (kz * amp_p * k0p + amp_s * s * k0s))
+    return u_r, u_z, s_rz, s_zz
+
+
+def _cross_integral(kz_m, kz_n, omega, medium, shapes, span=15.0):
+    """INT (conj(u^m) . T^n . zhat) r dr, by fixed-node Gauss-Legendre.
+
+    Fixed nodes rather than an adaptive rule on purpose: the integrand
+    underflows in the evanescent tail, and adaptive quadrature spends its
+    error budget out there and returns noise ~1e-4, which is large enough to
+    look like a failed orthogonality relation.
+    """
+    a = medium["a"]
+    decay = [
+        np.sqrt(max(k * k - (omega / medium["vs"]) ** 2, 1e-12)) for k in (kz_m, kz_n)
+    ]
+    outer = a + span / min(decay)
+    total = 0.0 + 0.0j
+    for lo, hi, count in ((0.0, a, 300), (a, outer, 600)):
+        x, weights = np.polynomial.legendre.leggauss(count)
+        r = 0.5 * (hi - lo) * (x + 1.0) + lo
+        u_r, u_z, _, _ = _mode_fields(r, kz_m, omega, medium, shapes[kz_m])
+        _, _, s_rz, s_zz = _mode_fields(r, kz_n, omega, medium, shapes[kz_n])
+        total += (
+            0.5
+            * (hi - lo)
+            * np.sum(weights * (np.conj(u_r) * s_rz + np.conj(u_z) * s_zz) * r)
+        )
+    return total
+
+
+def test_bound_n0_modes_satisfy_the_boundary_conditions_they_were_built_from():
+    """Sanity gate on the eigenfunctions before they are used for anything.
+
+    Written first because a sign slip in the solid amplitudes was caught here
+    -- ``|du_r| / |u_r|`` came back as exactly 2.0, which is what equal and
+    opposite gives -- and would otherwise have shown up as a failed
+    orthogonality relation, i.e. as a fake finding about the solver.
+    """
+    omega = 2.0 * np.pi * 30.0e3
+    roots = _bound_n0_roots(omega, _BIO_MEDIUM)
+    assert len(roots) >= 3, roots
+
+    step = 1.0e-9
+    for kz in roots:
+        shape = _mode_shape(kz, omega, _BIO_MEDIUM)
+        u_in = _mode_fields(_BIO_MEDIUM["a"] - step, kz, omega, _BIO_MEDIUM, shape)[0]
+        u_out = _mode_fields(_BIO_MEDIUM["a"] + step, kz, omega, _BIO_MEDIUM, shape)[0]
+        scale = max(abs(u_in[0]), abs(u_out[0]))
+        assert abs(u_in[0] - u_out[0]) / scale < 1.0e-6, kz
+
+
+def test_bound_n0_modes_are_biorthogonal():
+    """Auld's relation across every pair of coexisting bound modes.
+
+    ``S_mn - conj(S_nm)`` must vanish for ``m != n``. Measured over the four
+    bound modes at 30 kHz it does, to ~1e-13 relative, while the diagonal
+    stays O(1) -- so this is orthogonality rather than everything being small.
+    """
+    omega = 2.0 * np.pi * 30.0e3
+    roots = _bound_n0_roots(omega, _BIO_MEDIUM)
+    shapes = {kz: _mode_shape(kz, omega, _BIO_MEDIUM) for kz in roots}
+    n = len(roots)
+
+    gram = np.array(
+        [
+            [
+                _cross_integral(roots[i], roots[j], omega, _BIO_MEDIUM, shapes)
+                for j in range(n)
+            ]
+            for i in range(n)
+        ]
+    )
+    for i in range(n):
+        for j in range(n):
+            scale = np.sqrt(abs(gram[i, i] * gram[j, j]))
+            assert scale > 0.0
+            residual = abs(gram[i, j] - np.conj(gram[j, i])) / scale
+            if i == j:
+                continue
+            assert residual < 1.0e-9, (i, j, residual)
+
+
+def test_biorthogonality_check_rejects_the_wrong_bilinear_form():
+    """The relation is specific, not a statement that everything is small.
+
+    Using one term of the pairing instead of Auld's difference -- a natural
+    wrong guess, and the one tried first -- leaves off-diagonals around 1e-2,
+    ten orders above the tolerance the correct form meets. That gap is what
+    makes the test above evidence rather than an accident of normalisation.
+    """
+    omega = 2.0 * np.pi * 30.0e3
+    roots = _bound_n0_roots(omega, _BIO_MEDIUM)
+    shapes = {kz: _mode_shape(kz, omega, _BIO_MEDIUM) for kz in roots}
+
+    worst = 0.0
+    for i in range(len(roots)):
+        for j in range(len(roots)):
+            if i == j:
+                continue
+            s_ij = _cross_integral(roots[i], roots[j], omega, _BIO_MEDIUM, shapes)
+            s_ii = _cross_integral(roots[i], roots[i], omega, _BIO_MEDIUM, shapes)
+            s_jj = _cross_integral(roots[j], roots[j], omega, _BIO_MEDIUM, shapes)
+            worst = max(worst, abs(s_ij) / np.sqrt(abs(s_ii * s_jj)))
+    assert worst > 1.0e-3, worst
+
+
+# ---------------------------------------------------------------------------
+# Trapped pseudo-Rayleigh modes, now public.
+#
+# These were found while building the biorthogonality check and were reachable
+# only by scanning the determinant directly: `stoneley_dispersion` brackets
+# from omega/min(V_S, V_f) upward and so returns just the Stoneley mode, and
+# `pseudo_rayleigh_dispersion` covers the leaky half above V_S.
+# ---------------------------------------------------------------------------
+
+_TRAP_MEDIUM = {
+    "vp": 4000.0,
+    "vs": 2300.0,
+    "rho": 2500.0,
+    "vf": 1500.0,
+    "rho_f": 1000.0,
+    "a": 0.10,
+}
+
+
+def test_trapped_pseudo_rayleigh_lies_strictly_inside_the_trapped_window():
+    """Bound between the fluid and shear velocities, and lossless.
+
+    The defining property: both formation waves evanescent, fluid field
+    oscillatory. Outside ``V_f < c < V_S`` the mode is either the Stoneley
+    wave or a leaky one, and neither belongs here.
+    """
+    from fwap import trapped_pseudo_rayleigh_dispersion
+
+    freq = np.linspace(8.0e3, 60.0e3, 20)
+    mode = trapped_pseudo_rayleigh_dispersion(freq, **_TRAP_MEDIUM)
+    assert mode.name == "trapped_pseudo_rayleigh"
+    assert mode.azimuthal_order == 0
+    assert mode.attenuation_per_meter is None  # bound modes do not radiate
+
+    ok = np.isfinite(mode.slowness)
+    assert ok.sum() > 15
+    speeds = 1.0 / mode.slowness[ok]
+    assert np.all(speeds > _TRAP_MEDIUM["vf"])
+    assert np.all(speeds < _TRAP_MEDIUM["vs"])
+
+
+def test_trapped_pseudo_rayleigh_branches_appear_in_order_and_descend():
+    """Higher orders switch on at higher frequency; each then slows toward V_f.
+
+    Each branch starts at its own cutoff near ``V_S`` and decreases toward
+    the fluid velocity, so at any one frequency the fundamental is the
+    *slowest* of the trapped modes -- which is the ordering convention the
+    ``branch`` argument uses, shared with the leaky sister function.
+    """
+    from fwap import trapped_pseudo_rayleigh_dispersion
+
+    freq = np.linspace(5.0e3, 60.0e3, 40)
+    curves = [
+        trapped_pseudo_rayleigh_dispersion(freq, **_TRAP_MEDIUM, branch=b).slowness
+        for b in range(3)
+    ]
+
+    cutoffs = []
+    for slowness in curves:
+        ok = np.isfinite(slowness)
+        assert ok.any()
+        cutoffs.append(freq[ok].min())
+        speeds = 1.0 / slowness[ok]
+        # monotonically slowing with frequency, allowing for grid coarseness
+        assert speeds[0] > speeds[-1]
+    assert cutoffs[0] < cutoffs[1] < cutoffs[2], cutoffs
+
+    # ...and at a frequency where all three exist, branch 0 is the slowest.
+    high = np.array([60.0e3])
+    speeds = [
+        1.0
+        / trapped_pseudo_rayleigh_dispersion(high, **_TRAP_MEDIUM, branch=b).slowness[0]
+        for b in range(3)
+    ]
+    assert speeds[0] < speeds[1] < speeds[2], speeds
+
+
+def test_trapped_pseudo_rayleigh_is_independent_of_the_frequency_grid():
+    """No marching, so no grid coupling -- unlike the leaky sister function.
+
+    Each frequency is solved on its own, which is why this function needs
+    none of the seed-enumeration machinery `pseudo_rayleigh_dispersion`
+    required. Worth pinning, because that grid independence is the whole
+    reason the simpler algorithm is safe here.
+    """
+    from fwap import trapped_pseudo_rayleigh_dispersion
+
+    probe = 33.0e3
+    reference = None
+    for base in (
+        np.array([]),
+        np.linspace(5.0e3, 40.0e3, 37),
+        np.linspace(20.0e3, 90.0e3, 200),
+        np.array([90.0e3, 12.0e3]),  # unordered once the probe is inserted
+    ):
+        # The probe must be an exact member of every grid: comparing the
+        # *nearest* sample would compare different frequencies, which is a
+        # different quantity rather than a grid effect.
+        grid = np.concatenate([base, [probe]])
+        mode = trapped_pseudo_rayleigh_dispersion(grid, **_TRAP_MEDIUM)
+        j = int(np.flatnonzero(grid == probe)[0])
+        value = mode.slowness[j]
+        assert np.isfinite(value)
+        if reference is None:
+            reference = value
+        else:
+            assert value == pytest.approx(reference, rel=1.0e-12)
+
+
+def test_trapped_pseudo_rayleigh_is_biorthogonal_to_the_stoneley_mode():
+    """Checked against physics rather than against itself.
+
+    The trapped modes and the Stoneley mode coexist at the same frequency
+    and the same azimuthal order, so Auld's relation must hold across them.
+    That ties the new function to the biorthogonality oracle above: a
+    spurious root would not be orthogonal to the Stoneley mode.
+    """
+    from fwap import stoneley_dispersion, trapped_pseudo_rayleigh_dispersion
+
+    omega = 2.0 * np.pi * 30.0e3
+    freq = np.array([30.0e3])
+
+    trapped = [
+        trapped_pseudo_rayleigh_dispersion(freq, **_TRAP_MEDIUM, branch=b).slowness[0]
+        for b in range(3)
+    ]
+    stoneley = stoneley_dispersion(freq, **_TRAP_MEDIUM).slowness[0]
+    assert all(np.isfinite(s) for s in trapped) and np.isfinite(stoneley)
+
+    wavenumbers = [s * omega for s in trapped] + [stoneley * omega]
+    shapes = {kz: _mode_shape(kz, omega, _BIO_MEDIUM) for kz in wavenumbers}
+    n = len(wavenumbers)
+    gram = np.array(
+        [
+            [
+                _cross_integral(
+                    wavenumbers[i], wavenumbers[j], omega, _BIO_MEDIUM, shapes
+                )
+                for j in range(n)
+            ]
+            for i in range(n)
+        ]
+    )
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+            scale = np.sqrt(abs(gram[i, i] * gram[j, j]))
+            assert abs(gram[i, j] - np.conj(gram[j, i])) / scale < 1.0e-9, (i, j)
+
+
+def test_trapped_pseudo_rayleigh_rejects_slow_formations_and_bad_input():
+    """A slow formation has no trapped window at all."""
+    from fwap import trapped_pseudo_rayleigh_dispersion
+
+    freq = np.array([10.0e3])
+    with pytest.raises(ValueError, match="fast formation"):
+        trapped_pseudo_rayleigh_dispersion(
+            freq, vp=2600.0, vs=1300.0, rho=2300.0, vf=1500.0, rho_f=1000.0, a=0.10
+        )
+    with pytest.raises(ValueError, match="branch must be non-negative"):
+        trapped_pseudo_rayleigh_dispersion(freq, **_TRAP_MEDIUM, branch=-1)
+    with pytest.raises(ValueError, match="require vp > vs"):
+        trapped_pseudo_rayleigh_dispersion(
+            freq, vp=2000.0, vs=2300.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.10
+        )
+    with pytest.raises(ValueError, match="freq must be strictly positive"):
+        trapped_pseudo_rayleigh_dispersion(np.array([0.0]), **_TRAP_MEDIUM)
+
+    for bad in ({"vs": -1.0}, {"rho_f": 0.0}, {"a": -0.1}):
+        with pytest.raises(ValueError, match="must (all )?be positive"):
+            trapped_pseudo_rayleigh_dispersion(freq, **{**_TRAP_MEDIUM, **bad})
+
+
+def test_trapped_root_scan_resolution_does_not_decide_how_many_modes_exist():
+    """The scan density must not set the branch count, or `branch` drifts."""
+    from fwap.cylindrical_solver._leaky import (
+        _modal_determinant_n0_complex,
+        _scan_bound_roots,
+    )
+
+    omega = 2.0 * np.pi * 50.0e3
+
+    def det(kz):
+        return _modal_determinant_n0_complex(
+            kz, omega, **_TRAP_MEDIUM, leaky_p=False, leaky_s=False
+        ).real
+
+    lo = omega / _TRAP_MEDIUM["vs"] * (1.0 + 1.0e-9)
+    hi = omega / _TRAP_MEDIUM["vf"] * (1.0 - 1.0e-9)
+    counts = {
+        len(_scan_bound_roots(det, lo, hi, samples=n)) for n in (500, 1000, 2000, 4000)
+    }
+    assert len(counts) == 1, counts

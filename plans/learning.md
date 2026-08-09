@@ -131,13 +131,18 @@ closing the balance inside the fluid is a mathematical identity. A conservation
 law tests something only if the control volume contains the constraint you are
 testing. Full treatment below, under *Attempted and withdrawn*.
 
-**An invariance borrowed from the wrong geometry.** "Swapping layer order
-leaves the dispersion invariant" is true of nothing in a *cylindrical* stack —
-the layers sit at different radii, so exchanging them changes the medium, by
-about 1 % here. The premise came from plane-layered intuition and survived into
-a written candidate list unchecked. Neighbouring geometry is where false
-invariances come from; the replacement (subdividing one annulus) is the version
-that survives the change of geometry.
+**A check transplanted across a boundary its mechanism does not cross.** The
+most common failure in this programme: two of seven candidates. "Swapping layer
+order leaves the dispersion invariant" is true of nothing in a *cylindrical*
+stack — the layers sit at different radii, so exchanging them changes the
+medium, by about 1 % here; the premise came from plane-layered intuition. And
+"check the n=1/n=2 cutoffs against their rigid-pipe forms" carried a check from
+one azimuthal order to another without asking whether the *kind of mode*
+carried with it — at n=0 it is a fluid-column resonance, at n=1 and n=2 the
+solver returns interface modes, and measurement confirms the cutoffs there are
+shear-controlled rather than fluid-controlled. **Ask what physical mechanism
+makes the check true, then ask whether that mechanism survives the move** —
+across geometry, azimuthal order, mode family, or regime.
 
 **A test premise that is simply false.** A test asserted TV regularisation
 "prefers a single contact"; true TV is exactly indifferent, and the smoothing
@@ -161,6 +166,95 @@ Corollary: **state what the check cannot catch.** The attenuation oracle would
 catch a wrong power of frequency or a radius/diameter confusion, and would not
 catch a 30 % error. Saying so keeps a green test from being read as a precision
 guarantee.
+
+## Choosing what to measure
+
+Every entry above began with a decision about *which number to compute*, and in
+hindsight that decision mattered more than the physics or the code. What
+follows is the specific recipe this work converged on, then the general
+principle underneath it.
+
+### The specific recipe
+
+Given a solver and a claim about it, these are the questions that have actually
+produced findings here, in the order they paid off.
+
+1. **Which return values has nothing ever looked at?** Not which functions are
+   untested — which *fields*. `attenuation_per_meter` had three tests proving
+   it was present, finite and positive, and none that looked at its magnitude;
+   that gap was the whole of PR #63. Enumerate the components of every returned
+   object and ask what each one is checked against.
+
+2. **What does the closed form leave out?** When comparing against an analytic
+   limit, the sharpest measurement is usually of a parameter the *formula does
+   not contain*. The tube-wave form has no borehole radius in it, so the
+   radius-independence of the solver's limit is a stronger statement than the
+   value: agreement on the value could be a coincidence of one geometry, but
+   `a` = 0.05-0.30 m agreeing to 5e-8 cannot. Look for the variable the two
+   sides disagree about the existence of.
+
+3. **What would this look like if it were wrong?** Compute the check on a
+   deliberately wrong input and record the number. If it comes back the same,
+   stop — that is the energy-balance outcome, and it cost ten minutes to find
+   and would have cost a false claim to miss. Cheap enough to do every time.
+
+4. **Does the answer depend on something it must not?** Grid density, grid
+   endpoints, scan resolution, platform. Two defects (#63, #64) were found by
+   varying a parameter that carries no physics. The rule generalises: for every
+   argument the caller controls that *should not* affect the answer, vary it.
+   Grid *endpoints* found the leaky branch defect after grid *density* had
+   already come back clean, so vary each independently rather than assuming one
+   stands for the family.
+
+5. **Where does the check itself expire?** An invariance used to verify a
+   solver has its own validity range. Measure it before reading a failure as
+   the code's fault — the transparent-layer breakdown in #65 is a defect in the
+   verification technique, not in the configurations the solver models, and
+   only measuring the boundary made that distinction available.
+
+6. **Is the quantity a property of the system or of the run?** Before asserting
+   any number, ask whether it would survive a different machine. Where a
+   spurious root lands, and how far off it is, both failed that test in #65 and
+   produced two CI failures in a row. When the answer is "of the run", assert
+   the structural claim instead: not *how much* the invariance is violated, but
+   *that* it is.
+
+### The general principle
+
+The measurements that found something all share a shape: **they compare two
+things that are supposed to agree for a reason that lives outside the code
+being tested.** Everything else is a restatement of the implementation.
+
+That gives a single test for whether a proposed measurement is worth making —
+*what would have to be true of the world, rather than of the program, for this
+to come out right?* If the answer is "nothing in particular; it follows from
+the definitions", the measurement is a tautology however elaborate. That is
+what killed the fluid-only energy balance, the momentum balance, and interface
+flux continuity, and it is what makes modal biorthogonality and
+Kramers-Kronig worth attempting: both require a second, independently computed
+solution, so neither can be satisfied by construction.
+
+Three corollaries earn their keep:
+
+- **Prefer a measurement that can fail for exactly one reason.** Comparing a
+  solver against a closed form in a regime where three approximations overlap
+  gives a number nobody can act on. The Scholte check works because at short
+  wavelength there is precisely one thing the borehole solver must reduce to.
+- **Measure the boundary, not the interior.** Where something stops working is
+  more informative than that it works, because it is falsifiable in a direction
+  the happy path is not. Every defect in this list was found at a boundary: a
+  cutoff, a validity floor, a grid endpoint, a thickness limit.
+- **Quantify the discrimination, not just the agreement.** "The check passes"
+  is worth little without "and here is how badly a wrong answer would fail it".
+  The subdivision oracle is credible because a thickness error of one part in
+  ten thousand moves the result nine orders above the noise floor; that ratio,
+  not the 1e-15 agreement, is what makes it a test.
+
+The through-line is that a good measurement is *chosen adversarially* — picked
+because it could embarrass the code, not because it is convenient to compute.
+Measurements chosen for convenience mostly confirm, and confirmation from a
+check that could not have failed is the most expensive kind of nothing,
+because it is indistinguishable from the real thing until someone relies on it.
 
 ## How this should change planning
 
@@ -226,11 +320,43 @@ axial power must reproduce `Im(k_z)` with no free geometry in it, and so might
 bracketing it. **It does neither, and the way it fails is more instructive than
 another success would have been.**
 
-The derivation works. At the wall the boundary conditions give `sigma_rz = 0`
-and `sigma_rr = -P`, so both the radiated flux at `r = a` and the axial flux
-through the fluid column reduce to the same fluid amplitude, which cancels:
+### The derivation, in full
 
-    Im(k_z) = -a Im(I0(Fa) conj(F I1(Fa))) / (2 Re(k_z) INT_0^a |I0(Fr)|^2 r dr)
+Kept because the algebra is reusable even though the conclusion is negative —
+the same fluxes appear in any energy argument about these modes.
+
+Time convention `exp(i(k_z z - omega t))`. The time-averaged energy flux
+(Poynting vector) for an elastic medium is
+
+    I_j = -(1/2) Re(sigma_jk conj(v_k)),   v = -i omega u
+
+and in a fluid, where `sigma_jk = -P delta_jk`, that reduces to
+`I_j = -(omega/2) Im(P conj(u_j))`.
+
+The fluid field for the n=0 mode is
+
+    P   = A I0(F r),        F^2 = k_z^2 - (omega/V_f)^2
+    u   = grad P / (rho_f omega^2)
+
+so `u_r = A F I1(F r) / (rho_f omega^2)` and
+`u_z = i k_z A I0(F r) / (rho_f omega^2)`. Substituting:
+
+    axial flux density   I_z = Re(k_z) |A|^2 |I0(F r)|^2 / (2 rho_f omega)
+    axial power          P_z = (pi Re(k_z) |A|^2 / (rho_f omega))
+                                 INT_0^a |I0(F r)|^2 r dr
+    radial power at r=a  P_r = -(pi a / (rho_f omega)) |A|^2
+                                 Im(I0(Fa) conj(F I1(Fa)))
+
+`P_r` needs no formation fields at all: at the wall `sigma_rz = 0` and
+`sigma_rr = -P`, and `u_r` is continuous, so the flux through the wall can be
+evaluated entirely from the fluid side. The mode's power decays as
+`exp(-2 Im(k_z) z)`, so energy balance over the fluid cylinder is
+
+    2 Im(k_z) P_z = P_r
+
+and `|A|^2` cancels, leaving
+
+    Im(k_z) = -a Im(I0(Fa) conj(F I1(Fa))) / (2 Re(k_z) INT_0^a |I0(F r)|^2 r dr)
 
 Measured against the solver it reproduces `Im(k_z)` to ratio 1.000 at every
 frequency. That looked like the cleanest confirmation yet — for about ten
@@ -268,6 +394,54 @@ reproduces `Im(k_z)` at roots, that it does so at non-roots too, and that the
 formation field grows — so the next attempt starts from the result rather than
 from the derivation. Nothing was added to the public API: shipping a check that
 cannot fail would be worse than shipping none.
+
+## Which conservation laws are worth trying
+
+Prompted by the energy-balance failure: if energy did not bite, does anything
+else? The useful filter is the one that section ends on — a conservation law
+tests something only if the control volume contains the constraint that fixes
+the eigenvalue. A second filter falls out of the same algebra and is worth
+stating separately, because it disqualifies a whole family at once.
+
+**Linear momentum adds nothing.** For a single mode every quadratic flux
+carries the same `exp(-2 Im(k_z) z)`, so every balance has the form
+`(flux out) = 2 Im(k_z) x (flux carried)` and `Im(k_z)` divides out the same
+way. Momentum is worse than merely parallel: for the fluid column the axial
+momentum flux density is `rho_f <v_z v_z> = |k_z|^2 |A|^2 |I0|^2 /
+(2 rho_f omega^2)`, which is the energy flux density above multiplied by
+`|k_z|^2 / (omega Re(k_z))` — a constant across the cross-section. The momentum
+balance is therefore the energy balance times a constant, and reduces to the
+same identity. (For real `k_z` that factor is `1/c`, the familiar
+momentum-equals-energy-over-phase-velocity result.) **The general rule:
+a second conserved density built from the same single mode gives an
+independent check only if it is not proportional to the first.** The factor above was checked numerically rather
+than left as algebra: the ratio of the two integrated fluxes matches
+`|k_z|^2 / (omega Re(k_z))` to six digits at every frequency tried.
+
+That rules out most of the obvious list:
+
+- **Angular momentum** — for azimuthal order `n` it is `n/omega` times the
+  energy flux. Proportional; no information.
+- **Energy flux continuity across an interface** — that *is* the boundary
+  condition the determinant already enforces, so it is satisfied by
+  construction. Same failure as the fluid-only balance, in a thinner disguise.
+- **Momentum flux continuity across an interface** — likewise the traction
+  boundary condition.
+
+Two survive the filter and are worth attempting, because each brings in
+something the single mode does not already contain:
+
+- **Modal orthogonality.** Two *different* modes at the same frequency satisfy
+  a biorthogonality relation (Auld's reciprocity form for waveguides). This
+  involves two eigenvectors, so it cannot be satisfied by construction from
+  one of them, and it fails if either is wrong. This is the strongest
+  remaining conservation-flavoured candidate.
+- **Causality (Kramers-Kronig) — attempted; it does not apply to the modal
+  solver, and where it does apply is somewhere else entirely.** See below.
+
+Note what both survivors have in common: they involve more than one solution.
+Any law evaluated on a single mode in a region where that mode already
+satisfies the governing equations will come back exact and mean nothing.
 
 ## Attempted: layered-solver invariance — misstated, with a working replacement
 
@@ -338,22 +512,259 @@ range of its own, and it is not the solver's.** Establish where the check
 itself stops working before reading a failure as the code's fault — and before
 reading a pass as coverage.
 
+## Attempted: the n=1 / n=2 rigid-pipe cutoffs — the premise was wrong again
+
+This list proposed checking the `n=1` and `n=2` cutoffs against their
+rigid-pipe closed forms, "the same check #61 ran for `n=0`, using the
+appropriate Bessel zeros". The Bessel zeros are the easy part
+(`j'_{n,1}` = 3.8317, 1.8412, 3.0542 for n = 0, 1, 2, and `_J1_FIRST_ZERO`
+is indeed the first of those). The premise underneath is wrong.
+
+**The n=0 check applies to a fluid-column mode; the n=1 and n=2 solvers do not
+return one.** `pseudo_rayleigh_dispersion` returns a *higher-order* mode of the
+borehole fluid perturbed by the wall, which is exactly what a rigid-pipe
+resonance describes. `flexural_dispersion` and `quadrupole_dispersion` return
+the *fundamental* modes at their orders, which are interface modes. The solver
+exposes no n=1 or n=2 counterpart of pseudo-Rayleigh, so there is nothing for
+the formula to be compared against. The candidate transplanted a check across
+azimuthal order without asking whether the *kind of mode* transplanted with it.
+
+Measurement says so independently, which is what settled it. The cutoff does
+scale cleanly as `1/a` — so a geometric cutoff exists — but its log-log
+sensitivities are about **0.87 on `V_S` and 0.10 on `V_f`**. A fluid-column
+cutoff is fluid-controlled; these are shear-controlled, and by roughly an order
+of magnitude in exponent. Changing `V_f` by 58 % moves the cutoff 4 %.
+
+There is a second, independent reason the comparison cannot be rescued. The
+rigid-pipe form is only defined for `V_S > V_f`, and in fast formations both
+solvers are separately known to be defective (roadmap A.2, and the quadrupole
+finding in #62) — 1086 and 1179 of 2000 samples converge. A "cutoff" read off
+a defective band is a numerical artefact, not a physical frequency.
+
+Three tests pin the outcome: that the `1/a` scaling holds, that the cutoff is
+shear- rather than fluid-controlled, and that the rigid-pipe form does not
+match — with the ratios for the two orders differing enough that no single
+constant reconciles them, unlike the fixed offset #61 was able to document for
+`n=0`.
+
+**The lesson: when transplanting a check from one mode to another, verify that
+the physical mechanism transplants too.** Both this and the layer-order
+candidate failed the same way — a check that works somewhere nearby, carried
+across a boundary (azimuthal order; plane-to-cylindrical geometry) that the
+underlying mechanism does not cross. Two of the seven candidates died of it,
+which makes it the most common failure mode in this list, ahead of any
+numerical issue.
+
+## Attempted: modal biorthogonality — the first oracle needing two solutions
+
+The prediction from the conservation-law survey held. Auld's waveguide
+reciprocity relation couples two *different* eigenvectors, so unlike every
+earlier check it cannot be satisfied by construction from the solution being
+tested.
+
+**The test set exists and is richer than expected.** In a fast formation the
+n=0 bound spectrum contains the Stoneley mode (`c < V_f`) *and* the trapped
+pseudo-Rayleigh modes (`V_f < c < V_S`) — four bound modes at 30 kHz, six at
+50 kHz, all azimuthal order 0, so orthogonality among them is not the trivial
+angular-integral kind. Worth noting in passing: `stoneley_dispersion` returns
+only the first of these, because its bracket stops at `omega/V_f`. The trapped
+modes are not exposed by any public function.
+
+**Result: the relation holds to ~1e-13** across every pair, with the diagonal
+O(1) — so it is orthogonality, not everything being small. Three tests pin it.
+
+Three things about getting there are worth keeping.
+
+*Check the eigenfunctions before trusting the integral.* The first
+boundary-condition check returned `|du_r| / |u_r| = 2.00` exactly — the
+signature of equal and opposite, and a sign convention mismatch between the
+determinant's matrix rows and the field expressions derived from potentials.
+Had that gone unnoticed it would have surfaced as a *failed orthogonality
+relation*, i.e. as a fabricated finding about the solver. The BC check is now
+a test in its own right, and the general rule is: **when a check is built from
+machinery the code under test does not provide, validate the machinery
+separately first, or its bugs will be attributed to the code.**
+
+*The first bilinear form was wrong, and wrong in an instructive direction.*
+Using one term of the pairing rather than Auld's difference `S_mn - conj(S_nm)`
+leaves off-diagonals around 1e-2 — small enough to look like a tolerance
+problem and invite a loosened threshold, rather than a wrong formula. What
+distinguished them was that the correct form improved matters by ten orders,
+not by a factor of two. A test now asserts the wrong form fails, so the
+tolerance in the real test is evidence rather than a fitted constant.
+
+*Adaptive quadrature manufactured a false residual.* With `scipy.quad` the
+off-diagonals sat at 1e-4 and **grew** with integration span — the tell that
+the error was numerical rather than physical, since a genuine truncation error
+shrinks. The integrand underflows in the evanescent tail and the adaptive rule
+spends its error budget there. Fixed-node Gauss-Legendre over a modest span
+gives 1e-13. **When a residual moves the wrong way as you refine, the
+refinement parameter is the bug.**
+
+## Attempted: Kramers-Kronig — wrong target, but it found something next door
+
+Listed as the other candidate the "needs more than one solution" criterion
+endorsed, on the grounds that Kramers-Kronig relates `Re(k_z)` and `Im(k_z)`
+across frequencies and so cannot be satisfied by a single root. The criterion
+was right; the target was wrong.
+
+**One line of data disproves it.** A subtracted Kramers-Kronig relation on
+complex slowness says zero attenuation at every frequency forces zero
+dispersion — the dispersion integrand vanishes identically. The bound Stoneley
+mode is exactly lossless: the solver returns no attenuation field for it at
+all. Its phase velocity nevertheless moves **8.26 %** across the band, from the
+tube-wave limit to the Scholte speed. If modal slowness were KK-constrained
+that would be impossible.
+
+The physics is not subtle in hindsight. Kramers-Kronig follows from causality
+of the **constitutive relation** — a frequency-dependent modulus. Here the
+medium is perfectly elastic and non-dispersive, and every bit of the frequency
+dependence comes from the boundary conditions. Waveguide dispersion is
+*geometric*. A hollow metallic waveguide is the textbook case: strongly
+dispersive with perfectly lossless walls, and nobody expects KK to constrain
+its cutoff. **This is the transplant failure again — a check carried from
+material response to geometric dispersion, which is a boundary its mechanism
+does not cross.** Three of nine candidates have now died of that, and it is
+worth noticing that "needs more than one solution" is necessary but not
+sufficient: it screens out tautologies, not misapplications.
+
+**Where Kramers-Kronig does bite here.** Not the modal solver — the attenuation
+module, and not as an oracle for the code but as a correction to how it is
+tested. `tests/test_attenuation.py` builds its gather by multiplying the
+spectrum by `exp(-pi f t / Q)` and leaving the phase untouched. That waveform
+is acausal: constant-Q amplitude loss without the accompanying Kolsky-Futterman
+velocity dispersion violates KK, and the result carries energy arriving *before*
+the geometric arrival — measured at a pre-arrival energy fraction of 1.5e-7,
+against 4.9e-12 for the causal counterpart.
+
+It is not a bug. Both estimators read `|S(f)|` only, so the missing phase
+cannot bias them directly. But they *window in time*, and dispersion reshapes
+the waveform inside the window, so the route is real: on the causal gather the
+centroid estimate moves from 62 to 41 against a planted Q of 50, and the
+spectral-ratio estimate from 117 to 81. Both estimators look **better** on the
+physical signal than on the one the tests use — so the existing accuracy claims
+understate them rather than flattering them, which is the benign direction but
+still not what the tests say they are measuring. Four tests now cover the
+causal case alongside the original.
+
+**And the sign was wrong on the first attempt.** The Kolsky phase applied with
+the opposite sign makes high frequencies arrive *later*, which is the
+anti-causal direction; it raised pre-arrival energy from 1.5e-7 to 8.4e-7 and
+produced a spurious "causality doubles the recovered Q" result that was one
+step from being written up. What caught it was refusing to settle the sign by
+algebra and instead **measuring the property the sign is supposed to produce** —
+pre-arrival energy. The general form of that rule is already in this document
+(validate machinery you built before attributing its bugs to the code under
+test); this is the second time it has paid, and the second time the tell was a
+number moving in the wrong direction.
+
 ## Candidate oracles not yet attempted
 
 Kept concrete so the next session does not have to re-derive the list. Whether
-any of these bites is a measurement, not a promise. Of the six candidates
-tried so far, four became working oracles, one was vacuous (energy balance) and
-one was misstated but had a working replacement nearby (layer subdivision).
-Both of the misses were caught by measuring, and neither was obvious from the
-armchair.
+any of these bites is a measurement, not a promise. Of the eight candidates
+tried so far, five became working oracles; one was vacuous (energy balance);
+and two failed because a check was transplanted across a boundary its mechanism
+does not cross (layer order, and the n=1/n=2 cutoffs) — one of those had a
+working replacement nearby, the other did not. All three misses were caught by
+measuring and none was obvious from the armchair.
+
+The survey above earned its keep once and misfired once. Its criterion — a
+check needs more than one solution — correctly predicted biorthogonality would
+work. It also endorsed Kramers-Kronig, which turned out not to apply to the
+modal solver at all, because the criterion screens for tautology and not for
+misapplication. Both filters are needed: *does this need more than one
+solution?* and *does the mechanism that makes it true survive the move?*
 
 Add one screening step before starting any of them, learned the hard way on the
 tube-wave check: **grep the implementation for the formula first.** If the
 solver already uses it — as a bracket, a seed, an initial guess — the check is
 not independent, and the test has to be built to route around that use.
 
-- **The `n=1` and `n=2` cutoffs against their rigid-pipe forms**, the same
-  check #61 ran for `n=0`, using the appropriate Bessel zeros.
 - **Attenuation vs the bound-mode limit.** `Im(k_z)` must go to zero
   continuously as a mode approaches its trapping boundary; a discontinuity
   there would indicate a branch error.
+
+## Getting signs right
+
+Four sign or branch errors were made in this programme and all four were
+caught. That is a better record than it sounds, because none of them was caught
+by checking the algebra again. Collected here because signs are the single most
+dangerous class of error in this kind of work and the usual defences do nothing
+against them.
+
+**Why signs are uniquely dangerous.** A sign error produces output of the right
+magnitude, the right shape, the right units and the right asymptotic behaviour.
+Dimensional analysis cannot see it. Order-of-magnitude sanity checks cannot see
+it. Plotting it usually cannot see it. It survives precisely the checks one
+habitually runs, and it produces a *confident wrong answer* rather than an
+obviously broken one. Every one of the four below looked completely plausible.
+
+### What actually caught them
+
+**Measure the property the sign is supposed to produce, not the formula.** The
+Kolsky dispersion phase had two candidate signs and re-deriving the Fourier
+convention was not converging. What settled it in one run: the sign exists to
+make the signal *causal*, so measure causality — energy arriving before the
+geometric arrival. The correct sign gives 4.9e-12, the wrong one 8.4e-07, and
+the no-dispersion case 1.5e-07. No algebra, and the answer is not a matter of
+opinion. **A sign is a physical claim. State the claim, then test the claim.**
+If you cannot say what the sign asserts physically, you do not yet understand
+the formula well enough to use it.
+
+**Exact small integers in a residual are a message, not a failure.** The
+biorthogonality eigenfunctions gave `|du_r| / |u_r| = 2.00` — not 1.97, not
+2.3, exactly 2.00 — which is what equal-and-opposite gives, every time.
+Floating-point noise does not produce round integers. **A residual of exactly
+2, or exactly 1, or exactly 0.5, is telling you about a factor or a sign rather
+than about precision**, and it should be read before it is debugged.
+
+**Prefer existence over value when the value cannot discriminate.** The Scholte
+secular equation's fluid-loading term reduces to the Rayleigh equation under
+*both* signs in the light-fluid limit, so the obvious check was worthless — and
+passed to 6e-13 with the sign wrong. What discriminated was not a number but a
+question of existence: with the wrong sign the left-hand side never crosses
+zero below `min(V_s, V_f)`, so no root exists at all. **When values are
+sign-insensitive, look for something that is present or absent rather than
+large or small.**
+
+**Use the code's own convention rather than reconstructing it.** The leaky-mode
+field growth check first used a hand-rolled `hankel1`, which *decays* with
+radius, and would have reversed the conclusion about whether the energy balance
+could be rescued. The solver's own `_k_or_hankel` uses `hankel2` and grows.
+Reconstructing a convention from memory is a second chance to get it wrong;
+calling the evaluator under test removes the opportunity.
+
+### The trap that hides a sign error
+
+**A check that is homogeneous in the quantity you flipped cannot detect the
+flip.** In the biorthogonality work, flipping both solid amplitudes together
+left the `sigma_rz = 0` condition satisfied — that row is homogeneous, so
+scaling the whole solid solution by any constant, including -1, preserves it.
+It passed at 1e-5 while the two inhomogeneous conditions were violated by
+exactly a factor of 2. If the checks available are all homogeneous in the
+suspect quantity, they are all blind in the same way, and the number of them
+that pass is not evidence.
+
+The generalisation: before trusting a set of checks, ask what transformation
+each of them is invariant under. Overall scaling, overall phase and overall
+sign are the usual ones. Any error living inside those invariances will pass
+every check in the set.
+
+### A short procedure
+
+1. Write the conventions down before writing the formula — time dependence
+   (`exp(-i omega t)` here), Fourier sign, outgoing-wave branch,
+   tension-positive or compression-positive stress. Most sign errors are
+   convention collisions between two sources, not algebra slips.
+2. For each sign in the result, state the physical assertion it encodes in one
+   sentence.
+3. Find a measurement that assertion predicts and the opposite sign forbids —
+   preferably one of existence, causality, direction of growth, or direction of
+   flow.
+4. Run it with both signs. Keeping the wrong-sign number is worth the extra
+   minute: it converts "this looks right" into a margin, and it is what the
+   write-up should quote.
+
+Step 4 is the one most often skipped and the one that pays. All four sign
+errors here were settled by a *comparison* between the two candidates, never by
+inspecting the correct one alone.

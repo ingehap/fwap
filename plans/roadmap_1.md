@@ -1,7 +1,8 @@
 # What remains to be done
 
 A prioritised reading of the open items in `docs/roadmap.md`, current through
-the leaky-mode attenuation check (PRs #61, #62 and this branch).
+the analytic-oracle programme (PRs #59-#66) and the trapped-mode work on this
+branch.
 `docs/roadmap.md` stays the authoritative status file; this is a snapshot of
 *priority and reasoning* at one point in time, so check it against the tree
 before acting on it.
@@ -10,13 +11,14 @@ before acting on it.
 
 Four things are open, and they fall into two kinds — which matters more than
 their ordering, because only one kind can be worked on from a coding session.
-Item 1 used to be a single row; measurement split it, and the half that came
-loose (1a) turned out to be ordinary coding and is now closed. The struck-out
-row is kept because the split is the useful part of the story.
+The struck-out rows are kept because how they closed is the useful part of the
+story: both came loose from larger items by measurement rather than by
+planning.
 
 | # | Item | Kind | Blocked on |
 |---|------|------|-----------|
-| ~~1a~~ | ~~Leaky-mode branch selection, n=0 (A.3)~~ | **closed** | — |
+| ~~1a~~ | ~~Leaky-mode branch selection, n=0 (A.3)~~ | **closed** (#64) | — |
+| ~~1c~~ | ~~Trapped pseudo-Rayleigh modes unexposed (A.4)~~ | **closed** (#66) | — |
 | 1b | Leaky-mode root tracking, n=1 (A.2 + G.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
 | 2 | A real full-waveform sonic gather (F) | sourcing | fetching one **named** file from a host this sandbox cannot reach |
 | 3 | Digitised validation figures (A.1, curve shapes) | sourcing | access to the books |
@@ -28,32 +30,35 @@ disproved — the AWS Open Data S3 buckets are reachable and downloads from them
 work. They simply do not host the files in question. The obstacle is which host
 serves a file, not a blanket network wall.
 
-**Item 1a came and went inside one revision, which is the point.** The revision
-before last said "there is no longer a large piece of work a coding session can
-carry to completion unaided". Checking the leaky-mode attenuation disproved
-that: the `n=0` leaky solver returned a *different mode* depending on the
-caller's frequency window and failed silently to all-NaN on merely-coarse grids.
-That needed no derivation and no literature — enumerate the roots at the seed
-frequency, order them by radial order, let the caller pick — and it is now
-closed. The measured defects run the other way round: `branch=0` returns the
-same curve for every grid top from 32 to 100 kHz, and both silent failures
-recover their full bands.
+**Items 1a and 1c both came and went inside a revision, and neither was on any
+list beforehand.** Both were found by an oracle aimed at something else. The
+`n=0` branch-selection defect surfaced while checking leaky attenuation against
+a radiation estimate; the trapped pseudo-Rayleigh modes surfaced while building
+a biorthogonality check that needed several coexisting bound modes and turned up
+some no public function returned. Neither needed a derivation or literature
+access. That is now four claims in this file about what is *not* available here
+overturned by measuring instead of reasoning.
 
-So the honest headline is not about what is left but about how it keeps being
-found. That was the third claim in this file about what is *not* available here
-to be overturned by measuring instead of reasoning, and it was overturned by a
-check aimed at something else entirely. `plans/learning.md` is the retrospective
-on why; the short version is that oracles find defects at a much better rate
-than tests do, and that claims about absence are the ones that age worst.
+**The headline for this revision is different in kind, though: the oracle
+programme has run its course.** Nine candidates have been tried. Five became
+working oracles, one was vacuous, and three failed because a check was
+transplanted across a boundary its mechanism does not cross. The endorsed
+candidate list is now empty, and rather than manufacture a tenth it is worth
+saying plainly that the cheap wins from this direction are spent.
+`plans/learning.md` is the retrospective and `plans/log_output.md` holds the
+measurements.
 
-Item 2 remains the most valuable thing on the list — it went from "no such data
-is known to exist" to a named CC BY 4.0 file in a format the library already
-reads, and is now an errand rather than a research problem.
+That matters for prioritisation because it removes the alternative. For several
+revisions this file could honestly say "item 2 is blocked, but there is
+worthwhile analytic work available instead". There no longer is, in quantity.
+**Item 2 is now not merely the most valuable item but very nearly the only one
+that can move**, and it is an errand: a named CC BY 4.0 file, in a format the
+library already reads, from a host this sandbox cannot reach.
 
-## 1. Leaky-mode root tracking (A.2 + G.2), and the n=0 piece that split off
+## 1. Leaky-mode root tracking (A.2 + G.2), and the two n=0 pieces that split off
 
-Two roadmap items need the same machinery — and a third, smaller one turned out
-not to need it at all, and is closed.
+Two roadmap items need the same machinery — and two smaller ones turned out not
+to need it at all, and are closed.
 
 **A.2, the fast-formation flexural sparsity.** A fast formation behind casing
 converges over only ~38 % of a 1-12 kHz band. It was filed as a *cased-hole
@@ -99,6 +104,20 @@ enumerate them at the seed frequency and expose a `branch` argument. Done; see
 `docs/roadmap.md` A item 3. The one non-obvious part was checking that the root
 *count* does not depend on the seed-scan density, because otherwise `branch=1`
 would silently mean different things at different resolutions.
+
+**A second piece split off and is also closed.** Building the biorthogonality
+oracle needed several coexisting bound modes at one frequency, and finding them
+turned up a family no public function returned: the *trapped* pseudo-Rayleigh
+modes, `V_f < c < V_S`, where both formation waves are evanescent and the mode
+is lossless with real `k_z`. They fell between the two existing functions —
+`pseudo_rayleigh_dispersion` covers the leaky half above `V_S`, and
+`stoneley_dispersion` brackets from `omega/min(V_S, V_f)` upward and so covers
+only `c < V_f`. `trapped_pseudo_rayleigh_dispersion` closes that gap.
+It needed no marching at all: the roots are real and simple, so each frequency
+solves independently and the result is exactly grid independent — the opposite
+of the trouble the leaky half caused. The oracle that found them also validates
+them, since Auld's relation must hold across the trapped modes and the Stoneley
+mode together.
 
 What is missing *for the `n=1` case* is a derivation rather than code: which
 Riemann sheet the `n=1` pole occupies below the cutoff. And there may be no pole to find — the
@@ -223,6 +242,23 @@ of this file got wrong, and the corrections are worth not losing.
   That was wrong. A third option existed — find an oracle that needs no
   published figure — and it was found by asking what could be checked rather
   than by re-reading the list of what was blocked.
+- **Leaky-mode branch selection** (PR #64). Item 1a; see item 1 above. The
+  measurements from the defect were re-run the other way round when the fix
+  landed, which is now the convention for defect fixes here.
+- **Layer-subdivision invariance, and the limit of the transparency check**
+  (PR #65). Subdividing a homogeneous annulus is exact to 1e-15 across every
+  azimuthal order and both open-hole and cased stacks. It also established that
+  the *neighbouring* invariance — padding a stack with a formation-equal layer —
+  holds only while the layer is thin, so that verification technique has a
+  validity range and should not be used outside it.
+- **Trapped pseudo-Rayleigh modes exposed** (PR #66). Item 1c;
+  `trapped_pseudo_rayleigh_dispersion`. Found by an oracle aimed at something
+  else, and validated by the same one.
+- **The attenuation module's test synthetic is acausal** (PR #66). Constant-Q
+  amplitude loss with the phase left untouched violates Kramers-Kronig. Not a
+  bug — both estimators read `|S(f)|` only — but the recovered Q moves by about
+  a third on a causal gather, in the direction that makes the existing tests
+  understate the estimators. A causal counterpart is now covered alongside.
 - **Sonic-gather candidates found** (PRs #56, #57) — not closed, but item 2
   moved further in these two than in anything before. Withdrew "no openly
   redistributable gather is known to exist", then withdrew the replacement's own
@@ -245,6 +281,11 @@ numbers mean.
 After that, item 3 (the digitised figures) for whoever has the books; item 1
 needs a derivation before any code is worth writing; item 4 waits on a release.
 
+The recommendation is firmer than in previous revisions for a reason that has
+nothing to do with item 2 changing. It is that the alternative has gone: for
+several revisions there was worthwhile analytic work available as a fallback,
+and there is no longer a queue of it.
+
 If work continues in this environment regardless, the previous revision said the
 only options were "more tests against existing behaviour, or documentation".
 That turned out to be wrong — the Scholte oracle (PR #59) was neither, and it is
@@ -265,19 +306,44 @@ and all three bit:
 - **The quadrupole high-frequency asymptote** (PR #62). Validates the
   slow-formation solver and exposed a fast-formation defect, which also
   corrected a generator comment about `min_finite` filtering.
-- **The leaky-mode attenuation against a radiation estimate** (this one).
+- **The leaky-mode attenuation against a radiation estimate** (PR #63).
   `leaky_radiation_attenuation` confirms the solver's attenuation to within a
   factor of two with the right radius scaling, and turned up something the
   check was not looking for: `pseudo_rayleigh_dispersion` returns a different
   mode depending on the caller's frequency window, and fails silently to
-  all-NaN on grids that are merely too coarse. See item 1 below.
+  all-NaN on grids that are merely too coarse. See item 1 above.
 
-So the pattern held three times out of three: every analytic oracle that could
-be implemented from theory found something, and two of the three found an error
-rather than a confirmation. That is a better hit rate than "more tests against
-existing behaviour" would have given, and it is the strongest argument for
-looking for a fourth oracle rather than concluding this environment is exhausted.
+Six more were tried after those three, and the programme is now finished. The
+full tally is nine candidates: **five working oracles, one vacuous, three
+transplant failures.**
 
-This file has now twice been too pessimistic — about whether an open sonic
-gather exists, and about what was left to do here. Both times the error was a
-claim about absence. Worth keeping in mind when reading the four items above.
+- Working: Scholte high-frequency limit (#59), rigid-pipe pseudo-Rayleigh
+  cutoff (#61), quadrupole asymptote (#62), ray radiation estimate (#63), White
+  tube-wave low-frequency limit (#64), layer-subdivision invariance (#65) and
+  modal biorthogonality (#66). Between them they corrected two pieces of
+  documentation that would have led a careful user wrong, exposed two code
+  defects, and turned up one entire unexposed mode family.
+- Vacuous: the leaky-mode energy balance (#64). It reproduces `Im(k_z)`
+  exactly — and does so for `k_z` values that are roots of nothing, because
+  closing the balance inside the fluid is an identity.
+- Transplant failures: layer-order invariance (plane-layered intuition applied
+  to a cylindrical stack), the n=1/n=2 rigid-pipe cutoffs (a fluid-column
+  formula applied to interface modes), and Kramers-Kronig (a material-response
+  relation applied to geometric waveguide dispersion). All three were written
+  into a candidate list before being checked.
+
+Two findings from the later ones bear on other parts of this file. The layered
+transparency invariance has a **validity range of its own** — padding a stack
+with a formation-equal layer stops being a no-op above ~0.1 m at 100 kHz — so
+that verification technique should not be used outside it. And the attenuation
+module's test gather is **acausal**: `exp(-pi f t / Q)` with the phase
+untouched, which violates Kramers-Kronig. Not a bug, since both estimators read
+`|S(f)|` only, but on a causal gather the recovered Q moves by about a third,
+and in the direction that makes the existing tests understate the estimators.
+
+This file has now been too pessimistic four times — about whether an open sonic
+gather exists, twice about what was left to do here, and about whether a large
+piece of work could be carried to completion unaided. Every time the error was a
+claim about absence. The claim in *this* revision that the oracle programme is
+finished is the same shape, and should be read with the same suspicion: it means
+no endorsed candidate remains on the list, not that none exists.
