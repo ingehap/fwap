@@ -170,8 +170,7 @@ def synthesize_lwd_gather(
         Formation arrivals to synthesise (e.g. the output of
         :func:`fwap.synthetic.monopole_formation_modes`). The collar
         arrival is appended to this list.
-    collar_amplitude, collar_slowness, collar_f0, collar_intercept,
-    collar_sigma
+    collar_amplitude, collar_slowness, collar_f0, collar_intercept, collar_sigma
         Parameters of the planted collar :class:`Mode`. See
         :func:`lwd_collar_mode` for the conventions.
     noise : float, default 0.02

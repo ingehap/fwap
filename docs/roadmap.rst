@@ -23,3 +23,8 @@ than in these docs:
 
 For the speculative, not-yet-scoped list, see
 :doc:`possible_extensions`.
+
+.. toctree::
+   :hidden:
+
+   possible_extensions

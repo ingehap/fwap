@@ -187,7 +187,7 @@ def spectral_ratio_Q(
     two traces at travel times ``t1`` and ``t2`` is linear in
     frequency with slope ``-pi*(t2 - t1)/Q``:
 
-        log(|A2(f)| / |A1(f)|) = -pi*(t2-t1)/Q * f + const.
+    ``log(|A2(f)| / |A1(f)|) = -pi*(t2-t1)/Q * f + const.``
 
     A weighted LS fit of ``log_ratio`` vs ``f`` across frequency and
     receivers yields ``Q``. This is the Bath (1974) estimator.

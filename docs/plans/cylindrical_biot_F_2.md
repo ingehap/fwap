@@ -2,7 +2,7 @@
 
 Sister of plan F.1 at azimuthal order 1. Implements the
 single-extra-layer flexural dispersion in
-[`fwap.cylindrical_solver`](../../fwap/cylindrical_solver.py) on
+[`fwap.cylindrical_solver`](../../fwap/cylindrical_solver/__init__.py) on
 top of the F.1 scaffolding.
 
 **Note on the original "cos / sin sector decomposition" framing**:

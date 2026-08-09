@@ -98,6 +98,19 @@ PyTorch — see :doc:`sonic_ml`.
    notebooks/cased_hole_tutorial
    notebooks/cylindrical_biot_validation
 
+.. Repo-side material that lives under docs/ and is linked to from the
+   pages above -- solver design plans, book reading notes, and the
+   notebooks' data README. Listed hidden so the links resolve and the
+   pages build, without adding a navigation section of their own.
+
+.. toctree::
+   :hidden:
+   :glob:
+
+   plans/*
+   ideas/*
+   notebooks/_data/README
+
 Indices and tables
 ==================
 

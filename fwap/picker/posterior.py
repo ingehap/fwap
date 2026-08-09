@@ -122,9 +122,7 @@ def viterbi_posterior_marginals(
 
     Parameters
     ----------
-    stc_results, depths, priors, threshold, slow_jump_sigma,
-    time_order_slack, time_prior_weight, absence_cost,
-    top_k_per_mode, soft_time_order, max_triples_per_depth
+    stc_results, depths, priors, threshold, slow_jump_sigma, time_order_slack, time_prior_weight, absence_cost, top_k_per_mode, soft_time_order, max_triples_per_depth
         Identical to :func:`viterbi_pick_joint`.
 
     Returns

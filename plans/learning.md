@@ -144,6 +144,21 @@ shear-controlled rather than fluid-controlled. **Ask what physical mechanism
 makes the check true, then ask whether that mechanism survives the move** —
 across geometry, azimuthal order, mode family, or regime.
 
+**A rule inferred from failures that all point the same way.** The picker's
+mode-confusion defect showed up as 143 real depths where P and S claimed one
+STC peak, and at every one of them the shared peak was the *shear* arrival, so
+P was the mislabel. The repair generalised that into "when two modes collide,
+the slower-labelled one keeps the arrival" — which fits 143 of 143 observations
+and is still wrong. `tests/test_hypothesis.py` produced a slow formation where
+`V_S` lands inside P's prior window and the collision runs the other way: S
+reaches for the compressional peak, and the rule dropped a correct P. A
+one-directional sample cannot tell you a rule is directional; it can only fail
+to contradict it. **Before a fix picks a side, ask whether the data it came
+from contains the other side** — and if it does not, prefer a rule that
+declines to choose. The shipped rule moves the faster-labelled mode only when
+that mode has somewhere admissible to go, so it repairs the case it can prove
+and leaves the ambiguous one exactly as it found it.
+
 **A test premise that is simply false.** A test asserted TV regularisation
 "prefers a single contact"; true TV is exactly indifferent, and the smoothing
 offset tips it the other way. The measurement was fine and the physics
