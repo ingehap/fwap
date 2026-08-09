@@ -13572,3 +13572,103 @@ def test_flexural_dispersion_layered_fast_formation_allows_layer_softer_than_for
     )
     assert res.name == "flexural"
     assert res.azimuthal_order == 1
+
+
+# ----------------------------------------------------------------------
+# Where the cased flexural solver actually stops (roadmap A.2)
+#
+# The roadmap recorded this as a *layered* bracketing limitation: "the
+# layered n=1 solver no longer refuses fast formations, but its root-
+# finding stays sparse for a typical casing + cement stack". Measuring it
+# says otherwise, and the difference matters because it points the next
+# attempt at a different piece of code.
+#
+# In a fast formation the flexural mode is leaky: its root leaves the real
+# k_z axis, and the real-axis Im(det) sign change the solver looks for
+# survives only in a sliver next to the shear branch point at high
+# frequency. Widening the real bracket cannot recover it -- there is no
+# sign change to find below the cutoff, in any of the three sub-windows
+# (below the slowest layer shear, between it and the formation Rayleigh
+# speed, or between that and the formation shear).
+#
+# These tests pin the behaviour so the limitation stays a measured number
+# rather than folklore, and so that a genuine fix shows up as a failure
+# here rather than going unnoticed.
+# ----------------------------------------------------------------------
+
+_A2_CASING = BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01)
+_A2_CEMENT = BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05)
+_A2_FAST = dict(vp=4500.0, vs=2600.0, rho=2400.0)
+_A2_SLOW = dict(vp=2200.0, vs=800.0, rho=2200.0)
+_A2_BOREHOLE = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+_A2_FREQ = np.linspace(1000.0, 12000.0, 45)
+
+
+def _a2_coverage(**kwargs) -> float:
+    """Fraction of the frequency band at which the mode converged."""
+    res = flexural_dispersion_layered(_A2_FREQ, **kwargs)
+    return float(np.isfinite(res.slowness).mean())
+
+
+def test_cased_flexural_slow_formation_covers_the_whole_band():
+    """A slow formation behind casing converges everywhere.
+
+    This is the control for the fast-formation test below: it shows the
+    layered machinery itself is sound, so the sparsity there is about the
+    formation regime rather than about the presence of a layer stack.
+    """
+    coverage = _a2_coverage(**_A2_SLOW, **_A2_BOREHOLE, layers=(_A2_CASING, _A2_CEMENT))
+    assert coverage == 1.0
+
+
+def test_cased_flexural_fast_formation_is_sparse_and_high_frequency_only():
+    """A fast formation converges on well under half the band, high-f only."""
+    res = flexural_dispersion_layered(
+        _A2_FREQ, **_A2_FAST, **_A2_BOREHOLE, layers=(_A2_CASING, _A2_CEMENT)
+    )
+    finite = np.isfinite(res.slowness)
+    assert 0.2 < finite.mean() < 0.6
+    # every converged point is in the upper part of the band -- the mode is
+    # lost going *down* in frequency, not scattered at random
+    assert _A2_FREQ[finite].min() > 4000.0
+    assert finite[-1]
+
+
+def test_the_sparsity_is_not_caused_by_the_casing():
+    """The open hole is just as sparse, which relocates the problem.
+
+    If the layer stack were responsible, removing it would restore the low
+    frequencies. It does not: the identical formation in an *open* hole
+    fails over the same lower part of the band. Whatever fixes this lives
+    in the fast-formation flexural treatment, not in layered bracketing.
+    """
+    cased = flexural_dispersion_layered(
+        _A2_FREQ, **_A2_FAST, **_A2_BOREHOLE, layers=(_A2_CASING, _A2_CEMENT)
+    )
+    open_hole = flexural_dispersion(_A2_FREQ, **_A2_FAST, **_A2_BOREHOLE)
+
+    open_finite = np.isfinite(open_hole.slowness)
+    assert open_finite.mean() < 0.6
+    # both lose the low end; the open hole is no better off
+    assert _A2_FREQ[open_finite].min() > 4000.0
+    assert not np.isfinite(cased.slowness[0])
+    assert not np.isfinite(open_hole.slowness[0])
+
+
+def test_converged_fast_formation_points_sit_below_the_shear_velocity():
+    """The branch that is found is formation-controlled, bounded by V_S.
+
+    It runs down from the shear branch point rather than tracking the
+    cement, which is the other reason to stop calling this a cased-hole
+    bracketing problem.
+    """
+    res = flexural_dispersion_layered(
+        _A2_FREQ, **_A2_FAST, **_A2_BOREHOLE, layers=(_A2_CASING, _A2_CEMENT)
+    )
+    finite = np.isfinite(res.slowness)
+    velocity = 1.0 / res.slowness[finite]
+    v_rayleigh = rayleigh_speed(_A2_FAST["vp"], _A2_FAST["vs"])
+    assert np.all(velocity < _A2_FAST["vs"])
+    assert np.all(velocity > v_rayleigh)
+    # and it is dispersive downward with frequency, not a flat artefact
+    assert velocity[-1] < velocity[0]

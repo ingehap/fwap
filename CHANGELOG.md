@@ -6,6 +6,36 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Roadmap A.2 re-diagnosed: the cased flexural sparsity is not a cased-hole
+  problem.** The item was filed as layered-solver bracketing — "root-finding
+  stays sparse for a typical casing + cement stack" — and measuring it says
+  otherwise. A fast formation behind casing does converge over only ~38 % of a
+  1-12 kHz band, all of it above ~5 kHz, but **stripping the casing and cement
+  away leaves the identical formation just as sparse in an open hole, over the
+  same lower part of the band**. No amount of work on layered bracketing would
+  have fixed it.
+  The cause is leakage: for `V_S > V_f` the flexural root leaves the real `k_z`
+  axis, and the real-axis `Im(det)` sign change the solver hunts for survives
+  only beside the shear branch point at high frequency. Widening the real
+  bracket cannot recover it — fine scans find no sign change below the cutoff in
+  any of the three sub-windows, and the middle one is singular for the
+  propagator-matrix formulation anyway. A fix needs complex-plane root tracking,
+  which is the machinery the free-pipe/leaky item (G.2) also needs, so the two
+  are now planned as one piece of work.
+  Measured over the generator's own cased priors (50 draws): fast formations
+  average **28 %** band coverage (5/47 fully converged), slow formations
+  converge fully (3/3). With `V_S` drawn from 1200-3200 m/s against a 1500 m/s
+  fluid, only ~15 % of draws are slow — so a two-mode cased dataset is reachable
+  today only on the slow-formation subset, which is the honest near-term option
+  and is recorded as such rather than left as "better bracketing would unlock
+  it".
+  Four tests pin the comparison (slow converges fully; fast is sparse and
+  high-frequency-only; the open hole is no better off; the branch that is found
+  is formation-controlled and bounded by `V_S`), so the attribution cannot drift
+  back. `flexural_dispersion_layered` now documents the limitation where a user
+  meets it.
+
 ### Added
 - **`fwap.validation`: scoring dispersion curves against digitised reference
   figures** (roadmap A.1, the machinery half). The validation notebook had five
