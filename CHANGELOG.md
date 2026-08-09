@@ -6,6 +6,29 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Two-mode cased dataset** (`generate_slow_two_mode_cased_dataset`,
+  `CASED_TWO_MODES`, `CASED_FLEXURAL_MODE`, `SLOW_TWO_MODE_PRIORS` in
+  `scripts/gen_surrogate_dataset.py`): a cased-hole dataset carrying **both**
+  the Stoneley and the flexural mode, fully bound across the band, where the
+  default cased dataset has been single-mode.
+  The interesting part is the prior it needs. The two cased modes fail in
+  opposite directions — flexural is sparse in fast formations (leakage, see
+  roadmap A.2), and the Stoneley stops being bound as the formation slows away
+  from the fluid velocity — so the window where both hold is `V_S` in
+  1420-1495 m/s, about **80 m/s wide**. Measured both-modes-bound fraction
+  across the annulus prior: 0.00 at 1350 m/s, 0.42 at 1380, 0.92 at 1400, and
+  1.00 from 1420 up.
+  That window is **disjoint from the default cased prior** (1700-3000 m/s), so
+  this is a *different* dataset rather than a subset of the usual one, and the
+  two must not be pooled — a property asserted by a test rather than left to a
+  comment. It suits cement-bond work, where the label is the bond index and
+  formation `V_S` is a nuisance parameter (cement stiffness moves the cased
+  Stoneley ~7 %, formation `V_S` ~1.5 %); it is the wrong dataset for anything
+  needing formation-property variety, and says so at the point of use.
+  No schema bump: mode count is read from `mode_names`, so a two-mode cased
+  file is schema v4 like any other.
+
 ### Changed
 - **Leaky-mode root tracking for `n=1` attempted; recorded as blocked on a
   derivation rather than on code.** The complex-plane machinery already exists
@@ -50,13 +73,13 @@ the project uses [Semantic Versioning](https://semver.org/).
   propagator-matrix formulation anyway. A fix needs complex-plane root tracking,
   which is the machinery the free-pipe/leaky item (G.2) also needs, so the two
   are now planned as one piece of work.
-  Measured over the generator's own cased priors (50 draws): fast formations
-  average **28 %** band coverage (5/47 fully converged), slow formations
-  converge fully (3/3). With `V_S` drawn from 1200-3200 m/s against a 1500 m/s
-  fluid, only ~15 % of draws are slow — so a two-mode cased dataset is reachable
-  today only on the slow-formation subset, which is the honest near-term option
-  and is recorded as such rather than left as "better bracketing would unlock
-  it".
+  Measured (50 draws): fast formations average **28 %** band coverage (5/47
+  fully converged), slow formations converge fully. This entry originally added
+  "only ~15 % of draws are slow"; that was measured over the *default*
+  `FormationPriors` (1200-3200 m/s) rather than the one the cased generator
+  uses (1700-3000 m/s, i.e. 100 % fast), so it described the wrong distribution
+  and is withdrawn — see the two-mode cased entry below for what replaced the
+  conclusion.
   Four tests pin the comparison (slow converges fully; fast is sparse and
   high-frequency-only; the open hole is no better off; the branch that is found
   is formation-controlled and bounded by `V_S`), so the attribution cannot drift

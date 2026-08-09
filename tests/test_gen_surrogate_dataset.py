@@ -350,3 +350,86 @@ def test_main_cased_flag_writes_cased_file(tmp_path, capsys):
         assert tuple(data["layer_names"]) == ("casing", "cement")
         assert data["layer_params"].shape == (2, 2, 4)
         assert np.all(np.isfinite(data["bond_index"]))
+
+
+# ----------------------------------------------------------------------
+# Two-mode cased dataset, restricted to the window where both modes bind
+# ----------------------------------------------------------------------
+
+
+def test_slow_two_mode_cased_dataset_carries_both_modes_fully_bound():
+    """Both cased modes finite across the whole band, and both injected.
+
+    This is the whole point of the restricted prior: the default cased
+    dataset is single-mode because flexural is sparse in fast formations,
+    and this configuration is the measured window where that stops being
+    true without costing the Stoneley.
+    """
+    freq = gen.default_freq_grid(n_freq=48)
+    samples = gen.generate_slow_two_mode_cased_dataset(6, seed=0, freq=freq)
+    assert len(samples) == 6
+
+    stacked = gen.stack_dataset(samples)
+    assert tuple(stacked["mode_names"]) == ("Stoneley", "flexural")
+    assert stacked["slowness"].shape == (6, 2, freq.size)
+    # every sample, every mode, every frequency
+    assert np.all(np.isfinite(stacked["slowness"]))
+    assert stacked["mode_in_gather"].all()
+    assert np.all(np.isfinite(stacked["bond_index"]))
+    # the annulus is still there -- this is a cased dataset, not an open one
+    assert tuple(stacked["layer_names"]) == ("casing", "cement")
+
+
+def test_two_mode_window_is_slow_and_disjoint_from_the_default_cased_prior():
+    """The restriction is a documented property, so it is pinned as one.
+
+    A dataset from this prior must not be pooled with the default cased
+    one; asserting the disjointness keeps a later widening of either prior
+    from quietly making that pooling look legitimate.
+    """
+    window = gen.SLOW_TWO_MODE_PRIORS
+    fluid = window.vf
+    assert window.vs_max < fluid  # slow formations, by construction
+    assert window.vs_min >= 1420.0  # the measured both-modes-bound floor
+
+    default_cased = gen.FormationPriors(vs_min=1700.0, vs_max=3000.0)
+    assert window.vs_max < default_cased.vs_min  # disjoint, not a subset
+
+
+def test_the_two_mode_window_has_a_reason_for_its_lower_edge():
+    """Below the window the Stoneley stops being bound; flexural does not.
+
+    The window's floor looks arbitrary until you see that the two modes
+    fail in opposite directions. This checks the direction of that trade
+    rather than a precise coverage number, which would be pinning the
+    solver's numerics.
+    """
+    from fwap import flexural_dispersion_layered, stoneley_dispersion_layered
+
+    freq = gen.default_freq_grid(n_freq=48)
+    layers, _bond = gen.CasingCementPriors().sample(np.random.default_rng(0))
+    borehole = dict(vf=1500.0, rho_f=1000.0, a=0.10, layers=layers)
+
+    inside = dict(vp=1450.0 * 1.8, vs=1450.0, rho=2300.0, **borehole)
+    below = dict(vp=1300.0 * 1.8, vs=1300.0, rho=2300.0, **borehole)
+
+    # flexural is healthy on both sides -- it is not what sets the floor
+    for formation in (inside, below):
+        flexural = flexural_dispersion_layered(freq, **formation)
+        assert np.isfinite(flexural.slowness).all()
+
+    # the Stoneley is what degrades going down
+    inside_st = np.isfinite(stoneley_dispersion_layered(freq, **inside).slowness)
+    below_st = np.isfinite(stoneley_dispersion_layered(freq, **below).slowness)
+    assert inside_st.all()
+    assert below_st.mean() < inside_st.mean()
+
+
+def test_slow_two_mode_cased_dataset_reproducible():
+    freq = gen.default_freq_grid(n_freq=48)
+    a = gen.generate_slow_two_mode_cased_dataset(3, seed=5, freq=freq)
+    b = gen.generate_slow_two_mode_cased_dataset(3, seed=5, freq=freq)
+    for sa, sb in zip(a, b):
+        assert sa.params == sb.params
+        assert sa.bond_index == sb.bond_index
+        np.testing.assert_array_equal(sa.gather, sb.gather)

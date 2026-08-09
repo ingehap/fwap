@@ -339,14 +339,31 @@ essentially complete -- plan items A through H in
    would settle, which puts this item behind the same literature
    access A.1 needs.
 
-   Scale of the consequence, measured over the generator's own cased
-   priors (50 draws): fast formations average **28 %** band coverage
-   with 5/47 fully converged, while slow formations converge fully
-   (3/3). Because the priors put `V_S` in 1200-3200 m/s against a
-   1500 m/s fluid, only about 15 % of draws are slow. So a two-mode
-   cased dataset is reachable today *only* on the slow-formation
-   subset, and that restriction — not bracketing work — is the honest
-   near-term option.
+   Scale of the consequence: fast formations average **28 %** band
+   coverage (5/47 fully converged over 50 draws), while slow formations
+   converge fully.
+
+   *Correction.* An earlier version of this entry added "only about
+   15 % of draws are slow", measured over the **default**
+   `FormationPriors` (1200-3200 m/s). That is not the prior the cased
+   generator uses: `generate_cased_dataset` pins 1700-3000 m/s, so
+   **100 %** of its draws are fast and none are slow. The 15 % figure
+   described the wrong distribution and is withdrawn.
+
+   The correction changes the conclusion rather than just the number.
+   A two-mode cased dataset is not a *subset* of the existing one; it
+   needs a different, disjoint prior, because the two cased modes fail
+   in opposite directions — flexural is sparse in fast formations, and
+   the Stoneley stops being bound as the formation slows away from the
+   fluid. Measuring both together across the annulus prior gives a
+   both-modes-bound fraction of 0.00 at `V_S` = 1350 m/s, 0.42 at
+   1380, 0.92 at 1400, and 1.00 from 1420 up to the 1500 m/s fluid.
+   That ~80 m/s window is shipped as
+   `SLOW_TWO_MODE_PRIORS` / `generate_slow_two_mode_cased_dataset`,
+   with the restriction stated at the point of use: it suits
+   cement-bond work, where the label is the bond index and formation
+   `V_S` is a nuisance parameter, and is the wrong dataset for
+   anything needing formation-property variety.
 
 For reference, the original from-scratch problem statement is
 preserved below.

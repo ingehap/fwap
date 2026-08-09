@@ -62,6 +62,7 @@ from fwap import (
     BoreholeLayer,
     Mode,
     flexural_dispersion,
+    flexural_dispersion_layered,
     pseudo_rayleigh_modal_dispersion,
     quadrupole_dispersion,
     stoneley_dispersion,
@@ -172,11 +173,13 @@ PSEUDO_RAYLEIGH_MODE: ModeSpec = ModeSpec(
 # ``V_S_cement >= V_f``) and a fast formation (``V_S > V_f``) -- pair it with a
 # :class:`CasingCementPriors` and a fast-formation :class:`FormationPriors`
 # (see :func:`generate_cased_dataset`). Cased flexural is intentionally
-# excluded: since fast-formation cased flexural landed the layered n=1 solver
-# no longer refuses this regime, but its root-finding stays sparse here (only a
-# few frequencies converge for a typical casing + cement stack) and it is
-# fragile across the cement-stiffness range, so the cased dataset stays
-# single-mode. Revisit if the n=1 bracketing improves.
+# excluded from this default set: it is sparse in fast formations (~38 % of a
+# 1-12 kHz band). That was once attributed to layered bracketing; it is
+# actually leakage, and the identical formation is just as sparse in an open
+# hole (docs/roadmap.md A.2). Recovering it needs complex-plane root tracking,
+# so the *default* cased dataset stays single-mode. For a two-mode cased
+# dataset over the narrow formation window where both modes are bound, see
+# :data:`CASED_TWO_MODES` and :func:`generate_slow_two_mode_cased_dataset`.
 CASED_STONELEY_MODE: ModeSpec = ModeSpec(
     "Stoneley",
     stoneley_dispersion_layered,
@@ -188,6 +191,17 @@ CASED_STONELEY_MODE: ModeSpec = ModeSpec(
 
 # Default cased-hole mode set: the single bound Stoneley mode.
 CASED_MODES: tuple[ModeSpec, ...] = (CASED_STONELEY_MODE,)
+
+# Opt-in cased-hole flexural mode, usable only with SLOW_TWO_MODE_PRIORS below.
+CASED_FLEXURAL_MODE: ModeSpec = ModeSpec(
+    "flexural",
+    flexural_dispersion_layered,
+    f0=3000.0,
+    amplitude=1.5,
+)
+
+# Two-mode cased set. Valid only over SLOW_TWO_MODE_PRIORS -- see there.
+CASED_TWO_MODES: tuple[ModeSpec, ...] = (CASED_STONELEY_MODE, CASED_FLEXURAL_MODE)
 
 
 @dataclass(frozen=True)
@@ -346,6 +360,36 @@ class FormationPriors:
             "rho_f": self.rho_f,
             "a": a,
         }
+
+
+# Formation prior over which *both* cased modes are fully bound.
+#
+# The two cased modes fail in opposite directions, which is why the default
+# cased dataset is single-mode rather than merely under-ambitious:
+#
+#   * cased flexural is sparse in fast formations (a leaky-mode problem, not a
+#     bracketing one -- see docs/roadmap.md A.2), and
+#   * cased Stoneley stops being bound as the formation slows away from the
+#     fluid velocity.
+#
+# Measured across the CasingCementPriors annulus at 48 frequencies, the
+# fraction of draws with *both* modes finite everywhere is 0.00 at
+# V_S = 1350 m/s, 0.42 at 1380, 0.92 at 1400, and 1.00 from 1420 upward. The
+# lower bound below is that measured floor; the upper bound stops just short of
+# the 1500 m/s fluid velocity, above which the flexural mode enters the fast
+# regime and goes sparse again.
+#
+# The window is therefore genuinely narrow -- about 80 m/s -- and it is
+# *disjoint* from the default cased prior (1700-3000 m/s), so this is a
+# different dataset rather than a subset of the usual one. That is acceptable
+# for cement-bond work, where the label is the bond index and formation V_S is
+# a nuisance parameter (sweeping cement stiffness moves the cased Stoneley
+# ~7 %, formation V_S ~1.5 %), but it would be the wrong dataset for anything
+# that needs formation-property variety.
+SLOW_TWO_MODE_PRIORS: FormationPriors = FormationPriors(
+    vs_min=1420.0,
+    vs_max=1495.0,
+)
 
 
 @dataclass
@@ -761,6 +805,67 @@ def generate_cased_dataset(
         priors=priors,
         modes=modes,
         cased_priors=cased_priors,
+        noise_max=noise_max,
+        min_finite=min_finite,
+        max_attempts=max_attempts,
+    )
+
+
+def generate_slow_two_mode_cased_dataset(
+    n: int,
+    *,
+    seed: int = 0,
+    geom: ArrayGeometry | None = None,
+    freq: np.ndarray | None = None,
+    cased_priors: CasingCementPriors | None = None,
+    noise_max: float = 0.06,
+    min_finite: int = 8,
+    max_attempts: int | None = None,
+) -> list[SurrogateSample]:
+    """
+    Generate ``n`` cased-hole pairs carrying **both** the Stoneley and the
+    flexural mode.
+
+    The default cased dataset (:func:`generate_cased_dataset`) is single-mode
+    because the two cased modes fail in opposite directions: flexural is sparse
+    in fast formations, and Stoneley stops being bound as the formation slows
+    away from the fluid velocity. :data:`SLOW_TWO_MODE_PRIORS` is the measured
+    window where both hold, and this wrapper pins it together with
+    :data:`CASED_TWO_MODES`.
+
+    Read :data:`SLOW_TWO_MODE_PRIORS` before using this. The window is about
+    80 m/s wide and **disjoint from the default cased prior**, so a dataset from
+    here is not a subset of the usual one and the two must not be pooled. It
+    suits cement-bond work, where the label is the bond index and formation
+    ``V_S`` is a nuisance parameter; it is the wrong dataset for anything that
+    needs formation-property variety.
+
+    Parameters
+    ----------
+    n : int
+        Number of samples to accept.
+    seed, geom, freq : as in :func:`generate_dataset`.
+    cased_priors : CasingCementPriors or None
+        Casing/cement ranges; defaults to :class:`CasingCementPriors`.
+    noise_max, min_finite, max_attempts : as in :func:`generate_dataset`.
+
+    Returns
+    -------
+    list of SurrogateSample
+        Exactly ``n`` cased-hole samples, each with two modes.
+
+    See Also
+    --------
+    generate_cased_dataset : the single-mode default, over a fast prior.
+    """
+    return generate_cased_dataset(
+        n,
+        seed=seed,
+        geom=geom,
+        freq=freq,
+        priors=SLOW_TWO_MODE_PRIORS,
+        cased_priors=cased_priors,
+        modes=CASED_TWO_MODES,
         noise_max=noise_max,
         min_finite=min_finite,
         max_attempts=max_attempts,
