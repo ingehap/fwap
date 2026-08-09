@@ -14123,3 +14123,136 @@ def test_pseudo_rayleigh_is_independent_of_grid_density_where_it_converges():
         coarse.attenuation_per_meter[ok] / fine.attenuation_per_meter[shared][ok] - 1.0
     )
     assert rel.max() < 1.0e-10
+
+
+# ---------------------------------------------------------------------------
+# Energy balance for the leaky modes: a candidate oracle that does NOT work.
+#
+# `plans/learning.md` listed this as the most promising remaining candidate,
+# on the reasoning that radiated power over axial power must reproduce
+# Im(k_z) with no free geometry in it -- and so might explain the ~0.6 offset
+# that `leaky_radiation_attenuation` leaves unexplained. It does neither, and
+# these tests record why in a form that runs, so the next attempt does not
+# re-derive it and mistake the result for a confirmation.
+#
+# The derivation is sound and the agreement is perfect. That is the problem:
+# it is perfect for k_z values that are not roots either.
+# ---------------------------------------------------------------------------
+
+_EB_MEDIUM = {
+    "vp": 4000.0,
+    "vs": 2300.0,
+    "rho": 2500.0,
+    "vf": 1500.0,
+    "rho_f": 1000.0,
+    "a": 0.10,
+}
+
+
+def _fluid_energy_balance_im_kz(kz, omega, *, vf, a):
+    """``Im(k_z)`` from radiated power over twice the axial power.
+
+    Closes the energy balance over the fluid column only. The wall
+    boundary conditions (``sigma_rz = 0`` and ``sigma_rr = -P``) put both
+    the radiated flux at ``r = a`` and the axial flux in terms of the same
+    fluid amplitude, which cancels.
+    """
+    from scipy import special
+
+    f_radial = np.sqrt(kz**2 - (omega / vf) ** 2)
+    i0a = complex(special.iv(0, f_radial * a))
+    i1a = complex(special.iv(1, f_radial * a))
+    radiated = -a * np.imag(i0a * np.conj(f_radial * i1a))
+
+    r = np.linspace(0.0, a, 2001)
+    axial = np.trapezoid(np.abs(special.iv(0, f_radial * r)) ** 2 * r, r)
+    return radiated / (2.0 * kz.real * axial)
+
+
+def test_fluid_energy_balance_reproduces_the_leaky_attenuation():
+    """At genuine roots the balance returns Im(k_z) exactly.
+
+    Establishes that the derivation is right, which is what makes the next
+    test's result meaningful rather than a sign of a broken formula.
+    """
+    from fwap import pseudo_rayleigh_modal_dispersion
+
+    freq = np.linspace(8.0e3, 30.0e3, 12)
+    mode = pseudo_rayleigh_modal_dispersion(freq, **_EB_MEDIUM)
+    ok = np.isfinite(mode.slowness)
+    assert ok.sum() > 8
+
+    for f, s, att in zip(freq[ok], mode.slowness[ok], mode.attenuation_per_meter[ok]):
+        omega = 2.0 * np.pi * f
+        kz = complex(s * omega, att)
+        predicted = _fluid_energy_balance_im_kz(
+            kz, omega, vf=_EB_MEDIUM["vf"], a=_EB_MEDIUM["a"]
+        )
+        assert predicted == pytest.approx(att, rel=1.0e-6), f
+
+
+def test_fluid_energy_balance_is_an_identity_and_so_validates_nothing():
+    """...and it returns Im(k_z) for k_z values that are not roots at all.
+
+    That is the whole finding. Closing the balance inside the fluid gives
+    the divergence theorem applied to a source-free Helmholtz solution,
+    which is true of *any* field of the form ``A I0(F r) exp(i k_z z)``
+    with ``F^2 = k_z^2 - (omega/V_f)^2``. Nothing about the formation, and
+    hence nothing about the eigenvalue condition, enters it.
+
+    A check that cannot fail is not a check. This is the "limit that
+    cannot discriminate" failure mode in `plans/learning.md`, caught by
+    the rule that document states: ask what the check would do to a wrong
+    answer.
+    """
+    omega = 2.0 * np.pi * 20.0e3
+    rng = np.random.default_rng(0)
+
+    kz_lo = omega / _EB_MEDIUM["vp"]
+    kz_hi = omega / _EB_MEDIUM["vs"]
+    for _ in range(8):
+        kz = complex(rng.uniform(kz_lo, kz_hi), rng.uniform(0.2, 8.0))
+        predicted = _fluid_energy_balance_im_kz(
+            kz, omega, vf=_EB_MEDIUM["vf"], a=_EB_MEDIUM["a"]
+        )
+        # Arbitrary k_z, no root anywhere near it, and it still comes back.
+        assert predicted == pytest.approx(kz.imag, rel=1.0e-5), kz
+
+
+def test_full_energy_balance_has_no_finite_denominator():
+    """Extending the balance into the formation does not rescue it.
+
+    The obvious repair is to include the formation's axial flux, which
+    would bring the outgoing-wave condition into the balance. It cannot be
+    done: the leaky-S field *grows* with radius -- the standard leaky-mode
+    divergence -- so the axial power integral has no finite value to
+    divide by.
+
+    Checked with the solver's own radial evaluator rather than a
+    hand-rolled Hankel call, because the two Hankel kinds differ here by
+    growth versus decay and picking the wrong one reverses the conclusion.
+    """
+    from fwap import pseudo_rayleigh_modal_dispersion
+    from fwap.cylindrical_solver._bessel import _k_or_hankel
+
+    freq = np.linspace(8.0e3, 30.0e3, 12)
+    mode = pseudo_rayleigh_modal_dispersion(freq, **_EB_MEDIUM)
+    j = int(np.argmin(np.abs(freq - 20.0e3)))
+    omega = 2.0 * np.pi * freq[j]
+    kz = complex(mode.slowness[j] * omega, mode.attenuation_per_meter[j])
+
+    s_radial = np.sqrt(kz**2 - (omega / _EB_MEDIUM["vs"]) ** 2)
+    radii = np.array([0.1, 0.5, 1.0, 2.0, 5.0])
+    magnitude = np.array(
+        [abs(_k_or_hankel(0, s_radial, float(r), leaky=True)[0]) for r in radii]
+    )
+    assert np.all(np.diff(magnitude) > 0.0), magnitude
+    assert magnitude[-1] > 1.0e6 * magnitude[0], magnitude
+
+    # The bound P wave decays, as it must -- so the growth above is the
+    # leaky branch specifically, not every field in the formation.
+    p_radial = np.sqrt(kz**2 - (omega / _EB_MEDIUM["vp"]) ** 2)
+    p_magnitude = np.array(
+        [abs(_k_or_hankel(0, p_radial, float(r), leaky=False)[0]) for r in radii]
+    )
+    assert np.all(np.diff(p_magnitude) < 0.0), p_magnitude

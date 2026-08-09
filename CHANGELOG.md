@@ -39,6 +39,26 @@ the project uses [Semantic Versioning](https://semver.org/).
   guarantees, keeping their measured numbers so the direction of the change is
   visible in the diff.
 
+### Changed
+- **The leaky-mode energy-balance oracle was attempted and withdrawn; the
+  negative result is pinned by tests.** `plans/learning.md` listed it as the
+  most promising remaining candidate, on the reasoning that radiated power over
+  axial power reproduces `Im(k_z)` with no free geometry in it and might
+  therefore *explain* the ~0.6 offset `leaky_radiation_attenuation` leaves open.
+  The derivation works and the agreement is exact — ratio 1.000 at every
+  frequency, which briefly looked like the strongest confirmation in the
+  repository. It is an identity. Fed eight arbitrary complex `k_z` values that
+  are not roots of anything, it returns their imaginary parts too, to ratio
+  1.0000: closing the balance inside the fluid is the divergence theorem applied
+  to a source-free Helmholtz solution, and no property of the formation enters.
+  Extending the balance into the formation does not rescue it either — the
+  leaky-S field *grows* with radius (0.996 at `r` = 0.1 m to 1.6e86 at 30 m,
+  using the solver's own radial evaluator), so the axial power integral has no
+  finite value to divide by. Three tests pin all of it: that the balance
+  reproduces `Im(k_z)` at roots, that it does so at non-roots too, and that the
+  formation field grows. **Nothing was added to the public API** — a check that
+  cannot fail is worse than no check.
+
 ### Added
 - **`tube_wave_speed` — the low-frequency oracle, completing the pair with
   `scholte_speed`.** The White (1983) closed form

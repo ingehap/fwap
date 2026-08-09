@@ -7,11 +7,23 @@ priority snapshot. This one is about *method*.
 
 ## The short version
 
-Five analytic oracles have been built. **Every one found something, and four
-of the five overturned a written claim rather than confirming it.** That hit
-rate is far better than the alternative that kept being proposed in planning
-notes — "more tests against existing behaviour" — and it held even in an
-environment with no access to published figures or field data.
+Five analytic oracles have been built. **Every one found something. Four of the
+five exposed a defect in code or documentation; the fifth overturned a claim in
+the plans.** That hit rate is far better than the alternative that kept being
+proposed in planning notes — "more tests against existing behaviour" — and it
+held in an environment with no access to published figures or field data.
+
+A sixth candidate — the leaky-mode energy balance — was attempted and turned
+out to be **vacuous**, reproducing the right answer for wrong inputs. It is
+written up below rather than quietly dropped, because the reason it fails
+generalises further than any of the successes.
+
+Worth separating the two kinds of finding, because they are budgeted
+differently. A *code* defect (#62, #63) generates follow-up work and may not be
+fixable in the same sitting. A *documentation* defect (#61, #64) is usually
+cheap to fix and dangerous to leave: both were advice that would have led a
+careful user to a wrong answer — one telling them to discard valid data, the
+other silently permitting an inversion outside its own validity range.
 
 | Oracle | PR | What it did |
 |---|---|---|
@@ -112,6 +124,13 @@ wider than the solver's factor-of-two bracket. **Before calling anything
 independent, grep for it in the implementation.** Independence is a property of
 the code, not of the derivation.
 
+**A conservation law closed over the wrong region.** The leaky-mode energy
+balance reproduced `Im(k_z)` to ratio 1.000 at every frequency — and to ratio
+1.0000 for arbitrary `k_z` values that are not roots of anything, because
+closing the balance inside the fluid is a mathematical identity. A conservation
+law tests something only if the control volume contains the constraint you are
+testing. Full treatment below, under *Attempted and withdrawn*.
+
 **A test premise that is simply false.** A test asserted TV regularisation
 "prefers a single contact"; true TV is exactly indifferent, and the smoothing
 offset tips it the other way. The measurement was fine and the physics
@@ -138,14 +157,26 @@ guarantee.
 ## How this should change planning
 
 **Claims about absence age worst.** `plans/roadmap_1.md` has now been wrong
-four times, and every time the error was a statement that something did not
-exist or could not be done here: no open sonic gather exists (false, two were
-found); Utah FORGE is mirrored on AWS (false); egress reaches GitHub only
-(false); only tests and documentation remain (false, three times over). Every
-one of these was reasoned rather than measured. **Before writing "there is no
-X" or "X is impossible here", spend the ten minutes it takes to check.**
+five times, and every time the error was a statement that something did not
+exist or could not be done here:
 
-**Budget for the finding, not the confirmation.** Three of five oracles found a
+1. no openly redistributable sonic gather exists — false, two were found;
+2. Utah FORGE is mirrored on AWS Open Data — false, those buckets carry no
+   wireline logs;
+3. this sandbox's egress reaches GitHub only — false, the S3 buckets are
+   reachable and downloads work;
+4. only more tests and documentation remain — false, and written three times;
+5. no large piece of work can be carried to completion here unaided — false
+   within one revision, when the `n=0` branch-selection defect turned out to
+   need no derivation and no literature.
+
+Every one was reasoned rather than measured. **Before writing "there is no X"
+or "X is impossible here", spend the ten minutes it takes to check.** Note the
+asymmetry: no claim of the form "X exists and works" has had to be withdrawn.
+Absence is the failure mode, because it is the claim you can make without
+looking.
+
+**Budget for the finding, not the confirmation.** Four of five oracles found a
 defect. Planning that assumes an oracle will pass and treats it as a
 box-ticking exercise will consistently under-budget, because the valuable
 outcome is the one that generates follow-up work. Plan an oracle as an
@@ -170,21 +201,78 @@ comment block saying the tests pin defects, that a future fix will make them
 fail, and that they should then be rewritten rather than worked around. This
 keeps a known limitation from quietly becoming a guarantee.
 
+**When the fix lands, re-run the defect's own measurements and keep the
+numbers.** The branch-selection defect was documented with three measurements
+(a silent 2486 → 2952 m/s switch, 0/60 finite samples, 0/81 finite samples);
+the fix reports the same three the other way round (one value for every grid
+top, 60/60, 81/81). Carrying the numbers across rather than writing fresh ones
+makes the direction of the change visible in the diff, and makes it obvious if
+a "fix" only moved the problem. This is cheap and it is the main reason the
+defect tests were worth writing in the first place.
+
+## Attempted and withdrawn: energy balance for the leaky modes
+
+This list previously led with it, on the reasoning that radiated power over
+axial power must reproduce `Im(k_z)` with no free geometry in it, and so might
+*explain* the ~0.6 offset the ray estimate leaves open rather than merely
+bracketing it. **It does neither, and the way it fails is more instructive than
+another success would have been.**
+
+The derivation works. At the wall the boundary conditions give `sigma_rz = 0`
+and `sigma_rr = -P`, so both the radiated flux at `r = a` and the axial flux
+through the fluid column reduce to the same fluid amplitude, which cancels:
+
+    Im(k_z) = -a Im(I0(Fa) conj(F I1(Fa))) / (2 Re(k_z) INT_0^a |I0(Fr)|^2 r dr)
+
+Measured against the solver it reproduces `Im(k_z)` to ratio 1.000 at every
+frequency. That looked like the cleanest confirmation yet — for about ten
+minutes, until the question this document already insists on: *what would it do
+to a wrong answer?* Fed eight arbitrary complex `k_z` values that are not roots
+of anything, it returns their imaginary parts too, to ratio 1.0000.
+
+It is an identity, not a check. Closing the balance inside the fluid is just the
+divergence theorem applied to a source-free Helmholtz solution, true of any
+field `A I0(Fr) exp(i k_z z)` with `F^2 = k_z^2 - (omega/V_f)^2`. No property of
+the formation enters, so nothing about the eigenvalue condition is being tested.
+
+The obvious repair — extend the balance into the formation, which would bring
+the outgoing-wave condition in — is not available either. The leaky-S field
+*grows* with radius (the standard leaky-mode divergence: 0.996 at `r = 0.1` m to
+1.6e86 at `r = 30` m, using the solver's own evaluator), so the axial power
+integral has no finite value to divide by.
+
+**The lesson, which is new and general: a conservation law only tests something
+if the region you close it over contains the constraint you are testing.** Pick
+a control volume that excludes the physics determining the answer and the law
+becomes a tautology — one that will reproduce the right number perfectly and
+tell you nothing. Before building a balance-based check, ask which surface
+carries the condition that fixes the eigenvalue, and make sure the control
+volume straddles it.
+
+A near-miss worth recording separately: "ratio 1.000 at every frequency" was
+one commit from being written up as the strongest confirmation in the
+repository. What caught it was mechanically applying failure mode 1 to a result
+that looked too good, rather than only to results that look suspicious. The
+rule earns its place by being applied when it feels unnecessary.
+
+`tests/test_cylindrical_solver.py` pins all three facts — that the balance
+reproduces `Im(k_z)` at roots, that it does so at non-roots too, and that the
+formation field grows — so the next attempt starts from the result rather than
+from the derivation. Nothing was added to the public API: shipping a check that
+cannot fail would be worse than shipping none.
+
 ## Candidate oracles not yet attempted
 
 Kept concrete so the next session does not have to re-derive the list. Whether
-any of these bites is a measurement, not a promise — which is exactly what the
-last such list said, and it went four for four.
+any of these bites is a measurement, not a promise — the previous list went
+four for four, and the fifth candidate on it (energy balance, above) turned out
+to be vacuous. Four for five.
 
 Add one screening step before starting any of them, learned the hard way on the
 tube-wave check: **grep the implementation for the formula first.** If the
 solver already uses it — as a bracket, a seed, an initial guess — the check is
 not independent, and the test has to be built to route around that use.
 
-- **Energy balance for the leaky modes.** Radiated power computed from the
-  far-field Hankel amplitude, divided by axial energy flux, should reproduce
-  `Im(k_z)` — and unlike the ray estimate it has no free geometry in it, so it
-  might explain the 0.6 offset rather than merely bracketing it.
 - **Reciprocity / symmetry of the layered solver.** Swapping layer order in a
   stack where the physics is symmetric should leave the dispersion invariant.
 - **The `n=1` and `n=2` cutoffs against their rigid-pipe forms**, the same
