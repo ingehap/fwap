@@ -464,3 +464,50 @@ a=0.10 — the data behind the new public function. **Asserted by tests**
 Each branch switches on near `V_S` = 2300 at its own cutoff and descends toward
 `V_f` = 1500, so at any one frequency the fundamental is the *slowest* — which
 is why the `branch` ordering is by descending `k_z`.
+
+## Session note: the free-pipe re-diagnosis reply
+
+> Committed and opened as **PR #67** (draft). Check-in armed; the full coverage
+> run is still going and I'll report it with CI.
+>
+> The item is started, and the headline is that its roadmap entry was
+> misdiagnosed. G.2 had been filed behind the `n=1` Riemann-sheet work — the one
+> genuinely derivation-blocked item — on the grounds that debonding needs a
+> leaky-mode cased model. Measurement splits that:
+>
+> - **Soft cement** really is blocked, and for a concrete reason I can point at:
+>   `_stoneley_kz_bracket_cased` floors the bound window at the softest shear
+>   velocity anywhere in the stack, so cement below `V_f` leaves no window
+>   containing the physical mode.
+> - **A fluid microannulus** — the standard debonding model — isn't excluded by
+>   that argument at all, because a fluid contributes no shear floor. And it
+>   can't be faked with a compliant elastic layer, precisely because an elastic
+>   layer does contribute one.
+>
+> So the blocker is a missing fluid-annulus element in the propagator:
+> substantial implementation, but no literature and no exotic derivation. G.2 is
+> now decoupled from item 1, with the scope written down.
+>
+> The defect found on the way is the kind worth catching: compliant layers
+> returned **finite phase velocities of 3-12 m/s against a 1500 m/s fluid**,
+> some with no warning at all. My first guard was wrong in a way that's worth
+> recording — testing the *result* for finiteness cleaned up the determinant but
+> left the warning and the spurious roots, because they came from finite
+> ill-conditioned arithmetic rather than `inf`. Checking whether the product can
+> be formed *before* forming it fixes both, and leaves the bonded regime
+> bit-identical.
+>
+> That also closes the intermittent overflow warnings I chased twice earlier in
+> this session and couldn't pin down — they were this, all along.
+
+### Correction to the last sentence
+
+The full gate after the fix reported **1097 passed, 96.67 % coverage, 1
+warning** — under `--cov`. So "closes the intermittent overflow warnings" is
+too strong as written: the `overflow encountered in matmul` and `invalid value
+encountered in det` warnings from the compliant-layer path are gone (the four
+new tests run under `warnings.simplefilter("error")` and pass), but one warning
+still appears in the coverage run. A plain `pytest -q` run shows none, which is
+the same signature as the coverage-layer artefact seen earlier in the session.
+Identified rather than assumed is the standard here, so the claim stands only
+for the compliant-layer warnings.

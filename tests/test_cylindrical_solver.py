@@ -15224,3 +15224,197 @@ def test_cased_stoneley_stops_being_bound_once_cement_is_softer_than_the_fluid()
     assert converged(1500.0) == freq.size
     assert converged(1200.0) == 0
     assert converged(800.0) == 0
+
+
+# ---------------------------------------------------------------------------
+# Fluid-annulus propagator (n=0): the first piece of the microannulus model.
+#
+# Starting roadmap G.2 established that debonding modelled as a fluid
+# microannulus is not blocked by the leaky-mode derivation the roadmap assumed
+# -- a fluid contributes no shear-velocity floor to the bound-mode bracket --
+# but that it does need a propagator element the module did not have. This is
+# that element, verified in isolation before anything is wired to it.
+#
+# It is deliberately not reachable from the public API yet. The layer stack
+# cannot express a fluid (`BoreholeLayer` requires vs > 0) and the global
+# assembly changes shape when one is present, since a fluid annulus carries two
+# amplitudes rather than four and imposes sigma_rz = 0 at both faces. Shipping a
+# public layer type no solver accepts would be worse than shipping nothing.
+# ---------------------------------------------------------------------------
+
+_FA_OMEGA = 2.0 * np.pi * 8.0e3
+_FA_FLUID = {"vf": 1500.0, "rho": 1000.0}
+
+
+def test_fluid_annulus_e_matrix_determinant_matches_the_wronskian():
+    """``det E_f(r) = -1 / (rho omega^2 r)``, with no dependence on ``F``.
+
+    The Bessel Wronskian ``I0(x) K1(x) + I1(x) K0(x) = 1/x`` collapses the
+    determinant to a closed form that does not involve the radial
+    wavenumber at all. That makes it a check from outside this module: it
+    holds for every ``k_z``, frequency and fluid, so a sign slip or a
+    swapped Bessel order breaks it immediately.
+    """
+    from fwap.cylindrical_solver._cased import _fluid_layer_e_matrix_n0
+
+    for phase_velocity in (900.0, 1200.0, 1450.0):
+        kz = _FA_OMEGA / phase_velocity
+        for r in (0.09, 0.11, 0.15, 0.30):
+            e_matrix = _fluid_layer_e_matrix_n0(kz, _FA_OMEGA, **_FA_FLUID, r=r)
+            expected = -1.0 / (_FA_FLUID["rho"] * _FA_OMEGA**2 * r)
+            assert np.linalg.det(e_matrix) == pytest.approx(expected, rel=1.0e-10)
+
+
+def test_fluid_annulus_e_matrix_reproduces_the_momentum_relation():
+    """The physics, checked against a numerical derivative rather than algebra.
+
+    ``u_r = (1 / rho omega^2) dp/dr`` and ``sigma_rr = -p``. Building the
+    pressure from the amplitudes and differentiating it numerically tests
+    the matrix against the equation it is supposed to encode, independently
+    of how it was derived -- which is the check that would have caught the
+    sign convention mistakes made earlier in this work.
+    """
+    from scipy import special
+
+    from fwap.cylindrical_solver._cased import _fluid_layer_e_matrix_n0
+
+    kz = _FA_OMEGA / 1200.0
+    f_radial = np.sqrt(kz**2 - (_FA_OMEGA / _FA_FLUID["vf"]) ** 2)
+    amplitudes = np.array([0.37, -1.9])
+
+    def pressure(r):
+        return amplitudes[0] * special.iv(0, f_radial * r) + amplitudes[1] * special.kv(
+            0, f_radial * r
+        )
+
+    for r in (0.10, 0.13):
+        state = _fluid_layer_e_matrix_n0(kz, _FA_OMEGA, **_FA_FLUID, r=r) @ amplitudes
+        step = 1.0e-7
+        dp_dr = (pressure(r + step) - pressure(r - step)) / (2.0 * step)
+        assert state[0] == pytest.approx(
+            dp_dr / (_FA_FLUID["rho"] * _FA_OMEGA**2), rel=1.0e-6
+        )
+        assert state[1] == pytest.approx(-pressure(r), rel=1.0e-12)
+
+
+def test_fluid_annulus_propagator_determinant_is_the_radius_ratio():
+    """``det P_f = r_inner / r_outer``, independent of everything else.
+
+    Follows from the determinant identity above, and is the sharpest
+    available statement about the propagator: no frequency, velocity,
+    density or ``k_z`` appears in it.
+    """
+    from fwap.cylindrical_solver._cased import _fluid_layer_propagator_n0
+
+    for phase_velocity in (900.0, 1200.0, 1450.0):
+        kz = _FA_OMEGA / phase_velocity
+        # Microannulus geometries (microns to a few mm) plus a deliberately
+        # generous annulus. All sit inside the accuracy range characterised by
+        # the next test.
+        for r_inner, r_outer in (
+            (0.11, 0.11002),
+            (0.11, 0.1101),
+            (0.10, 0.11),
+            (0.10, 0.14),
+        ):
+            propagator = _fluid_layer_propagator_n0(
+                kz, _FA_OMEGA, **_FA_FLUID, r_inner=r_inner, r_outer=r_outer
+            )
+            assert np.linalg.det(propagator) == pytest.approx(
+                r_inner / r_outer, rel=1.0e-10
+            )
+
+
+def test_fluid_annulus_propagator_accuracy_is_set_by_the_bessel_span():
+    """Where the element stops being usable, measured rather than assumed.
+
+    The propagator carries ``I`` and ``K`` Bessel functions across the
+    annulus, so its dynamic range grows with ``F * (r_outer - r_inner)`` and
+    eventually exceeds double precision. Using the determinant identity as
+    the error measure, accuracy degrades smoothly: machine precision up to a
+    span of about 2, ~1e-11 by 7, and no significant digits at all by 20.
+
+    This matters for how the element should be used, not for the case it was
+    built for: a microannulus is microns to millimetres thick, which puts
+    ``F * dr`` below 0.1 and nowhere near the limit. Recorded because the
+    same exponential-range failure produced spurious roots elsewhere in this
+    module, and because an element with an undocumented validity range is
+    how that happens again.
+    """
+    from fwap.cylindrical_solver._cased import _fluid_layer_propagator_n0
+
+    kz = _FA_OMEGA / 900.0
+    f_radial = np.sqrt(kz**2 - (_FA_OMEGA / _FA_FLUID["vf"]) ** 2)
+
+    def relative_error(r_inner, r_outer):
+        propagator = _fluid_layer_propagator_n0(
+            kz, _FA_OMEGA, **_FA_FLUID, r_inner=r_inner, r_outer=r_outer
+        )
+        return abs(np.linalg.det(propagator) / (r_inner / r_outer) - 1.0)
+
+    # Comfortably inside the range: exact.
+    assert f_radial * (0.14 - 0.10) < 3.0
+    assert relative_error(0.10, 0.14) < 1.0e-12
+
+    # Far outside it: the identity fails outright, which is the point.
+    assert f_radial * (0.50 - 0.05) > 15.0
+    assert relative_error(0.05, 0.50) > 1.0e-3
+
+
+def test_fluid_annulus_propagator_composes_and_degenerates():
+    """Zero thickness gives the identity; subdivision composes.
+
+    The same invariance that the elastic layer stack satisfies, and for
+    the same reason -- relabelling one annulus as two changes the
+    description and not the medium. Checked here on the element itself, so
+    that when the assembly is built any failure is attributable to the
+    assembly.
+    """
+    from fwap.cylindrical_solver._cased import _fluid_layer_propagator_n0
+
+    kz = _FA_OMEGA / 1150.0
+
+    identity = _fluid_layer_propagator_n0(
+        kz, _FA_OMEGA, **_FA_FLUID, r_inner=0.12, r_outer=0.12
+    )
+    assert np.allclose(identity, np.eye(2), atol=1.0e-12)
+
+    whole = _fluid_layer_propagator_n0(
+        kz, _FA_OMEGA, **_FA_FLUID, r_inner=0.10, r_outer=0.16
+    )
+    first = _fluid_layer_propagator_n0(
+        kz, _FA_OMEGA, **_FA_FLUID, r_inner=0.10, r_outer=0.13
+    )
+    second = _fluid_layer_propagator_n0(
+        kz, _FA_OMEGA, **_FA_FLUID, r_inner=0.13, r_outer=0.16
+    )
+    assert np.allclose(whole, second @ first, rtol=1.0e-9)
+
+
+def test_fluid_annulus_rejects_a_propagating_radial_wavenumber():
+    """The bound formulation needs ``kz > omega / vf`` in the annulus.
+
+    Below it the radial wavenumber turns imaginary, the fluid field
+    oscillates instead of decaying, and the real-valued state matrix here
+    no longer describes it. Refused rather than silently returning the
+    real part -- the microannulus case this element exists for is squarely
+    in the bound regime, and a caller who has left it should be told.
+    """
+    from fwap.cylindrical_solver._cased import (
+        _fluid_layer_e_matrix_n0,
+        _fluid_layer_propagator_n0,
+    )
+
+    kz_oscillatory = _FA_OMEGA / (2.0 * _FA_FLUID["vf"])
+    with pytest.raises(ValueError, match="not real"):
+        _fluid_layer_e_matrix_n0(kz_oscillatory, _FA_OMEGA, **_FA_FLUID, r=0.12)
+
+    kz = _FA_OMEGA / 1200.0
+    with pytest.raises(ValueError, match="must be positive"):
+        _fluid_layer_e_matrix_n0(kz, _FA_OMEGA, vf=-1.0, rho=1000.0, r=0.12)
+    with pytest.raises(ValueError, match="r must be positive"):
+        _fluid_layer_e_matrix_n0(kz, _FA_OMEGA, **_FA_FLUID, r=0.0)
+    with pytest.raises(ValueError, match="must be positive"):
+        _fluid_layer_propagator_n0(kz, _FA_OMEGA, **_FA_FLUID, r_inner=0.0, r_outer=0.1)
+    with pytest.raises(ValueError, match="require r_outer >= r_inner"):
+        _fluid_layer_propagator_n0(kz, _FA_OMEGA, **_FA_FLUID, r_inner=0.2, r_outer=0.1)
