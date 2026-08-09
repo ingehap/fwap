@@ -1,11 +1,10 @@
 # Possible extensions of fwap
 
-Companion to [`docs/roadmap_old.m`](roadmap_old.m), the archived
-roadmap. That file tracks open items already scoped against the four
-book chapters and the post-Tang 2004 literature; this file is a wider,
-more speculative list of directions the package could grow in. Items
-are grouped by theme and ordered roughly by how much new physics they
-introduce.
+Companion to `plans/roadmap.md` in the repository. That file tracks
+open items already scoped against the four book chapters and the
+post-Tang 2004 literature; this file is a wider, more speculative list
+of directions the package could grow in. Items are grouped by theme and
+ordered roughly by how much new physics they introduce.
 
 ## 1. Cylindrical-Biot solver completions
 
@@ -181,7 +180,7 @@ families. fwap ships the slowness-polarization half (Horne & Leaney
 ## 7. Time-frequency picker improvements
 
 `fwap.coherence` plus the Viterbi pickers cover STC-based picking.
-Possible additions inside the existing scope (note `roadmap_old.m`
+Possible additions inside the existing scope (note `plans/roadmap.md`
 non-goal #3 lists "general TF picking" as out of scope; items here
 are picker-targeted, not general TF analysis).
 
@@ -316,7 +315,7 @@ the package handle the majority of real production logs:
 ## 14. Out-of-scope but worth noting
 
 Listed here so they are not silently re-proposed. Already declared
-non-goals in `roadmap_old.m`:
+non-goals in `plans/roadmap.md`:
 
 - GUI / plotting application.
 - Production multi-well log management / catalog layer.

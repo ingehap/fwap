@@ -1,12 +1,11 @@
 # What remains to be done
 
-A prioritised reading of the open items in `docs/roadmap_old.m`, current through
+A prioritised reading of the open items in `plans/roadmap.md`, current through
 the analytic-oracle programme (PRs #59-#66) and the fluid-microannulus work
 (PRs #67-#69).
-`docs/roadmap_old.m` — the archived roadmap, renamed out of the Sphinx source
-set from `docs/roadmap.md` — remains the fuller status file; this is a snapshot
-of *priority and reasoning* at one point in time, so check both against the tree
-before acting on either.
+`plans/roadmap.md` — which absorbed the old `docs/roadmap.md` — is the fuller
+status file; this is a snapshot of *priority and reasoning* at one point in
+time, so check both against the tree before acting on either.
 
 ## The shape of it
 
@@ -115,7 +114,7 @@ answer, with no warning.
 Unlike the `n=1` problem this needed no Riemann-sheet derivation — the roots sit
 on the principal sheet and are found reliably once seeded — so the fix was to
 enumerate them at the seed frequency and expose a `branch` argument. Done; see
-`docs/roadmap_old.m` A item 3. The one non-obvious part was checking that the
+`plans/roadmap.md`'s closed list. The one non-obvious part was checking that the
 root *count* does not depend on the seed-scan density, because otherwise
 `branch=1`
 would silently mean different things at different resolutions.
@@ -306,7 +305,7 @@ wiring plus one real decision.
   three-file lockstep (`fwap/__init__.py`, `docs/api.rst`,
   `scripts/check_public_api.py`).
 * **Then the `sonic_ml` consumer**, which is what section G item 2 in
-  `docs/roadmap_old.m` actually wants: a debonded-regime dataset, and with it
+  `plans/roadmap.md` actually wants: a debonded-regime dataset, and with it
   the first fair CBL-amplitude comparison rather than a strawman.
 
 Not required for any of the above, and worth stating so it is not assumed:

@@ -160,7 +160,7 @@ DEFAULT_MODES: tuple[ModeSpec, ...] = (
 # ``mode_in_gather`` and injected into the gather.
 #
 # The cause is the same leaky-mode limitation as the n=1 flexural case (see
-# docs/roadmap_old.m A.2): for ``vs > vf`` the root leaves the real axis and the
+# plans/roadmap.md A.2): for ``vs > vf`` the root leaves the real axis and the
 # real-axis search returns spurious values. Slow-formation draws are unaffected
 # (11 of 11 monotone in the same sample).
 QUADRUPOLE_MODE: ModeSpec = ModeSpec(
@@ -187,7 +187,7 @@ PSEUDO_RAYLEIGH_MODE: ModeSpec = ModeSpec(
 # excluded from this default set: it is sparse in fast formations (~38 % of a
 # 1-12 kHz band). That was once attributed to layered bracketing; it is
 # actually leakage, and the identical formation is just as sparse in an open
-# hole (docs/roadmap_old.m A.2). Recovering it needs complex-plane root tracking,
+# hole (plans/roadmap.md A.2). Recovering it needs complex-plane root tracking,
 # so the *default* cased dataset stays single-mode. For a two-mode cased
 # dataset over the narrow formation window where both modes are bound, see
 # :data:`CASED_TWO_MODES` and :func:`generate_slow_two_mode_cased_dataset`.
@@ -379,7 +379,7 @@ class FormationPriors:
 # cased dataset is single-mode rather than merely under-ambitious:
 #
 #   * cased flexural is sparse in fast formations (a leaky-mode problem, not a
-#     bracketing one -- see docs/roadmap_old.m A.2), and
+#     bracketing one -- see plans/roadmap.md A.2), and
 #   * cased Stoneley stops being bound as the formation slows away from the
 #     fluid velocity.
 #
