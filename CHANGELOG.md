@@ -7,6 +7,34 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`crack_wave_dispersion` — the second root family, and the more sensitive
+  debonding indicator.** Where the Stoneley-like mode shifts ~1 % on debonding
+  and then barely moves, the crack (Krauklis) wave is *guided by the gap* and
+  scales as `(f h)^{1/3}`: 68 m/s at a 1 um gap to 620 m/s at 1 mm, at 8 kHz.
+  That closed form is invertible, so a measured crack-wave velocity gives a gap
+  thickness directly.
+  Reproduces the analytic speed to **0.02 % at a 1 um gap** through the public
+  surface, and the cube-root exponent is measured in both variables rather than
+  assumed — 1/3 to within 0.02 in `h` and in `f`. The scan window is not
+  derived from that formula (it runs from the determinant's representability
+  limit to the bound floor), so the check stays independent rather than
+  self-confirming.
+  **It needed a spurious-root filter, and building one is most of this
+  change.** `stoneley_dispersion_microannulus` stops at the first sign change
+  above the bound floor and never reaches the phase velocities where the
+  elastic propagators lose precision; this function scans down to them
+  deliberately, and sign changes there get read as roots — the defect this
+  module has shipped twice. Over 270 sampled configurations one produced a
+  duplicated pair near 4 m/s. The filter is grid stability: the scan runs twice
+  at different resolutions and lower endpoints, and only roots common to both
+  survive. On that configuration the spurious pair appeared in one grid of six
+  while the genuine roots appeared in all six and agreed to 1e-9. Across the
+  same sweep the API now returns no sub-20 m/s value anywhere, and the filter
+  holds at every resolution from 60 samples up.
+  The alternative filter was measured and rejected first: the elastic
+  propagator's determinant identity is violated by 1e232 at operating points
+  where the crack root is correct to 1e-9, so gating on it would have removed
+  the capability entirely.
 - **`stoneley_dispersion_microannulus` and `FluidAnnulus` — the first public
   entry point for the debonded regime.** Stoneley dispersion for a stack of the
   form `borehole fluid | casing | microannulus | cement | formation`, wrapping
@@ -24,13 +52,10 @@ the project uses [Semantic Versioning](https://semver.org/).
   a compliant solid drags the bound-mode bracket floor down with its shear
   velocity, while a gap's floor is its acoustic velocity. That separation is
   what makes the configuration reachable, so it is load-bearing.
-  **The crack (Krauklis) wave is deliberately not exposed yet.** Over 270
-  sampled configurations the bound window held exactly two roots in 269; the
-  exception produced a *duplicated* pair near 4 m/s, the signature of the
-  lost-precision spurious roots this module has shipped before. Telling the
-  genuine crack wave from those needs a filter, and the obvious candidate turns
-  out to be the wrong one — see below. Selecting the Stoneley family is safe
-  without one.
+  The crack wave is a separate entry point rather than a `branch` argument
+  here, because the two families are qualitatively different and only one of
+  them needs the spurious-root filter described above: this function's window
+  never reaches the velocities where that matters.
   Also documented at the API surface: a thin gap does **not** converge to the
   bonded stack. It converges to a frictionless slip interface, 1383.45 m/s
   against 1400.04 m/s bonded at 8 kHz, a 1.2 % offset that does not close.

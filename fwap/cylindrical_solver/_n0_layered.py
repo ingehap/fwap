@@ -2104,3 +2104,274 @@ def stoneley_dispersion_microannulus(
         slowness=slowness,
         attenuation_per_meter=None,
     )
+
+
+def _microannulus_stable_roots(
+    det_of_velocity,
+    c_lo: float,
+    c_hi: float,
+    samples: int,
+) -> list[float]:
+    """
+    Phase-velocity roots that survive a change of scan grid, fastest first.
+
+    The spurious-root filter the crack-wave API needs. Scanning this
+    determinant down to the low velocities the gap mode occupies eventually
+    reaches phase velocities where the elastic propagators have lost all
+    precision, and sign changes there are read as roots -- the defect this
+    module has shipped twice. They are not stable under a change of grid,
+    and the genuine roots are, so running two scans and keeping the
+    intersection separates them.
+
+    Measured on the one configuration in 270 sampled that produced them: a
+    duplicated pair near 4 m/s appeared in one grid of six, while the
+    Stoneley and crack roots appeared in all six and agreed to 1e-9.
+
+    The two grids differ in resolution and in their lower endpoint, which is
+    what breaks any coincidence between them. The upper endpoint is left
+    alone deliberately -- it sits just below the bound-regime limit, and
+    moving it inward risks stepping over a Stoneley root that lies close to
+    it, which would silently renumber everything below.
+
+    Parameters
+    ----------
+    det_of_velocity : callable
+        Real-valued modal determinant as a function of phase velocity (m/s).
+    c_lo, c_hi : float
+        Scan window (m/s), searched geometrically because the two families
+        are decades apart.
+    samples : int
+        Resolution of the first grid; the second uses ``1.37 x`` as many.
+
+    Returns
+    -------
+    list of float
+        Phase velocities (m/s) present in both scans, largest first.
+    """
+
+    def scan(grid: np.ndarray) -> list[float]:
+        values = np.array([det_of_velocity(float(c)) for c in grid])
+        out: list[float] = []
+        for i in range(grid.size - 1):
+            if not (np.isfinite(values[i]) and np.isfinite(values[i + 1])):
+                continue
+            if np.sign(values[i]) != np.sign(values[i + 1]):
+                try:
+                    out.append(
+                        float(
+                            optimize.brentq(
+                                det_of_velocity,
+                                grid[i],
+                                grid[i + 1],
+                                xtol=1.0e-13,
+                                rtol=8.9e-16,
+                            )
+                        )
+                    )
+                except (ValueError, RuntimeError):  # pragma: no cover
+                    continue
+        return out
+
+    first = scan(np.geomspace(c_lo, c_hi, samples))
+    second = scan(np.geomspace(c_lo * 1.013, c_hi, int(samples * 1.37) + 1))
+    stable = [
+        root
+        for root in first
+        if any(abs(root / other - 1.0) < 1.0e-6 for other in second)
+    ]
+    return sorted(stable, reverse=True)
+
+
+def crack_wave_dispersion(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    inner_layers: tuple[BoreholeLayer, ...],
+    annulus: FluidAnnulus,
+    outer_layers: tuple[BoreholeLayer, ...],
+    samples: int = 250,
+) -> BoreholeMode:
+    r"""
+    Crack-wave (Krauklis) dispersion for a cased stack with a fluid gap.
+
+    The second bound root of the microannulus determinant, and the more
+    sensitive of the two debonding indicators. Where the Stoneley-like mode
+    shifts about 1 % on debonding and then barely moves with gap thickness,
+    the crack wave is *guided by the gap* and scales as ``(f h)^{1/3}``: at
+    8 kHz it runs from 68 m/s at a 1 um gap to 620 m/s at 1 mm. Because that
+    closed form is invertible, a measured crack-wave velocity gives a gap
+    thickness directly.
+
+    Parameters
+    ----------
+    freq : ndarray, shape (n_f,)
+        Frequency grid (Hz). Must be strictly positive.
+    vp, vs, rho : float
+        Formation half-space velocities (m/s) and density (kg/m^3).
+    vf, rho_f : float
+        Borehole-fluid velocity (m/s) and density (kg/m^3).
+    a : float
+        Borehole (fluid-side) radius (m).
+    inner_layers, outer_layers : tuple of BoreholeLayer
+        Elastic layers inside and outside the gap, ordered radially outward.
+        Both must be non-empty.
+    annulus : FluidAnnulus
+        The fluid gap the wave is guided by.
+    samples : int, default 250
+        Resolution of the first of the two scan grids. The window spans
+        decades, so it is searched geometrically. The result is unchanged
+        from 60 samples upward (to 1e-12), and the spurious-root filter
+        below holds at every resolution tried, so this is a cost setting
+        rather than a tuning parameter.
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "crack_wave"``, ``azimuthal_order = 0``,
+        ``attenuation_per_meter = None``. ``slowness`` is ``NaN`` wherever no
+        second bound root survives the filter described below.
+
+    Raises
+    ------
+    ValueError
+        Same conditions as :func:`stoneley_dispersion_microannulus`.
+
+    Notes
+    -----
+    **Selection.** The crack wave is the second-fastest bound n=0 root: the
+    Stoneley-like mode sits just below the borehole-fluid velocity and this
+    one is the next below it. Selecting by order rather than by proximity to
+    an expected value keeps the closed form available as an independent
+    check instead of building it into the search.
+
+    **Spurious roots, and why this function needs a filter where
+    :func:`stoneley_dispersion_microannulus` does not.** That function stops
+    at the first sign change above the bound floor and never reaches the low
+    phase velocities where the elastic propagators lose precision. This one
+    scans down to them, and sign changes there get read as roots -- a defect
+    this module has shipped twice. Over 270 sampled configurations one
+    produced a duplicated pair near 4 m/s. They are not stable under a
+    change of grid, so the scan is run twice at different resolutions and
+    lower endpoints and only roots common to both are kept; in that case the
+    spurious pair appeared in one grid of six while the genuine roots
+    appeared in all six.
+
+    The obvious alternative filter does **not** work and was measured
+    before being discarded: the elastic propagator's determinant identity
+    ``det P = (r_inner/r_outer)^2`` is violated by 1e232 at operating points
+    where the crack root is nonetheless correct to 1e-9, because the mode is
+    confined within ``~1/k_z`` of the gap and the error lives in a growing
+    branch the root condition never sees.
+
+    **Validity.** The solver reproduces the analytic crack-wave speed
+
+    .. math::
+
+        c = \left(\frac{\omega h}{C \rho_f}\right)^{1/3},
+        \qquad C = \sum_{\text{walls}} \frac{1 - \nu}{\mu}
+
+    to 0.02 % at a 1 um gap, departing as ``k h`` stops being small. That
+    formula assumes half-space walls, so it holds only while both blocks are
+    thicker than the mode's decay length ``~1/k_z``; a 2 mm casing against a
+    6 mm decay length gives 0.64 of it.
+
+    See Also
+    --------
+    stoneley_dispersion_microannulus : The other root family of the same
+        determinant.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from fwap import BoreholeLayer, FluidAnnulus, crack_wave_dispersion
+    >>> casing = BoreholeLayer(vp=5900.0, vs=3200.0, rho=7800.0, thickness=0.05)
+    >>> cement = BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.20)
+    >>> mode = crack_wave_dispersion(
+    ...     np.array([8.0e3]),
+    ...     vp=4000.0, vs=2300.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.10,
+    ...     inner_layers=(casing,),
+    ...     annulus=FluidAnnulus(vf=1500.0, rho=1000.0, thickness=1.0e-4),
+    ...     outer_layers=(cement,),
+    ... )
+    >>> bool(290.0 < 1.0 / mode.slowness[0] < 320.0)
+    True
+    """
+    inner = tuple(inner_layers)
+    outer = tuple(outer_layers)
+    _validate_borehole_layers(inner)
+    _validate_borehole_layers(outer)
+    _validate_fluid_annulus(annulus)
+    if not inner or not outer:
+        raise ValueError("inner_layers and outer_layers must both be non-empty")
+    if vp <= 0 or vs <= 0 or rho <= 0:
+        raise ValueError("vp, vs, rho must all be positive")
+    if vf <= 0 or rho_f <= 0:
+        raise ValueError("vf and rho_f must be positive")
+    if a <= 0:
+        raise ValueError("a must be positive")
+    if vp <= vs:
+        raise ValueError("require vp > vs")
+    if samples < 2:
+        raise ValueError("samples must be at least 2")
+
+    f_arr = np.asarray(freq, dtype=float)
+    if np.any(f_arr <= 0):
+        raise ValueError("freq must be strictly positive")
+
+    from fwap.cylindrical_solver import (
+        _BESSEL_ARG_MAX,
+        _modal_determinant_n0_microannulus,
+    )
+
+    r_outermost = (
+        a
+        + sum(L.thickness for L in inner)
+        + annulus.thickness
+        + sum(L.thickness for L in outer)
+    )
+    slowest = min(vs, vf, annulus.vf, *(L.vs for L in inner + outer))
+
+    slowness = np.full(f_arr.shape, np.nan, dtype=float)
+    for i, f in enumerate(f_arr.ravel()):
+        omega = 2.0 * np.pi * float(f)
+
+        def _det(phase_velocity: float, omega: float = omega) -> float:
+            return _modal_determinant_n0_microannulus(
+                omega / phase_velocity,
+                omega,
+                vp=vp,
+                vs=vs,
+                rho=rho,
+                vf=vf,
+                rho_f=rho_f,
+                a=a,
+                inner_layers=inner,
+                annulus_vf=annulus.vf,
+                annulus_rho=annulus.rho,
+                annulus_thickness=annulus.thickness,
+                outer_layers=outer,
+            )
+
+        # Bottom of the window is where the determinant stops being
+        # representable at all, not a velocity chosen to suit the answer: below
+        # ``omega * r_outermost / _BESSEL_ARG_MAX`` the assembly returns NaN.
+        c_lo = omega * r_outermost / _BESSEL_ARG_MAX * 1.001
+        c_hi = slowest * (1.0 - 1.0e-9)
+        if c_lo >= c_hi:
+            continue
+        roots = _microannulus_stable_roots(_det, c_lo, c_hi, samples)
+        if len(roots) >= 2:
+            slowness.ravel()[i] = 1.0 / roots[1]
+
+    return BoreholeMode(
+        name="crack_wave",
+        azimuthal_order=0,
+        freq=f_arr,
+        slowness=slowness,
+        attenuation_per_meter=None,
+    )

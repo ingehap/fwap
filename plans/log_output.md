@@ -684,3 +684,45 @@ for the compliant-layer warnings.
 > with `roadmap.md`, so Sphinx warns and picks the `.md` — the stub has never
 > rendered. Pre-existing, and deleting a file felt beyond this change, so it's
 > flagged in the PR instead.
+
+## Session note: the CI-fix reply on PR #72
+
+> Status on **PR #72**:
+>
+> * **The failing job is fixed.** `Python 3.11` and `sonic_ml (3.11)` are green
+>   on `e9f0814`; both 3.12 jobs are still running and I'm watching them.
+> * **Local full suite: 1122 passed, 96.75 % coverage**, missed lines 208 —
+>   exactly where they were before this work, so the new API, the new dataclass
+>   and the new oracle are all fully covered.
+>
+> The deliverable stands as described: `stoneley_dispersion_microannulus` and
+> `FluidAnnulus` are the first public entry point for the debonded regime, with
+> a structural selection rule pinned against an independent scan, the frequency
+> grid, and the scan resolution. The crack wave remains deliberately unexposed
+> pending a spurious-root filter — and the measurement in this PR rules out the
+> obvious candidate for that filter.
+>
+> ### The failure was the assertion, not the tolerance
+>
+> The test's substance passed on CI — the crack root doesn't move while the
+> identity error reaches 1e232 — but I had also asserted the error sequence was
+> monotonic in cement thickness, and CI returned `1.0` for the 0.05 m case where
+> I got `1e38`. Once that identity is destroyed its value is arbitrary and
+> platform-dependent, so ordering it asserts a property of garbage.
+>
+> That is the same mistake made in #65, twice: first asserting *where* a
+> spurious root lands, then *how far off* it is. Both times the fix was to keep
+> only the structural claim. Done here, with a comment recording why the
+> ordering is deliberately absent so it does not get "helpfully" restored.
+>
+> ### The uncovered line
+>
+> The NaN skip in the scan loop is not reachable with a real microannulus — the
+> loop breaks at the Stoneley root long before the annulus Bessel span runs out.
+> It *is* reachable by pushing the gap far outside the model: at 20 kHz a 0.30 m
+> gap leaves no representable stretch containing a root, so the scan skips every
+> NaN and reports `NaN`. Worth a test on its own, since this module has twice
+> shipped sign changes read across unrepresentable regions as roots. The
+> graceful case sits beside it: a 0.30 m gap at 8 kHz refuses 208 of 400 scan
+> points and still returns the Stoneley root, drifting towards the open-hole
+> value as the gap thickens, which is the physically right direction.

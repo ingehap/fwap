@@ -150,6 +150,7 @@ FROZEN_PUBLIC_API: tuple[str, ...] = (
     "BoreholeMode",
     "BranchSegment",
     "FluidAnnulus",
+    "crack_wave_dispersion",
     "stoneley_dispersion",
     "stoneley_dispersion_layered",
     "stoneley_dispersion_microannulus",

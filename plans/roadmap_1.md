@@ -23,13 +23,15 @@ rather than by planning.
 | 2 | A real full-waveform sonic gather (F) | sourcing | fetching one **named** file from a host this sandbox cannot reach |
 | 3 | Digitised validation figures (A.1, curve shapes) | sourcing | access to the books |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
-| 5 | Fluid microannulus, third piece (G.2) | **implementation** | nothing — two of three pieces are on `main` |
+| 5 | Debonded-regime `sonic_ml` datasets (G.2) | **implementation** | nothing — the microannulus forward model it waited on is complete |
 
 **Item 5 is new in kind, and it changes how the rest of this file should be
 read.** For several revisions everything open was blocked on something outside
 the session: a file behind an unreachable host, a book, a derivation, a release.
 Item 5 is not. It is ordinary implementation work, with real user value, that
-can be finished from here — see section 5.
+can be finished from here — see section 5. The microannulus forward model that
+originally carried this row is now complete, and the row has moved down its own
+dependency chain to the consumer rather than closing.
 
 Items 2 and 3 cannot be closed by writing code here. Note the qualifier: an
 earlier revision said this sandbox's egress "reaches GitHub only", which probing
@@ -227,7 +229,10 @@ anything above.
 ## 5. The fluid microannulus (G.2) — two pieces on `main`, one left
 
 The only open item that is blocked on nothing. It began as part of item 1 and
-was re-diagnosed out of it in PR #67.
+was re-diagnosed out of it in PR #67. The **forward model is now complete** --
+elements, 11x11 assembly, and both public entry points
+(`stoneley_dispersion_microannulus`, `crack_wave_dispersion`) -- so what is
+left under this heading is the `sonic_ml` consumer.
 
 ### Why it was mis-filed, and the two models of debonding
 

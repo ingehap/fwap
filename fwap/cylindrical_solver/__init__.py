@@ -161,6 +161,9 @@ from fwap.cylindrical_solver._bessel import (
 # Re-exports for the cased-hole multi-layer helpers extracted to
 # ``_cased`` in Phase 1 step 9 of the package split.
 from fwap.cylindrical_solver._cased import (
+    _BESSEL_ARG_MAX as _BESSEL_ARG_MAX,
+)
+from fwap.cylindrical_solver._cased import (
     _layer_e_matrix_n0 as _layer_e_matrix_n0,
 )
 from fwap.cylindrical_solver._cased import (
@@ -302,6 +305,9 @@ from fwap.cylindrical_solver._n0_layered import (
     _microannulus_kz_window as _microannulus_kz_window,
 )
 from fwap.cylindrical_solver._n0_layered import (
+    _microannulus_stable_roots as _microannulus_stable_roots,
+)
+from fwap.cylindrical_solver._n0_layered import (
     _modal_determinant_n0_layered as _modal_determinant_n0_layered,
 )
 from fwap.cylindrical_solver._n0_layered import (
@@ -309,6 +315,9 @@ from fwap.cylindrical_solver._n0_layered import (
 )
 from fwap.cylindrical_solver._n0_layered import (
     _stoneley_kz_bracket_layered as _stoneley_kz_bracket_layered,
+)
+from fwap.cylindrical_solver._n0_layered import (
+    crack_wave_dispersion as crack_wave_dispersion,
 )
 from fwap.cylindrical_solver._n0_layered import (
     stoneley_dispersion_layered as stoneley_dispersion_layered,
