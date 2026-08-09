@@ -42,20 +42,30 @@ synthetics are produced by the forward model the picker is scored against.
 
 The package can now do all of that through its own API: `read_dlis_waveforms`
 (F.3) reads the per-receiver waveforms and recovers the acquisition geometry
-from the file's AXIS records. What remains is an asymmetry worth naming — **the
-results exist but CI cannot defend them**, and the one row that would close that
-is blocked on a decision rather than on work. (A third piece of F, confirming
-the registered checksum against its canonical host, is tracked as F.4 in the
-section itself.)
+from the file itself.
+
+**And a second real log has arrived, which changes the top of this table.** ODP
+Leg 157 Hole 952A — LDEO-BRG, SDT tool, logged 1994 — is in hand: 1123 depths
+of 4-receiver monopole waveforms, as a **1.55 MB** binary archive *and* a
+**10.96 MB** original DLIS. Both are small enough to be the CI fixture F.2 has
+been blocked on for its entire life, where the FORGE data failed only on size.
+It has already earned its keep by breaking an assumption: it declares **zero
+AXIS objects**, which forced the vendor-parameter fallback in
+`read_dlis_waveforms` and partly overturned the reasoning that shipped with it.
+
+So the binding constraint has moved. It is no longer "no file exists" or "the
+file is too big" — it is licence and provenance work on a file already here.
 
 | Open item | Why it matters |
 |-----------|----------------|
-| **F.2 A waveform fixture CI can use** | The waveforms live in an 808 MB DLIS inside a 471 MB zip. A small extracted subset would work, but hosting one is redistribution and needs a decision rather than a commit. Until then what defends F.1 in CI is a seeded synthetic, not the log that found it. |
-| **G.2 The `sonic_ml` consumer of the debonded dataset** | The generator is on `main`; what is open is the model and benchmark work on top of it. The measurements below changed what that work should be, and are worth reading before starting: the shipped cement-bond inverse keys on a signal a microannulus largely removes. |
+| **F.2 A waveform fixture CI can use** | **Now actionable rather than blocked.** ODP 952A is small enough at either size; what is needed is the licence check (ODP/IODP terms are not stated on the data page), a host, and a registry entry. Until it lands, what defends F.1 in CI is a seeded synthetic and not the log that found it. |
+| **F.5 The ODP file's unknowns** | Two, both small and both blocking a registry entry that could be trusted. Receiver **offsets** appear in neither the DLIS nor the binary header, so they need the SDT tool spec; and the DLIS well header reads **"ODP HOLE 950-A LEG 157"** against an archive labelled 952A, which cannot be resolved from the files alone. |
+| **G.6 Wire the debond inverse into the benchmark harness** | The model and its classical baseline exist and are measured against each other by hand. They are not yet scored by `sonic_ml.bench`, so they sit outside the machinery every other model in the layer is compared through. |
 | **A.1 Validation figures** | Ties the solver to published literature rather than to itself. Still needs the books. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
 | ~~**F. A real sonic log**~~ | *Largely closed.* A Schlumberger DSI log is registered and tested; the package's shear picks match the vendor's to **0.12 %** median on real rock. |
-| ~~**F.3 A waveform path in `read_dlis`**~~ | *Closed.* `read_dlis_waveforms` reads a multi-dimensional channel and recovers sample interval and receiver offsets from the RP66 AXIS records, so the processing chain runs on a real log without `dlisio` at the call site. |
+| ~~**G.2 Debonded regime**~~ | *Closed.* Generator, closed-form baseline (**18.1 %** in gap width) and learned residual inverse (**2.5 %** held-out) are all on `main`. Kept below for the measurements, which reshaped the item, and for what the result does *not* claim. |
+| ~~**F.3 A waveform path in `read_dlis`**~~ | *Closed.* `read_dlis_waveforms` reads a multi-dimensional channel and recovers the sample interval from the RP66 AXIS records, falling back to a vendor parameter for files that declare none. |
 | ~~**F.1 The compressional-pick defect**~~ | *Closed.* It was mode confusion, not imprecision. `track_modes` and `pick_modes` now refuse to assign one arrival to two modes (`resolve_mode_collisions`); vendor agreement went 62 % → **95 %**, with shear bit-identical and nothing dropped. Kept below for the reasoning and the residual limits. |
 | ~~**A.5 Fluid microannulus**~~ | *Forward model complete.* Elements, assembly and both public APIs are on `main`; kept below for the reasoning and the measured limits. |
 
@@ -490,14 +500,51 @@ See `plans/log_output.md` for the full reading. In brief:
   materialise the whole frame, because only the requested channel and the index
   channel are read.
 
+**F.3's second file, and what it corrected.**
+
+ODP Leg 157 Hole 952A arrived after F.3 shipped, and immediately found the
+limit of the design. `read_dlis_waveforms` had been built to read the
+acquisition geometry from RP66 v1 AXIS objects rather than from a service
+company's PARAMETER naming, on the grounds that AXIS carries a declared unit
+and vendor names carry a convention. **That is right and it is not
+sufficient**: this file declares *zero* AXIS objects, and its `DSI0` parameter
+is the only record of the 10 us sample interval anywhere in the DLIS.
+
+One file made the standards-purist choice look complete. Two showed it left a
+real file unreadable. The reader now falls back to the vendor parameter, and
+the fallback is deliberately timid because a parameter has no declared unit and
+guessing is a factor-of-1000 error:
+
+* it fires only when no axis carries a time unit **and** the file's `DSI*`
+  parameters agree on one value. Where they disagree — the FORGE file carries
+  40, 40, 40, 10, 40 — deciding which belongs to a channel is a vendor question
+  and it raises, naming them all;
+* the microsecond convention is checked rather than trusted: the implied record
+  length must be sonic-plausible;
+* `sample_interval_source()` reports which route answered, because one is a
+  standard unit-bearing record and the other rests on a convention.
+
+The ODP fallback value is independently confirmed: the archive's binary header,
+which reached the numbers through an entirely different conversion path
+(DLIS → GeoFrame → ASCII → binary), also says 10 us.
+
 **What is still open:**
 
-* **F.2 — a waveform fixture the CI can actually use.** The waveforms live in
-  an 808 MB DLIS inside a 471 MB zip, which is not a viable fetch-on-demand
-  test fixture. A small extracted subset would be, but hosting one is
-  redistribution and needs a decision. Until then the results above are
-  measured but not regression-tested, and what defends F.1 in CI is a seeded
-  synthetic rather than the log that found it.
+* **F.5 — the ODP file's two unknowns.** Receiver *offsets* are in neither the
+  DLIS nor the binary header, so they need the SDT tool specification; and the
+  DLIS well header reads "ODP HOLE 950-A LEG 157" while the archive is labelled
+  952A. Neither is resolvable from the files, and both would have to be settled
+  before a registry entry could claim to know what it holds.
+* **F.2 — a waveform fixture the CI can actually use.** The FORGE waveforms
+  live in an 808 MB DLIS inside a 471 MB zip, which is not a viable
+  fetch-on-demand fixture, and extracting a subset is redistribution.
+  **ODP 952A changes the arithmetic**: 1.55 MB for the binary waveform archive,
+  10.96 MB for the original DLIS. Size is no longer the obstacle. What is
+  needed is a licence check — the LDEO data page states no terms, and ODP/IODP
+  policy has to be read rather than assumed — a host, and a registry entry.
+  Until it lands the results above are measured but not regression-tested, and
+  what defends F.1 in CI is a seeded synthetic rather than the log that found
+  it.
 * **F.4 — confirming the registered checksum.** `gdr.openei.org` was
   unreachable from the session that added the entry, so the SHA-256 was
   computed from a mirror copy and is flagged as unconfirmed in the entry's
@@ -665,6 +712,12 @@ expectation. And on real data the crack wave has to be *detected* first, which
 at 63-620 m/s means it arrives outside a normal record. What is established is
 that the finite-layer correction the half-space law discards is learnable from
 the geometry, which is a modelling result.
+
+**What is left of G.2, which is one thing.** The model and the baseline are
+measured against each other by hand, in a script. They are not scored by
+`sonic_ml.bench`, so they sit outside the harness that every other model in
+the layer is compared through — no bootstrap CIs, no per-regime rows, no
+report. That is tracked as **G.6** and is ordinary wiring.
 
 **Costs, because they bound what is practical.** A debonded sample runs ~14 s
 against ~0.5 s bonded (the microannulus solvers are ~0.45 s per frequency for
