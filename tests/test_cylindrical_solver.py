@@ -14441,39 +14441,45 @@ def test_transparent_layer_is_a_no_op_while_the_dynamic_range_is_moderate():
 def test_transparent_layer_stops_being_a_no_op_when_it_is_thick():
     """...and stops being one well before it returns NaN.
 
-    A 0.15 m formation-equal layer -- physically nothing at all -- moves the
-    100 kHz answer by 14 %. The failure is silent: both calls return finite
-    slownesses that look like dispersion curves.
+    A formation-equal layer of 0.12-0.18 m is physically nothing at all, yet
+    it changes the 100 kHz answer by more than a factor of four. The failure
+    is silent: both calls return finite slownesses that look like dispersion
+    curves.
 
     Which one is wrong is settled from outside the layered solver.
     ``scholte_speed`` is a plane-interface calculation with no Bessel
     functions and no layer stack in it, and at 100 kHz the wavelength in the
     mudcake (~1.6 cm) is shorter than the 2 cm cake, so the mode rides the
     *innermost* layer and must approach that layer's Scholte speed. The
-    single-layer answer does, to 0.05 %. The padded answer instead lands on
-    the *formation's* Scholte speed -- a spurious root belonging to the far
-    interface -- and is out by 14 %.
+    single-layer answer does, to 0.05 %; the padded answer does not.
+
+    **Where the padded answer lands is deliberately not asserted.** It moves
+    between a handful of spurious roots on the smallest numerical
+    difference -- 289 m/s at 0.12 m and 0.18 m, 1095 m/s at 0.15 m locally,
+    and 289 m/s at 0.15 m on CI. An earlier version of this test pinned one
+    of those values and failed on another platform. The instability is not
+    noise to be tolerated but the diagnosis: a root search that lands
+    somewhere different for the same physics has lost precision, rather than
+    found a different branch.
     """
     from fwap import BoreholeLayer, scholte_speed, stoneley_dispersion_layered
 
     medium = dict(**_SUB_SLOW, **_SUB_FLUID, a=0.10)
     stack = (BoreholeLayer(**_SUB_MUD, thickness=0.02),)
-    padded = stack + (BoreholeLayer(**_SUB_SLOW, thickness=0.15),)
     freq = np.array([100.0e3])
+    mud_scholte = scholte_speed(**_SUB_MUD, **_SUB_FLUID)
 
     plain = stoneley_dispersion_layered(freq, **medium, layers=stack).slowness[0]
-    thick = stoneley_dispersion_layered(freq, **medium, layers=padded).slowness[0]
-    assert np.isfinite(plain) and np.isfinite(thick)
-    assert abs(thick / plain - 1.0) > 0.10
-
-    mud_scholte = scholte_speed(**_SUB_MUD, **_SUB_FLUID)
-    formation_scholte = scholte_speed(**_SUB_SLOW, **_SUB_FLUID)
-
-    # The correct limit is the innermost layer's, and the plain stack hits it.
+    assert np.isfinite(plain)
     assert abs((1.0 / plain) / mud_scholte - 1.0) < 1.0e-3
-    # The padded stack has hopped to the far interface's mode instead.
-    assert abs((1.0 / thick) / formation_scholte - 1.0) < 1.0e-3
-    assert abs(mud_scholte / formation_scholte - 1.0) > 0.10
+
+    for thickness in (0.12, 0.15, 0.18):
+        padded = stack + (BoreholeLayer(**_SUB_SLOW, thickness=thickness),)
+        thick = stoneley_dispersion_layered(freq, **medium, layers=padded).slowness[0]
+        if not np.isfinite(thick):
+            continue  # a clean failure is acceptable; a wrong answer is not
+        assert abs(thick / plain - 1.0) > 0.10, thickness
+        assert abs((1.0 / thick) / mud_scholte - 1.0) > 0.05, thickness
 
 
 def test_genuine_thick_layers_still_converge_to_the_right_limit():

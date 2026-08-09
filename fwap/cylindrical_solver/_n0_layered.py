@@ -1694,12 +1694,15 @@ def stoneley_dispersion_layered(
     **A redundant layer is not always transparent, though.** Appending
     a layer whose properties equal the formation is physically a no-op,
     and the solver treats it as one only while the radial dynamic range
-    across that layer stays moderate. Beyond that the root search locks
-    onto a mode belonging to the far interface and returns finite,
-    plausible, wrong values -- a 0.15 m formation-equal layer shifts the
-    100 kHz answer by 14 %. The effect grows with the product of the
-    radial decay constant and the layer thickness, so it is reached
-    either by thick layers or by high frequencies.
+    across that layer stays moderate. Beyond that the root search
+    returns finite, plausible, wrong values -- a formation-equal layer
+    of 0.12-0.18 m shifts the 100 kHz answer by anywhere from 14 % to a
+    factor of four. Which wrong value comes back is not stable: it moves
+    between a few spurious roots on the smallest numerical difference,
+    including across platforms, which is the signature of lost precision
+    rather than of a different physical branch. The effect grows with
+    the product of the radial decay constant and the layer thickness, so
+    it is reached either by thick layers or by high frequencies.
 
     This matters for *verification* rather than for use: padding a stack
     with a redundant layer is a technique for checking the solver
