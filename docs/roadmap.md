@@ -272,12 +272,43 @@ essentially complete -- plan items A through H in
    Cheng 2004 Fig. 3.4", which does not match the notebook's sections
    (figs 3.7 and 3.10 for quadrupole, 7.1 for cased Stoneley). The
    notebook is the accurate list.
-2. **Cased flexural bracketing.** The layered n=1 solver no longer
-   refuses fast formations, but its root-finding stays sparse for a
-   typical casing + cement stack (only a few frequencies converge).
-   That sparseness is why `scripts/gen_surrogate_dataset.py` keeps
-   the cased dataset single-mode; better bracketing would unlock a
-   two-mode cased-hole dataset.
+2. **Fast-formation flexural leakage** (was filed as "cased flexural
+   bracketing", which measurement showed to be the wrong diagnosis).
+   The layered n=1 solver no longer refuses fast formations, but its
+   root-finding stays sparse: on a typical casing + cement stack a
+   fast formation converges over roughly 38 % of a 1-12 kHz band, and
+   only above about 5 kHz. That sparseness is why
+   `scripts/gen_surrogate_dataset.py` keeps the cased dataset
+   single-mode.
+
+   **It is not caused by the layer stack.** Removing the casing and
+   cement entirely leaves the identical formation just as sparse in an
+   *open* hole, over the same lower part of the band — so no amount of
+   work on layered bracketing will fix it. `tests/test_cylindrical_
+   solver.py` pins this comparison so the attribution cannot quietly
+   drift back.
+
+   The real cause is that in a fast formation the flexural mode is
+   **leaky**: its root leaves the real `k_z` axis, and the real-axis
+   `Im(det)` sign change the solver searches for survives only in a
+   sliver beside the shear branch point at high frequency. Widening
+   the real bracket cannot recover it — scanning finds no sign change
+   below the cutoff in any of the three sub-windows (below the slowest
+   layer shear, between that and the formation Rayleigh speed, or
+   between that and the formation shear), and the middle window is in
+   any case singular for the propagator-matrix formulation. A fix
+   means complex-plane root tracking, which is the same machinery
+   item G.2 needs, so the two should be planned together rather than
+   as separate efforts.
+
+   Scale of the consequence, measured over the generator's own cased
+   priors (50 draws): fast formations average **28 %** band coverage
+   with 5/47 fully converged, while slow formations converge fully
+   (3/3). Because the priors put `V_S` in 1200-3200 m/s against a
+   1500 m/s fluid, only about 15 % of draws are slow. So a two-mode
+   cased dataset is reachable today *only* on the slow-formation
+   subset, and that restriction — not bracketing work — is the honest
+   near-term option.
 
 For reference, the original from-scratch problem statement is
 preserved below.

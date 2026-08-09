@@ -510,6 +510,19 @@ def flexural_dispersion_layered(
         ``NaN`` at any frequency where the bracket failed
         (typically below the geometric cutoff).
 
+    Notes
+    -----
+    **Fast formations return a sparse curve, and the layer stack is not
+    why.** For ``V_S > V_f`` the flexural mode is leaky: its root leaves
+    the real ``k_z`` axis, and the real-axis sign change this routine
+    searches for survives only beside the shear branch point at high
+    frequency. Expect roughly a third of a 1-12 kHz band to converge,
+    all of it at the top. The identical formation in an *open* hole is
+    just as sparse, so the cause is the fast-formation regime rather
+    than the layering; recovering the rest needs complex-plane root
+    tracking, not a wider real bracket. Slow formations
+    (``V_S < V_f``) converge across the whole band.
+
     Raises
     ------
     ValueError
