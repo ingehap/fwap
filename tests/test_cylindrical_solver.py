@@ -13895,68 +13895,59 @@ def test_slow_formation_quadrupole_is_a_usable_curve():
 
 
 # ---------------------------------------------------------------------------
-# Known limitations of the pseudo-Rayleigh marcher's branch selection.
+# Branch selection for the pseudo-Rayleigh marcher.
 #
-# These tests pin *defects*, not guarantees. They were found while checking
-# the solver's attenuation against the independent ray estimate in
-# ``fwap.leaky_radiation_attenuation`` (see tests/test_cylindrical.py), and
-# they are locked down here so the behaviour cannot change silently -- in
-# either direction. If a future change to the marcher makes one of them
-# fail, that is very likely an improvement, and the test should be rewritten
-# rather than worked around.
+# These replace five tests that pinned the *old* seeding heuristic's defects:
+# the tracked branch depended on the grid's top frequency, and two silent
+# all-NaN failures. The seed is now enumerated, so the same assertions run
+# the other way round -- they check the answer no longer moves. The measured
+# numbers are carried over from the defect tests unchanged, which is what
+# makes them evidence that behaviour changed in the intended direction.
 # ---------------------------------------------------------------------------
 
 _LEAKY_FAST = {"vp": 4000.0, "vs": 2300.0, "rho": 2500.0}
 _LEAKY_BRINE = {"vf": 1500.0, "rho_f": 1000.0}
 
 
-def test_pseudo_rayleigh_result_depends_on_the_grid_top_frequency():
-    """The mode returned depends on where the caller starts the march.
-
-    The marcher is seeded just below ``1/V_S`` at the highest requested
-    frequency. More than one leaky root lives near that seed, so the branch
-    it latches onto -- and therefore the slowness and attenuation reported
-    at every *lower* frequency -- is a function of the caller's frequency
-    window rather than of the physics alone.
-
-    Both answers below are genuine roots of the modal determinant, not
-    numerical noise; ``test_pseudo_rayleigh_leaky_window_holds_two_roots``
-    confirms that independently. Nothing in the public signature warns the
-    caller, which is why this is filed as a limitation.
-    """
+def _pr_at(probe, top, *, branch=0, a=0.10, n=400):
+    """Run the solver on a 2 kHz-to-``top`` grid and read off ``probe``."""
     from fwap import pseudo_rayleigh_modal_dispersion
 
-    probe = 30.0e3
-    low = np.sort(np.unique(np.concatenate([np.linspace(2.0e3, 40.0e3, 400), [probe]])))
-    high = np.sort(
-        np.unique(np.concatenate([np.linspace(2.0e3, 80.0e3, 400), [probe]]))
+    grid = np.sort(np.unique(np.concatenate([np.linspace(2.0e3, top, n), [probe]])))
+    mode = pseudo_rayleigh_modal_dispersion(
+        grid, **_LEAKY_FAST, **_LEAKY_BRINE, a=a, branch=branch
     )
-
-    got = []
-    for grid in (low, high):
-        mode = pseudo_rayleigh_modal_dispersion(
-            grid, **_LEAKY_FAST, **_LEAKY_BRINE, a=0.10
-        )
-        j = int(np.argmin(np.abs(grid - probe)))
-        got.append((1.0 / mode.slowness[j], mode.attenuation_per_meter[j]))
-
-    (c_low, att_low), (c_high, att_high) = got
-    assert c_low == pytest.approx(2486.2, rel=1.0e-3)
-    assert c_high == pytest.approx(2951.7, rel=1.0e-3)
-    assert abs(c_high / c_low - 1.0) > 0.15
-    assert att_low > 0.0 and att_high > 0.0
+    j = int(np.argmin(np.abs(grid - probe)))
+    return 1.0 / mode.slowness[j], mode.attenuation_per_meter[j]
 
 
-def test_pseudo_rayleigh_leaky_window_holds_two_roots():
-    """Both answers above solve the determinant, so neither is spurious.
+def test_pseudo_rayleigh_does_not_depend_on_the_grid_top_frequency():
+    """The mode returned is a function of the medium, not of the request.
 
-    Each reported ``k_z`` is checked against the complex determinant and
-    compared with the magnitude on a small circle around it: a true root
-    sits many orders of magnitude below its own neighbourhood. Taking the
-    values straight from the solver rather than transcribing them keeps
-    this a statement about what the solver returns.
+    This is the regression that motivated enumerating the seeds. With the
+    old heuristic seed the answer at 30 kHz switched from 2486 m/s to
+    2952 m/s somewhere between a 55 kHz and a 60 kHz grid top -- silently,
+    and to a different but equally genuine root. The span below brackets
+    that switch on both sides.
     """
-    from fwap import pseudo_rayleigh_modal_dispersion
+    reference = _pr_at(30.0e3, 40.0e3)
+    for top in (32.0e3, 55.0e3, 60.0e3, 80.0e3, 100.0e3):
+        c, att = _pr_at(30.0e3, top)
+        assert c == pytest.approx(reference[0], rel=1.0e-9), top
+        assert att == pytest.approx(reference[1], rel=1.0e-9), top
+
+    assert reference[0] == pytest.approx(2486.16, rel=1.0e-4)
+
+
+def test_pseudo_rayleigh_branches_are_distinct_and_both_are_genuine_roots():
+    """``branch`` selects radial order, and every order is a real root.
+
+    The two modes here are the pair the old seeding used to confuse: both
+    solve the determinant at 30 kHz, and which one you got depended on the
+    grid. Now they are addressable, and each is checked against the
+    determinant -- a true root sits orders of magnitude below the
+    magnitude on a small circle around it.
+    """
     from fwap.cylindrical_solver._leaky import _modal_determinant_n0_complex
 
     probe = 30.0e3
@@ -13973,18 +13964,18 @@ def test_pseudo_rayleigh_leaky_window_holds_two_roots():
             leaky_s=True,
         )
 
-    roots = []
-    for top in (40.0e3, 80.0e3):
-        grid = np.sort(
-            np.unique(np.concatenate([np.linspace(2.0e3, top, 400), [probe]]))
-        )
-        mode = pseudo_rayleigh_modal_dispersion(
-            grid, **_LEAKY_FAST, **_LEAKY_BRINE, a=0.10
-        )
-        j = int(np.argmin(np.abs(grid - probe)))
-        roots.append(complex(mode.slowness[j] * omega, mode.attenuation_per_meter[j]))
+    fundamental = _pr_at(probe, 80.0e3, branch=0)
+    overtone = _pr_at(probe, 80.0e3, branch=1)
 
-    for kz in roots:
+    assert fundamental[0] == pytest.approx(2486.16, rel=1.0e-4)
+    assert overtone[0] == pytest.approx(2951.7, rel=1.0e-4)
+
+    # The fundamental is the slower of the two: lowest radial order means
+    # the smallest radial wavenumber and so the largest axial one.
+    assert fundamental[0] < overtone[0]
+
+    for c, att in (fundamental, overtone):
+        kz = complex(omega / c, att)
         radius = 0.01 * abs(kz)
         ring = np.median(
             [
@@ -13992,37 +13983,32 @@ def test_pseudo_rayleigh_leaky_window_holds_two_roots():
                 for t in np.linspace(0.0, 2.0 * np.pi, 16, endpoint=False)
             ]
         )
-        assert abs(det(kz)) < 1.0e-10 * ring, kz
-
-    # ...and they really are different roots, not the same one twice.
-    assert abs(roots[0] - roots[1]) > 0.1 * abs(roots[0])
+        assert abs(det(kz)) < 1.0e-10 * ring, (c, att)
 
 
-def test_pseudo_rayleigh_needs_a_fine_enough_grid_and_fails_silently():
-    """Too coarse a grid returns all-NaN rather than a coarse answer.
+def test_pseudo_rayleigh_recovers_the_band_on_a_coarse_grid():
+    """A coarse grid gives a coarse answer, not silence.
 
-    For a 0.07 m borehole over 4-30 kHz the marcher recovers essentially
-    the whole band at 80 samples but returns *nothing at all* at 60. The
-    failure is total and silent -- there is no partial curve and no
-    warning -- so a caller who happened to pick the coarser grid would
-    conclude the mode does not exist.
+    A 0.07 m borehole over 4-30 kHz used to return *nothing at all* at 60
+    samples while recovering the band at 80 -- a total, silent failure of
+    the heuristic seed's first step. Both grids now converge throughout.
     """
     from fwap import pseudo_rayleigh_modal_dispersion
 
     medium = dict(**_LEAKY_FAST, **_LEAKY_BRINE, a=0.07)
-
     coarse = pseudo_rayleigh_modal_dispersion(np.linspace(4.0e3, 30.0e3, 60), **medium)
     fine = pseudo_rayleigh_modal_dispersion(np.linspace(4.0e3, 30.0e3, 120), **medium)
 
-    assert not np.any(np.isfinite(coarse.slowness))
-    assert np.isfinite(fine.slowness).sum() > 110
+    assert np.isfinite(coarse.slowness).sum() == 60
+    assert np.isfinite(fine.slowness).sum() == 120
 
 
-def test_pseudo_rayleigh_sub_window_can_lose_a_mode_the_full_band_finds():
-    """Asking only about 24-32 kHz returns nothing; asking 2-40 kHz does not.
+def test_pseudo_rayleigh_sub_window_agrees_with_the_full_band():
+    """Asking about part of a band gives the same answer as asking about all of it.
 
-    Same physics, same frequencies, different answer -- the mode is only
-    reachable by marching down into that band from higher frequency.
+    Requesting only 24-32 kHz used to return nothing, while a 2-40 kHz grid
+    converged across that whole interval. Now the narrow request not only
+    converges but reproduces the wide one's values.
     """
     from fwap import pseudo_rayleigh_modal_dispersion
 
@@ -14030,12 +14016,88 @@ def test_pseudo_rayleigh_sub_window_can_lose_a_mode_the_full_band_finds():
     band = np.arange(24.0e3, 32.0e3 + 1.0, 100.0)
 
     narrow = pseudo_rayleigh_modal_dispersion(band, **medium)
-    assert not np.any(np.isfinite(narrow.slowness))
+    assert np.isfinite(narrow.slowness).sum() == band.size
 
-    wide_grid = np.arange(2.0e3, 40.0e3 + 1.0, 50.0)
+    wide_grid = np.arange(2.0e3, 40.0e3 + 1.0, 100.0)
     wide = pseudo_rayleigh_modal_dispersion(wide_grid, **medium)
-    inside = (wide_grid >= 24.0e3) & (wide_grid <= 32.0e3)
-    assert np.all(np.isfinite(wide.slowness[inside]))
+    shared = np.searchsorted(wide_grid, band)
+    assert np.allclose(narrow.slowness, wide.slowness[shared], rtol=1.0e-9)
+    assert np.allclose(
+        narrow.attenuation_per_meter,
+        wide.attenuation_per_meter[shared],
+        rtol=1.0e-9,
+    )
+
+
+def test_pseudo_rayleigh_rejects_a_branch_that_does_not_exist():
+    """Higher radial orders appear only above their cutoffs; say so loudly.
+
+    Returning an empty curve would be indistinguishable from "this mode
+    does not propagate here", which is the confusion the old silent NaNs
+    caused. The message names how many branches were found so the caller
+    knows whether to extend the grid or to ask for a lower order.
+    """
+    from fwap import pseudo_rayleigh_modal_dispersion
+
+    medium = dict(**_LEAKY_FAST, **_LEAKY_BRINE, a=0.10)
+    with pytest.raises(ValueError, match=r"only 1 leaky branch"):
+        pseudo_rayleigh_modal_dispersion(
+            np.linspace(2.0e3, 15.0e3, 50), **medium, branch=4
+        )
+    with pytest.raises(ValueError, match="branch must be non-negative"):
+        pseudo_rayleigh_modal_dispersion(
+            np.linspace(2.0e3, 40.0e3, 50), **medium, branch=-1
+        )
+
+
+def test_pseudo_rayleigh_returns_all_nan_below_the_lowest_cutoff():
+    """No branch exists at the top of the band, so there is nothing to march.
+
+    This is the one case where an all-NaN curve is the right answer rather
+    than a search failure: at 100-200 Hz the wavelength is two orders above
+    the borehole radius and no leaky mode has reached its cutoff. The
+    enumeration finds nothing and the solver says so, instead of raising --
+    "this mode does not propagate here" is a physical statement, and it is
+    distinguished from an out-of-range ``branch``, which does raise.
+    """
+    from fwap import pseudo_rayleigh_modal_dispersion
+    from fwap.cylindrical_solver._leaky import _enumerate_leaky_roots_n0
+
+    medium = dict(**_LEAKY_FAST, **_LEAKY_BRINE, a=0.10)
+    assert _enumerate_leaky_roots_n0(2.0 * np.pi * 200.0, **medium) == []
+
+    freq = np.linspace(100.0, 200.0, 5)
+    mode = pseudo_rayleigh_modal_dispersion(freq, **medium)
+    assert mode.slowness.shape == freq.shape
+    assert not np.any(np.isfinite(mode.slowness))
+    assert not np.any(np.isfinite(mode.attenuation_per_meter))
+
+
+def test_leaky_root_enumeration_count_is_insensitive_to_scan_density():
+    """The seed scan must not be the thing that decides how many modes exist.
+
+    If the recovered count moved with the scan resolution, "how many
+    branches are there" would be an artefact of the search rather than a
+    property of the medium -- and ``branch=1`` would mean different things
+    at different densities. Checked over a 3.3x span of seed density.
+    """
+    from fwap.cylindrical_solver._leaky import _enumerate_leaky_roots_n0
+
+    medium = dict(**_LEAKY_FAST, **_LEAKY_BRINE, a=0.10)
+    for freq in (15.0e3, 30.0e3, 60.0e3):
+        omega = 2.0 * np.pi * freq
+        counts = {
+            len(_enumerate_leaky_roots_n0(omega, **medium, n_re=n_re, n_im=n_im))
+            for n_re, n_im in ((24, 5), (40, 8), (80, 16))
+        }
+        assert len(counts) == 1, (freq, counts)
+
+    # ...and the count grows with frequency, as radial orders pass cutoff.
+    counts = [
+        len(_enumerate_leaky_roots_n0(2.0 * np.pi * f, **medium))
+        for f in (15.0e3, 30.0e3, 60.0e3)
+    ]
+    assert counts == sorted(counts) and counts[0] < counts[-1], counts
 
 
 def test_pseudo_rayleigh_is_independent_of_grid_density_where_it_converges():
@@ -14061,3 +14123,136 @@ def test_pseudo_rayleigh_is_independent_of_grid_density_where_it_converges():
         coarse.attenuation_per_meter[ok] / fine.attenuation_per_meter[shared][ok] - 1.0
     )
     assert rel.max() < 1.0e-10
+
+
+# ---------------------------------------------------------------------------
+# Energy balance for the leaky modes: a candidate oracle that does NOT work.
+#
+# `plans/learning.md` listed this as the most promising remaining candidate,
+# on the reasoning that radiated power over axial power must reproduce
+# Im(k_z) with no free geometry in it -- and so might explain the ~0.6 offset
+# that `leaky_radiation_attenuation` leaves unexplained. It does neither, and
+# these tests record why in a form that runs, so the next attempt does not
+# re-derive it and mistake the result for a confirmation.
+#
+# The derivation is sound and the agreement is perfect. That is the problem:
+# it is perfect for k_z values that are not roots either.
+# ---------------------------------------------------------------------------
+
+_EB_MEDIUM = {
+    "vp": 4000.0,
+    "vs": 2300.0,
+    "rho": 2500.0,
+    "vf": 1500.0,
+    "rho_f": 1000.0,
+    "a": 0.10,
+}
+
+
+def _fluid_energy_balance_im_kz(kz, omega, *, vf, a):
+    """``Im(k_z)`` from radiated power over twice the axial power.
+
+    Closes the energy balance over the fluid column only. The wall
+    boundary conditions (``sigma_rz = 0`` and ``sigma_rr = -P``) put both
+    the radiated flux at ``r = a`` and the axial flux in terms of the same
+    fluid amplitude, which cancels.
+    """
+    from scipy import special
+
+    f_radial = np.sqrt(kz**2 - (omega / vf) ** 2)
+    i0a = complex(special.iv(0, f_radial * a))
+    i1a = complex(special.iv(1, f_radial * a))
+    radiated = -a * np.imag(i0a * np.conj(f_radial * i1a))
+
+    r = np.linspace(0.0, a, 2001)
+    axial = np.trapezoid(np.abs(special.iv(0, f_radial * r)) ** 2 * r, r)
+    return radiated / (2.0 * kz.real * axial)
+
+
+def test_fluid_energy_balance_reproduces_the_leaky_attenuation():
+    """At genuine roots the balance returns Im(k_z) exactly.
+
+    Establishes that the derivation is right, which is what makes the next
+    test's result meaningful rather than a sign of a broken formula.
+    """
+    from fwap import pseudo_rayleigh_modal_dispersion
+
+    freq = np.linspace(8.0e3, 30.0e3, 12)
+    mode = pseudo_rayleigh_modal_dispersion(freq, **_EB_MEDIUM)
+    ok = np.isfinite(mode.slowness)
+    assert ok.sum() > 8
+
+    for f, s, att in zip(freq[ok], mode.slowness[ok], mode.attenuation_per_meter[ok]):
+        omega = 2.0 * np.pi * f
+        kz = complex(s * omega, att)
+        predicted = _fluid_energy_balance_im_kz(
+            kz, omega, vf=_EB_MEDIUM["vf"], a=_EB_MEDIUM["a"]
+        )
+        assert predicted == pytest.approx(att, rel=1.0e-6), f
+
+
+def test_fluid_energy_balance_is_an_identity_and_so_validates_nothing():
+    """...and it returns Im(k_z) for k_z values that are not roots at all.
+
+    That is the whole finding. Closing the balance inside the fluid gives
+    the divergence theorem applied to a source-free Helmholtz solution,
+    which is true of *any* field of the form ``A I0(F r) exp(i k_z z)``
+    with ``F^2 = k_z^2 - (omega/V_f)^2``. Nothing about the formation, and
+    hence nothing about the eigenvalue condition, enters it.
+
+    A check that cannot fail is not a check. This is the "limit that
+    cannot discriminate" failure mode in `plans/learning.md`, caught by
+    the rule that document states: ask what the check would do to a wrong
+    answer.
+    """
+    omega = 2.0 * np.pi * 20.0e3
+    rng = np.random.default_rng(0)
+
+    kz_lo = omega / _EB_MEDIUM["vp"]
+    kz_hi = omega / _EB_MEDIUM["vs"]
+    for _ in range(8):
+        kz = complex(rng.uniform(kz_lo, kz_hi), rng.uniform(0.2, 8.0))
+        predicted = _fluid_energy_balance_im_kz(
+            kz, omega, vf=_EB_MEDIUM["vf"], a=_EB_MEDIUM["a"]
+        )
+        # Arbitrary k_z, no root anywhere near it, and it still comes back.
+        assert predicted == pytest.approx(kz.imag, rel=1.0e-5), kz
+
+
+def test_full_energy_balance_has_no_finite_denominator():
+    """Extending the balance into the formation does not rescue it.
+
+    The obvious repair is to include the formation's axial flux, which
+    would bring the outgoing-wave condition into the balance. It cannot be
+    done: the leaky-S field *grows* with radius -- the standard leaky-mode
+    divergence -- so the axial power integral has no finite value to
+    divide by.
+
+    Checked with the solver's own radial evaluator rather than a
+    hand-rolled Hankel call, because the two Hankel kinds differ here by
+    growth versus decay and picking the wrong one reverses the conclusion.
+    """
+    from fwap import pseudo_rayleigh_modal_dispersion
+    from fwap.cylindrical_solver._bessel import _k_or_hankel
+
+    freq = np.linspace(8.0e3, 30.0e3, 12)
+    mode = pseudo_rayleigh_modal_dispersion(freq, **_EB_MEDIUM)
+    j = int(np.argmin(np.abs(freq - 20.0e3)))
+    omega = 2.0 * np.pi * freq[j]
+    kz = complex(mode.slowness[j] * omega, mode.attenuation_per_meter[j])
+
+    s_radial = np.sqrt(kz**2 - (omega / _EB_MEDIUM["vs"]) ** 2)
+    radii = np.array([0.1, 0.5, 1.0, 2.0, 5.0])
+    magnitude = np.array(
+        [abs(_k_or_hankel(0, s_radial, float(r), leaky=True)[0]) for r in radii]
+    )
+    assert np.all(np.diff(magnitude) > 0.0), magnitude
+    assert magnitude[-1] > 1.0e6 * magnitude[0], magnitude
+
+    # The bound P wave decays, as it must -- so the growth above is the
+    # leaky branch specifically, not every field in the formation.
+    p_radial = np.sqrt(kz**2 - (omega / _EB_MEDIUM["vp"]) ** 2)
+    p_magnitude = np.array(
+        [abs(_k_or_hankel(0, p_radial, float(r), leaky=False)[0]) for r in radii]
+    )
+    assert np.all(np.diff(p_magnitude) < 0.0), p_magnitude

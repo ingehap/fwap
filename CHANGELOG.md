@@ -6,6 +6,103 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **`pseudo_rayleigh_dispersion` no longer returns a different mode depending on
+  the caller's frequency window.** The seed is now *enumerated* rather than
+  guessed: `_enumerate_leaky_roots_n0` sweeps the leaky-S window at the highest
+  requested frequency, keeps the points where the determinant genuinely dips
+  against its own neighbourhood, and orders them by descending `Re(k_z)` —
+  ascending radial order, so index 0 is the fundamental. A new `branch: int = 0`
+  argument selects the order.
+  This closes all three defects reported in the previous release cycle, with the
+  same measurements now running the other way round. `branch=0` on a 0.10 m hole
+  in a 4000/2300/2500 formation returns **c = 2486.16 m/s at 30 kHz for every
+  grid top from 32 kHz to 100 kHz** (it used to switch silently to 2952 m/s
+  somewhere between 55 and 60 kHz); a 0.07 m hole over 4-30 kHz now returns
+  **60/60 finite samples on the 60-point grid that used to return nothing**; and
+  a 24-32 kHz request returns **81/81** and matches the wide-grid values to 1e-9
+  instead of returning nothing. `branch=1` reaches the other root — addressable
+  now rather than arrived at by accident.
+  Requesting a branch that has not yet passed its cutoff raises with the number
+  of branches actually found, rather than returning an empty curve that would be
+  indistinguishable from "this mode does not propagate here".
+  The enumeration costs about 0.25 s per call, paid once per call regardless of
+  grid size. The one place that adds up is `PSEUDO_RAYLEIGH_MODE` in
+  `scripts/gen_surrogate_dataset.py`, which calls the solver once per draw — an
+  offline generator, so the margin was kept rather than traded for speed.
+  Its root *count* is unchanged
+  from a 24x5 seed grid up to 80x16 across radii 0.07-0.15 m, `V_S` 1700-2800 m/s
+  and 15-60 kHz, so the scan resolution does not decide how many modes exist —
+  pinned by a test, since otherwise `branch=1` would mean different things at
+  different densities.
+  The five tests that pinned the old behaviour as defects are rewritten as
+  guarantees, keeping their measured numbers so the direction of the change is
+  visible in the diff.
+
+### Changed
+- **The leaky-mode energy-balance oracle was attempted and withdrawn; the
+  negative result is pinned by tests.** `plans/learning.md` listed it as the
+  most promising remaining candidate, on the reasoning that radiated power over
+  axial power reproduces `Im(k_z)` with no free geometry in it and might
+  therefore *explain* the ~0.6 offset `leaky_radiation_attenuation` leaves open.
+  The derivation works and the agreement is exact — ratio 1.000 at every
+  frequency, which briefly looked like the strongest confirmation in the
+  repository. It is an identity. Fed eight arbitrary complex `k_z` values that
+  are not roots of anything, it returns their imaginary parts too, to ratio
+  1.0000: closing the balance inside the fluid is the divergence theorem applied
+  to a source-free Helmholtz solution, and no property of the formation enters.
+  Extending the balance into the formation does not rescue it either — the
+  leaky-S field *grows* with radius (0.996 at `r` = 0.1 m to 1.6e86 at 30 m,
+  using the solver's own radial evaluator), so the axial power integral has no
+  finite value to divide by. Three tests pin all of it: that the balance
+  reproduces `Im(k_z)` at roots, that it does so at non-roots too, and that the
+  formation field grows. **Nothing was added to the public API** — a check that
+  cannot fail is worse than no check.
+
+### Added
+- **`tube_wave_speed` — the low-frequency oracle, completing the pair with
+  `scholte_speed`.** The White (1983) closed form
+  `S_T^2 = 1/V_f^2 + rho_f/mu` is the `f -> 0` limit of the borehole Stoneley
+  mode, as `scholte_speed` is the `f -> infinity` limit. Both ends of the
+  dispersion curve are now pinned to closed forms. Verified to 1.3e-8-1.5e-7
+  relative across five media including a doubled fluid density, and the
+  radius-independence the formula predicts (no `a` appears in it) holds across
+  `a` = 0.05-0.30 m to 5e-8.
+  **The independence is qualified, and the qualification is the interesting
+  part.** Unlike Scholte, this formula is already inside the solver:
+  `_stoneley_kz_bracket` uses it to place the upper end of its search bracket.
+  A test that went through `stoneley_dispersion` would have been partly the
+  solver confirming itself. The tests therefore locate the root by scanning
+  **40x wider than the solver's factor-of-two bracket**, taking the estimate
+  out of the loop; the docstring says plainly that this is a weaker tie than
+  the Scholte one rather than presenting it as fully independent.
+- **A validity floor on the slow-formation `V_S` estimator, previously
+  undocumented.** A tube wave is a bound mode, so it must be slower than the
+  formation shear wave; requiring that gives
+  `V_S > V_f*sqrt(1 - rho_f/rho)`, equivalently
+  `S_ST < (1/V_f)*sqrt(rho/(rho - rho_f))` on the measured slowness. Below it
+  **no bound Stoneley root exists at all** — confirmed by scanning the modal
+  determinant across a window far wider than the solver's bracket and finding
+  no sign change, rather than by observing that `stoneley_dispersion` returns
+  NaN. The closed form predicts where the solver stops converging to within
+  1 % across seven (rho, rho_f, V_f) combinations spanning floors from 960 to
+  1255 m/s.
+  This bites in practice: for brine in a 2200 kg/m^3 formation the floor is
+  1108 m/s, an ordinary slow formation and squarely inside the range
+  `vs_from_stoneley_slow_formation` exists to serve. `tube_wave_speed` raises
+  below the floor; the estimator documents it but deliberately does **not**
+  enforce it, because a noisy field pick should be screened in QC rather than
+  hard-failing a whole log — a choice now stated at the point of use.
+- **`plans/learning.md`** — a retrospective on the five analytic oracles added
+  between PRs #50 and #63, written to change how the next batch of work is
+  chosen rather than to record status. Covers what distinguishes an oracle from
+  another test, the five specific ways a check looked convincing and was not
+  (a limit that cannot discriminate, a grid that shares the scaling under test,
+  statistics over the wrong population, sampling structure mistaken for noise, a
+  false test premise), why a systematic offset must be reported rather than
+  fitted away, and the planning consequences — chiefly that claims about
+  *absence* are the ones this repository's plans keep getting wrong.
+
 ### Added
 - **`leaky_radiation_attenuation` — an independent oracle for the leaky-mode
   solver's attenuation.** A borehole leaky mode is a fluid wave bouncing from

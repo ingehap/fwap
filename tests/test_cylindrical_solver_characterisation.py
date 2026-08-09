@@ -30,6 +30,20 @@ dispersion law)::
     python tests/test_cylindrical_solver_characterisation.py --regenerate
 
 and commit the updated ``cylindrical_solver_golden.npz``.
+
+Regenerations to date
+---------------------
+* ``n0_pseudo_rayleigh_fast`` (both arrays), when
+  :func:`pseudo_rayleigh_dispersion` moved from a heuristic seed to an
+  enumerated one. The golden had pinned **all-NaN** over 8-16 kHz --
+  it was recording the old seeding's failure to find the mode, not an
+  absence of one. The replacement values were checked before being
+  committed: each is a root of the modal determinant to ~1e-14
+  relative to the determinant's magnitude in its own neighbourhood,
+  all five lie inside the leaky-S window, an independent 4-40 kHz grid
+  at 50 Hz spacing reproduces them exactly, and the independent ray
+  estimate in :func:`fwap.leaky_radiation_attenuation` brackets the
+  attenuations. No other array in the file changed.
 """
 
 from __future__ import annotations

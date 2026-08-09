@@ -141,6 +141,7 @@ FROZEN_PUBLIC_API: tuple[str, ...] = (
     # Surface-wave speeds / cylindrical
     "rayleigh_speed",
     "scholte_speed",
+    "tube_wave_speed",
     "leaky_radiation_attenuation",
     "flexural_dispersion_physical",
     "flexural_dispersion_vti_physical",

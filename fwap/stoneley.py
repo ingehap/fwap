@@ -917,6 +917,43 @@ def vs_from_stoneley_slow_formation(
     :math:`C_{66}` (the horizontal shear modulus, *not* equal to
     :math:`\rho V_{Sv}^2` in general).
 
+    Validity floor
+    --------------
+    The formula describes a **bound** mode, which must be slower than
+    the formation shear wave. Requiring :math:`V_S` above the returned
+    tube-wave speed gives a floor on what this function can
+    meaningfully report,
+
+    .. math::
+
+        V_S \;>\; V_f \sqrt{1 - \rho_f / \rho},
+
+    equivalently an upper bound on the *measured* Stoneley slowness,
+
+    .. math::
+
+        S_\mathrm{ST} \;<\; \frac{1}{V_f}
+                            \sqrt{\frac{\rho}{\rho - \rho_f}}.
+
+    The two conditions are algebraically the same; the second is the
+    useful one here because :math:`S_\mathrm{ST}` is the input. Beyond
+    it there is no bound borehole Stoneley wave at low frequency at
+    all: the mode merges with the shear branch point at a finite
+    frequency and ceases to exist below it, which a direct scan of the
+    modal determinant confirms (see
+    ``tests/test_cylindrical.py``). :func:`fwap.tube_wave_speed`
+    computes the forward relation and *raises* below this floor.
+
+    This is not an exotic corner. For brine (:math:`\rho_f` 1000) in a
+    2200 kg/m^3 formation the floor is 1108 m/s -- an ordinary slow
+    formation, and squarely inside the range this estimator exists to
+    serve. **It is deliberately not enforced here.** A field Stoneley
+    pick carries noise, and a hard failure on a handful of depths would
+    be worse than a number the caller can screen; the guard belongs in
+    QC against the bound above, not in the arithmetic. Values returned
+    from below the floor should be treated as absent rather than as
+    low shear velocities.
+
     Assumptions
     -----------
     * Low-frequency limit (Stoneley pulse well below the dipole-
