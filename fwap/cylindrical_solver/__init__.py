@@ -194,6 +194,9 @@ from fwap.cylindrical_solver._cased import (
     _modal_determinant_n0_cased as _modal_determinant_n0_cased,
 )
 from fwap.cylindrical_solver._cased import (
+    _modal_determinant_n0_microannulus as _modal_determinant_n0_microannulus,
+)
+from fwap.cylindrical_solver._cased import (
     _modal_determinant_n1_cased as _modal_determinant_n1_cased,
 )
 from fwap.cylindrical_solver._cased import (
@@ -215,6 +218,7 @@ from fwap.cylindrical_solver._cased import (
 from fwap.cylindrical_solver._dataclasses import BoreholeLayer as BoreholeLayer
 from fwap.cylindrical_solver._dataclasses import BoreholeMode as BoreholeMode
 from fwap.cylindrical_solver._dataclasses import BranchSegment as BranchSegment
+from fwap.cylindrical_solver._dataclasses import FluidAnnulus as FluidAnnulus
 from fwap.cylindrical_solver._dataclasses import (
     _validate_borehole_layers as _validate_borehole_layers,
 )
@@ -223,6 +227,9 @@ from fwap.cylindrical_solver._dataclasses import (
 )
 from fwap.cylindrical_solver._dataclasses import (
     _validate_flexural_layers_stacked as _validate_flexural_layers_stacked,
+)
+from fwap.cylindrical_solver._dataclasses import (
+    _validate_fluid_annulus as _validate_fluid_annulus,
 )
 
 # Re-exports for the leaky-mode helpers extracted to ``_leaky``
@@ -292,6 +299,9 @@ from fwap.cylindrical_solver._n0_layered import (
     _layered_n0_row7_at_b as _layered_n0_row7_at_b,
 )
 from fwap.cylindrical_solver._n0_layered import (
+    _microannulus_kz_window as _microannulus_kz_window,
+)
+from fwap.cylindrical_solver._n0_layered import (
     _modal_determinant_n0_layered as _modal_determinant_n0_layered,
 )
 from fwap.cylindrical_solver._n0_layered import (
@@ -302,6 +312,9 @@ from fwap.cylindrical_solver._n0_layered import (
 )
 from fwap.cylindrical_solver._n0_layered import (
     stoneley_dispersion_layered as stoneley_dispersion_layered,
+)
+from fwap.cylindrical_solver._n0_layered import (
+    stoneley_dispersion_microannulus as stoneley_dispersion_microannulus,
 )
 
 # Re-exports for the n=1 isotropic flexural helpers extracted to

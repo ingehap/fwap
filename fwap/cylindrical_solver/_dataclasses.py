@@ -52,6 +52,67 @@ class BoreholeLayer:
     thickness: float
 
 
+@dataclass(frozen=True)
+class FluidAnnulus:
+    """
+    A fluid-filled gap separating two elastic regions of a cased stack.
+
+    The standard model of casing debonding in cement-bond logging: a
+    microannulus between casing and cement. It is deliberately a separate
+    type from :class:`BoreholeLayer` rather than a layer with ``vs = 0``,
+    because a fluid gap is not a limiting case of an elastic layer in this
+    solver. It differs in three ways that change the *shape* of the modal
+    problem rather than its numbers -- two wave amplitudes rather than
+    four, shear traction identically zero, and axial displacement free to
+    slip across it -- so the elastic four-vector cannot be propagated
+    through it and the stack splits into two independent blocks.
+
+    Nor is it reachable by softening cement. An elastic layer, however
+    compliant, drags the bound-mode bracket floor down with its shear
+    velocity and eventually leaves no window containing the Stoneley mode;
+    a fluid gap's floor is its *acoustic* velocity, which is ~1500 m/s and
+    so changes nothing. Measured, a compliant-solid stand-in fails to
+    converge at every thickness tried, down to 0.2 mm.
+
+    Attributes
+    ----------
+    vf : float
+        Acoustic velocity of the gap fluid (m/s). Must be positive. Need
+        not equal the borehole fluid's velocity.
+    rho : float
+        Density of the gap fluid (kg/m^3). Must be positive.
+    thickness : float
+        Radial thickness of the gap (m). Must be positive. A debonding
+        microannulus is microns to millimetres.
+
+    See Also
+    --------
+    stoneley_dispersion_microannulus : The dispersion API that takes one.
+    BoreholeLayer : The elastic counterpart.
+    """
+
+    vf: float
+    rho: float
+    thickness: float
+
+
+def _validate_fluid_annulus(annulus: FluidAnnulus) -> None:
+    """
+    Validate a :class:`FluidAnnulus`.
+
+    Raises ``ValueError`` if it is not a ``FluidAnnulus`` or if any of
+    ``vf``, ``rho``, ``thickness`` is non-positive.
+    """
+    if not isinstance(annulus, FluidAnnulus):
+        raise ValueError(
+            f"annulus must be a FluidAnnulus instance, got {type(annulus).__name__}"
+        )
+    if annulus.vf <= 0 or annulus.rho <= 0:
+        raise ValueError("annulus: vf and rho must be positive")
+    if annulus.thickness <= 0:
+        raise ValueError("annulus: thickness must be positive")
+
+
 def _validate_borehole_layers(layers: tuple[BoreholeLayer, ...]) -> None:
     """
     Validate a layer stack used by the layered dispersion APIs.

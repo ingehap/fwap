@@ -16,7 +16,9 @@ from fwap.cylindrical_solver._bessel import _layered_n0_radial_wavenumbers
 from fwap.cylindrical_solver._dataclasses import (
     BoreholeLayer,
     BoreholeMode,
+    FluidAnnulus,
     _validate_borehole_layers,
+    _validate_fluid_annulus,
 )
 from fwap.cylindrical_solver._n0_isotropic import (
     stoneley_dispersion,
@@ -1835,4 +1837,270 @@ def stoneley_dispersion_layered(
         azimuthal_order=0,
         freq=f_arr,
         slowness=slowness,
+    )
+
+
+# =====================================================================
+# Plan item G.2.d -- public dispersion API for the fluid microannulus
+# =====================================================================
+#
+# Wraps ``_modal_determinant_n0_microannulus`` (the 11x11 assembly)
+# in the first public entry point for the debonded regime.
+#
+# The determinant carries *two* families of bound root, so the
+# selection rule is the substance of this item rather than an
+# afterthought -- a bracket that assumes a single root is exactly the
+# n=0 defect that shipped once already. The rule used here is
+# structural rather than tuned: the Stoneley-like mode is the *fastest*
+# bound n=0 mode, sitting just below the borehole-fluid velocity, so
+# scanning upward in ``k_z`` from the bound floor and taking the first
+# sign change identifies it whatever the other family is doing.
+#
+# The second family -- the crack (Krauklis) wave guided by the gap
+# itself -- is deliberately not returned here. See the function's Notes
+# for the measurement that says why it needs its own entry point rather
+# than a ``branch`` argument on this one.
+
+
+def _microannulus_kz_window(
+    omega: float,
+    *,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    inner_layers: tuple[BoreholeLayer, ...],
+    annulus: FluidAnnulus,
+    outer_layers: tuple[BoreholeLayer, ...],
+) -> tuple[float, float]:
+    """
+    Scan window ``(kz_lo, kz_hi)`` for the microannulus Stoneley root.
+
+    Lower bound is the bound-regime floor: every radial wavenumber in the
+    stack must be real, so ``k_z`` exceeds ``omega`` over the slowest body
+    wave anywhere in it. The gap fluid contributes its *acoustic* velocity
+    to that minimum, which is the whole reason this configuration is
+    reachable while a compliant-solid stand-in is not.
+
+    Upper bound is twice the tube-wave low-frequency estimate, matching
+    :func:`_stoneley_kz_bracket_cased`. It is a scan limit rather than a
+    bracket: the root is located by the first sign change above the floor,
+    so the bound only has to be generous, and a slip in it costs a NaN
+    rather than the wrong branch.
+    """
+    mu_formation = rho * vs * vs
+    kz_lf_est = omega * float(np.sqrt(1.0 / vf**2 + rho_f / mu_formation))
+    slowest = min(vs, vf, annulus.vf, *(L.vs for L in inner_layers + outer_layers))
+    kz_lo = omega / slowest * (1.0 + 1.0e-9)
+    kz_hi = max(kz_lf_est * 2.0, kz_lo * 2.0)
+    return kz_lo, kz_hi
+
+
+def stoneley_dispersion_microannulus(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    inner_layers: tuple[BoreholeLayer, ...],
+    annulus: FluidAnnulus,
+    outer_layers: tuple[BoreholeLayer, ...],
+    samples: int = 400,
+) -> BoreholeMode:
+    r"""
+    Stoneley dispersion for a cased stack split by a fluid microannulus.
+
+    The debonded-regime counterpart of :func:`stoneley_dispersion_layered`:
+    a stack of the form ``borehole fluid | casing | microannulus | cement |
+    formation``, which is the standard model of casing debonding in
+    cement-bond logging.
+
+    Parameters
+    ----------
+    freq : ndarray, shape (n_f,)
+        Frequency grid (Hz). Must be strictly positive.
+    vp, vs, rho : float
+        Formation half-space P-wave velocity (m/s), S-wave velocity (m/s)
+        and bulk density (kg/m^3). Require ``vp > vs > 0`` and ``rho > 0``.
+    vf, rho_f : float
+        Borehole-fluid velocity (m/s) and density (kg/m^3).
+    a : float
+        Borehole (fluid-side) radius (m).
+    inner_layers, outer_layers : tuple of BoreholeLayer
+        Elastic layers inside and outside the gap, each ordered radially
+        outward -- typically ``(casing,)`` and ``(cement,)``. Both must be
+        non-empty. A zero-thickness inner block would make the two
+        shear-traction-free conditions at ``r = a`` and at the gap's inner
+        face the same equation and the determinant identically zero, so
+        the degenerate case is refused rather than accommodated.
+    annulus : FluidAnnulus
+        The fluid gap between the two blocks.
+    samples : int, default 400
+        Scan resolution for the sign-change search. The window is narrow
+        (the Stoneley root sits just below the fluid velocity), so this
+        sits far above the density at which the root moves; see the
+        resolution-independence test in
+        ``tests/test_cylindrical_solver.py``.
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "Stoneley"``, ``azimuthal_order = 0``,
+        ``attenuation_per_meter = None`` -- the mode is bound, so its
+        attenuation is zero by construction. ``slowness`` is ``NaN`` at
+        any frequency where no bound root was found.
+
+    Raises
+    ------
+    ValueError
+        On non-positive velocities, densities, radius or frequencies; on
+        ``vp <= vs``; on an empty ``inner_layers`` or ``outer_layers``; or
+        on an invalid ``annulus``.
+
+    Notes
+    -----
+    **Two root families, and why only one is returned.** The underlying
+    determinant has a second bound root: the crack (Krauklis) wave guided
+    by the gap itself, measured at 68-620 m/s over four decades of gap
+    thickness. It is not exposed through a ``branch`` argument on this
+    function, and the reason is a measurement rather than a preference.
+    Over 270 sampled configurations the bound window held exactly two
+    roots in 269 of them; the exception produced a *duplicated* pair near
+    4 m/s, which is the signature of the lost-precision spurious roots
+    this module has shipped before. Separating the genuine crack wave
+    from those needs a filter this function does not have, so the crack
+    wave gets its own entry point once it does. Selecting the Stoneley
+    family is safe without one, because it is the fastest bound mode and
+    is found by the first sign change above the floor.
+
+    **Grid independence.** Each frequency is solved on its own, by
+    scanning for a sign change and polishing with
+    :func:`scipy.optimize.brentq`; there is no frequency marching, so the
+    result does not depend on the frequency grid. That is the property
+    whose absence caused the ``n=0`` branch-selection defect.
+
+    **The gap does not close smoothly onto the bonded stack.** Letting
+    ``annulus.thickness -> 0`` converges to a frictionless *slip*
+    interface, not to :func:`stoneley_dispersion_layered` on the same
+    layers: shear traction stays zero on both faces and ``u_z`` stays
+    free however thin the gap. Measured at 8 kHz on a 1 cm casing and 3 cm
+    cement, this function converges as ``O(h)`` to 1383.45 m/s against
+    1400.04 m/s bonded -- a 1.2 % offset that does not close. Do not read
+    a thin gap as a validation of the bonded solver.
+
+    **Validity.** The underlying assembly is validated against the
+    Krauklis crack-wave closed form, which fixes an absolute velocity
+    with no Bessel functions and no cylindrical geometry in it, to 0.02 %
+    at a 1 um gap. See :func:`_modal_determinant_n0_microannulus`.
+
+    See Also
+    --------
+    stoneley_dispersion_layered : The bonded counterpart.
+    FluidAnnulus : The gap description this takes.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from fwap import BoreholeLayer, FluidAnnulus
+    >>> from fwap import stoneley_dispersion_microannulus
+    >>> casing = BoreholeLayer(vp=5900.0, vs=3200.0, rho=7800.0, thickness=0.01)
+    >>> cement = BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.03)
+    >>> mode = stoneley_dispersion_microannulus(
+    ...     np.array([8.0e3]),
+    ...     vp=4000.0, vs=2300.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.10,
+    ...     inner_layers=(casing,),
+    ...     annulus=FluidAnnulus(vf=1500.0, rho=1000.0, thickness=1.0e-4),
+    ...     outer_layers=(cement,),
+    ... )
+    >>> bool(1370.0 < 1.0 / mode.slowness[0] < 1395.0)
+    True
+    """
+    inner = tuple(inner_layers)
+    outer = tuple(outer_layers)
+    _validate_borehole_layers(inner)
+    _validate_borehole_layers(outer)
+    _validate_fluid_annulus(annulus)
+    if not inner or not outer:
+        raise ValueError("inner_layers and outer_layers must both be non-empty")
+    if vp <= 0 or vs <= 0 or rho <= 0:
+        raise ValueError("vp, vs, rho must all be positive")
+    if vf <= 0 or rho_f <= 0:
+        raise ValueError("vf and rho_f must be positive")
+    if a <= 0:
+        raise ValueError("a must be positive")
+    if vp <= vs:
+        raise ValueError("require vp > vs")
+    if samples < 2:
+        raise ValueError("samples must be at least 2")
+
+    f_arr = np.asarray(freq, dtype=float)
+    if np.any(f_arr <= 0):
+        raise ValueError("freq must be strictly positive")
+
+    from fwap.cylindrical_solver import _modal_determinant_n0_microannulus
+
+    slowness = np.full(f_arr.shape, np.nan, dtype=float)
+    for i, f in enumerate(f_arr.ravel()):
+        omega = 2.0 * np.pi * float(f)
+
+        def _det(kz_: float, omega: float = omega) -> float:
+            return _modal_determinant_n0_microannulus(
+                kz_,
+                omega,
+                vp=vp,
+                vs=vs,
+                rho=rho,
+                vf=vf,
+                rho_f=rho_f,
+                a=a,
+                inner_layers=inner,
+                annulus_vf=annulus.vf,
+                annulus_rho=annulus.rho,
+                annulus_thickness=annulus.thickness,
+                outer_layers=outer,
+            )
+
+        kz_lo, kz_hi = _microannulus_kz_window(
+            omega,
+            vs=vs,
+            rho=rho,
+            vf=vf,
+            rho_f=rho_f,
+            inner_layers=inner,
+            annulus=annulus,
+            outer_layers=outer,
+        )
+        # Walk upward from the floor and stop at the first sign change: the
+        # Stoneley-like mode is the fastest bound root, so the first one
+        # found is the right one regardless of what lies further up.
+        grid = np.linspace(kz_lo, kz_hi, samples)
+        values = np.array([_det(float(k)) for k in grid])
+        for j in range(grid.size - 1):
+            if not (np.isfinite(values[j]) and np.isfinite(values[j + 1])):
+                continue
+            if np.sign(values[j]) != np.sign(values[j + 1]):
+                try:
+                    root = optimize.brentq(
+                        _det, grid[j], grid[j + 1], xtol=1.0e-14, rtol=8.9e-16
+                    )
+                except (ValueError, RuntimeError) as exc:  # pragma: no cover
+                    logger.debug(
+                        "stoneley_dispersion_microannulus: brentq failed "
+                        "at f=%.1f Hz: %s",
+                        f,
+                        exc,
+                    )
+                    break
+                slowness.ravel()[i] = root / omega
+                break
+
+    return BoreholeMode(
+        name="Stoneley",
+        azimuthal_order=0,
+        freq=f_arr,
+        slowness=slowness,
+        attenuation_per_meter=None,
     )

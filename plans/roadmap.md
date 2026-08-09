@@ -33,7 +33,7 @@ package.
 | Open item | Why it matters |
 |-----------|----------------|
 | **F. Real-data fixtures** | Harness shipped; a real *sonic* gather is still missing. The binding constraint on every quantitative claim in the repo, `sonic_ml`'s included. |
-| **A.5 Fluid microannulus** | The debonded-regime forward model. Two of three pieces are on `main`; the last is a public dispersion function. **The only open item blocked on nothing.** |
+| **A.5 Fluid microannulus** | The debonded-regime forward model. The elements, the assembly and the public Stoneley API are on `main`; what is left is exposing the crack wave. **The only open item blocked on nothing.** |
 | **G. `sonic_ml` follow-ons** | Debonded-regime datasets, gated on A.5 rather than on the leaky `n=1` work (single-frame *and* joint multi-depth surrogate inversion are done). |
 | **A.1 Validation figures** | Ties the solver to published literature rather than to itself. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
@@ -262,7 +262,7 @@ needing formation-property variety.
 
 ### A.5 Fluid microannulus — the debonded-regime forward model
 
-Two of three pieces are on `main`; this is the only item in this document
+Three of four pieces are on `main`; this is the only item in this document
 blocked on nothing. It arrived here from section G, where it had been filed as
 needing a leaky-mode cased forward model — see the correction under A.2. A
 microannulus is a **bound**-mode problem.
@@ -282,9 +282,10 @@ down to 0.2 mm.
 
 **Shipped.** `_fluid_layer_e_matrix_n0` / `_fluid_layer_propagator_n0` (a fluid
 annulus carries two amplitudes rather than four, imposes no shear traction, and
-permits axial slip, so its state is the pair `(u_r, sigma_rr)`), and
+permits axial slip, so its state is the pair `(u_r, sigma_rr)`);
 `_modal_determinant_n0_microannulus`, an 11x11 assembly for
-`fluid | casing | microannulus | cement | formation`.
+`fluid | casing | microannulus | cement | formation`; and the public
+`stoneley_dispersion_microannulus` / `FluidAnnulus`.
 
 The assembly has **no reduction to the existing solver** to check against: the
 `annulus_thickness -> 0` limit is a frictionless slip interface, not the bonded
@@ -295,21 +296,31 @@ the sum of the wall compliances `(1 - nu)/mu` — an analytic result with no
 Bessel functions and no cylindrical geometry in it, reproduced to 0.02 % at a
 1 um gap.
 
+The public Stoneley entry point and the `FluidAnnulus` type are now on `main`.
+The selection rule is structural rather than tuned — the Stoneley-like mode is
+the fastest bound n=0 mode, so the first sign change above the bound floor is
+it — and the result is pinned as independent of both the caller's frequency
+grid and the scan resolution.
+
 **What is left**, and the shape of it:
 
-- A **public dispersion function**. The determinant carries *two* root families
-  — a Stoneley-like mode and the gap mode, 68-620 m/s over four decades of gap
-  thickness — so bracketing has to choose. That is the same failure as the
-  closed `n=0` branch-selection defect, which is why the root set is already
-  pinned as independent of scan grid and window.
-- **Exposing the gap mode**, not only the Stoneley shift. It is the more
-  sensitive debonding indicator (`h^{1/3}`, against a Stoneley root that barely
-  moves) and it has a closed form, so it can be inverted for gap thickness
-  directly.
-- **A public way to express the configuration.** `BoreholeLayer` requires
-  `vs > 0` and cannot represent a fluid, so this needs a new type or an explicit
-  annulus argument — public API, and therefore the three-file lockstep
-  (`fwap/__init__.py`, `docs/api.rst`, `scripts/check_public_api.py`).
+- **Exposing the crack (Krauklis) wave**, the second root family. It is the
+  more sensitive debonding indicator (`h^{1/3}`, against a Stoneley root fixed
+  to 0.06 % over three decades of gap thickness) and it has a closed form, so
+  it can be inverted for gap thickness directly.
+
+  It needs a **spurious-root filter first**, and the obvious candidate has been
+  measured and rejected. Over 270 sampled configurations the bound window held
+  exactly two roots in 269; the exception produced a duplicated pair near
+  4 m/s, the signature of lost precision. The natural gate — the elastic
+  propagator's determinant identity `det P = (r_inner/r_outer)^2`, found while
+  building this — does **not** work: at a 1 um gap the genuine crack root is
+  fixed to 1.5e-9 across a tenfold range of cement thickness over which that
+  identity degrades to 1e232, because the mode is confined within `~1/k_z` of
+  the gap and the error lives in the growing branch the root never sees. What
+  remains is grid-stability filtering (the technique that exposed the `n=0`
+  defect), or a delta-matrix / Abo-Zena reformulation of the stack that avoids
+  the cancellation.
 - Then the `sonic_ml` consumer: a debonded-regime dataset, and with it the first
   fair CBL-amplitude comparison.
 

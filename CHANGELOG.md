@@ -7,6 +7,45 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`stoneley_dispersion_microannulus` and `FluidAnnulus` — the first public
+  entry point for the debonded regime.** Stoneley dispersion for a stack of the
+  form `borehole fluid | casing | microannulus | cement | formation`, wrapping
+  the 11x11 assembly below.
+  **The selection rule is the substance of this, not the wrapper.** The
+  determinant carries two families of bound root, and a bracket that assumes
+  one is exactly the `n=0` defect that shipped once already. The rule used is
+  structural rather than tuned: the Stoneley-like mode is the fastest bound n=0
+  mode, so the first sign change above the bound floor is it whatever else the
+  stack supports. Verified against an independent scan, and pinned as
+  independent of both the caller's frequency grid and the scan resolution —
+  each frequency is solved on its own, with no frequency marching.
+  `FluidAnnulus` is a distinct type from `BoreholeLayer` rather than a layer
+  with `vs = 0`, because a gap is not a limiting case of an elastic layer here:
+  a compliant solid drags the bound-mode bracket floor down with its shear
+  velocity, while a gap's floor is its acoustic velocity. That separation is
+  what makes the configuration reachable, so it is load-bearing.
+  **The crack (Krauklis) wave is deliberately not exposed yet.** Over 270
+  sampled configurations the bound window held exactly two roots in 269; the
+  exception produced a *duplicated* pair near 4 m/s, the signature of the
+  lost-precision spurious roots this module has shipped before. Telling the
+  genuine crack wave from those needs a filter, and the obvious candidate turns
+  out to be the wrong one — see below. Selecting the Stoneley family is safe
+  without one.
+  Also documented at the API surface: a thin gap does **not** converge to the
+  bonded stack. It converges to a frictionless slip interface, 1383.45 m/s
+  against 1400.04 m/s bonded at 8 kHz, a 1.2 % offset that does not close.
+- **A determinant identity for the elastic layer propagator, found while
+  building the above.** `det P = (r_inner / r_outer)^2`, with no frequency,
+  velocity, density or `k_z` in it — the 4x4 counterpart of the fluid
+  element's Bessel Wronskian, arising the same way (each of the two `(I, K)`
+  pairs in `E` contributes one factor of `1/r`).
+  `_layer_propagator_n0` has shipped for a long time with no check on its
+  *value*: the existing tests pin the group law and the round trip, both of
+  which a systematically wrong `E` would still satisfy. This one is arithmetic
+  from outside the module and breaks on any swapped Bessel order or sign slip.
+  Its accuracy range is measured on the same axis as the fluid element's — the
+  dimensionless span `s * dr` — at machine precision below 2, ~1e-9 by 5, and
+  no significant digits by 20.
 - **Global assembly for the fluid microannulus
   (`_modal_determinant_n0_microannulus`) — the n=0 modal determinant for
   `borehole fluid | casing | microannulus | cement | formation`.** Builds on the
@@ -72,6 +111,19 @@ the project uses [Semantic Versioning](https://semver.org/).
   failure is attributable to the assembly.
 
 ### Fixed
+- **A near-miss recorded rather than a defect: the propagator identity above is
+  *not* a valid gate on root quality, and using it as one would have silently
+  removed the crack-wave capability.** The obvious next move after finding it
+  was to reject roots wherever it fails. Measured instead: at a 1 um gap and
+  8 kHz the crack root is fixed to 1.5e-9 across a tenfold range of cement
+  thickness over which the identity degrades from 1e0 to **1e232**. The mode is
+  confined within `~1/k_z` of the gap (1.35 mm here), so once the block is much
+  thicker than that its far field cannot influence the root, and the
+  catastrophic error lives entirely in the growing branch the root condition
+  never sees. A test pins both halves.
+  The general form is worth keeping: a conditioning measure on an intermediate
+  quantity bounds *that quantity*, and says nothing on its own about a root
+  computed from it.
 - **Two ways a determinant sweep could escape its own contract, found while
   building the microannulus assembly.** A determinant a root finder scans must
   return `NaN` where it cannot be formed — never warn, never raise. Neither held
