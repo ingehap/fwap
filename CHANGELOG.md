@@ -6,6 +6,43 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Compliant layers in a cased stack returned spurious roots instead of
+  `NaN`.** Found while starting the free-pipe / debonded item. A very compliant
+  elastic layer drives the propagator's dynamic range past double precision; the
+  7x7 determinant then becomes meaningless and the bracket search finds sign
+  changes in it and reports them as roots — finite slownesses corresponding to
+  phase velocities of **3-12 m/s against a 1500 m/s fluid**. Some configurations
+  produced these with **no warning at all**, so a warning filter would not have
+  caught them.
+  `_modal_determinant_n0_cased` now checks that the propagator product can be
+  formed in double precision before forming it, and returns `NaN` otherwise.
+  Checking the *result* for finiteness is not enough: the overflow is raised by
+  the matmul itself, so a post-hoc test cleans up the determinant but leaves the
+  warning. The bonded regime is bit-identical — cement stiffer than the fluid
+  converges across the whole band at unchanged velocities, pinned by a test.
+  This also removes the intermittent `overflow encountered in matmul` and
+  `invalid value encountered in det` warnings that had been appearing in
+  coverage runs.
+
+### Changed
+- **The free-pipe / debonded item (roadmap G.2) is re-diagnosed and decoupled
+  from the `n=1` leaky-mode work.** It had been filed behind that item on the
+  grounds that "reaching debonding needs a leaky-mode cased forward model".
+  Measurement splits the question in two. Modelling debonding as *soft cement*
+  is genuinely blocked, and the documented restriction is correct: the cased
+  Stoneley converges over the whole band down to `cement_vs = V_f`, is partial
+  just below, and is gone by 1200 m/s, because `_stoneley_kz_bracket_cased`
+  takes its bound-regime floor from the softest shear velocity anywhere in the
+  stack. But a **fluid microannulus** — the standard debonding model in
+  cement-bond logging — is a different configuration that argument does not
+  exclude, since a fluid contributes no shear floor. It also cannot be
+  approximated by a compliant elastic layer, precisely because an elastic layer
+  does contribute one; measured, that fails at any thickness down to 0.2 mm.
+  So the blocker is not a Riemann-sheet derivation but the absence of a
+  fluid-annulus element in the propagator, which is an implementation task of
+  known shape. Recorded in `plans/roadmap_1.md` with the scope.
+
 ### Added
 - **`trapped_pseudo_rayleigh_dispersion` — the bound half of the
   pseudo-Rayleigh family, which no public function reached before.** The family

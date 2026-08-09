@@ -57,8 +57,9 @@ library already reads, from a host this sandbox cannot reach.
 
 ## 1. Leaky-mode root tracking (A.2 + G.2), and the two n=0 pieces that split off
 
-Two roadmap items need the same machinery — and two smaller ones turned out not
-to need it at all, and are closed.
+One roadmap item needs the machinery; two smaller ones turned out not to need it
+at all and are closed; and a fourth (G.2, free pipe) turned out not to belong
+here either — see below.
 
 **A.2, the fast-formation flexural sparsity.** A fast formation behind casing
 converges over only ~38 % of a 1-12 kHz band. It was filed as a *cased-hole
@@ -71,11 +72,55 @@ cannot recover it — no sign change exists below the cutoff in any sub-window,
 and the middle window is singular for the propagator formulation anyway. Tests
 pin the open-hole-vs-cased comparison so the attribution cannot drift back.
 
-**G.2, the free-pipe / debonded regime.** The cased dataset spans only the
-*bonded* regime, so the bond inverse grades cement quality and is explicitly not
-a free-pipe detector. Reaching debonding needs a leaky-mode cased forward model,
-not a planted wavetrain. It is also the regime where a CBL-amplitude baseline
-would finally be a fair comparison rather than a strawman.
+**G.2, the free-pipe / debonded regime — re-diagnosed, and it is no longer
+part of item 1.** The cased dataset spans only the *bonded* regime, so the bond
+inverse grades cement quality and is explicitly not a free-pipe detector. That
+much stands. What was wrong is the next sentence, which used to read "reaching
+debonding needs a leaky-mode cased forward model" and so filed this item behind
+the derivation-blocked `n=1` work.
+
+Measurement says otherwise, and the distinction is between two different
+physical models of debonding:
+
+* **Soft cement.** The documented restriction is real: the cased Stoneley
+  converges over the whole band down to `cement_vs = V_f`, is partial just
+  below, and is gone by `1200 m/s`. The mechanism is in
+  `_stoneley_kz_bracket_cased`, which sets the bound-regime floor from
+  `min(V_S, V_f, *(layer V_S))` — the *softest shear velocity anywhere in the
+  stack*. Once that drops below the fluid velocity there is no bound window
+  containing the physical Stoneley mode.
+* **A fluid microannulus**, which is the standard model of debonding in
+  cement-bond logging, is a different configuration and is *not* excluded by
+  that argument. A fluid has no shear wave at all, so it contributes no floor
+  to that bracket. It cannot be approximated by a very compliant elastic layer
+  either — precisely because an elastic layer, however soft, does drag the
+  floor down. Measured: a compliant layer breaks convergence at any thickness
+  tried, down to 0.2 mm.
+
+So the blocker for the microannulus case is not a Riemann-sheet derivation. It
+is that `BoreholeLayer` cannot express a fluid (it requires `vs > 0`) and the
+propagator has no fluid-annulus element. That is an implementation task with a
+known shape: a fluid layer carries two amplitudes rather than four, imposes no
+shear traction, and permits slip, so it changes the size and structure of the
+global matrix rather than dropping into the existing 4x4 stack. It is
+substantial — the n=0 path alone is a new E-matrix, a new propagator element and
+a reworked 7x7 assembly, and n=1/n=2 would be needed for flexural CBL work — but
+it needs no literature access and no derivation that is not standard.
+
+This item is therefore **decoupled from item 1**: the two no longer share a
+blocker. Free pipe proper (casing surrounded by fluid, the classic CBL
+casing-ring amplitude) remains partly a phenomenological amplitude effect rather
+than a modal one, and that part is unchanged.
+
+A defect was found and fixed on the way. Compliant layers did not merely fail to
+converge: the propagator's dynamic range ran past double precision, the 7x7
+determinant became meaningless, and the bracket search reported sign changes in
+the garbage as roots — finite phase velocities of 3-12 m/s against a 1500 m/s
+fluid. Some configurations produced these with no warning at all. A magnitude
+check before the propagator product now returns `NaN` instead; the bonded regime
+is bit-identical, and four tests pin both halves. This also removes the
+intermittent `overflow encountered in matmul` / `invalid value encountered in
+det` warnings that had been appearing in coverage runs.
 
 Both need complex-plane root tracking. Doing them together is the difference
 between one hard piece of modelling and two.
