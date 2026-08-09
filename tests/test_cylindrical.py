@@ -5,7 +5,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from fwap.cylindrical import flexural_dispersion_physical, rayleigh_speed
+from fwap.cylindrical import (
+    flexural_dispersion_physical,
+    rayleigh_speed,
+    scholte_speed,
+)
 
 # ------------------------------------------------------------------
 # Rayleigh speed
@@ -301,3 +305,111 @@ def test_flexural_dispersion_vti_works_with_dispersive_stc():
     s_recovered = peaks[0, 0]
     # Within 5% of planted 1/Vsv.
     assert abs(s_recovered - 1.0 / Vsv) / (1.0 / Vsv) < 0.05
+
+
+# ----------------------------------------------------------------------
+# Scholte speed, and the cylindrical solver's high-frequency limit
+#
+# This is the literature tie roadmap A.1 asks for, in the one form that
+# needs no digitised figure. `scholte_speed` solves a *plane* fluid/solid
+# interface problem -- a different equation from the cylindrical modal
+# determinant, with no Bessel functions in it -- so the borehole Stoneley
+# mode converging to it at short wavelength is a genuine cross-check
+# rather than the solver agreeing with itself.
+# ----------------------------------------------------------------------
+
+_FAST_ROCK = dict(vp=4500.0, vs=2600.0, rho=2400.0)
+_SLOW_ROCK = dict(vp=2200.0, vs=800.0, rho=2200.0)
+_BRINE = dict(vf=1500.0, rho_f=1000.0)
+
+
+def test_scholte_reduces_to_rayleigh_for_a_vanishing_fluid():
+    """With no fluid loading the equation must collapse to Rayleigh's.
+
+    Checked against `rayleigh_speed`, which is a separate implementation
+    of a separate equation, so this validates the secular function itself
+    before it is used as an oracle for anything else.
+
+    The fluid is given a high speed so that `min(vs, vf)` does not cut the
+    Rayleigh root out of the admissible range.
+    """
+    for vp, vs in ((3000.0, 1500.0), (4000.0, 2000.0), (5000.0, 2400.0)):
+        expected = rayleigh_speed(vp, vs)
+        got = scholte_speed(vp, vs, 2400.0, 9000.0, 1.0e-8)
+        assert got == pytest.approx(expected, rel=1e-9)
+
+
+def test_scholte_is_bound_to_the_interface():
+    """A bound interface wave must be slower than both media."""
+    for rock in (_FAST_ROCK, _SLOW_ROCK):
+        speed = scholte_speed(**rock, **_BRINE)
+        assert speed < min(rock["vs"], _BRINE["vf"])
+        assert speed > 0.0
+
+
+def test_heavier_fluid_slows_the_scholte_wave():
+    """More fluid loading, more mass dragged along, lower speed."""
+    light = scholte_speed(**_FAST_ROCK, vf=1500.0, rho_f=200.0)
+    heavy = scholte_speed(**_FAST_ROCK, vf=1500.0, rho_f=1200.0)
+    assert heavy < light
+
+
+def test_scholte_rejects_unphysical_media():
+    with pytest.raises(ValueError, match="must all be positive"):
+        scholte_speed(4500.0, -1.0, 2400.0, 1500.0, 1000.0)
+    with pytest.raises(ValueError, match="require vp > vs"):
+        scholte_speed(2000.0, 2600.0, 2400.0, 1500.0, 1000.0)
+    with pytest.raises(ValueError, match="must all be positive"):
+        scholte_speed(4500.0, 2600.0, 2400.0, 1500.0, 0.0)
+
+
+@pytest.mark.parametrize("rock", [_FAST_ROCK, _SLOW_ROCK], ids=["fast", "slow"])
+def test_borehole_stoneley_converges_to_the_plane_scholte_speed(rock):
+    """The A.1 check: cylindrical solver -> independent plane-interface limit.
+
+    At short wavelength the borehole wall is effectively flat, so
+    `stoneley_dispersion` must approach `scholte_speed`. The approach is
+    from below for a fast formation and from above for a slow one, so the
+    assertion is on |ratio - 1| shrinking rather than on a signed
+    difference.
+    """
+    from fwap import stoneley_dispersion
+
+    reference = scholte_speed(**rock, **_BRINE)
+    frequencies = np.array([50.0e3, 100.0e3, 200.0e3, 400.0e3])
+    result = stoneley_dispersion(frequencies, **rock, **_BRINE, a=0.10)
+    assert np.all(np.isfinite(result.slowness))
+
+    error = np.abs(1.0 / result.slowness / reference - 1.0)
+    # monotone convergence, and close by the top of the band
+    assert np.all(np.diff(error) < 0.0)
+    assert error[-1] < 1.0e-3
+
+
+def test_the_scholte_limit_is_not_trivially_satisfied():
+    """The convergence test must be able to fail, so check that it can.
+
+    A limit test is only worth having if a wrong reference would miss it.
+    Two wrong references are scored against the same solver output: the
+    fluid velocity itself (the naive guess for where a borehole tube wave
+    ends up) and the Scholte speed of a rock whose fluid density is off by
+    20 %. Both must be substantially further away than the correct value.
+
+    The margins are modest in absolute terms -- the Scholte speed is not
+    very sensitive to fluid density -- which is exactly why the assertion
+    is relative rather than an absolute threshold.
+    """
+    from fwap import stoneley_dispersion
+
+    result = stoneley_dispersion(np.array([400.0e3]), **_FAST_ROCK, **_BRINE, a=0.10)
+    speed = 1.0 / result.slowness[0]
+
+    correct = abs(speed / scholte_speed(**_FAST_ROCK, **_BRINE) - 1.0)
+    wrong_density = abs(
+        speed / scholte_speed(**_FAST_ROCK, vf=1500.0, rho_f=1200.0) - 1.0
+    )
+    naive_fluid = abs(speed / _BRINE["vf"] - 1.0)
+
+    assert correct < 1.0e-3
+    assert wrong_density > 5.0 * correct
+    assert naive_fluid > 5.0 * correct

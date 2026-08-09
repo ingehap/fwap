@@ -6,6 +6,36 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **`fwap.scholte_speed`, and with it the first literature tie the validation
+  notebook actually makes** (roadmap A.1). A.1's remaining half was blocked on
+  digitising published figures, which needs the books. This is the part that was
+  reachable without them.
+  `scholte_speed` solves the classical secular equation for an interface wave on
+  a **plane** fluid/solid boundary — a different equation from the cylindrical
+  modal determinant, with no Bessel functions and no borehole radius in it. As
+  the wavelength shortens the borehole wall looks flat, so `stoneley_dispersion`
+  must approach it. It does: agreement better than **0.1 % at 400 kHz**,
+  converging monotonically, from below in a fast formation and from above in a
+  slow one. That is a cross-check between two independent calculations, not the
+  solver confirming itself.
+  The oracle is validated in turn by its own light-fluid limit, where it
+  collapses to the Rayleigh equation and reproduces `rayleigh_speed` to 1e-9 —
+  a third, separate implementation.
+  Two properties of the equation are easy to get wrong and are documented
+  because both were hit while deriving it: the sign of the fluid-loading term is
+  **not** determined by the light-fluid limit (both signs reduce to Rayleigh, so
+  that check cannot discriminate them — the sign is fixed instead by requiring a
+  root to exist below `min(vs, vf)`), and the root is not generally near the
+  Rayleigh speed, which can fall outside the admissible range entirely when
+  `vf < vs`.
+  Six tests, including one asserting the limit check *can fail*: scored against
+  two plausible wrong references — the fluid velocity, and a rock with fluid
+  density off by 20 % — both must be at least 5x further from the solver's
+  answer than the correct value. Notebook section 6 runs the comparison and
+  asserts it, and the notebook's summary no longer claims nothing in it is
+  validated.
+
 ### Changed
 - **Two candidate sources for a real full-waveform sonic gather identified;
   roadmap F's "none is known to exist" withdrawn.** Section F asserted that no

@@ -105,6 +105,122 @@ def rayleigh_speed(vp: float, vs: float) -> float:
     return float(vs * np.sqrt(xi))
 
 
+def scholte_speed(
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+) -> float:
+    r"""
+    Scholte interface-wave speed for a **plane** fluid/solid interface.
+
+    Solves the classical fluid-loaded secular equation
+
+    .. math::
+
+        \left(2 - \frac{c^2}{V_s^2}\right)^2
+        - 4\sqrt{1 - \frac{c^2}{V_p^2}}\sqrt{1 - \frac{c^2}{V_s^2}}
+        + \frac{\rho_f}{\rho}\,\frac{c^4}{V_s^4}\,
+          \frac{\sqrt{1 - c^2/V_p^2}}{\sqrt{1 - c^2/V_f^2}}
+        \;=\; 0
+
+    for the root :math:`c < \min(V_s, V_f)`, where all three radicals are
+    real and the wave is bound to the interface.
+
+    Why this function exists
+    -----------------------
+    It is an **independent oracle for the cylindrical solver**. The
+    borehole Stoneley mode of :func:`fwap.stoneley_dispersion` approaches
+    this speed as the wavelength becomes short compared with the borehole
+    radius, at which point the borehole wall looks flat. Because that
+    limit is computed here from a *different* equation --- a plane
+    interface, no Bessel functions, no modal determinant --- agreement
+    between the two is a real cross-check rather than the solver
+    confirming itself. See ``tests/test_cylindrical.py`` for the
+    convergence test that uses it.
+
+    Notes
+    -----
+    Two things about the equation are easy to get wrong, and both are
+    checked by the test suite:
+
+    * **The sign of the fluid-loading term is not determined by the
+      light-fluid limit.** Both signs reduce to the Rayleigh equation as
+      ``rho_f -> 0``, so that limit cannot discriminate them. The sign is
+      fixed instead by requiring a root to exist below
+      ``min(V_s, V_f)``: with the opposite sign the left-hand side is
+      negative throughout and never crosses zero.
+    * The root is *not* generally near the Rayleigh speed. When
+      ``V_f < V_s`` the Rayleigh speed can lie above ``min(V_s, V_f)``
+      and so outside the admissible range entirely.
+
+    Parameters
+    ----------
+    vp : float
+        Solid compressional speed (m/s); must exceed ``vs``.
+    vs : float
+        Solid shear speed (m/s); must be positive.
+    rho : float
+        Solid density (kg/m^3); must be positive.
+    vf : float
+        Fluid speed (m/s); must be positive.
+    rho_f : float
+        Fluid density (kg/m^3); must be positive.
+
+    Returns
+    -------
+    float
+        Scholte speed (m/s), strictly less than ``min(vs, vf)``.
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive, if ``vp <= vs``, or if no root can
+        be bracketed below ``min(vs, vf)``.
+
+    References
+    ----------
+    * Scholte, J. G. (1947). The range of existence of Rayleigh and
+      Stoneley waves. *Geophys. Suppl. Mon. Not. R. Astron. Soc.*, 5(5),
+      120-126.
+    * Brekhovskikh, L. M., & Godin, O. A. (1990). *Acoustics of Layered
+      Media I.* Springer.
+    """
+    if vs <= 0.0 or rho <= 0.0 or vf <= 0.0 or rho_f <= 0.0:
+        raise ValueError("vs, rho, vf and rho_f must all be positive")
+    if vp <= vs:
+        raise ValueError("require vp > vs")
+
+    ceiling = min(vs, vf)
+
+    def secular(c: float) -> float:
+        radical_p = np.sqrt(1.0 - (c / vp) ** 2)
+        radical_s = np.sqrt(1.0 - (c / vs) ** 2)
+        radical_f = np.sqrt(1.0 - (c / vf) ** 2)
+        rayleigh = (2.0 - (c / vs) ** 2) ** 2 - 4.0 * radical_p * radical_s
+        loading = (rho_f / rho) * (c / vs) ** 4 * radical_p / radical_f
+        return rayleigh + loading
+
+    # The loading term diverges as c -> min(vs, vf), so the upper end is
+    # approached rather than reached. Scan for the bracket: the root sits
+    # close to the ceiling for a heavy fluid and near the Rayleigh speed
+    # for a light one, which is too wide a span to hard-code a bracket.
+    grid = np.linspace(0.05 * ceiling, ceiling * (1.0 - 1.0e-12), 4096)
+    values = np.array([secular(float(c)) for c in grid])
+    finite = np.isfinite(values)
+    for i in range(grid.size - 1):
+        if not (finite[i] and finite[i + 1]):
+            continue
+        if np.sign(values[i]) != np.sign(values[i + 1]):
+            return float(
+                brentq(secular, float(grid[i]), float(grid[i + 1]), xtol=1.0e-13)
+            )
+    raise ValueError(  # pragma: no cover - unreachable for valid media
+        "no Scholte root below min(vs, vf); check the input media"
+    )
+
+
 def flexural_dispersion_physical(
     vp: float,
     vs: float,

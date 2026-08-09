@@ -246,6 +246,21 @@ essentially complete -- plan items A through H in
    These are the only checks that tie the solver to literature rather
    than to itself, and the item splits cleanly in two.
 
+   *One literature tie now exists that needs no figure.* The
+   validation notebook's section 6 checks the cylindrical Stoneley
+   solver against `fwap.scholte_speed`, which solves the classical
+   secular equation for an interface wave on a **plane** fluid/solid
+   boundary --- a different equation, with no Bessel functions and no
+   borehole radius in it. As the wavelength shortens the borehole
+   wall looks flat, so the two must agree; they do, to better than
+   0.1 % at 400 kHz, converging monotonically and from opposite
+   sides in fast and slow formations. The oracle is itself validated
+   by its light-fluid limit, where it collapses to the Rayleigh
+   equation and reproduces `rayleigh_speed` --- a third, independent
+   implementation. This is a genuine external check rather than the
+   solver confirming itself, and it is the part of A.1 that was
+   reachable without the books.
+
    *The machinery is done.* `fwap.validation` scores an fwap curve
    against a digitised reference and the notebook asserts a 5 % RMS
    budget per curve, verified to fail on a 12 %-perturbed reference.
