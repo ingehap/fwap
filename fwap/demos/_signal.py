@@ -99,7 +99,9 @@ def demo_stc_picker(figdir: str = "figures", show: bool = False) -> None:
             ms=10,
             label=p.name,
         )
-    ax.legend()
+    # Explicit loc: the default "best" searches for the emptiest corner, and
+    # matplotlib warns that this is slow over the dense pcolormesh behind it.
+    ax.legend(loc="upper right")
     ax.set_xlim(0, 3.5)
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Slowness (us/ft)")
@@ -195,7 +197,9 @@ def demo_pseudo_rayleigh(figdir: str = "figures", show: bool = False) -> None:
             ms=10,
             label=p.name,
         )
-    ax.legend()
+    # Explicit loc: the default "best" searches for the emptiest corner, and
+    # matplotlib warns that this is slow over the dense pcolormesh behind it.
+    ax.legend(loc="upper right")
     ax.set_xlim(0, 3.5)
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Slowness (us/ft)")

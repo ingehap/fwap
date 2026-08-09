@@ -169,6 +169,14 @@ the project uses [Semantic Versioning](https://semver.org/).
   failure is attributable to the assembly.
 
 ### Fixed
+- **The suite's last two warnings.** `demo_stc_picker` and
+  `demo_pseudo_rayleigh` each drew a legend over a dense `pcolormesh`
+  coherence map with matplotlib's default `loc="best"`, which searches the
+  plotted data for the emptiest corner; matplotlib warns that this is slow.
+  Both now pass an explicit `loc`, with a comment saying why so it does not get
+  tidied back. Only these two of the seventeen bare `legend()` calls in the
+  demos were affected -- the rest draw line plots and stay below matplotlib's
+  threshold -- so the other fifteen are left alone.
 - **A near-miss recorded rather than a defect: the propagator identity above is
   *not* a valid gate on root quality, and using it as one would have silently
   removed the crack-wave capability.** The obvious next move after finding it
