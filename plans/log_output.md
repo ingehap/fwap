@@ -197,6 +197,41 @@ Log-log sensitivities — the discriminating result. **Asserted by tests.**
 
 A fluid-column (rigid-pipe) cutoff would be ~1 on `V_f` and ~0 on `V_S`.
 
+## Modal biorthogonality (this change)
+
+Bound n=0 roots at 30 kHz, fast formation 4000/2300/2500, V_f=1500, a=0.10:
+**c = 2126.4, 1754.6, 1551.5, 1463.7 m/s** (three trapped pseudo-Rayleigh plus
+the Stoneley). At 50 kHz there are six. **Asserted by tests** (count only).
+
+Normalised off-diagonal `|S_mn - conj(S_nm)| / sqrt(|S_mm S_nn|)`, by
+integration method. The two rows disagree by nine orders and only the second is
+correct — the adaptive residual *grew* with span, which is how it was caught.
+
+| method | max off-diagonal | median |
+|---|---|---|
+| `scipy.quad`, span 30 | 2.2e-04 | ~1e-6 |
+| `scipy.quad`, span 60 | 1.2e-03 | ~5e-4 |
+| `scipy.quad`, span 240 | 5.6e-02 | ~3e-2 |
+| Gauss-Legendre, span 15, 300/600 nodes | 6.5e-14 | 7.9e-15 |
+| Gauss-Legendre, span 25, 400/900 nodes | 1.4e-13 | 6.2e-14 |
+| Gauss-Legendre, span 40, 500/1400 nodes | 1.4e-12 | 5.0e-13 |
+
+Wrong bilinear form (single term `|S_mn|` instead of the difference), same
+normalisation — the discrimination margin that makes the tolerance meaningful:
+
+| pair (m/s) | normalised \|S_mn\| |
+|---|---|
+| 2126 / 1755 | 6.1e-02 |
+| 2126 / 1552 | 5.0e-02 |
+| 2126 / 1464 | 9.7e-02 |
+| 1755 / 1552 | 8.0e-03 |
+| 1755 / 1464 | 2.0e-02 |
+| 1552 / 1464 | 3.5e-03 |
+
+Momentum-to-energy flux ratio vs `|k_z|^2 / (omega Re(k_z))`: agrees to six
+digits at all twelve frequencies tried. Supports the conservation-law survey;
+*not asserted by a test*.
+
 ## Withdrawn numbers
 
 Kept so they are not re-derived and re-believed.

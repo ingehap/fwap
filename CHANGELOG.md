@@ -7,6 +7,41 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Modal biorthogonality checked; it holds to ~1e-13 and is the first oracle
+  here that needs two solutions at once.** The conservation-law survey predicted
+  this one would work, on the criterion that a check evaluated on a single mode
+  in a region where that mode already satisfies the governing equations must
+  come back exact and mean nothing. Auld's waveguide reciprocity relation
+  couples two *different* eigenvectors and so escapes that trap.
+  The test set is richer than expected: in a fast formation the n=0 bound
+  spectrum holds the Stoneley mode (`c < V_f`) **and** the trapped
+  pseudo-Rayleigh modes (`V_f < c < V_S`) — four bound modes at 30 kHz, six at
+  50 kHz, all azimuthal order 0, so orthogonality among them is not the trivial
+  angular-integral kind. (`stoneley_dispersion` returns only the first: its
+  bracket stops at `omega/V_f`, so the trapped modes are not exposed by any
+  public function.)
+  Three tests: the eigenfunctions satisfy the boundary conditions they were
+  built from, `S_mn - conj(S_nm)` vanishes to 1e-13 off-diagonal while the
+  diagonal stays O(1), and the *wrong* bilinear form — one term of the pairing
+  instead of the difference — leaves off-diagonals near 1e-2, ten orders worse.
+  That last one makes the tolerance evidence rather than a fitted constant.
+  Two measurement traps were hit and are recorded in `plans/learning.md`: a sign
+  convention mismatch between the determinant's matrix rows and the field
+  expressions, which the boundary-condition check caught before it could be
+  mistaken for a failed orthogonality relation; and adaptive quadrature
+  manufacturing a 1e-4 residual that *grew* with integration span, the tell that
+  the error was numerical rather than physical.
+- **`plans/learning.md` gains a section on choosing what to measure**, specific
+  and general. The specific part is six questions in the order they have
+  actually produced findings here — which return *fields* nothing has looked at;
+  what the closed form leaves out; what the check would do to a wrong answer;
+  whether the answer depends on something it must not; where the check itself
+  expires; and whether a quantity is a property of the system or of the run. The
+  general part is one test: what would have to be true of the *world*, rather
+  than of the program, for this measurement to come out right? If the answer is
+  "nothing in particular", it is a tautology however elaborate — which is what
+  killed the fluid-only energy balance, the momentum balance and interface flux
+  continuity, and what marked biorthogonality as worth attempting.
 - **The n=1 / n=2 rigid-pipe cutoff candidate does not work, and the reason is
   structural.** `plans/learning.md` proposed checking the flexural and
   quadrupole cutoffs against their rigid-pipe closed forms, as PR #61 did for

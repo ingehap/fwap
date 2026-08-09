@@ -14650,3 +14650,232 @@ def test_n1_n2_cutoffs_do_not_match_the_rigid_pipe_closed_form():
     # No single constant reconciles the two orders, so this is not the
     # n=0 situation of a fixed offset that could be documented and used.
     assert abs(ratios[1] / ratios[2] - 1.0) > 0.15, ratios
+
+
+# ---------------------------------------------------------------------------
+# Modal biorthogonality: the first oracle here that needs two solutions at once.
+#
+# Every earlier check evaluates something on a single mode, which is why the
+# energy balance turned out vacuous -- a law evaluated on one solution in a
+# region where that solution already satisfies the governing equations comes
+# back exact and means nothing. Auld's waveguide reciprocity relation does not
+# have that escape: it couples two *different* eigenvectors, so it cannot be
+# satisfied by construction from either.
+#
+# The test set is real. In a fast formation the n=0 bound spectrum holds the
+# Stoneley mode (c < V_f) *and* the trapped pseudo-Rayleigh modes
+# (V_f < c < V_S) -- four of them at 30 kHz, all bound, all azimuthal order 0.
+# Note that `stoneley_dispersion` returns only the first: its bracket stops at
+# omega/V_f, so the trapped modes are found here directly from the determinant.
+# ---------------------------------------------------------------------------
+
+_BIO_MEDIUM = {
+    "vp": 4000.0,
+    "vs": 2300.0,
+    "rho": 2500.0,
+    "vf": 1500.0,
+    "rho_f": 1000.0,
+    "a": 0.10,
+}
+
+
+def _bound_n0_roots(omega, medium):
+    """Every bound n=0 root at one frequency: Stoneley plus trapped modes."""
+    from scipy.optimize import brentq
+
+    from fwap.cylindrical_solver._leaky import _modal_determinant_n0_complex
+
+    def det(kz):
+        return _modal_determinant_n0_complex(
+            kz, omega, **medium, leaky_p=False, leaky_s=False
+        )
+
+    roots = []
+    windows = (
+        (omega / medium["vs"] * 1.0001, omega / medium["vf"] * 0.9999),
+        (omega / medium["vf"] * 1.0001, omega / medium["vf"] * 3.0),
+    )
+    for lo, hi in windows:
+        grid = np.linspace(lo, hi, 3000)
+        values = np.array([det(k) for k in grid])
+        use_real = np.nanmax(np.abs(values.real)) >= np.nanmax(np.abs(values.imag))
+        scalar = (lambda k: det(k).real) if use_real else (lambda k: det(k).imag)
+        flat = values.real if use_real else values.imag
+        for i in range(grid.size - 1):
+            if not (np.isfinite(flat[i]) and np.isfinite(flat[i + 1])):
+                continue
+            if np.sign(flat[i]) != np.sign(flat[i + 1]):
+                roots.append(
+                    brentq(scalar, grid[i], grid[i + 1], xtol=1e-14, rtol=8.9e-16)
+                )
+    return sorted(roots)
+
+
+def _mode_shape(kz, omega, medium):
+    """Null vector of the 3x3 bound matrix, plus the radial wavenumbers."""
+    from scipy import special
+
+    mu = medium["rho"] * medium["vs"] ** 2
+    a = medium["a"]
+    f_r = np.sqrt(complex(kz * kz - (omega / medium["vf"]) ** 2))
+    p = np.sqrt(complex(kz * kz - (omega / medium["vp"]) ** 2))
+    s = np.sqrt(complex(kz * kz - (omega / medium["vs"]) ** 2))
+    i0, i1 = complex(special.iv(0, f_r * a)), complex(special.iv(1, f_r * a))
+    k0p, k1p = complex(special.kv(0, p * a)), complex(special.kv(1, p * a))
+    k0s, k1s = complex(special.kv(0, s * a)), complex(special.kv(1, s * a))
+    two_kz2 = 2.0 * kz * kz - (omega / medium["vs"]) ** 2
+    matrix = np.array(
+        [
+            [f_r * i1 / (medium["rho_f"] * omega**2), p * k1p, kz * k1s],
+            [
+                -i0,
+                -mu * (two_kz2 * k0p + 2.0 * p * k1p / a),
+                -2.0 * kz * mu * (s * k0s + k1s / a),
+            ],
+            [0.0, 2.0 * kz * p * mu * k1p, mu * two_kz2 * k1s],
+        ],
+        dtype=complex,
+    )
+    _, _, vh = np.linalg.svd(matrix)
+    vec = vh[-1].conj()
+    # The matrix writes continuity as u_r(fluid) + u_r(solid) = 0, so the solid
+    # amplitudes carry the opposite sign to the field expressions below.
+    return (vec[0], -vec[1], -vec[2]), f_r, p, s
+
+
+def _mode_fields(r, kz, omega, medium, shape):
+    """u_r, u_z, sigma_rz, sigma_zz across the whole cross-section."""
+    from scipy import special
+
+    (amp_f, amp_p, amp_s), f_r, p, s = shape
+    mu = medium["rho"] * medium["vs"] ** 2
+    lam = medium["rho"] * (medium["vp"] ** 2 - 2.0 * medium["vs"] ** 2)
+    two_kz2 = 2.0 * kz * kz - (omega / medium["vs"]) ** 2
+
+    r = np.atleast_1d(r).astype(float)
+    u_r = np.zeros_like(r, dtype=complex)
+    u_z = np.zeros_like(r, dtype=complex)
+    s_rz = np.zeros_like(r, dtype=complex)
+    s_zz = np.zeros_like(r, dtype=complex)
+
+    inside = r < medium["a"]
+    if inside.any():
+        ri = r[inside]
+        i0, i1 = special.iv(0, f_r * ri), special.iv(1, f_r * ri)
+        u_r[inside] = amp_f * f_r * i1 / (medium["rho_f"] * omega**2)
+        u_z[inside] = 1j * kz * amp_f * i0 / (medium["rho_f"] * omega**2)
+        s_zz[inside] = -amp_f * i0  # sigma_rz vanishes in an inviscid fluid
+    if (~inside).any():
+        ro = r[~inside]
+        k0p, k1p = special.kv(0, p * ro), special.kv(1, p * ro)
+        k0s, k1s = special.kv(0, s * ro), special.kv(1, s * ro)
+        u_r[~inside] = amp_p * p * k1p + amp_s * kz * k1s
+        u_z[~inside] = -1j * (kz * amp_p * k0p + amp_s * s * k0s)
+        s_rz[~inside] = 1j * mu * (2.0 * kz * p * amp_p * k1p + amp_s * two_kz2 * k1s)
+        s_zz[~inside] = lam * (
+            omega**2 / medium["vp"] ** 2
+        ) * amp_p * k0p + 2.0 * mu * (kz * (kz * amp_p * k0p + amp_s * s * k0s))
+    return u_r, u_z, s_rz, s_zz
+
+
+def _cross_integral(kz_m, kz_n, omega, medium, shapes, span=15.0):
+    """INT (conj(u^m) . T^n . zhat) r dr, by fixed-node Gauss-Legendre.
+
+    Fixed nodes rather than an adaptive rule on purpose: the integrand
+    underflows in the evanescent tail, and adaptive quadrature spends its
+    error budget out there and returns noise ~1e-4, which is large enough to
+    look like a failed orthogonality relation.
+    """
+    a = medium["a"]
+    decay = [
+        np.sqrt(max(k * k - (omega / medium["vs"]) ** 2, 1e-12)) for k in (kz_m, kz_n)
+    ]
+    outer = a + span / min(decay)
+    total = 0.0 + 0.0j
+    for lo, hi, count in ((0.0, a, 300), (a, outer, 600)):
+        x, weights = np.polynomial.legendre.leggauss(count)
+        r = 0.5 * (hi - lo) * (x + 1.0) + lo
+        u_r, u_z, _, _ = _mode_fields(r, kz_m, omega, medium, shapes[kz_m])
+        _, _, s_rz, s_zz = _mode_fields(r, kz_n, omega, medium, shapes[kz_n])
+        total += (
+            0.5
+            * (hi - lo)
+            * np.sum(weights * (np.conj(u_r) * s_rz + np.conj(u_z) * s_zz) * r)
+        )
+    return total
+
+
+def test_bound_n0_modes_satisfy_the_boundary_conditions_they_were_built_from():
+    """Sanity gate on the eigenfunctions before they are used for anything.
+
+    Written first because a sign slip in the solid amplitudes was caught here
+    -- ``|du_r| / |u_r|`` came back as exactly 2.0, which is what equal and
+    opposite gives -- and would otherwise have shown up as a failed
+    orthogonality relation, i.e. as a fake finding about the solver.
+    """
+    omega = 2.0 * np.pi * 30.0e3
+    roots = _bound_n0_roots(omega, _BIO_MEDIUM)
+    assert len(roots) >= 3, roots
+
+    step = 1.0e-9
+    for kz in roots:
+        shape = _mode_shape(kz, omega, _BIO_MEDIUM)
+        u_in = _mode_fields(_BIO_MEDIUM["a"] - step, kz, omega, _BIO_MEDIUM, shape)[0]
+        u_out = _mode_fields(_BIO_MEDIUM["a"] + step, kz, omega, _BIO_MEDIUM, shape)[0]
+        scale = max(abs(u_in[0]), abs(u_out[0]))
+        assert abs(u_in[0] - u_out[0]) / scale < 1.0e-6, kz
+
+
+def test_bound_n0_modes_are_biorthogonal():
+    """Auld's relation across every pair of coexisting bound modes.
+
+    ``S_mn - conj(S_nm)`` must vanish for ``m != n``. Measured over the four
+    bound modes at 30 kHz it does, to ~1e-13 relative, while the diagonal
+    stays O(1) -- so this is orthogonality rather than everything being small.
+    """
+    omega = 2.0 * np.pi * 30.0e3
+    roots = _bound_n0_roots(omega, _BIO_MEDIUM)
+    shapes = {kz: _mode_shape(kz, omega, _BIO_MEDIUM) for kz in roots}
+    n = len(roots)
+
+    gram = np.array(
+        [
+            [
+                _cross_integral(roots[i], roots[j], omega, _BIO_MEDIUM, shapes)
+                for j in range(n)
+            ]
+            for i in range(n)
+        ]
+    )
+    for i in range(n):
+        for j in range(n):
+            scale = np.sqrt(abs(gram[i, i] * gram[j, j]))
+            assert scale > 0.0
+            residual = abs(gram[i, j] - np.conj(gram[j, i])) / scale
+            if i == j:
+                continue
+            assert residual < 1.0e-9, (i, j, residual)
+
+
+def test_biorthogonality_check_rejects_the_wrong_bilinear_form():
+    """The relation is specific, not a statement that everything is small.
+
+    Using one term of the pairing instead of Auld's difference -- a natural
+    wrong guess, and the one tried first -- leaves off-diagonals around 1e-2,
+    ten orders above the tolerance the correct form meets. That gap is what
+    makes the test above evidence rather than an accident of normalisation.
+    """
+    omega = 2.0 * np.pi * 30.0e3
+    roots = _bound_n0_roots(omega, _BIO_MEDIUM)
+    shapes = {kz: _mode_shape(kz, omega, _BIO_MEDIUM) for kz in roots}
+
+    worst = 0.0
+    for i in range(len(roots)):
+        for j in range(len(roots)):
+            if i == j:
+                continue
+            s_ij = _cross_integral(roots[i], roots[j], omega, _BIO_MEDIUM, shapes)
+            s_ii = _cross_integral(roots[i], roots[i], omega, _BIO_MEDIUM, shapes)
+            s_jj = _cross_integral(roots[j], roots[j], omega, _BIO_MEDIUM, shapes)
+            worst = max(worst, abs(s_ij) / np.sqrt(abs(s_ii * s_jj)))
+    assert worst > 1.0e-3, worst

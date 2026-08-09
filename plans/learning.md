@@ -167,6 +167,95 @@ catch a wrong power of frequency or a radius/diameter confusion, and would not
 catch a 30 % error. Saying so keeps a green test from being read as a precision
 guarantee.
 
+## Choosing what to measure
+
+Every entry above began with a decision about *which number to compute*, and in
+hindsight that decision mattered more than the physics or the code. What
+follows is the specific recipe this work converged on, then the general
+principle underneath it.
+
+### The specific recipe
+
+Given a solver and a claim about it, these are the questions that have actually
+produced findings here, in the order they paid off.
+
+1. **Which return values has nothing ever looked at?** Not which functions are
+   untested — which *fields*. `attenuation_per_meter` had three tests proving
+   it was present, finite and positive, and none that looked at its magnitude;
+   that gap was the whole of PR #63. Enumerate the components of every returned
+   object and ask what each one is checked against.
+
+2. **What does the closed form leave out?** When comparing against an analytic
+   limit, the sharpest measurement is usually of a parameter the *formula does
+   not contain*. The tube-wave form has no borehole radius in it, so the
+   radius-independence of the solver's limit is a stronger statement than the
+   value: agreement on the value could be a coincidence of one geometry, but
+   `a` = 0.05-0.30 m agreeing to 5e-8 cannot. Look for the variable the two
+   sides disagree about the existence of.
+
+3. **What would this look like if it were wrong?** Compute the check on a
+   deliberately wrong input and record the number. If it comes back the same,
+   stop — that is the energy-balance outcome, and it cost ten minutes to find
+   and would have cost a false claim to miss. Cheap enough to do every time.
+
+4. **Does the answer depend on something it must not?** Grid density, grid
+   endpoints, scan resolution, platform. Two defects (#63, #64) were found by
+   varying a parameter that carries no physics. The rule generalises: for every
+   argument the caller controls that *should not* affect the answer, vary it.
+   Grid *endpoints* found the leaky branch defect after grid *density* had
+   already come back clean, so vary each independently rather than assuming one
+   stands for the family.
+
+5. **Where does the check itself expire?** An invariance used to verify a
+   solver has its own validity range. Measure it before reading a failure as
+   the code's fault — the transparent-layer breakdown in #65 is a defect in the
+   verification technique, not in the configurations the solver models, and
+   only measuring the boundary made that distinction available.
+
+6. **Is the quantity a property of the system or of the run?** Before asserting
+   any number, ask whether it would survive a different machine. Where a
+   spurious root lands, and how far off it is, both failed that test in #65 and
+   produced two CI failures in a row. When the answer is "of the run", assert
+   the structural claim instead: not *how much* the invariance is violated, but
+   *that* it is.
+
+### The general principle
+
+The measurements that found something all share a shape: **they compare two
+things that are supposed to agree for a reason that lives outside the code
+being tested.** Everything else is a restatement of the implementation.
+
+That gives a single test for whether a proposed measurement is worth making —
+*what would have to be true of the world, rather than of the program, for this
+to come out right?* If the answer is "nothing in particular; it follows from
+the definitions", the measurement is a tautology however elaborate. That is
+what killed the fluid-only energy balance, the momentum balance, and interface
+flux continuity, and it is what makes modal biorthogonality and
+Kramers-Kronig worth attempting: both require a second, independently computed
+solution, so neither can be satisfied by construction.
+
+Three corollaries earn their keep:
+
+- **Prefer a measurement that can fail for exactly one reason.** Comparing a
+  solver against a closed form in a regime where three approximations overlap
+  gives a number nobody can act on. The Scholte check works because at short
+  wavelength there is precisely one thing the borehole solver must reduce to.
+- **Measure the boundary, not the interior.** Where something stops working is
+  more informative than that it works, because it is falsifiable in a direction
+  the happy path is not. Every defect in this list was found at a boundary: a
+  cutoff, a validity floor, a grid endpoint, a thickness limit.
+- **Quantify the discrimination, not just the agreement.** "The check passes"
+  is worth little without "and here is how badly a wrong answer would fail it".
+  The subdivision oracle is credible because a thickness error of one part in
+  ten thousand moves the result nine orders above the noise floor; that ratio,
+  not the 1e-15 agreement, is what makes it a test.
+
+The through-line is that a good measurement is *chosen adversarially* — picked
+because it could embarrass the code, not because it is convenient to compute.
+Measurements chosen for convenience mostly confirm, and confirmation from a
+check that could not have failed is the most expensive kind of nothing,
+because it is indistinguishable from the real thing until someone relies on it.
+
 ## How this should change planning
 
 **Claims about absence age worst.** `plans/roadmap_1.md` has now been wrong
@@ -470,15 +559,66 @@ underlying mechanism does not cross. Two of the seven candidates died of it,
 which makes it the most common failure mode in this list, ahead of any
 numerical issue.
 
+## Attempted: modal biorthogonality — the first oracle needing two solutions
+
+The prediction from the conservation-law survey held. Auld's waveguide
+reciprocity relation couples two *different* eigenvectors, so unlike every
+earlier check it cannot be satisfied by construction from the solution being
+tested.
+
+**The test set exists and is richer than expected.** In a fast formation the
+n=0 bound spectrum contains the Stoneley mode (`c < V_f`) *and* the trapped
+pseudo-Rayleigh modes (`V_f < c < V_S`) — four bound modes at 30 kHz, six at
+50 kHz, all azimuthal order 0, so orthogonality among them is not the trivial
+angular-integral kind. Worth noting in passing: `stoneley_dispersion` returns
+only the first of these, because its bracket stops at `omega/V_f`. The trapped
+modes are not exposed by any public function.
+
+**Result: the relation holds to ~1e-13** across every pair, with the diagonal
+O(1) — so it is orthogonality, not everything being small. Three tests pin it.
+
+Three things about getting there are worth keeping.
+
+*Check the eigenfunctions before trusting the integral.* The first
+boundary-condition check returned `|du_r| / |u_r| = 2.00` exactly — the
+signature of equal and opposite, and a sign convention mismatch between the
+determinant's matrix rows and the field expressions derived from potentials.
+Had that gone unnoticed it would have surfaced as a *failed orthogonality
+relation*, i.e. as a fabricated finding about the solver. The BC check is now
+a test in its own right, and the general rule is: **when a check is built from
+machinery the code under test does not provide, validate the machinery
+separately first, or its bugs will be attributed to the code.**
+
+*The first bilinear form was wrong, and wrong in an instructive direction.*
+Using one term of the pairing rather than Auld's difference `S_mn - conj(S_nm)`
+leaves off-diagonals around 1e-2 — small enough to look like a tolerance
+problem and invite a loosened threshold, rather than a wrong formula. What
+distinguished them was that the correct form improved matters by ten orders,
+not by a factor of two. A test now asserts the wrong form fails, so the
+tolerance in the real test is evidence rather than a fitted constant.
+
+*Adaptive quadrature manufactured a false residual.* With `scipy.quad` the
+off-diagonals sat at 1e-4 and **grew** with integration span — the tell that
+the error was numerical rather than physical, since a genuine truncation error
+shrinks. The integrand underflows in the evanescent tail and the adaptive rule
+spends its error budget there. Fixed-node Gauss-Legendre over a modest span
+gives 1e-13. **When a residual moves the wrong way as you refine, the
+refinement parameter is the bug.**
+
 ## Candidate oracles not yet attempted
 
 Kept concrete so the next session does not have to re-derive the list. Whether
-any of these bites is a measurement, not a promise. Of the seven candidates
-tried so far, four became working oracles; one was vacuous (energy balance);
+any of these bites is a measurement, not a promise. Of the eight candidates
+tried so far, five became working oracles; one was vacuous (energy balance);
 and two failed because a check was transplanted across a boundary its mechanism
 does not cross (layer order, and the n=1/n=2 cutoffs) — one of those had a
 working replacement nearby, the other did not. All three misses were caught by
 measuring and none was obvious from the armchair.
+
+The survey above earned its keep: it predicted which of the remaining
+conservation-flavoured candidates would work, on the criterion that a check
+needs more than one solution, and biorthogonality then did. That leaves
+Kramers-Kronig as the other candidate the same criterion endorses.
 
 Add one screening step before starting any of them, learned the hard way on the
 tube-wave check: **grep the implementation for the formula first.** If the
