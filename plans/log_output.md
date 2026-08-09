@@ -610,3 +610,25 @@ for the compliant-layer warnings.
 > * The assembly stays private. It has two root families, and choosing which one
 >   a public dispersion curve follows is the next decision — that's exactly the
 >   shape of the branch-selection defect fixed in #64.
+
+## Session note: the merge-outcome reply for PR #69
+
+> PR #69 is merged. All four CI checks — `Python 3.11`, `Python 3.12`,
+> `sonic_ml (3.11)`, `sonic_ml (3.12)` — passed on the final commit, matching
+> the local gate. Monitor stopped, subscription closed.
+>
+> Both tasks from your last two turns are landed on `main`:
+>
+> * **`plans/log_output.md`** carries the microannulus assembly reply, including
+>   the raced-coverage caveat and how it resolved.
+> * **The global assembly** (`_modal_determinant_n0_microannulus`) is in the
+>   tree — 11x11 determinant, validated against the Krauklis crack wave to
+>   0.02 % in the thin-gap limit, plus the independent 13x13 assembly and
+>   subdivision invariance. Two determinant-contract defects fixed on the way.
+>
+> Two of the three roadmap G.2 pieces are now done. The remaining one is the
+> public dispersion function, and it has a decision attached rather than just
+> work: the determinant carries two root families, so bracketing has to choose —
+> which is the same shape as the branch-selection defect closed in #64. The gap
+> mode is worth exposing in its own right, since it's a debonding indicator with
+> a closed-form velocity.

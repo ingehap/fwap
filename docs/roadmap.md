@@ -17,7 +17,8 @@ What remains is shorter and sharper than the list below suggests:
 | Open item | Why it matters |
 |-----------|----------------|
 | **F. Real-data fixtures** | Harness shipped; a real *sonic* gather is still missing. The binding constraint on every quantitative claim in the repo, `sonic_ml`'s included. |
-| **G. `sonic_ml` follow-ons** | Free-pipe / leaky cased regime (single-frame *and* joint multi-depth surrogate inversion are done). |
+| **A.5 Fluid microannulus** | The debonded-regime forward model. Two of three pieces are on `main`; the last is a public dispersion function. **The only open item blocked on nothing.** |
+| **G. `sonic_ml` follow-ons** | Debonded-regime datasets, gated on A.5 rather than on the leaky `n=1` work (single-frame *and* joint multi-depth surrogate inversion are done). |
 | **A.1 Validation figures** | Ties the solver to published literature rather than to itself. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
 
@@ -393,9 +394,16 @@ essentially complete -- plan items A through H in
    layer shear, between that and the formation Rayleigh speed, or
    between that and the formation shear), and the middle window is in
    any case singular for the propagator-matrix formulation. A fix
-   means complex-plane root tracking, which is the same machinery
-   item G.2 needs, so the two should be planned together rather than
-   as separate efforts.
+   means complex-plane root tracking.
+
+   *Correction.* An earlier version of this paragraph continued
+   "which is the same machinery item G.2 needs, so the two should be
+   planned together rather than as separate efforts." That is wrong,
+   and it kept the debonded-regime work filed behind this one for
+   several revisions. G.2's standard model — a fluid microannulus —
+   is a **bound**-mode problem and needs no complex-plane tracking at
+   all; it is now item 5 below, and two of its three pieces have
+   shipped while this item is still waiting on a derivation.
 
    **Attempted, and it is not a wiring job.** The complex-plane
    machinery already exists and is proven for `n=0`
@@ -515,6 +523,68 @@ essentially complete -- plan items A through H in
    up now also validates them — Auld's relation is checked across the three
    trapped modes and the Stoneley mode together, so the new function is tied
    to physics rather than to itself.
+
+5. **Fluid microannulus — the debonded-regime forward model.** Two of
+   three pieces are on `main`; this is the only item in this document
+   blocked on nothing. It arrived here from section G, where it had
+   been filed as needing a leaky-mode cased forward model — see the
+   correction under item 2. A microannulus is a **bound**-mode
+   problem.
+
+   Debonding has two candidate models and they are not
+   interchangeable. *Soft cement* is genuinely out of reach:
+   `_stoneley_kz_bracket_cased` takes its bound-regime floor from the
+   softest shear velocity anywhere in the stack, so once a layer's
+   `V_S` falls below the fluid velocity there is no bound window left
+   containing the Stoneley mode — measured, the cased Stoneley
+   converges fully down to `cement_vs = V_f`, partially just below,
+   and not at all by 1200 m/s. A *fluid microannulus* — the standard
+   model in cement-bond logging — is not excluded by that argument,
+   because its floor is set by its acoustic velocity (~1500 m/s)
+   rather than by a near-zero shear velocity. It also cannot be
+   approximated by a very compliant elastic layer, precisely because
+   an elastic layer does drag the floor down: measured, that fails at
+   every thickness tried, down to 0.2 mm.
+
+   **Shipped.** `_fluid_layer_e_matrix_n0` /
+   `_fluid_layer_propagator_n0` (a fluid annulus carries two
+   amplitudes rather than four, imposes no shear traction, and
+   permits axial slip, so its state is the pair `(u_r, sigma_rr)`),
+   and `_modal_determinant_n0_microannulus`, an 11x11 assembly for
+   `fluid | casing | microannulus | cement | formation`.
+
+   The assembly has **no reduction to the existing solver** to check
+   against: the `annulus_thickness -> 0` limit is a frictionless slip
+   interface, not the bonded stack, so at 8 kHz the Stoneley-like
+   root converges to 1383.45 m/s against 1400.04 m/s bonded and the
+   1.2 % offset does not close. It is validated instead against the
+   **Krauklis crack wave**, `c = (omega h / (C rho_f))^{1/3}` with
+   `C` the sum of the wall compliances `(1 - nu)/mu` — an analytic
+   result with no Bessel functions and no cylindrical geometry in it,
+   reproduced to 0.02 % at a 1 um gap.
+
+   **What is left**, and the shape of it:
+
+   - A **public dispersion function**. The determinant carries *two*
+     root families — a Stoneley-like mode and the gap mode, 68-620
+     m/s over four decades of gap thickness — so bracketing has to
+     choose. That is the same failure as item 3 above, which is why
+     the root set is already pinned as independent of scan grid and
+     window.
+   - **Exposing the gap mode**, not only the Stoneley shift. It is
+     the more sensitive debonding indicator (`h^{1/3}`, against a
+     Stoneley root that barely moves) and it has a closed form, so it
+     can be inverted for gap thickness directly.
+   - **A public way to express the configuration.** `BoreholeLayer`
+     requires `vs > 0` and cannot represent a fluid, so this needs a
+     new type or an explicit annulus argument — public API, and
+     therefore the three-file lockstep.
+   - Then the `sonic_ml` consumer: a debonded-regime dataset, and
+     with it the first fair CBL-amplitude comparison.
+
+   `n=1` / `n=2` microannulus assemblies would be needed for
+   *flexural* CBL work and are a separate, larger job. The `n=0` path
+   is self-contained and does not depend on them.
 
 For reference, the original from-scratch problem statement is
 preserved below.
@@ -894,13 +964,27 @@ would be advertising rather than measuring.
 
 1. **Real-data evaluation** -- see section F. The binding constraint
    on every claim above.
-2. **Free-pipe / leaky cased regime.** The cased dataset spans the
+2. **Free-pipe / debonded cased regime.** The cased dataset spans the
    *bonded* regime, where the cased Stoneley stays bound, so the bond
    inverse grades cement quality and is explicitly not a free-pipe
-   detector. Reaching the debonded regime needs a leaky-mode cased
-   forward model, not a planted wavetrain -- and it is also the regime
-   where a CBL-amplitude baseline would finally be a fair comparison
-   rather than a strawman.
+   detector. It is also the regime where a CBL-amplitude baseline
+   would finally be a fair comparison rather than a strawman.
+
+   *Correction.* This entry used to continue "reaching the debonded
+   regime needs a leaky-mode cased forward model, not a planted
+   wavetrain", which filed it behind the derivation-blocked `n=1`
+   leaky work in section A. The first half is right -- a planted
+   wavetrain would not do -- and the second half is wrong. The
+   standard debonding model is a **fluid microannulus**, which is a
+   bound-mode problem needing no complex-plane tracking; two of its
+   three pieces have since shipped. This item is therefore gated on
+   **A.5**, not on A.2, and what it needs from A.5 is the public
+   dispersion function.
+
+   Free pipe *proper* -- casing surrounded by fluid, the classic CBL
+   casing-ring amplitude -- remains partly a phenomenological
+   amplitude effect rather than a modal one, and that part is
+   unchanged by A.5.
 3. **Two-mode cased datasets**, gated on the cased-flexural
    bracketing in section A.
 4. **Surrogate-in-the-loop inversion** -- *closed*.
