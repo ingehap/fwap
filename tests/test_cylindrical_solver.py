@@ -11852,30 +11852,36 @@ def test_quadrupole_dispersion_layered_returns_borehole_mode_for_unlayered():
     np.testing.assert_array_equal(res.freq, f)
 
 
-def test_quadrupole_dispersion_layered_rejects_softer_layer():
-    """The per-layer slow-formation constraint
-    ``layer.vs >= vs`` is enforced via the G'.0
-    ``_validate_flexural_layers_stacked`` helper (the constraint
-    is the same at n=1 and n=2). A softer layer triggers
-    ``ValueError`` with the offending index."""
+def test_quadrupole_dispersion_layered_rejects_softer_layer_multi_only():
+    """The per-layer slow-formation constraint ``layer.vs >= vs``
+    applies to the **multi-layer** path only, via the G'.0
+    ``_validate_flexural_layers_stacked`` helper -- the same rule, and
+    the same layer-count condition, as ``flexural_dispersion_layered``.
+
+    This test used to assert that a *single* softer layer was rejected.
+    That was the behaviour of the code but not of its docstring, which
+    has always said "(multi-layer only)", and it made every invaded zone
+    unrepresentable at n=2 while the identical model was accepted at
+    n=1. Corrected against Schmitt & Cheng figure 15(b); see the A.6
+    block later in this file."""
     from fwap.cylindrical_solver import quadrupole_dispersion_layered
 
-    soft_layer = BoreholeLayer(
-        vp=1500.0,
-        vs=600.0,
-        rho=1700.0,
-        thickness=0.05,
-    )  # vs = 600 < formation vs = 800 -> reject
+    soft = BoreholeLayer(vp=1500.0, vs=600.0, rho=1700.0, thickness=0.05)
+    base = dict(vp=2200.0, vs=800.0, rho=2200.0, vf=1500.0, rho_f=1000.0, a=0.1)
+
+    # one soft layer: accepted (an invaded zone is exactly this case)
+    res = quadrupole_dispersion_layered(np.array([10000.0]), **base, layers=(soft,))
+    assert res.slowness.shape == (1,)
+
+    # two: the multi-layer guard still fires, with the offending index
     with pytest.raises(ValueError, match=r"layer\.vs"):
         quadrupole_dispersion_layered(
             np.array([10000.0]),
-            vp=2200.0,
-            vs=800.0,
-            rho=2200.0,
-            vf=1500.0,
-            rho_f=1000.0,
-            a=0.1,
-            layers=(soft_layer,),
+            **base,
+            layers=(
+                soft,
+                BoreholeLayer(vp=1500.0, vs=650.0, rho=1700.0, thickness=0.05),
+            ),
         )
 
 
@@ -20085,48 +20091,52 @@ def test_the_quadrupole_p_wavetrain_grows_faster_than_the_dipole_s():
     assert _FIG16_P_OVER_S[6.0][2] > _FIG17_P_OVER_S[6.0][2]
 
 
-def test_quadrupole_dispersion_layered_refuses_every_invaded_zone():
-    """The finding: eight of twelve waveforms cannot be computed at all.
+def test_quadrupole_dispersion_layered_accepts_a_single_invaded_zone():
+    """A.6, fixed: the n=2 slow-formation path takes an invaded zone.
 
     An invaded zone is slower in shear than the rock it replaces. The
-    n = 2 slow-formation path rejects any such layer outright, so the
-    whole invaded-zone family in a slow formation is unrepresentable --
-    which is what figures 15(b) and 17 are about.
+    per-layer ``layer.vs >= vs`` constraint now applies to the
+    multi-layer path only, which is what this function's docstring
+    always said and what ``flexural_dispersion_layered`` always did.
     """
     from fwap.cylindrical_solver import quadrupole_dispersion_layered
 
     fluid = dict(vf=1500.0, rho_f=1000.0)
-    freq = np.array([6000.0])
+    freq = np.array([6000.0, 7500.0])
     for thickness in (0.08, 0.16):
-        with pytest.raises(ValueError, match="at least as fast in shear"):
-            quadrupole_dispersion_layered(
-                freq,
-                **_FIG15_VIRGIN,
-                **fluid,
-                a=0.10,
-                layers=(BoreholeLayer(**_FIG15_INVADED, thickness=thickness),),
-            )
-    # a *faster* annulus -- cement behind a slow formation -- is accepted,
-    # so it is the softness of the layer that is refused, not layering
-    cement = BoreholeLayer(vp=2823.0, vs=1729.0, rho=1920.0, thickness=0.16)
-    mode = quadrupole_dispersion_layered(
-        freq, **_FIG15_VIRGIN, **fluid, a=0.10, layers=(cement,)
-    )
-    assert mode.slowness.shape == freq.shape
+        mode = quadrupole_dispersion_layered(
+            freq,
+            **_FIG15_VIRGIN,
+            **fluid,
+            a=0.10,
+            layers=(BoreholeLayer(**_FIG15_INVADED, thickness=thickness),),
+        )
+        v = 1.0 / mode.slowness
+        assert np.isfinite(v).all(), f"{thickness}: {v}"
+        # below the invaded shear speed, above the fluid: a bound mode
+        assert np.all(v < _FIG15_INVADED["vs"])
+        assert np.all(v > 800.0)
+
+    # two soft layers still raise -- the multi-layer guard is untouched
+    with pytest.raises(ValueError, match="at least as fast in shear"):
+        quadrupole_dispersion_layered(
+            freq,
+            **_FIG15_VIRGIN,
+            **fluid,
+            a=0.10,
+            layers=(
+                BoreholeLayer(**_FIG15_INVADED, thickness=0.08),
+                BoreholeLayer(**_FIG15_INVADED, thickness=0.08),
+            ),
+        )
 
 
-def test_the_same_model_is_accepted_at_n1_and_refused_at_n2():
-    """The asymmetry that makes the refusal a finding rather than a limit.
+def test_the_same_model_is_now_accepted_at_both_n1_and_n2():
+    """The asymmetry A.6 was filed for, closed.
 
-    `flexural_dispersion_layered` applies the identical constraint only
-    when there are two or more layers, so a single invaded zone passes.
-    The answers it gives in that supposedly unsupported regime are the
-    ones figure 15 tied to the published curves at 1.47-1.48 % rms. The
-    n = 2 path refuses the same physical model.
-
-    If this test starts failing because n = 2 now accepts the model, the
-    asymmetry has been resolved and the figure-17 comparison should be
-    written for real.
+    Before the fix, the identical one-layer invaded-zone model was
+    accepted at n=1 and rejected at n=2. Both paths now take it, and
+    both put the phase velocity below the invaded shear speed.
     """
     from fwap.cylindrical_solver import quadrupole_dispersion_layered
 
@@ -20134,23 +20144,33 @@ def test_the_same_model_is_accepted_at_n1_and_refused_at_n2():
     freq = np.array([6000.0])
     layers = (BoreholeLayer(**_FIG15_INVADED, thickness=0.16),)
 
-    n1 = flexural_dispersion_layered(
-        freq, **_FIG15_VIRGIN, **fluid, a=0.10, layers=layers
-    )
-    assert np.isfinite(n1.slowness).all(), "n=1 accepts and resolves it"
-
-    with pytest.raises(ValueError):
-        quadrupole_dispersion_layered(
+    n1 = (
+        1.0
+        / flexural_dispersion_layered(
             freq, **_FIG15_VIRGIN, **fluid, a=0.10, layers=layers
-        )
+        ).slowness
+    )
+    n2 = (
+        1.0
+        / quadrupole_dispersion_layered(
+            freq, **_FIG15_VIRGIN, **fluid, a=0.10, layers=layers
+        ).slowness
+    )
+    assert np.isfinite(n1).all() and np.isfinite(n2).all()
+    for v in (n1, n2):
+        assert np.all(v < _FIG15_INVADED["vs"])
+    # the screw mode is the faster of the two at a given frequency
+    assert n2[0] > n1[0]
 
 
-def test_two_of_figure_17s_twelve_waveforms_have_a_phase_velocity():
-    """Count what a caller could actually reproduce from this figure.
+def test_six_of_figure_17s_twelve_waveforms_now_have_a_phase_velocity():
+    """What the fix buys on this figure, counted.
 
-    Eight invaded waveforms raise before computing. Of the four virgin
-    ones, the screw mode resolves only from 5.25 kHz, so the 1 and 3 kHz
-    panels return nothing either.
+    Before: two, both virgin. The eight invaded waveforms raised before
+    computing. After: six -- the two invaded models resolve at 6 and
+    7.5 kHz apiece. The remaining six are all below the screw mode's
+    onset, which this fix does not touch and which the near-cutoff gap
+    already covers.
     """
     from fwap.cylindrical_solver import (
         quadrupole_dispersion,
@@ -20159,26 +20179,22 @@ def test_two_of_figure_17s_twelve_waveforms_have_a_phase_velocity():
 
     fluid = dict(vf=1500.0, rho_f=1000.0)
     probe = 1.0e3 * np.array([1.0, 3.0, 6.0, 7.5])
-    virgin = (
-        1.0 / quadrupole_dispersion(probe, **_FIG15_VIRGIN, **fluid, a=0.10).slowness
+    computable = int(
+        np.isfinite(
+            quadrupole_dispersion(probe, **_FIG15_VIRGIN, **fluid, a=0.10).slowness
+        ).sum()
     )
-    assert int(np.isfinite(virgin).sum()) == 2, virgin
-    assert not np.isfinite(virgin[0]) and not np.isfinite(virgin[1])
-
-    computable = int(np.isfinite(virgin).sum())
+    assert computable == 2, "the virgin model still resolves only 6 and 7.5 kHz"
     for thickness in (0.08, 0.16):
-        try:
-            m = quadrupole_dispersion_layered(
-                probe,
-                **_FIG15_VIRGIN,
-                **fluid,
-                a=0.10,
-                layers=(BoreholeLayer(**_FIG15_INVADED, thickness=thickness),),
-            )
-        except ValueError:
-            continue
-        computable += int(np.isfinite(1.0 / m.slowness).sum())
-    assert computable == 2, f"{computable} of 12 plotted waveforms"
+        m = quadrupole_dispersion_layered(
+            probe,
+            **_FIG15_VIRGIN,
+            **fluid,
+            a=0.10,
+            layers=(BoreholeLayer(**_FIG15_INVADED, thickness=thickness),),
+        )
+        computable += int(np.isfinite(m.slowness).sum())
+    assert computable == 6, f"{computable} of 12 plotted waveforms"
 
 
 def test_the_virgin_screw_airy_arrival_is_worse_than_the_flexural_one():
@@ -20209,3 +20225,236 @@ def test_the_virgin_screw_airy_arrival_is_worse_than_the_flexural_one():
     assert int((np.diff(idx) > 1).sum()) == 0, "no interior gaps"
     onset = freq[np.isfinite(v)].min() / 1.0e3
     assert onset == pytest.approx(_FIG17_VIRGIN_ONSET_KHZ, abs=0.4)
+
+
+# ----------------------------------------------------------------------
+# Figure 15(b) and A.6: the reference the fix rests on
+#
+# "Invaded zone effects with a slow sandstone. Dispersion and attenuation
+# of the flexural (a) and screw (b) modes in the presence of: (1) the
+# only virgin formation; (2) a 8 cm thick invaded zone; (3) a 16 cm thick
+# invaded zone; (4) the only invaded zone."
+#
+# Panel (b) is the screw mode -- the curves `quadrupole_dispersion_layered`
+# used to refuse to compute. The figure-15 work digitised only panel (a),
+# which is why A.6 went unnoticed until figure 17.
+#
+# **Calibration.** The panel's x-axis runs 2-10 kHz, not 0-10: nine evenly
+# spaced ticks with the "5" label under the fourth and "10" under the
+# ninth. Physics confirms it -- curves 1, 2 and 3 leave the axis at
+# v = 0.80 (= 1201/1500, the *virgin* shear speed, as the report says on
+# p. 228) and curve 4 at 0.72 (= 1081/1500, the invaded one). Tick fits:
+# x to 0.008 kHz, y to 0.00006 normalised.
+#
+# **Curve identification, checked rather than assumed.** The four solid
+# curves merge, so each is followed from its own start with slope
+# prediction, stopping where a neighbour comes within two line widths.
+# The 16 cm trace was verified to sit on run 3 of 4 at every sampled
+# frequency -- it is curve 3, not curve 4. That check mattered: on rms
+# alone the 16 cm data fits an *invaded-only* prediction slightly better
+# than a layered one, because curves 3 and 4 converge to within 0.6-0.8 %
+# over the band where fwap and the trace overlap. Curve 2 is 4.2 % from
+# its nearest neighbour there, which is why the 8 cm tie carries the
+# weight and the 16 cm one only corroborates.
+#
+# **What this settles.** With the single-layer guard removed, the n=2
+# layered path returns, against these curves:
+#
+#     model               band          rms      median
+#     virgin (control)    5.25-9.75    1.29 %    +0.35 %
+#     8 cm invaded        5.75-8.00    **0.58 %**  +0.29 %
+#     16 cm invaded       5.00-5.50    2.12 %    +2.07 %   (3 points)
+#
+# The 8 cm figure is better than the same solver's own virgin control on
+# the same figure. The code was refusing a regime it computes correctly,
+# and its docstring had said "(multi-layer only)" all along.
+#
+# The fix does not touch the onset: fwap resolves the 8 cm model from
+# 5.6 kHz against a published 3.4 kHz, which is the slow screw mode's
+# near-cutoff gap already recorded at _NEAR_CUTOFF_GAPS.
+# ----------------------------------------------------------------------
+
+#: Figure 15(b): screw-mode phase velocity (Hz, m/s), read off the
+#: published curves. Virgin is the control; the two invaded models are
+#: the ones the n=2 layered path used to refuse.
+_FIG15B_SCREW_PHASE = {
+    "virgin": (
+        (4.5e3, 1185.4),
+        (5.0e3, 1171.7),
+        (5.5e3, 1157.2),
+        (6.0e3, 1144.6),
+        (6.5e3, 1132.0),
+        (7.0e3, 1121.5),
+        (7.5e3, 1112.9),
+        (8.0e3, 1104.3),
+        (8.5e3, 1095.8),
+        (9.0e3, 1090.2),
+        (9.5e3, 1085.3),
+    ),
+    "invaded_8cm": (
+        (4.0e3, 1153.9),
+        (4.5e3, 1123.2),
+        (5.0e3, 1095.6),
+        (5.5e3, 1069.8),
+        (6.0e3, 1049.0),
+        (6.5e3, 1029.2),
+        (7.0e3, 1014.3),
+        (7.5e3, 1002.5),
+        (8.0e3, 993.4),
+    ),
+    "invaded_16cm": (
+        (4.0e3, 1099.5),
+        (4.5e3, 1071.0),
+        (5.0e3, 1049.6),
+        (5.5e3, 1031.9),
+    ),
+}
+
+#: Figure 15(b): thickness of the annulus for each model, or None for
+#: the open-hole virgin control.
+_FIG15B_THICKNESS = {"virgin": None, "invaded_8cm": 0.08, "invaded_16cm": 0.16}
+
+#: Separation between curve 3 (16 cm) and its nearest neighbour, curve 4
+#: (invaded rock alone), as a fraction, over 5.0-5.5 kHz. This is why the
+#: 16 cm tie corroborates rather than decides.
+_FIG15B_CURVE_3_4_SEPARATION = 0.008
+
+
+def test_fig15b_curves_start_at_the_published_shear_speeds():
+    """Anchor the digitisation before anything is built on it.
+
+    Every traced sample must lie below the shear speed of the medium the
+    mode ends up sampling, and the invaded models must lie below the
+    virgin one at matched frequency -- a thicker slow annulus cannot
+    speed the mode up.
+    """
+    for name, table in _FIG15B_SCREW_PHASE.items():
+        v = np.array([x for _, x in table])
+        assert np.all(v < _FIG15_VIRGIN["vs"]), f"{name}: {v.max()}"
+        assert np.all(np.diff(v) < 0.0), f"{name} is not monotone: {v}"
+    common = [4.5e3, 5.0e3, 5.5e3]
+    for f in common:
+        virgin = dict(_FIG15B_SCREW_PHASE["virgin"])[f]
+        eight = dict(_FIG15B_SCREW_PHASE["invaded_8cm"])[f]
+        sixteen = dict(_FIG15B_SCREW_PHASE["invaded_16cm"])[f]
+        assert sixteen < eight < virgin, f"{f}: {sixteen}, {eight}, {virgin}"
+
+
+@pytest.mark.parametrize("model", sorted(_FIG15B_SCREW_PHASE))
+def test_quadrupole_layered_tracks_figure_15b(model):
+    """A.6 fixed, measured against the figure that plots it.
+
+    The virgin row is a control -- it uses the open-hole solver, which
+    figure 8a already tied at 0.94 % rms on this rock, so it prices the
+    digitisation itself. The two invaded rows go through the layered path
+    that used to raise `ValueError` before computing anything.
+    """
+    from fwap.cylindrical_solver import (
+        quadrupole_dispersion,
+        quadrupole_dispersion_layered,
+    )
+
+    table = _FIG15B_SCREW_PHASE[model]
+    freq = np.array([f for f, _ in table])
+    ref = np.array([v for _, v in table])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    thickness = _FIG15B_THICKNESS[model]
+    if thickness is None:
+        got = (
+            1.0 / quadrupole_dispersion(freq, **_FIG15_VIRGIN, **fluid, a=0.10).slowness
+        )
+    else:
+        got = (
+            1.0
+            / quadrupole_dispersion_layered(
+                freq,
+                **_FIG15_VIRGIN,
+                **fluid,
+                a=0.10,
+                layers=(BoreholeLayer(**_FIG15_INVADED, thickness=thickness),),
+            ).slowness
+        )
+    ok = np.isfinite(got)
+    # the 16 cm model resolves only its top two rows -- the rest of its
+    # published band is below fwap's onset, which this fix does not touch
+    assert ok.sum() >= 2, f"{model}: only {ok.sum()} samples resolved"
+    rel = (got[ok] - ref[ok]) / ref[ok]
+    rms = float(np.sqrt((rel**2).mean()))
+    assert rms < 0.035, f"{model}: rms {rms:.2%}"
+
+
+def test_the_8cm_layered_tie_is_better_than_its_own_virgin_control():
+    """The evidence that the refused regime was computed correctly.
+
+    If the layered path were unsound where the guard used to block it,
+    it would score worse than the open-hole solver on the same figure.
+    It scores better -- 0.58 % rms against the virgin control's 1.29 % --
+    which is what turns "the guard is over-strict" from an argument into
+    a measurement.
+    """
+    from fwap.cylindrical_solver import (
+        quadrupole_dispersion,
+        quadrupole_dispersion_layered,
+    )
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+
+    def score(model: str) -> float:
+        table = _FIG15B_SCREW_PHASE[model]
+        freq = np.array([f for f, _ in table])
+        ref = np.array([v for _, v in table])
+        th = _FIG15B_THICKNESS[model]
+        if th is None:
+            got = (
+                1.0
+                / quadrupole_dispersion(freq, **_FIG15_VIRGIN, **fluid, a=0.10).slowness
+            )
+        else:
+            got = (
+                1.0
+                / quadrupole_dispersion_layered(
+                    freq,
+                    **_FIG15_VIRGIN,
+                    **fluid,
+                    a=0.10,
+                    layers=(BoreholeLayer(**_FIG15_INVADED, thickness=th),),
+                ).slowness
+            )
+        ok = np.isfinite(got)
+        rel = (got[ok] - ref[ok]) / ref[ok]
+        return float(np.sqrt((rel**2).mean()))
+
+    eight = score("invaded_8cm")
+    control = score("virgin")
+    assert eight < 0.012, f"8 cm layered rms {eight:.2%}"
+    assert eight < control, f"8 cm {eight:.2%} vs virgin control {control:.2%}"
+
+
+def test_the_16cm_tie_is_recorded_as_corroborating_not_deciding():
+    """State the limit rather than let the number stand unqualified.
+
+    Over the band where fwap and the traced curve overlap, curve 3
+    (16 cm) and curve 4 (the invaded rock alone) run within 0.8 % of each
+    other. The trace was verified to sit on curve 3 by run ordering, but
+    an rms comparison at that separation cannot by itself distinguish a
+    layered prediction from an invaded-only one -- so the 8 cm tie is the
+    one the fix rests on.
+    """
+    from fwap.cylindrical_solver import quadrupole_dispersion
+
+    table = _FIG15B_SCREW_PHASE["invaded_16cm"]
+    freq = np.array([f for f, _ in table])
+    ref = np.array([v for _, v in table])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    # curve 4: the invaded rock as a half-space, no layered path at all
+    curve4 = (
+        1.0 / quadrupole_dispersion(freq, **_FIG15_INVADED, **fluid, a=0.10).slowness
+    )
+    ok = np.isfinite(curve4)
+    assert ok.any(), "curve 4 resolves somewhere in the band"
+    gap = np.abs(curve4[ok] - ref[ok]) / ref[ok]
+    assert gap.max() < 0.03, (
+        "curves 3 and 4 are close enough that this comparison cannot "
+        f"separate them: worst {gap.max():.2%}"
+    )
+    assert _FIG15B_CURVE_3_4_SEPARATION < 0.01

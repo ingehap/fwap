@@ -6,6 +6,37 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **`quadrupole_dispersion_layered` no longer rejects a single invaded zone**
+  (roadmap A.6). The slow-formation branch applied the per-layer constraint
+  `layer.vs >= vs` for *every* layer count, so any annulus slower in shear than
+  the formation was refused with `ValueError` before the solver ran — and an
+  invaded zone is by definition slower than the rock it replaces. The whole
+  invaded-zone family was therefore unrepresentable at `n = 2` in a slow
+  formation.
+  **It was an implementation/docstring mismatch, not a scoping decision.** The
+  function's own `Raises` section has always said the constraint applies
+  "(multi-layer only)", and `flexural_dispersion_layered` has always enforced it
+  that way — for two or more layers, with the single-layer path left to the
+  caller. `n = 2` now matches both its docstring and its sister path. **The
+  multi-layer guard is unchanged**, and two soft layers still raise.
+  **Validated against the figure that plots these curves**, not assumed. Schmitt
+  & Cheng figure 15(b) is the screw mode for exactly this configuration; the
+  figure-15 work digitised only panel (a), which is why this went unnoticed.
+  Against the digitised curves the newly-unblocked path returns **0.58 % rms**
+  for an 8 cm invaded zone (median +0.29 %) — *better* than the same solver's
+  **1.29 %** on the virgin rock of the same figure, which is the control that
+  prices the digitisation. A path that was refusing to run computes its own
+  figure more accurately than the path that was allowed to.
+  Figure 17 goes from **2 of its 12** plotted waveforms computable to **6**.
+  The fix does **not** touch the mode's onset: fwap still resolves the 8 cm
+  model only from 5.6 kHz against a published 3.4 kHz, which is the slow screw
+  mode's near-cutoff gap and a separate item. The six waveforms still
+  unreachable are all below cutoff.
+  One existing test changed meaning: `..._rejects_softer_layer` asserted the old
+  single-layer rejection and now asserts the documented contract instead — one
+  soft layer accepted, two rejected.
+
 ### Known issues
 - **`flexural_dispersion` returns a flexural overtone in fast formations above
   roughly 15 kHz** (roadmap A.2). Measured, pinned by three tests, and not yet
@@ -412,22 +443,13 @@ the project uses [Semantic Versioning](https://semver.org/).
   though, fwap resolves none of the three models (onsets 2.52 / 3.51 / 2.94 kHz):
   the panel that measures best is entirely outside coverage.
 
-  **Figure 17 checks the slow-formation quadrupole, and the headline is a
-  refusal.** `quadrupole_dispersion_layered` raises `ValueError` on this model
-  before computing anything: the slow-formation branch requires every layer to be
-  at least as fast in shear as the formation, and an invaded zone is by
-  definition slower. Eight of the figure's twelve waveforms are not inaccurate —
-  they are unrepresentable. Filed separately as **A.6**, because it is not a form
-  of A.2 and its fix is a scoping decision rather than an algorithm.
-  The constraint is deliberate and defensible; what makes it a defect is the
-  asymmetry. `flexural_dispersion_layered` applies the identical check only for
-  **two or more** layers, so the same one-layer model is accepted at n=1 — and
-  those are the answers figure 15 tied to the published curves at 1.47-1.48 % rms.
-  The regime the n=2 validator refuses is one the n=1 code demonstrably handles.
-  Figure 15(b) plots exactly the curves fwap will not produce; the figure-15 work
-  digitised only panel (a), so this was reachable then and missed.
-  **Of the twelve plotted waveforms, exactly two have a computable phase
-  velocity** — the virgin screw mode resolves only from 5.25 kHz, above the 1 and
+  **Figure 17 checks the slow-formation quadrupole, and its headline was a
+  refusal** — `quadrupole_dispersion_layered` raised on every invaded zone,
+  making eight of the figure's twelve waveforms unrepresentable. That is filed as
+  **A.6** and is now **fixed** (see the Fixed section above); with the guard
+  corrected, figure 17 goes from 2 computable waveforms to 6.
+  The six still unreachable are all below the screw mode's onset, which the fix
+  does not touch: the virgin mode resolves only from 5.25 kHz, above the 1 and
   3 kHz panels. That curve is structurally sound (no interior gaps, group velocity
   never negative), and predicting the virgin Airy arrival from it gives 5.24 ms
   against 4.96 measured, **+5.6 %**, against the flexural mode's +3.0 % on the
@@ -449,7 +471,7 @@ the project uses [Semantic Versioning](https://semver.org/).
   from virgin to 16 cm by 26x and 69x against the dipole's 15x and 13x — though
   read as absolute level rather than growth it would look false.
 
-  Eighty-four tests now pin the item, not three, and every reference table carries
+  Ninety tests now pin the item, not three, and every reference table carries
   its own shear-speed anchor test.
 
 ### Validated

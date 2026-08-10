@@ -78,8 +78,8 @@ training data — one hole of one tool does not change that.
 |-----------|----------------|
 | ~~**F.2 A waveform fixture CI can use**~~ | *Closed, with one thing it does not mean.* `iodp_u1347a_dsi` — an eight-receiver DSI monopole run, **CC0** on Zenodo — is registered, read by `read_ldeo_waveforms`, and exercised by `stc` at **0.948** median peak coherence. CI *can* use it but does not: the default run stays hermetic and skips it. The blocking claim ("no openly redistributable gather is known to exist") turned out to be false. Kept below. |
 | ~~**F.5 The ODP file's unknowns**~~ | *Closed.* Both answered, and the item was filed on a wrong premise — "not resolvable from the files" meant "nobody had opened the rest of the archive". The hole identity is settled by the archive's own run table (six runs matched by name and depth interval, six for six); the offsets are the LSS **8/10/10/12 ft** set, confirmed by first-break moveout to an intercept of −0.0 µs. Kept below. |
-| **A.2 Fast-formation leakage, `n=1` and `n=2`** | **Measured against the published curves for four rocks, and it is two defects.** Figures 2a and 7a plot this exact quantity for stated formations. Digitised, the flexural branch runs `V_S` → Scholte and crosses `V_R` at **4.43-4.45 kHz in all three fast rocks** — although `V_R` spans 2413 to 3388 m/s. The solver's `(V_R, V_S)` window therefore empties at the same frequency whatever the formation, and holds the true root over **10 %** of the band. *Wrong answers*: overtones labelled as the mode, sawtoothing where a guided mode cannot, and **worse the harder the rock** — +62 % median in the fast sandstone, +72 % in limestone, **+134 % in granite**, which returns nothing at all across the 3-10 kHz band figure 7a resolves. *Missing answers*: at both ends of the band no real-axis root exists. Moving the bracket edge to the Scholte speed recovers **4.4-16.4 kHz at 0.66 % median error** and nothing outside it, so the fix is scoped rather than guessed: a bracket edit for the middle, complex `k_z` for the two ends. Pinned by eighty-four tests across sixteen digitised figures, not fixed (collected items whose bodies reference a digitised reference table). **`n=2` checked against figures 7b and 5a, and it is the worse of the two**: same mechanism and stiffness ordering, but 65-75 % coverage against `n=1`'s 21-36 %, so a `NaN` filter keeps two to three times as many wrong answers. On the screw mode's own figure it covers 72 % of 6.4-25 kHz with **not one point within 5 %**. One fix repairs both. **Figure 6 shows the `n=2` cutoff itself is misplaced** — first root 8.29 kHz against a published 6.29, so the solver is empty at the frequency the paper's own waveforms ring at; figure 11 then shows this is a **1.5-2.0 kHz absolute onset delay** common to both modes and both formations, not the 32 % the ratio suggests — and that **coverage is not reproducible**: two frequency grids differing by last-bit rounding give 47 and 42 converged points of 71. **Figure 12 adds the layered path and inverts the health metric**: a 16 cm invaded zone takes flexural coverage from 9 % to 73 % on the same rock while every extra answer is an overtone 31-53 % above the published band — so on the layered path *high* coverage is the worse sign. **Figure 15 then exonerates the layered code**: the identical call tracks the published slow-formation invaded-zone curves at **1.5 % rms**, as good as the open-hole solver, so the defect is the bracket and one fix repairs both paths. **Figure 3 restates it as a traveltime**: the published dipole waveforms put the flexural energy at 4.35 ms over 5 m, where fwap's answer implies 1.9-2.1 ms — **2.2× too early**. **Figure 14 draws the boundary of what A.2 can be blamed for**: of the twelve waveforms it plots, the quadrupole solver returns a phase velocity for three, the virgin rock giving no root at any of the figure's four source frequencies, and all 194 converged samples again sit strictly inside `(V_R, V_S)` — but the figure's actual content is peak amplitude, which is excitation times propagation, and `BoreholeMode` carries neither (`attenuation_per_meter` is `None` on both paths). **A corrected bracket would not reproduce figure 14.** What it would fix is the Airy phase the paragraph also claims, which currently emerges with the *wrong sign*: the sawtooth ramps drive `v_g = 1/(d(f·s)/df)` negative on 18 of 48 adjacent samples. **Figure 16 then checks the slow formation in the time domain and refines figure 15's verdict**: the layered path's *phase* velocity is as good as the open-hole one, but its *group* velocity is not — predicting the published Airy arrival at 5 m is +3.0 % late for the virgin rock against +6.3 % and +8.0 % for the two layered models. Those curves are structurally sound (one contiguous run, monotone phase, group velocity never changing sign), so A.2's bracket is not implicated there — but at 1 kHz fwap resolves none of the three models, the near-cutoff gap again. |
-| **A.6 The `n=2` layered path refuses every invaded zone** | *New, found by figure 17 and not a form of A.2.* `quadrupole_dispersion_layered` raises `ValueError` on any layer slower in shear than a slow formation — which is what an invaded zone **is**. So the whole invaded-zone family at `n=2` in a slow formation is unrepresentable, and eight of figure 17's twelve waveforms cannot be computed at all. The constraint itself is deliberate and defensible (`_validate_flexural_layers_stacked`, plan G'.0); what makes this a defect is the **asymmetry**: `flexural_dispersion_layered` applies the identical check only for **two or more** layers, so the same one-layer model is accepted at `n=1` — and the answers it gives in that supposedly unsupported regime are the ones figure 15 tied to the published curves at **1.47-1.48 % rms**. The regime the `n=2` validator refuses is one the `n=1` code demonstrably handles. Figure 15(b) plots exactly the curves fwap will not produce, and the figure-15 work digitised only panel (a), so this was reachable then and missed. Fix is a scoping decision, not an algorithm: either relax `n=2` to match `n=1`'s single-layer allowance, or tighten `n=1` and document that invaded zones are out of scope for both — but the current split cannot be right in both directions. Pinned by three tests, not fixed. |
+| **A.2 Fast-formation leakage, `n=1` and `n=2`** | **Measured against the published curves for four rocks, and it is two defects.** Figures 2a and 7a plot this exact quantity for stated formations. Digitised, the flexural branch runs `V_S` → Scholte and crosses `V_R` at **4.43-4.45 kHz in all three fast rocks** — although `V_R` spans 2413 to 3388 m/s. The solver's `(V_R, V_S)` window therefore empties at the same frequency whatever the formation, and holds the true root over **10 %** of the band. *Wrong answers*: overtones labelled as the mode, sawtoothing where a guided mode cannot, and **worse the harder the rock** — +62 % median in the fast sandstone, +72 % in limestone, **+134 % in granite**, which returns nothing at all across the 3-10 kHz band figure 7a resolves. *Missing answers*: at both ends of the band no real-axis root exists. Moving the bracket edge to the Scholte speed recovers **4.4-16.4 kHz at 0.66 % median error** and nothing outside it, so the fix is scoped rather than guessed: a bracket edit for the middle, complex `k_z` for the two ends. Pinned by ninety tests across seventeen digitised panels, not fixed (collected items whose bodies reference a digitised reference table). **`n=2` checked against figures 7b and 5a, and it is the worse of the two**: same mechanism and stiffness ordering, but 65-75 % coverage against `n=1`'s 21-36 %, so a `NaN` filter keeps two to three times as many wrong answers. On the screw mode's own figure it covers 72 % of 6.4-25 kHz with **not one point within 5 %**. One fix repairs both. **Figure 6 shows the `n=2` cutoff itself is misplaced** — first root 8.29 kHz against a published 6.29, so the solver is empty at the frequency the paper's own waveforms ring at; figure 11 then shows this is a **1.5-2.0 kHz absolute onset delay** common to both modes and both formations, not the 32 % the ratio suggests — and that **coverage is not reproducible**: two frequency grids differing by last-bit rounding give 47 and 42 converged points of 71. **Figure 12 adds the layered path and inverts the health metric**: a 16 cm invaded zone takes flexural coverage from 9 % to 73 % on the same rock while every extra answer is an overtone 31-53 % above the published band — so on the layered path *high* coverage is the worse sign. **Figure 15 then exonerates the layered code**: the identical call tracks the published slow-formation invaded-zone curves at **1.5 % rms**, as good as the open-hole solver, so the defect is the bracket and one fix repairs both paths. **Figure 3 restates it as a traveltime**: the published dipole waveforms put the flexural energy at 4.35 ms over 5 m, where fwap's answer implies 1.9-2.1 ms — **2.2× too early**. **Figure 14 draws the boundary of what A.2 can be blamed for**: of the twelve waveforms it plots, the quadrupole solver returns a phase velocity for three, the virgin rock giving no root at any of the figure's four source frequencies, and all 194 converged samples again sit strictly inside `(V_R, V_S)` — but the figure's actual content is peak amplitude, which is excitation times propagation, and `BoreholeMode` carries neither (`attenuation_per_meter` is `None` on both paths). **A corrected bracket would not reproduce figure 14.** What it would fix is the Airy phase the paragraph also claims, which currently emerges with the *wrong sign*: the sawtooth ramps drive `v_g = 1/(d(f·s)/df)` negative on 18 of 48 adjacent samples. **Figure 16 then checks the slow formation in the time domain and refines figure 15's verdict**: the layered path's *phase* velocity is as good as the open-hole one, but its *group* velocity is not — predicting the published Airy arrival at 5 m is +3.0 % late for the virgin rock against +6.3 % and +8.0 % for the two layered models. Those curves are structurally sound (one contiguous run, monotone phase, group velocity never changing sign), so A.2's bracket is not implicated there — but at 1 kHz fwap resolves none of the three models, the near-cutoff gap again. |
+| ~~**A.6 The `n=2` layered path refuses every invaded zone**~~ | *Fixed, and it was an implementation/docstring mismatch rather than a scoping call.* `quadrupole_dispersion_layered` raised `ValueError` on any layer slower in shear than a slow formation — which is what an invaded zone **is** — while its own `Raises` section had always said the constraint applies **"(multi-layer only)"**. `flexural_dispersion_layered` enforced it for two-or-more layers only, as documented; `n=2` enforced it for every layer count. The single-layer guard is removed, so `n=2` now matches both its docstring and its sister path; the multi-layer guard is untouched. **Validated rather than assumed**: figure 15(b) plots the screw mode for exactly these models, and against the digitised curves the newly-unblocked path returns **0.58 % rms** for an 8 cm invaded zone — *better* than the same solver's 1.29 % on the virgin rock of the same figure. Figure 17 goes from 2 of its 12 waveforms computable to **6**. The fix does not touch the onset, which stays late by the near-cutoff margin already recorded (5.6 kHz against a published 3.4 kHz for the 8 cm model). |
 | **A.1 Validation figures** | *Re-scoped from five to three* (five → three → four → three: fig 4 was restored, then the figure itself was seen and turned out **not to be a dispersion figure at all** — it is a dipole shot gather, so it cannot be scored in the overlay schema. It did settle A.2's yes/no question, which is why it was worth fetching). Which figure carries the flexural dispersion curves is now known — **figure 2a of Schmitt & Cheng**, since digitised, which also gives A.1's flexural-Scholte tie its first *external* confirmation (1493 m/s read at 24.9 kHz against 1484 computed). **The "figures are the weaker instrument" premise is now measurably wrong.** It compared a 1e-3 analytic tie with a *5 % overlay budget* — but the budget was a choice, not a limit of the method. Digitised carefully, figure 8a ties `stoneley_dispersion` to a published slow-formation curve at **0.04 % rms, below what the figure can resolve**, which is the project's first external tie better than 1 %, and it pins the borehole radius as a by-product. The analytic ties are tighter numerically and are not external at all. **The pseudo-Rayleigh curve is now tied too** — figure 1a, both branches, ~1 % — so what still needs the books is **cased Stoneley** and **VTI flexural**, two figures rather than three. |
 | **F.4 Two unconfirmed checksums** | Also body-only until this revision, which is the same failure as A.2's. `forge_dsi_las` and `iodp_u1347a_dsi` both carry digests computed from copies that did not come down their canonical URLs, because those hosts were blocked from the sessions that added them. One successful fetch each clears it. It is the only place the fixture registry asserts something it has not verified. |
 | **A.5 residue: delta-matrix reformulation** | Optional and blocked on nothing, which is why it kept falling off the list. A delta-matrix / Abo-Zena form of the elastic stack would remove the cancellation the grid-stability filter exists to work around, and raise the crack-wave ceiling above the ~240 kHz where the propagators stop being representable. |
@@ -1280,27 +1280,31 @@ Iso-offset (z = 5 m) … the only virgin formation (1), and a 8 cm (2) and 16 cm
 (3) invaded zone. The source center frequency is successively equal to 1 kHz
 (a), 3 kHz (b), 6 kHz (c), and 7.5 kHz (d)."*
 
-**The headline is a refusal, not a number.** `quadrupole_dispersion_layered`
-raises `ValueError` on this model before computing anything: the slow-formation
-branch requires every layer to be at least as fast in shear as the formation,
-and an invaded zone is by definition slower. **Eight of the figure's twelve
-waveforms are not inaccurate — they are unrepresentable.** That is filed as
-A.6 above; the short version is that the constraint is deliberate and
-defensible, but `flexural_dispersion_layered` applies the identical check only
-for two or more layers, so the *same* one-layer model is accepted at `n=1` —
-and those are the answers figure 15 tied to the published curves at 1.47-1.48 %
-rms. The regime the `n=2` validator refuses is one the `n=1` code demonstrably
-handles.
+**The headline was a refusal, not a number — and it has since been fixed.**
+`quadrupole_dispersion_layered` used to raise `ValueError` on this model before
+computing anything: the slow-formation branch required every layer to be at
+least as fast in shear as the formation, and an invaded zone is by definition
+slower. **Eight of the figure's twelve waveforms were not inaccurate — they were
+unrepresentable.**
 
-Figure 15(b) plots exactly the curves fwap will not produce. The figure-15 work
-digitised only panel (a), so this was reachable then and missed; figure 17 is
-what caught it.
+That was filed as A.6 and is now closed. The short version: the check ran for
+every layer count, while the function's own `Raises` section had always said
+**"(multi-layer only)"** and `flexural_dispersion_layered` had always enforced
+it that way. So it was an implementation/docstring mismatch, not a scoping
+call. The single-layer guard is gone; the multi-layer guard is untouched.
+Digitising **figure 15(b)** — the panel the figure-15 work skipped, which plots
+exactly these curves — showed the newly-unblocked path returns **0.58 % rms**
+for the 8 cm model, better than the same solver's virgin control. Figure 17 goes
+from **2 of 12** computable waveforms to **6**. Details in the figure-15(b)
+section below.
 
-**What fwap can still do**, and it is not much. The virgin screw mode resolves
-from **5.25 kHz** up — 196 of 297 samples, no interior gaps, group velocity
-never negative, so structurally sound like figure 16 and unlike figure 14.
-Panels (a) and (b) sit at 1 and 3 kHz, below that onset. **Of the twelve
-plotted waveforms, exactly two have a computable screw-mode phase velocity.**
+**What fwap still cannot do here**, after the fix. The virgin screw mode
+resolves from **5.25 kHz** up — 196 of 297 samples, no interior gaps, group
+velocity never negative, so structurally sound like figure 16 and unlike figure
+14 — and the invaded models from 5.0-5.6 kHz. Panels (a) and (b) sit at 1 and
+3 kHz, below every one of those onsets. **Six of the twelve plotted waveforms
+still have no computable phase velocity, and all six are below cutoff** — the
+near-cutoff gap of figures 10 and 11, which A.6 never touched.
 
 The one forward prediction left: the virgin screw packet peaks at 4.91-4.99 ms
 across all four source frequencies — frequency-independent, so it is the Airy
@@ -1355,6 +1359,56 @@ established. Panel (a) clears r = 0.8 on both traces, but its 8 cm lag
 not quoted either.
 
 Eight more tests.
+
+### Figure 15(b) — the panel that was skipped, and the fix it validated
+
+Figure 15's caption covers two panels; the figure-15 work digitised only (a),
+the flexural. Panel **(b)** is the screw mode for the same four models — and it
+plots precisely the curves `quadrupole_dispersion_layered` was refusing to
+compute. A.6 was reachable from this figure and was missed for want of one
+panel. Worth naming as a pattern: **a figure is not "done" because one of its
+panels was.**
+
+**Calibration, with a trap in it.** Panel (b)'s x-axis runs **2-10 kHz, not
+0-10** — nine evenly spaced ticks with the "5" label under the fourth and "10"
+under the ninth. Reading it as 0-10 would have shifted every frequency by
+2 kHz. Physics confirms the reading independently: curves 1, 2 and 3 leave the
+axis at v = 0.80 (= 1201/1500, the **virgin** shear speed, exactly as p. 228
+says) and curve 4 at 0.72 (= 1081/1500, the invaded one). Tick fits: x to
+0.008 kHz, y to 0.00006 normalised.
+
+**Curve identification, checked rather than assumed.** The four solid curves
+merge, so each is followed from its own start with slope prediction, stopping
+where a neighbour comes within two line widths. That check earned its keep: on
+rms alone the 16 cm data fits an *invaded-only* prediction (1.37 %) slightly
+better than a layered one (2.12 %), which would have looked like evidence the
+trace had hopped branches. Run-ordering settles it — the 16 cm trace sits on
+**run 3 of 4** at every sampled frequency, so it is curve 3. The apparent
+preference is just that curves 3 and 4 converge to within **0.6-0.8 %** over
+the overlap band, below fwap's own error. Curve 2 is **4.2 %** from its nearest
+neighbour there, which is why the 8 cm tie carries the weight and the 16 cm one
+only corroborates.
+
+**The result.** With the single-layer guard removed:
+
+| model | band | rms | median |
+|---|---|---|---|
+| virgin *(control, open hole)* | 5.25-9.75 kHz | 1.29 % | +0.35 % |
+| **8 cm invaded** *(layered)* | 5.75-8.00 kHz | **0.58 %** | +0.29 % |
+| 16 cm invaded *(layered)* | 5.00-5.50 kHz | 2.12 % | +2.07 % *(3 points)* |
+
+The virgin row is a control: it uses the open-hole solver that figure 8a
+already tied at 0.94 % rms on this rock, so it prices the digitisation itself.
+**The 8 cm layered result is better than that control.** A path that was
+refusing to run computes its own figure more accurately than the path that was
+allowed to. That is what turned "the guard is over-strict" from an argument
+into a measurement, and it is the whole justification for the fix.
+
+What the fix does **not** do: the onset stays where it was. fwap resolves the
+8 cm model from 5.6 kHz against a published 3.4 kHz — the slow screw mode's
+near-cutoff gap, already recorded, and untouched by any of this.
+
+Six more tests.
 
 ### Figure 12 — the invaded zone, and coverage turns out to be an inverted signal
 

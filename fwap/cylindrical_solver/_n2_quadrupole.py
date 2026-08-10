@@ -903,6 +903,28 @@ def quadrupole_dispersion_layered(
         contains a non-positive entry, any layer is malformed,
         or any layer fails the slow-formation constraint
         ``layer.vs >= vs`` (multi-layer only).
+
+    Notes
+    -----
+    The ``layer.vs >= vs`` constraint applies to the **multi-layer**
+    path only, exactly as in :func:`flexural_dispersion_layered`.
+    A single layer softer in shear than a slow formation -- an
+    invaded zone, which is slower than the rock it replaces -- is
+    accepted.
+
+    Until this was corrected the check ran for every layer count,
+    which made the whole invaded-zone family unrepresentable at
+    ``n = 2`` while the identical model was accepted at ``n = 1``.
+    The single-layer allowance is not a guess: Schmitt & Cheng
+    figure 15(b) plots the screw mode for this exact configuration,
+    and against the digitised curves this path returns **0.58 % rms**
+    for an 8 cm invaded zone -- better than the same solver's
+    1.29 % on the virgin rock of the same figure. See
+    ``tests/test_cylindrical_solver.py`` (figure 15b / A.6).
+
+    The correction does not touch the mode's onset, which remains
+    late by the near-cutoff margin recorded for the slow screw mode
+    (fwap 5.6 kHz against a published 3.4 kHz for the 8 cm model).
     """
     layers_tuple = tuple(layers)
     _validate_borehole_layers(layers_tuple)
@@ -949,11 +971,15 @@ def quadrupole_dispersion_layered(
             a=a,
             layers=layers_tuple,
         )
-    # Slow-formation per-layer constraint enforced upstream; reuse
-    # the n=1 helper since the constraint ``layer.vs >= vs`` is
-    # the same at n=2 (Sinha-Norris-Chang-style soft-formation
-    # bound-mode regime).
-    _validate_flexural_layers_stacked(layers_tuple, a, vs)
+    if len(layers_tuple) >= 2:
+        # Multi-layer path requires the per-layer slow-formation
+        # constraint ``layer.vs >= vs``; reuse the n=1 helper, since
+        # the constraint is the same at n=2 (Sinha-Norris-Chang-style
+        # soft-formation bound-mode regime). The single-layer path
+        # deliberately does *not* enforce it, mirroring
+        # ``flexural_dispersion_layered``: see the note in the
+        # docstring for the measurement that settled this.
+        _validate_flexural_layers_stacked(layers_tuple, a, vs)
 
     from fwap.cylindrical_solver import _modal_determinant_n2_cased
 
