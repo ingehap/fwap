@@ -5,6 +5,13 @@ and #64, written to change how the next batch of work is chosen. It is not a
 status file — `plans/roadmap.md` is that, and
 `plans/roadmap_1.md` is the priority snapshot. This one is about *method*.
 
+Its sibling is `plans/guides.md`, which covers the other kind of oracle:
+**published figures** rather than analytic identities. The two have different
+failure modes — an analytic oracle can be derived wrongly, a digitised figure can
+be read wrongly — and the figure work turned out to be the stronger instrument,
+moving the project's best external tie from "nothing better than 5 %" to 0.04 %
+rms and finding three defects that no analytic check had caught.
+
 ## The short version
 
 Five analytic oracles have been built. **Every one found something. Four of the

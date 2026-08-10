@@ -2,6 +2,11 @@
 
 Open items that would meaningfully extend fwap beyond the 0.4.0 release.
 
+Method notes live beside this file: `plans/learning.md` for analytic oracles,
+`plans/guides.md` for using a published paper as an oracle — the latter written
+after taking Schmitt & Cheng through the cylindrical solvers figure by figure,
+and carrying the inventory of what is still unused in that paper.
+
 This file supersedes `docs/roadmap.md` (latterly `docs/roadmap_old.m`), which
 carried the same open items buried in about nine hundred lines of closed ones.
 The closed material is not reproduced here — `CHANGELOG.md` is the record of
