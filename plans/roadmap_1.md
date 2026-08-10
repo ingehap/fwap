@@ -27,16 +27,27 @@ rather than by planning.
 | ~~6~~ | ~~The debond inverse in `sonic_ml.bench` (G.6)~~ | **closed** | — |
 | ~~2d~~ | ~~The ODP file's offsets and its 950-A/952A header (F.5)~~ | **closed** | — |
 | ~~2c~~ | ~~A waveform fixture CI can fetch (F.2)~~ | **closed** | — |
-| 1b | Leaky-mode root tracking, n=1 (A.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
+| 1b | Leaky-mode root tracking, **n=1 *and* n=2** (A.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
 | 3 | Digitised validation figures (A.1) — **3 of 5, re-scoped** | sourcing | the books, for pseudo-Rayleigh / cased Stoneley / VTI flexural only |
+| 5 | Confirm two registered checksums (F.4) | one fetch each | egress to `gdr.openei.org` and `zenodo.org` |
+| 7 | Delta-matrix / Abo-Zena stack reformulation (A.5 residue) | modelling, optional | nothing |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
 
 **The shape has changed since the last revision, and mostly by closing.** G.2
 is finished end to end — generator, closed-form baseline at 18.1 % in gap
 width, learned residual inverse at 2.5 % held-out — and F.3 and G.6 are
-finished with it, and F.5 and F.2 with them. What that leaves is three rows,
-none of which is blocked on anything this project can do to itself: a
-derivation (1b), a book (3) and a release (4).
+finished with it, and F.5 and F.2 with them.
+
+**What that leaves is five rows, and this table said three.** An audit found two
+that had never been listed here at all: F.4, which is two unconfirmed checksums
+needing one fetch each, and the delta-matrix reformulation left over from A.5.
+Both are small; neither is nothing, and a priority table that silently omits
+work is worse than one that ranks it low. Row 1b also understated itself — the
+same leakage affects `n=2`, so one fix repairs two solvers.
+
+Of the five, only two are blocked on something outside the project (a book for
+3, a release for 4). 1b is a derivation, 7 is optional modelling, and 5 needs
+nothing but network access to two hosts.
 
 **F.2 is the one worth reading the post-mortem on**, because it was the
 highest-priority row in every revision of this file and it was never actually
@@ -499,19 +510,30 @@ where before every number in it — the 0.12 % shear agreement, the 95 %
 compressional agreement, all of `sonic_ml` — was measured against the forward
 model that produced its own input.
 
-**What to do next is a genuine choice rather than a queue**, and the three
+**What to do next is a genuine choice rather than a queue**, and the five
 remaining rows are not comparable:
 
-* **1b (A.2, leaky-mode root tracking at n=1)** is the only one that is
-  *modelling*. It needs a Riemann-sheet analysis, not a download, and it is the
-  last physics gap in the solver.
-* **3 (A.1, validation figures)** needs a book. It ties the solver to published
-  literature rather than to itself, which is the same class of argument F.2 just
-  won for the processing.
+* **1b (A.2, leaky root tracking at `n=1` and `n=2`)** is the only one that is
+  *modelling*. It needs a Riemann-sheet analysis, not a download; it is the last
+  physics gap in the solver; and one fix repairs two modes. It is also the
+  reason both Scholte ties added for A.1 are scoped to slow formations, so it
+  now bounds the validation work as well as the solver.
+* **3 (A.1, validation figures)** needs a book, for three figures rather than
+  five. It ties the solver to published literature rather than to itself, which
+  is the same class of argument F.2 just won for the processing.
+* **5 (F.4, two unconfirmed checksums)** needs one fetch each from
+  `gdr.openei.org` and `zenodo.org`. Trivial anywhere with ordinary egress, and
+  it is the only place the fixture registry currently asserts something it has
+  not verified.
+* **7 (A.5 residue, delta-matrix reformulation)** is optional and blocked on
+  nothing. It would raise the crack-wave ceiling above ~240 kHz.
 * **4 (D, conda-forge)** needs a PyPI release and is pure packaging.
 
 If one is to be picked on value rather than on cost, it is **1b**: it is the
-only row where the answer is not already known to somebody else.
+only row where the answer is not already known to somebody else. If one is to be
+picked on cost, it is **5**, which is minutes rather than a project — and
+clearing it removes the last unverified claim from the registry, which is a
+cheap thing to be able to say.
 
 A caution carried forward from how 2c actually closed. Two of the last three
 items — F.2 and F.5 — were closed by *looking again* rather than by building

@@ -60,7 +60,10 @@ file is too big" — it is licence and provenance work on a file already here.
 |-----------|----------------|
 | ~~**F.2 A waveform fixture CI can use**~~ | *Closed, with one thing it does not mean.* `iodp_u1347a_dsi` — an eight-receiver DSI monopole run, **CC0** on Zenodo — is registered, read by `read_ldeo_waveforms`, and exercised by `stc` at **0.948** median peak coherence. CI *can* use it but does not: the default run stays hermetic and skips it. The blocking claim ("no openly redistributable gather is known to exist") turned out to be false. Kept below. |
 | ~~**F.5 The ODP file's unknowns**~~ | *Closed.* Both answered, and the item was filed on a wrong premise — "not resolvable from the files" meant "nobody had opened the rest of the archive". The hole identity is settled by the archive's own run table (six runs matched by name and depth interval, six for six); the offsets are the LSS **8/10/10/12 ft** set, confirmed by first-break moveout to an intercept of −0.0 µs. Kept below. |
+| **A.2 Fast-formation leakage, `n=1` and `n=2`** | **The last physics gap, and it was missing from this table for several revisions** while being discussed at length below and tracked in `roadmap_1.md`. A reader skimming here would have concluded it was closed. In a fast formation the flexural root leaves the real `k_z` axis; widening the real bracket provably cannot recover it. Affects the quadrupole identically, so one fix repairs two solvers, and it is why both Scholte ties are scoped to slow formations. Needs complex-plane root tracking. |
 | **A.1 Validation figures** | *Re-scoped from five figures to three.* Stoneley, flexural and quadrupole are now tied analytically at 1e-8 to 1e-3, against a 5 % overlay budget — so their figures were dropped as the weaker instrument. What still needs the books is the **pseudo-Rayleigh curve**, **cased Stoneley** and **VTI flexural**, which have no external tie of any kind. |
+| **F.4 Two unconfirmed checksums** | Also body-only until this revision, which is the same failure as A.2's. `forge_dsi_las` and `iodp_u1347a_dsi` both carry digests computed from copies that did not come down their canonical URLs, because those hosts were blocked from the sessions that added them. One successful fetch each clears it. It is the only place the fixture registry asserts something it has not verified. |
+| **A.5 residue: delta-matrix reformulation** | Optional and blocked on nothing, which is why it kept falling off the list. A delta-matrix / Abo-Zena form of the elastic stack would remove the cancellation the grid-stability filter exists to work around, and raise the crack-wave ceiling above the ~240 kHz where the propagators stop being representable. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
 | ~~**G.6 The debond inverse in the benchmark harness**~~ | *Closed.* `sonic_ml.bench.debond` scores both rivals on identical held-out indices. It paid for itself immediately: the per-regime rows show the closed form is **6× worse on wide gaps than tight** (16.5 % vs 2.5 %), which the single averaged number had hidden. Kept below. |
 | ~~**F. A real sonic log**~~ | *Largely closed.* A Schlumberger DSI log is registered and tested; the package's shear picks match the vendor's to **0.12 %** median on real rock. |
@@ -74,6 +77,24 @@ code and its tests are on `main`, and status claims are checked against the tree
 rather than against memory. The old roadmap carried a "leaky modes are still
 open" note for some time after the leaky solvers had actually shipped; that is
 the failure mode this heading exists to prevent.
+
+**That guard was one-directional, and every failure since has gone the other
+way.** It stops an item being marked closed early. It does nothing about an item
+that stays open after shipping, or one that never gets a row at all — and an
+audit of this file found four at once: `A.2` was discussed at length below and
+tracked in `roadmap_1.md` but had **no row in the table above**, so a skim said
+the last physics gap was closed; `F.4` claimed to be "the one unverified claim"
+after a second appeared; and both `A.5`'s and section G's "what is left" lists
+still named work that had shipped as G.2 and G.6. Three of those four say
+*there is work here* when there is not, which is the more comfortable error and
+therefore the one that survives longer — nobody is embarrassed by a roadmap that
+under-claims.
+
+Two rules follow, and they are cheap. **Read the table against the body**, not
+just each row against the tree: three of the four were visible only in the gap
+between the two. And when a section says "what is left", **check every bullet on
+every pass**, because a list that was right when written is the easiest kind of
+sentence to stop reading.
 
 ## A. Cylindrical-Biot dispersion solver
 
@@ -396,9 +417,13 @@ pair appears in one grid of six; the genuine roots in all six.
 
 **What is left:**
 
-- The `sonic_ml` consumer: a debonded-regime dataset, and with it the first
-  fair CBL-amplitude comparison. The forward model it needs now exists.
-- Optional, and not required by the above: a delta-matrix / Abo-Zena
+- ~~The `sonic_ml` consumer: a debonded-regime dataset, and with it the first
+  fair CBL-amplitude comparison.~~ **Shipped** as G.2 — generator, closed-form
+  baseline and learned inverse — and scored through the harness as G.6. This
+  bullet outlived the work by several revisions. Note the CBL half of it was
+  separately withdrawn: these gathers carry no casing-ring arrival, so a
+  CBL-amplitude comparison would still be a strawman. See G.2.
+- Optional, and the only genuinely open item in this section: a delta-matrix / Abo-Zena
   reformulation of the elastic stack would remove the cancellation that makes
   the filter necessary at all, and would raise the frequency ceiling — the
   crack-wave window collapses above ~240 kHz on a typical stack purely because
@@ -586,10 +611,18 @@ which reached the numbers through an entirely different conversion path
   "F.2 — the fixture, and the claim that was holding it up" below. The short
   version: the item was blocked for its whole life on a sentence that was
   wrong.
-* **F.4 — confirming the registered checksum.** `gdr.openei.org` was
-  unreachable from the session that added the entry, so the SHA-256 was
-  computed from a mirror copy and is flagged as unconfirmed in the entry's
-  `provenance`. It is the one unverified claim in the fixture registry.
+* **F.4 — confirming the registered checksums.** **Two** of them now, not one;
+  this entry said "the one unverified claim in the fixture registry" for a
+  revision after the second appeared.
+  `forge_dsi_las`: `gdr.openei.org` was unreachable from the session that added
+  it, so the SHA-256 came from a mirror copy.
+  `iodp_u1347a_dsi`: `zenodo.org` was blocked from the session that added it, so
+  both the archive and member digests came from a copy that arrived by another
+  route, and the canonical URL's shape is inferred from Zenodo's standard file
+  layout rather than exercised.
+  Both are flagged in their entries' `provenance`. Each needs one successful
+  fetch from its canonical host to clear, and the entry should then be
+  corrected rather than left carrying a stale caveat.
 
 *This entry used to add "because no openly redistributable one is known to
 exist". That is withdrawn — a search turned up two credible candidate sources,
@@ -1002,14 +1035,20 @@ would be advertising rather than measuring.
 
 **What's open:**
 
-1. **Real-data evaluation** — see section F. The binding constraint on every
-   claim above.
+1. **Real-data evaluation** — see section F. Still the binding constraint on
+   every claim above, and note what F.2 closing did *not* change: a real DSI
+   gather now bounds the *processing chain*, but every number in this section is
+   still measured against the forward model that generated its own training
+   data. Section F is largely closed; this item is not.
 2. **Free-pipe / debonded cased regime.** The cased dataset spans the *bonded*
    regime, where the cased Stoneley stays bound, so the bond inverse grades
    cement quality and is explicitly not a free-pipe detector. The debonded
    generator and its classical baseline have since shipped — see section G.2
-   above for both, and for the measurements that reshaped them. What is left
-   here is the learned model and its benchmark entry.
+   above for both, and for the measurements that reshaped them. ~~What is left
+   here is the learned model and its benchmark entry.~~ **Both have since
+   shipped too** — the learned residual inverse at 2.5 % held-out (G.2) and its
+   scoring through `sonic_ml.bench.debond` (G.6) — so nothing in this entry is
+   open except item 1 above. It stayed here for a revision after the fact.
 
    *Correction, second one on this entry.* It used to add that the debonded
    regime "is also where a CBL-amplitude baseline would finally be a fair
