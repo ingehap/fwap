@@ -58,7 +58,7 @@ file is too big" — it is licence and provenance work on a file already here.
 
 | Open item | Why it matters |
 |-----------|----------------|
-| **F.2 A waveform fixture CI can use** | **Now actionable rather than blocked.** ODP 952A is small enough at either size; what is needed is the licence check (ODP/IODP terms are not stated on the data page), a host, and a registry entry. Until it lands, what defends F.1 in CI is a seeded synthetic and not the log that found it. |
+| ~~**F.2 A waveform fixture CI can use**~~ | *Closed, with one thing it does not mean.* `iodp_u1347a_dsi` — an eight-receiver DSI monopole run, **CC0** on Zenodo — is registered, read by `read_ldeo_waveforms`, and exercised by `stc` at **0.948** median peak coherence. CI *can* use it but does not: the default run stays hermetic and skips it. The blocking claim ("no openly redistributable gather is known to exist") turned out to be false. Kept below. |
 | ~~**F.5 The ODP file's unknowns**~~ | *Closed.* Both answered, and the item was filed on a wrong premise — "not resolvable from the files" meant "nobody had opened the rest of the archive". The hole identity is settled by the archive's own run table (six runs matched by name and depth interval, six for six); the offsets are the LSS **8/10/10/12 ft** set, confirmed by first-break moveout to an intercept of −0.0 µs. Kept below. |
 | **A.1 Validation figures** | Ties the solver to published literature rather than to itself. Still needs the books. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
@@ -535,16 +535,10 @@ which reached the numbers through an entirely different conversion path
   claim that neither was "resolvable from the files" was wrong: one was
   resolvable from the archive alone, and the other was resolvable from the
   waveforms themselves once a specification supplied the numbers to test.
-* **F.2 — a waveform fixture the CI can actually use.** The FORGE waveforms
-  live in an 808 MB DLIS inside a 471 MB zip, which is not a viable
-  fetch-on-demand fixture, and extracting a subset is redistribution.
-  **ODP 952A changes the arithmetic**: 1.55 MB for the binary waveform archive,
-  10.96 MB for the original DLIS. Size is no longer the obstacle. What is
-  needed is a licence check — the LDEO data page states no terms, and ODP/IODP
-  policy has to be read rather than assumed — a host, and a registry entry.
-  Until it lands the results above are measured but not regression-tested, and
-  what defends F.1 in CI is a seeded synthetic rather than the log that found
-  it.
+* ~~**F.2 — a waveform fixture the CI can actually use.**~~ **Closed.** See
+  "F.2 — the fixture, and the claim that was holding it up" below. The short
+  version: the item was blocked for its whole life on a sentence that was
+  wrong.
 * **F.4 — confirming the registered checksum.** `gdr.openei.org` was
   unreachable from the session that added the entry, so the SHA-256 was
   computed from a mirror copy and is flagged as unconfirmed in the entry's
@@ -615,6 +609,71 @@ identifiability, not field accuracy, and no amount of additional synthetic work
 can close the gap. A single real gather with trustworthy reference picks would
 say more about whether any of this transfers than another milestone of
 modelling.
+
+## F.2 — the fixture, and the claim that was holding it up
+
+`iodp_u1347a_dsi` is registered: IODP Expedition 324, Hole U1347A, an
+eight-receiver Schlumberger **DSI** monopole run over 3575–3774 mbrf. 1307
+depths, 512 samples at 10 µs, 0.1524 m receiver spacing, 0.1524 m depth
+increment — which is `ArrayGeometry`'s default geometry, arrived at
+independently years earlier. Published by LDEO's Borehole Research Group on
+Zenodo (record 3939555) under **CC0**.
+
+**The item was blocked on a false sentence, not on a missing file.** Both
+`scripts/fetch_real_data.py` and `tests/test_real_data.py` asserted that no
+openly redistributable full-waveform sonic gather was known to exist. What had
+been established was that none had been *found*. Those are different claims,
+and the second one is a research result with a shelf life — it goes stale the
+moment someone searches again. Written into a docstring as a flat statement, it
+stopped anyone re-checking, and the item sat open for the project's whole life
+behind it. Both docstrings now say what was wrong rather than quietly dropping
+the sentence.
+
+This is the same failure as F.5's, two items apart: *I do not know this*
+recorded as *this is not knowable*. F.5's version was about one archive; this
+one was about the entire published record of scientific ocean drilling.
+
+**What had to be built.** The archive publishes every run twice — the original
+service-company DLIS, and a plain binary export about a fifth the size with a
+short self-describing header. `read_ldeo_waveforms` reads the export, and it
+**verifies rather than trusts**: `4·(1 + n_receiver·n_sample)·(1 + n_depth)`
+must equal the file size exactly, and the sample interval must be
+sonic-plausible, both before a single sample is read. That is not defensive
+programming for its own sake — the format is big-endian, and read
+little-endian its header decodes to enormous garbage rather than to nothing, so
+a trusting reader would allocate wildly or return silently wrong data. It also
+declines to invent transmitter offsets, which the export does not carry.
+
+**What it measures.** `stc` over 50 real gathers returns a median peak
+coherence of **0.948**, with 96 % above 0.6. The test does *not* assert a
+slowness: over this interval the lithology runs chert, chalk and basalt, so
+slowness genuinely ranges over a factor of four and pinning a number would be
+pinning the geology. It asserts instead that **no pick sits on a search-band
+edge**, which is the check that the band measured the formation rather than its
+own boundary. That earned itself at once — the first band tried, (5e-5, 6e-4)
+s/m, returned 10 % of picks pinned at 6e-4.
+
+**What this does and does not buy.** It bounds how wrong the *processing* can
+be against data this repository did not generate, which nothing here could do
+before. Three things it does **not** buy, stated plainly because the item's
+title ("a waveform fixture CI can use") invites over-reading:
+
+* **CI does not run it.** The real-data suite skips unless the file has been
+  fetched, and the default run stays hermetic by design. Fetching is one command
+  and every assertion is checksummed, but nothing runs it automatically, so what
+  defends the F.1 picker fix on each push is still a seeded synthetic. Making
+  CI fetch 578 MB is a separate decision, and a worse one than it sounds.
+* **It is not the log that found F.1.** That was FORGE. U1347A is a second,
+  independent hole — better in that respect, and not a regression test for the
+  original defect.
+* **It does not touch `sonic_ml`.** Those results are still measured against the
+  forward model that generated their training data. One hole of one tool bounds
+  the processing chain; it does not convert an identifiability study into a
+  field measurement.
+
+The entry is still fetched rather than vendored, but the reason has changed and
+is recorded: CC0 removes the licensing objection, and 578 MB is the only one
+left.
 
 ## F.5 — what the ODP archive turned out to know about itself
 

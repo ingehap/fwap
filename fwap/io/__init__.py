@@ -38,6 +38,12 @@ from fwap.io._dlis import (
     write_dlis,
 )
 from fwap.io._las import LasCurves, read_las, write_las
+from fwap.io._ldeo import (
+    LDEO_MODE_NAMES,
+    LDEO_TOOL_NAMES,
+    LdeoWaveforms,
+    read_ldeo_waveforms,
+)
 from fwap.io._segy import SegyGather, read_segy, write_segy
 
 __all__ = [
@@ -45,10 +51,14 @@ __all__ = [
     "DlisCurves",
     "DlisWaveforms",
     "LasCurves",
+    "LdeoWaveforms",
+    "LDEO_MODE_NAMES",
+    "LDEO_TOOL_NAMES",
     "SegyGather",
     "read_dlis",
     "read_dlis_waveforms",
     "read_las",
+    "read_ldeo_waveforms",
     "read_segy",
     "write_dlis",
     "write_las",

@@ -26,16 +26,28 @@ rather than by planning.
 | ~~5a~~ | ~~The debonded dataset generator, baseline and inverse (G.2)~~ | **closed** | — |
 | ~~6~~ | ~~The debond inverse in `sonic_ml.bench` (G.6)~~ | **closed** | — |
 | ~~2d~~ | ~~The ODP file's offsets and its 950-A/952A header (F.5)~~ | **closed** | — |
+| ~~2c~~ | ~~A waveform fixture CI can fetch (F.2)~~ | **closed** | — |
 | 1b | Leaky-mode root tracking, n=1 (A.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
-| 2c | A waveform fixture CI can fetch (F.2) | **a licence check, then wiring** | ODP 952A is in hand at 1.55 MB; its terms are unstated |
 | 3 | Digitised validation figures (A.1, curve shapes) | sourcing | access to the books |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
 
 **The shape has changed since the last revision, and mostly by closing.** G.2
 is finished end to end — generator, closed-form baseline at 18.1 % in gap
 width, learned residual inverse at 2.5 % held-out — and F.3 and G.6 are
-finished with it, and F.5 with them. What that leaves is a single licence
-question (2c) ahead of the two long-standing sourcing rows.
+finished with it, and F.5 and F.2 with them. What that leaves is three rows,
+none of which is blocked on anything this project can do to itself: a
+derivation (1b), a book (3) and a release (4).
+
+**F.2 is the one worth reading the post-mortem on**, because it was the
+highest-priority row in every revision of this file and it was never actually
+blocked. Two docstrings asserted that no openly redistributable full-waveform
+sonic gather was known to exist. That was a search result written down as a
+fact, and it stopped anyone searching again — for the life of the project. A
+CC0 eight-receiver DSI run had been sitting in a public archive the whole time.
+The lesson generalises past this repository: a negative claim about the outside
+world has a shelf life, and the moment it is stated flatly in code it stops
+being re-checked. It should have been written as "searched on <date>, found
+none" — which invites the re-check that "none exists" forecloses.
 
 Item 6 is worth a line on the way out, because it was filed as ordinary wiring
 and did not behave like it. Scoring the closed form through the harness split
@@ -479,12 +491,35 @@ of this file got wrong, and the corrections are worth not losing.
 
 ## Recommendation
 
-**Settle item 2c, and settle it first.** It is the highest-value row and it is
-no longer engineering: ODP Leg 157 Hole 952A is in hand at 1.55 MB, so the
-only question left is whether its terms permit hosting. Until that is answered
-the 0.12 % shear result, the 95 % compressional result and the picker fix that
-produced the latter stay one-off measurements in a changelog rather than
-anything CI defends. Every other open row is smaller than this one.
+**Item 2c is closed, and with it the recommendation this file has carried
+since its first revision.** A real eight-receiver DSI gather is registered,
+read and exercised. What that changes is narrow and worth stating narrowly: the
+processing chain is now bounded against data this repository did not generate,
+where before every number in it — the 0.12 % shear agreement, the 95 %
+compressional agreement, all of `sonic_ml` — was measured against the forward
+model that produced its own input.
+
+**What to do next is a genuine choice rather than a queue**, and the three
+remaining rows are not comparable:
+
+* **1b (A.2, leaky-mode root tracking at n=1)** is the only one that is
+  *modelling*. It needs a Riemann-sheet analysis, not a download, and it is the
+  last physics gap in the solver.
+* **3 (A.1, validation figures)** needs a book. It ties the solver to published
+  literature rather than to itself, which is the same class of argument F.2 just
+  won for the processing.
+* **4 (D, conda-forge)** needs a PyPI release and is pure packaging.
+
+If one is to be picked on value rather than on cost, it is **1b**: it is the
+only row where the answer is not already known to somebody else.
+
+A caution carried forward from how 2c actually closed. Two of the last three
+items — F.2 and F.5 — were closed by *looking again* rather than by building
+anything, and both had been filed as blocked on the strength of a negative
+claim nobody had re-tested. Before 1b or 3 is called blocked on "literature
+access" or "the books", the same question is worth asking: has anyone checked
+recently, or is that a search result from a year ago wearing the clothes of a
+fact?
 
 Item 2d is closed, and how it closed is the more useful part. It had been
 filed as sourcing — "the offsets need the SDT tool spec; nothing in the files

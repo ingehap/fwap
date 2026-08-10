@@ -185,6 +185,28 @@ AXIS records rather than needing it supplied:
    wf = read_dlis_waveforms("run.dlis", "PWF4")
    surface = stc(wf.data[depth_index], wf.sample_interval(), wf.offsets())
 
+Scientific-drilling archives publish the same waveforms a second way: a
+plain binary export, roughly a fifth the size of the DLIS it came from,
+carrying a short self-describing header.
+:func:`~fwap.io.read_ldeo_waveforms` reads it. Unlike the DLIS path this
+one does **not** know the transmitter offsets -- they are recorded in
+neither file -- so the caller supplies them from the tool specification:
+
+.. code-block:: python
+
+   import numpy as np
+   from fwap import read_ldeo_waveforms, stc
+
+   wf = read_ldeo_waveforms("324-U1347A_mono_p1.bin", max_depths=0)
+   wf.tool, wf.mode, wf.n_receiver     # ('DSI', 'Monopole', 8)
+
+   wf = read_ldeo_waveforms("324-U1347A_mono_p1.bin")
+   offsets = 3.0 + np.arange(wf.n_receiver) * 0.1524   # from the tool spec
+   surface = stc(wf.gather(depth_index), wf.sample_interval, offsets)
+
+``max_depths=0`` reads the header alone, which is how to inspect a
+150 MB file without loading it.
+
 VTI Thomsen-:math:`\gamma` from the combined dipole shear (:math:`C_{44}`)
 and Stoneley low-frequency tube-wave inversion (:math:`C_{66}`):
 

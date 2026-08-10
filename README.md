@@ -267,14 +267,25 @@ wf = read_dlis_waveforms(path, "PWF4")
 surface = stc(wf.data[i], wf.sample_interval(), wf.offsets())
 ```
 
-Two limitations remain. The waveform comparison is not part of CI, because the
-fixture is a 471 MB archive containing an 808 MB file — so what defends the
-picker fix in CI is a seeded synthetic, not the log that found it. And the
-registered LAS's SHA-256 was computed from a mirror copy, because
-`gdr.openei.org` was unreachable from the session that added it; the entry's
-`provenance` says so. Until the first is addressed, `sonic_ml`'s headline
-numbers are still measured against the same forward model that generated their
-training data.
+A second real gather is now registered, and it is redistributable rather than
+merely fetchable: `iodp_u1347a_dsi` is an eight-receiver Schlumberger DSI
+monopole run from IODP Hole U1347A, published under **CC0**, read by
+`fwap.io.read_ldeo_waveforms`. `stc` returns a median peak coherence of **0.948**
+across it. That entry also corrects a claim this repository carried for its
+whole life — that no openly redistributable full-waveform sonic gather was
+known to exist. What had been established was that none had been *found*.
+
+Two limitations remain, and both are narrower than they were. The real-data
+suite is **not** part of CI: the default run stays hermetic and skips it, so
+what defends the picker fix on every push is still a seeded synthetic rather
+than a logged gather. Fetching is one command and the assertions are checksummed,
+but nothing runs them automatically. And two registered checksums — the FORGE
+LAS and the IODP archive — were computed from copies that did not come down
+their canonical URLs, because those hosts were unreachable from the sessions
+that added them; both entries say so in their `provenance`. Separately, and
+unchanged by any of this: `sonic_ml`'s headline numbers are still measured
+against the same forward model that generated their training data. One real
+gather bounds the processing, not the identifiability study.
 
 ## Recommended companion references
 

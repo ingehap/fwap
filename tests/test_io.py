@@ -885,3 +885,220 @@ def test_non_numeric_vendor_parameters_are_skipped(monkeypatch):
     wf = read_dlis_waveforms("ignored.dlis", "PWF4")
     assert wf.sample_interval_parameters == {"DSI0": 10.0}
     assert wf.sample_interval() == pytest.approx(1.0e-5)
+
+
+# ---------------------------------------------------------------------------
+# LDEO sonic-waveform export (F.2)
+# ---------------------------------------------------------------------------
+
+
+def _write_ldeo(
+    path,
+    *,
+    n_depth=6,
+    n_sample=8,
+    n_receiver=4,
+    tool=0,
+    mode=4,
+    dz=0.1524,
+    scale=1.0,
+    dt_us=10.0,
+    endian=">",
+    depth0=1000.0,
+    truncate=0,
+):
+    """Write a file in the LDEO layout, so a round trip can assert exactly.
+
+    Every field is a parameter because the guards under test are all about
+    headers that disagree with the bytes that follow them.
+    """
+    import struct
+
+    rng = np.random.default_rng(0)
+    data = rng.normal(size=(n_depth, n_receiver, n_sample))
+    record = 4 * (1 + n_receiver * n_sample)
+    blob = bytearray()
+    blob += struct.pack(f"{endian}5i", n_depth, n_sample, n_receiver, tool, mode)
+    blob += struct.pack(f"{endian}3f", dz, scale, dt_us)
+    blob += b"\x00" * (record - 32)
+    for k in range(n_depth):
+        row = np.empty(1 + n_receiver * n_sample, dtype=f"{endian}f4")
+        row[0] = depth0 + k * dz
+        row[1:] = data[k].ravel()
+        blob += row.tobytes()
+    if truncate:
+        blob = blob[:-truncate]
+    path.write_bytes(bytes(blob))
+    return data
+
+
+def test_ldeo_round_trip_recovers_header_and_samples(tmp_path):
+    from fwap import read_ldeo_waveforms
+
+    path = tmp_path / "wf.bin"
+    planted = _write_ldeo(path, n_depth=6, n_sample=8, n_receiver=4)
+
+    wf = read_ldeo_waveforms(path)
+    assert (wf.n_depth, wf.n_receiver, wf.n_sample) == (6, 4, 8)
+    assert wf.sample_interval == pytest.approx(1.0e-5)
+    assert wf.depth_increment == pytest.approx(0.1524)
+    assert wf.record_length == pytest.approx(8 * 1.0e-5)
+    assert wf.tool == "DSI" and wf.mode == "Monopole"
+    # float32 on disk, float64 in memory: exact after the widening.
+    assert np.array_equal(wf.data, planted.astype(np.float32).astype(float))
+    assert np.array_equal(wf.gather(2), wf.data[2])
+
+
+def test_ldeo_header_only_read_still_reports_the_whole_file(tmp_path):
+    """`max_depths=0` is how a 150 MB file gets inspected cheaply.
+
+    The distinction that matters: `n_depth` describes the *file*, while
+    `len(depth)` describes what was read. Collapsing the two would make a
+    truncated read silently claim the file is short.
+    """
+    from fwap import read_ldeo_waveforms
+
+    path = tmp_path / "wf.bin"
+    _write_ldeo(path, n_depth=9)
+
+    head = read_ldeo_waveforms(path, max_depths=0)
+    assert head.n_depth == 9
+    assert head.data.shape == (0, 4, 8)
+    assert head.depth.size == 0
+
+    part = read_ldeo_waveforms(path, max_depths=4)
+    assert part.n_depth == 9
+    assert part.data.shape[0] == 4
+    assert np.array_equal(part.data, read_ldeo_waveforms(path).data[:4])
+
+
+def test_ldeo_max_depths_beyond_the_file_is_not_an_error(tmp_path):
+    from fwap import read_ldeo_waveforms
+
+    path = tmp_path / "wf.bin"
+    _write_ldeo(path, n_depth=3)
+    assert read_ldeo_waveforms(path, max_depths=99).data.shape[0] == 3
+
+
+def test_ldeo_negative_max_depths_is_rejected(tmp_path):
+    from fwap import read_ldeo_waveforms
+
+    path = tmp_path / "wf.bin"
+    _write_ldeo(path)
+    with pytest.raises(ValueError, match="non-negative"):
+        read_ldeo_waveforms(path, max_depths=-1)
+
+
+def test_ldeo_depths_in_feet_are_returned_in_metres(tmp_path):
+    """The `scale` field is a unit, and a reader that ignored it would be
+    wrong by 3.28x while looking entirely plausible."""
+    from fwap import read_ldeo_waveforms
+
+    path = tmp_path / "wf.bin"
+    _write_ldeo(path, n_depth=4, dz=0.5, scale=0.3048, depth0=10000.0)
+
+    wf = read_ldeo_waveforms(path)
+    assert wf.depth_scale == pytest.approx(0.3048)
+    assert wf.depth[0] == pytest.approx(10000.0 * 0.3048, rel=1e-6)
+    assert wf.depth_increment == pytest.approx(0.5 * 0.3048)
+    assert np.diff(wf.depth) == pytest.approx(0.5 * 0.3048, rel=1e-4)
+
+
+def test_ldeo_little_endian_file_is_rejected_rather_than_misread(tmp_path):
+    """The guard this reader exists to have.
+
+    Read with the wrong byte order the header decodes to enormous garbage,
+    not to nothing -- so a reader that trusted it would allocate wildly or
+    return silently wrong samples. The arithmetic is checked before any
+    sample is read.
+    """
+    from fwap import read_ldeo_waveforms
+
+    path = tmp_path / "wf.bin"
+    _write_ldeo(path, endian="<")
+    with pytest.raises(ValueError, match="big-endian|does not|implies"):
+        read_ldeo_waveforms(path)
+
+
+def test_ldeo_truncated_file_is_rejected(tmp_path):
+    from fwap import read_ldeo_waveforms
+
+    path = tmp_path / "wf.bin"
+    _write_ldeo(path, n_depth=5, truncate=4)
+    with pytest.raises(ValueError, match="truncated|implies"):
+        read_ldeo_waveforms(path)
+
+
+def test_ldeo_implausible_sample_interval_is_rejected(tmp_path):
+    """A 5 second sonic record does not exist; refusing it catches a header
+    that parsed arithmetically but not physically."""
+    from fwap import read_ldeo_waveforms
+
+    path = tmp_path / "wf.bin"
+    _write_ldeo(path, dt_us=1.0e7)
+    with pytest.raises(ValueError, match="plausible range"):
+        read_ldeo_waveforms(path)
+
+
+def test_ldeo_non_positive_depth_scale_is_rejected(tmp_path):
+    from fwap import read_ldeo_waveforms
+
+    path = tmp_path / "wf.bin"
+    _write_ldeo(path, scale=0.0)
+    with pytest.raises(ValueError, match="depth scale"):
+        read_ldeo_waveforms(path)
+
+
+def test_ldeo_file_too_short_for_a_header(tmp_path):
+    from fwap import read_ldeo_waveforms
+
+    path = tmp_path / "wf.bin"
+    path.write_bytes(b"\x00" * 16)
+    with pytest.raises(ValueError, match="too short"):
+        read_ldeo_waveforms(path)
+
+
+def test_ldeo_unknown_tool_and_mode_codes_are_reported_not_rejected(tmp_path):
+    """A newer tool is not a corrupt file.
+
+    The code tables are documentation of what the archive has published so
+    far, so an unrecognised code has to survive into a readable string rather
+    than stop the read.
+    """
+    from fwap import read_ldeo_waveforms
+
+    path = tmp_path / "wf.bin"
+    _write_ldeo(path, tool=97, mode=42)
+
+    wf = read_ldeo_waveforms(path)
+    assert wf.tool == "unknown (97)"
+    assert wf.mode == "unknown (42)"
+    assert wf.tool_code == 97 and wf.mode_code == 42
+
+
+def test_ldeo_known_tool_codes_cover_the_two_registered_holes(tmp_path):
+    """DSI and LSS are the tools behind the archives this reader was written
+    for, so a rename of either table entry should fail here."""
+    from fwap import LDEO_MODE_NAMES, LDEO_TOOL_NAMES
+
+    assert LDEO_TOOL_NAMES[0] == "DSI"
+    assert LDEO_TOOL_NAMES[7] == "LSS"
+    assert LDEO_MODE_NAMES[4] == "Monopole"
+
+
+def test_ldeo_gather_feeds_stc_directly(tmp_path):
+    """The shape contract, asserted through the consumer that depends on it.
+
+    `stc` takes `(n_receiver, n_sample)`; if `gather` ever returned the
+    transpose, every slowness in a real-data run would be wrong rather than
+    absent, so the coupling is pinned here.
+    """
+    from fwap import read_ldeo_waveforms, stc
+
+    path = tmp_path / "wf.bin"
+    _write_ldeo(path, n_depth=2, n_receiver=8, n_sample=256, dt_us=10.0)
+    wf = read_ldeo_waveforms(path)
+
+    offsets = 3.0 + np.arange(wf.n_receiver) * 0.1524
+    result = stc(wf.gather(0), wf.sample_interval, offsets)
+    assert result.coherence.shape[0] == result.slowness.size
