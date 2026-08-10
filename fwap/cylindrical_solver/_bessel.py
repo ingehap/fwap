@@ -55,16 +55,42 @@ def _k_or_hankel(
 
     Leaky branch (``leaky=True``): for outgoing-radiation BCs with
     ``e^{-i omega t}`` time convention, replace ``K_n(alpha r)``
-    with ``(pi / 2) * i^{n+1} * H_n^{(2)}(i alpha r)``. The
-    ``i^{n+1}`` constant phase factor is absorbed into the unknown
-    amplitudes of the modal determinant, but we keep it here so
-    that the BOUND limit (alpha real and positive) of the Hankel
-    formula matches the corresponding K_n value -- a structural
-    consistency check that the regression test exercises.
+    with ``(pi / 2) * i^{n+1} * H_n^{(2)}(i alpha r)``. This is
+    ``K_n`` continued one sheet counter-clockwise -- expanding the
+    Hankel function gives, for integer ``n``,
+
+        (pi/2) i^{n+1} H_n^{(2)}(i z) = (-1)^{n+1} K_n(z e^{i pi})
+                                      = -K_n(z) + i pi (-1)^n I_n(z)
+
+    (verified to 1e-17) -- so it is a single solution of the modified
+    Bessel equation, and ``K_n(z e^{i pi}) ~ e^{+z}`` rather than
+    ``e^{-z}``. At a genuinely leaky ``alpha`` that is the outgoing,
+    radially growing field the radiation condition asks for: the
+    unwrapped phase runs at ``+Im(alpha)`` rad/m, against ``-Im(alpha)``
+    for plain ``K_n(alpha r)``.
 
     Returns the same ``(K_n, K_{n+1})`` tuple shape regardless of
     branch, so the matrix-building code is identical in both
     regimes.
+
+    Notes
+    -----
+    The two returned orders are consecutive orders of *one* solution,
+    which is what callers rely on: they form radial derivatives with
+    ``d/dx K_n(x) = -K_{n+1}(x) + (n/x) K_n(x)``, and that identity
+    holds for this pair to ~1e-10 at bound, radiating and complex
+    ``alpha`` alike (see
+    ``test_k_or_hankel_leaky_pair_are_consecutive_orders_of_one_solution``).
+    Anything that changes the two slots by different factors -- for
+    instance "fixing" the branch by negating ``alpha``, which leaves the
+    caller's ``alpha`` inconsistent with the values it gets back --
+    breaks that identity and corrupts every column built from the pair.
+
+    This docstring used to claim that the bound limit of the leaky
+    formula matches ``K_n``. It does not: at real positive ``alpha``
+    the two differ by factors of 2 to 3e3, because ``K_n(z e^{i pi})``
+    is the other sheet. The property that matters is the order
+    consistency above, and it was untested until the claim was checked.
     """
     z = alpha * r
     if leaky:

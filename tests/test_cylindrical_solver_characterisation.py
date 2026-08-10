@@ -71,6 +71,35 @@ Regenerations to date
   42 converged points of 71 -- and correcting A.2 did not remove it.
   ``test_the_fast_formation_marcher_is_grid_independent_at_n1`` states
   the contrast as an assertion.
+* Every ``n >= 1`` array -- ``n1_flexural_slow``, ``n1_flexural_fast``,
+  ``n1_flexural_layered_slow``, ``n1_flexural_vti``,
+  ``n2_quadrupole_slow``, ``n2_quadrupole_fast`` and
+  ``n2_quadrupole_layered_slow`` -- when the SV column was corrected
+  from an azimuthal-only vector potential to the Hansen form
+  ``curl curl(chi z)``, which is Schmitt & Cheng's appendix column
+  (roadmap A.8). The ``n = 0`` arrays are untouched: the old ansatz is
+  a solution there, which is why ``stoneley_dispersion`` never carried
+  the error.
+
+  Each replacement was checked before being committed, following the
+  precedent above. Every finite value is a root of its own modal
+  determinant to **5e-14 - 2e-9** relative to the determinant 0.1 %
+  away; every value lies inside its physical window; every sequence
+  descends monotonically as a guided mode must; and an independent
+  50 Hz grid over 2-10 kHz reproduces the fast-formation n=1 values
+  exactly. Coverage went up in six of the seven arrays -- the corrected
+  solvers resolve about a kHz lower than before -- so several entries
+  that used to be NaN now carry values.
+
+  ``n2_quadrupole_fast`` is the exception, and it is unchanged in
+  character: its single value (2082.2 m/s at 10 kHz, was 2084.9) is a
+  sign change of ``Im(det)`` on a determinant that is numerically
+  noise-dominated at this frequency -- the imaginary part flips sign
+  every few m/s at a magnitude of ~1e11, with no coherent structure --
+  so it is a noise crossing rather than a mode. That is roadmap A.7,
+  not A.8, and the value is characterisation rather than a reference.
+  It is now at least grid-independent, which it was not before: every
+  grid that converges returns it bit for bit.
 """
 
 from __future__ import annotations

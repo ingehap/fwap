@@ -357,13 +357,21 @@ def test_main_cased_flag_writes_cased_file(tmp_path, capsys):
 # ----------------------------------------------------------------------
 
 
-def test_slow_two_mode_cased_dataset_carries_both_modes_fully_bound():
-    """Both cased modes finite across the whole band, and both injected.
+def test_slow_two_mode_cased_dataset_carries_both_modes():
+    """Both cased modes present and injected in every accepted sample.
 
     This is the whole point of the restricted prior: the default cased
     dataset is single-mode because flexural is sparse in fast formations,
     and this configuration is the measured window where that stops being
     true without costing the Stoneley.
+
+    "Both modes" no longer means "both bound at every frequency". The
+    roadmap-A.8 correction removed a spurious bound branch behind stiff
+    annuli, and the cased dipole mode is genuinely leaky against a slow
+    formation over the lower part of the band. What is left is the
+    Stoneley everywhere plus a contiguous upper sub-band of flexural,
+    which ``require_all_modes=True`` now guarantees is at least
+    ``min_finite`` points wide.
     """
     freq = gen.default_freq_grid(n_freq=48)
     samples = gen.generate_slow_two_mode_cased_dataset(6, seed=0, freq=freq)
@@ -372,8 +380,18 @@ def test_slow_two_mode_cased_dataset_carries_both_modes_fully_bound():
     stacked = gen.stack_dataset(samples)
     assert tuple(stacked["mode_names"]) == ("Stoneley", "flexural")
     assert stacked["slowness"].shape == (6, 2, freq.size)
-    # every sample, every mode, every frequency
-    assert np.all(np.isfinite(stacked["slowness"]))
+    finite = np.isfinite(stacked["slowness"])
+    # the Stoneley is bound at every frequency of every sample
+    assert finite[:, 0, :].all()
+    # the flexural mode is a contiguous block reaching the top of the band
+    for i in range(len(samples)):
+        idx = np.flatnonzero(finite[i, 1, :])
+        assert idx.size >= 8, f"sample {i}: {idx.size} finite flexural points"
+        assert np.array_equal(idx, np.arange(idx[0], idx[-1] + 1)), (
+            f"sample {i}: flexural coverage is not contiguous"
+        )
+        assert idx[-1] == freq.size - 1, f"sample {i}: does not reach the top"
+    # both modes injected into every gather
     assert stacked["mode_in_gather"].all()
     assert np.all(np.isfinite(stacked["bond_index"]))
     # the annulus is still there -- this is a cased dataset, not an open one
@@ -397,12 +415,17 @@ def test_two_mode_window_is_slow_and_disjoint_from_the_default_cased_prior():
 
 
 def test_the_two_mode_window_has_a_reason_for_its_lower_edge():
-    """Below the window the Stoneley stops being bound; flexural does not.
+    """Below the window the Stoneley stops being bound entirely.
 
     The window's floor looks arbitrary until you see that the two modes
     fail in opposite directions. This checks the direction of that trade
     rather than a precise coverage number, which would be pinning the
     solver's numerics.
+
+    After the roadmap-A.8 correction the flexural mode is partial on
+    both sides rather than complete on both, so the check is that it
+    degrades gently while the Stoneley falls off a cliff -- which is
+    what makes the floor a Stoneley floor.
     """
     from fwap import flexural_dispersion_layered, stoneley_dispersion_layered
 
@@ -413,16 +436,19 @@ def test_the_two_mode_window_has_a_reason_for_its_lower_edge():
     inside = dict(vp=1450.0 * 1.8, vs=1450.0, rho=2300.0, **borehole)
     below = dict(vp=1300.0 * 1.8, vs=1300.0, rho=2300.0, **borehole)
 
-    # flexural is healthy on both sides -- it is not what sets the floor
-    for formation in (inside, below):
-        flexural = flexural_dispersion_layered(freq, **formation)
-        assert np.isfinite(flexural.slowness).all()
+    # flexural degrades gently across the edge -- it is not what sets it
+    inside_fx = np.isfinite(flexural_dispersion_layered(freq, **inside).slowness)
+    below_fx = np.isfinite(flexural_dispersion_layered(freq, **below).slowness)
+    assert inside_fx.mean() > 0.3
+    assert below_fx.mean() > 0.5 * inside_fx.mean()
 
-    # the Stoneley is what degrades going down
+    # the Stoneley is what falls off the cliff going down
     inside_st = np.isfinite(stoneley_dispersion_layered(freq, **inside).slowness)
     below_st = np.isfinite(stoneley_dispersion_layered(freq, **below).slowness)
     assert inside_st.all()
     assert below_st.mean() < inside_st.mean()
+    # and it degrades further than the flexural mode does
+    assert (inside_st.mean() - below_st.mean()) > (inside_fx.mean() - below_fx.mean())
 
 
 def test_slow_two_mode_cased_dataset_reproducible():

@@ -620,7 +620,7 @@ class FormationPriors:
         }
 
 
-# Formation prior over which *both* cased modes are fully bound.
+# Formation prior over which *both* cased modes are present.
 #
 # The two cased modes fail in opposite directions, which is why the default
 # cased dataset is single-mode rather than merely under-ambitious:
@@ -630,12 +630,33 @@ class FormationPriors:
 #   * cased Stoneley stops being bound as the formation slows away from the
 #     fluid velocity.
 #
-# Measured across the CasingCementPriors annulus at 48 frequencies, the
-# fraction of draws with *both* modes finite everywhere is 0.00 at
-# V_S = 1350 m/s, 0.42 at 1380, 0.92 at 1400, and 1.00 from 1420 upward. The
-# lower bound below is that measured floor; the upper bound stops just short of
-# the 1500 m/s fluid velocity, above which the flexural mode enters the fast
-# regime and goes sparse again.
+# Measured across the CasingCementPriors annulus at 48 frequencies over
+# 1-12 kHz, 25 draws per formation:
+#
+#   V_S (m/s)   Stoneley bound everywhere   flexural coverage (median)
+#     1350               0.00                        0.29
+#     1380               0.40                        0.40
+#     1400               1.00                        0.46
+#     1420               1.00                        0.50
+#     1450               1.00                        0.54
+#     1495               1.00                        0.60
+#
+# The lower bound below is the Stoneley's measured floor, and 1420 is also
+# where the flexural mode stops vanishing entirely on some annulus draws. The
+# upper bound stops just short of the 1500 m/s fluid velocity, above which the
+# flexural mode enters the fast regime and goes sparse again.
+#
+# **The flexural mode is no longer bound across the whole band here.** It used
+# to be: this prior was chosen as the window where both modes were finite at
+# every frequency. The roadmap-A.8 correction to the SV column removed a
+# spurious bound branch behind stiff annuli, and with a steel casing the cased
+# dipole mode is genuinely leaky against a slow formation over the lower part
+# of the band. What survives is a contiguous UPPER sub-band -- typically half
+# the grid, reaching the top of it -- whose lower edge moves with the cement
+# draw. :func:`generate_slow_two_mode_cased_dataset` therefore passes
+# ``require_all_modes=True``, so an accepted sample still carries both modes
+# with at least ``min_finite`` points each; it just does not carry the flexural
+# one everywhere.
 #
 # The window is therefore genuinely narrow -- about 80 m/s -- and it is
 # *disjoint* from the default cased prior (1700-3000 m/s), so this is a
@@ -802,6 +823,7 @@ def generate_sample(
     cased_priors: CasingCementPriors | MicroannulusPriors | None = None,
     noise_max: float = 0.06,
     min_finite: int = 8,
+    require_all_modes: bool = False,
 ) -> SurrogateSample | None:
     """
     Generate a single training pair, or ``None`` if the draw is rejected.
@@ -834,6 +856,12 @@ def generate_sample(
         actual level is drawn uniformly in ``[0, noise_max]``.
     min_finite : int, default 8
         Minimum finite slowness samples for a mode to enter the gather.
+    require_all_modes : bool, default False
+        Reject the draw unless EVERY mode in ``modes`` cleared
+        ``min_finite``. The default accepts a draw as soon as one mode
+        does, which is right for mode sets whose members are known to be
+        regime-dependent; set it when the dataset's contract is that all
+        of them are present.
 
     Returns
     -------
@@ -897,6 +925,11 @@ def generate_sample(
 
     if not disp_modes:
         return None
+    if require_all_modes and not in_gather.all():
+        # Every mode in the spec must have cleared ``min_finite``. Used by
+        # the two-mode cased dataset, whose contract is that both modes are
+        # present -- see :func:`generate_slow_two_mode_cased_dataset`.
+        return None
 
     noise = float(rng.uniform(0.0, noise_max))
     gather = synthesize_gather(
@@ -929,6 +962,7 @@ def generate_dataset(
     noise_max: float = 0.06,
     min_finite: int = 8,
     max_attempts: int | None = None,
+    require_all_modes: bool = False,
 ) -> list[SurrogateSample]:
     """
     Generate ``n`` accepted training pairs.
@@ -957,6 +991,9 @@ def generate_dataset(
         Upper bound on per-gather noise fraction.
     min_finite : int, default 8
         Minimum finite slowness samples for a mode to enter the gather.
+    require_all_modes : bool, default False
+        Reject a draw unless every mode in ``modes`` cleared
+        ``min_finite``; see :func:`generate_sample`.
     max_attempts : int or None
         Cap on draws (accepted + rejected). ``None`` uses
         ``100 * n + 100``. Guards against a degenerate prior that
@@ -999,6 +1036,7 @@ def generate_dataset(
             cased_priors=cased_priors,
             noise_max=noise_max,
             min_finite=min_finite,
+            require_all_modes=require_all_modes,
         )
         if sample is not None:
             samples.append(sample)
@@ -1023,6 +1061,7 @@ def generate_cased_dataset(
     noise_max: float = 0.06,
     min_finite: int = 8,
     max_attempts: int | None = None,
+    require_all_modes: bool = False,
 ) -> list[SurrogateSample]:
     """
     Generate ``n`` cased-hole training pairs (casing + cement + formation).
@@ -1067,6 +1106,7 @@ def generate_cased_dataset(
         noise_max=noise_max,
         min_finite=min_finite,
         max_attempts=max_attempts,
+        require_all_modes=require_all_modes,
     )
 
 
@@ -1188,8 +1228,14 @@ def generate_slow_two_mode_cased_dataset(
     because the two cased modes fail in opposite directions: flexural is sparse
     in fast formations, and Stoneley stops being bound as the formation slows
     away from the fluid velocity. :data:`SLOW_TWO_MODE_PRIORS` is the measured
-    window where both hold, and this wrapper pins it together with
-    :data:`CASED_TWO_MODES`.
+    window where both are present, and this wrapper pins it together with
+    :data:`CASED_TWO_MODES` and ``require_all_modes=True``, so every accepted
+    sample carries both.
+
+    "Both modes" means both are present and injected, not both bound at every
+    frequency: the Stoneley is finite across the grid, the flexural mode over a
+    contiguous upper sub-band of typically half of it. Read
+    :data:`SLOW_TWO_MODE_PRIORS` for why.
 
     Read :data:`SLOW_TWO_MODE_PRIORS` before using this. The window is about
     80 m/s wide and **disjoint from the default cased prior**, so a dataset from
@@ -1227,6 +1273,7 @@ def generate_slow_two_mode_cased_dataset(
         noise_max=noise_max,
         min_finite=min_finite,
         max_attempts=max_attempts,
+        require_all_modes=True,
     )
 
 
