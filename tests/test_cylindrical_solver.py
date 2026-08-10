@@ -16942,3 +16942,129 @@ def test_fast_flexural_returns_a_sawtooth_not_a_dispersion_curve():
     steps = np.diff(velocity[finite])
     assert (steps > 0.0).any(), "a guided mode never speeds up with frequency"
     assert steps.max() > 100.0, "the jump is a mode change, not numerical noise"
+
+
+# ----------------------------------------------------------------------
+# A.2, checked against a published curve
+#
+# Everything above is internal reasoning: the bracket is anchored to the
+# wrong speed, so the roots it returns are overtones. That argument stands
+# on fwap's own determinant. Schmitt & Cheng figure 2a plots the
+# same quantity for a stated rock, so it can be checked from outside.
+#
+# Provenance. Schmitt, D. P., & Cheng, C. H., "Shear Wave Logging In
+# (Multilayered) Elastic Formations: An Overview", MIT Earth Resources
+# Laboratory, pp. 213-246 -- *not* the single-author JASA article this
+# repository cites elsewhere. Figure 2a is on p. 239 of the bound volume.
+# "Dipole source. Dispersion (a), attenuation (b), and excitation
+# (c) of the flexural mode (1) and the first trapped mode (2) in the
+# presence of a fast sandstone. The velocities are normalized with respect
+# to the bore fluid velocity." Rock from the paper's table 1 (fast
+# sandstone): V_P 4878, V_S 2601, rho 2160; bore fluid 1500 m/s, 1000
+# kg/m^3; hole radius 0.10 m.
+#
+# Digitisation. The page was rendered at 600 dpi, the plot frame located
+# from the axis rules, and the phase branch of curve 1 followed column by
+# column. The 26 x-axis ticks land on integer kHz to within 0.06 kHz and
+# the 1.400 / 1.000 y-ticks read 1.3978 / 0.9981, so axis calibration
+# contributes about +-3 m/s. The plotted curve is 9-12 px thick, which
+# dominates: the table below is good to roughly +-20 m/s, or +-1 %.
+#
+# Two things the figure settles that fwap could not settle by itself:
+#
+#   * the low-frequency plateau is the formation shear speed (2593 read,
+#     2601 exact) -- as expected, and confirmation the digitisation is
+#     sound;
+#   * the high-frequency end is the Scholte speed (1493 at 24.9 kHz and
+#     still descending, against 1484 exact) -- which is A.1's claim,
+#     until now resting only on fwap's own convergence.
+#
+# And the number this block exists for: the branch crosses V_R at
+# 4.45 kHz and V_f at 17.9 kHz. The solver's `(V_R, V_S)` window
+# therefore holds the true root over 10 % of the plotted band and no
+# root-finder tolerance can recover the rest.
+# ----------------------------------------------------------------------
+
+_FIG2_ROCK = dict(vp=4878.0, vs=2601.0, rho=2160.0)
+_FIG2_FLUID = dict(vf=1500.0, rho_f=1000.0)
+
+#: Phase velocity (Hz, m/s) of the flexural mode, digitised from
+#: Schmitt & Cheng figure 2a. Uncertainty about +-20 m/s.
+_FIG2A_FLEXURAL_PHASE = (
+    (2.5e3, 2593.3),
+    (3.0e3, 2595.5),
+    (4.0e3, 2534.2),
+    (5.0e3, 2175.4),
+    (6.0e3, 1889.3),
+    (8.0e3, 1663.8),
+    (10.0e3, 1579.0),
+    (12.5e3, 1535.8),
+    (15.0e3, 1517.7),
+    (17.5e3, 1504.0),
+    (20.0e3, 1495.0),
+    (22.5e3, 1495.0),
+    (24.5e3, 1492.7),
+)
+
+
+def test_figure_2a_reference_table_is_anchored_at_both_ends():
+    """Check the digitisation before trusting it to judge the solver.
+
+    Both ends of the published curve are values that can be computed
+    independently, so they are the two places a mis-read axis would show
+    up. The low-frequency plateau must be the formation shear speed and
+    the high-frequency end must be approaching the Scholte speed from
+    above -- and the two are 1117 m/s apart, so neither is a weak test.
+    """
+    from fwap import scholte_speed
+
+    freq = np.array([f for f, _ in _FIG2A_FLEXURAL_PHASE])
+    velocity = np.array([v for _, v in _FIG2A_FLEXURAL_PHASE])
+    v_scholte = scholte_speed(**_FIG2_ROCK, **_FIG2_FLUID)
+
+    assert velocity[0] / _FIG2_ROCK["vs"] == pytest.approx(1.0, abs=0.01)
+    assert velocity[-1] / v_scholte == pytest.approx(1.0, abs=0.015)
+    assert velocity[-1] > v_scholte, "the curve is still descending at 24.5 kHz"
+    # Monotone to within the +-20 m/s tracing uncertainty: the 2.5 -> 3.0 kHz
+    # pair rises 2.2 m/s, which is the flat plateau read twice, not an ascent.
+    assert np.diff(velocity).max() < 20.0, "phase velocity does not increase here"
+    assert freq[0] < 3.0e3 < freq[-1]
+
+
+def test_fast_flexural_disagrees_with_the_published_curve():
+    """The published check of A.2, and it is not close.
+
+    On the paper's own rock the solver returns a value at 5 of the 13
+    tabulated frequencies, every one of them between V_R and V_S, and
+    every one 62-73 % faster than the figure. The eight NaNs are not the
+    problem; the five answers are.
+
+    The table starts at 2.5 kHz and steps 0.5-2.5 kHz, so it does not
+    sample 4.2-4.4 kHz, where the solver *is* correct because the true
+    curve has not yet left the bracket. That is not cherry-picking, it is
+    the reason the assertion below can be a clean floor: on a finer grid
+    the correct region is 2 samples in 115, and a test that straddled it
+    would have to special-case one interval.
+
+    Asserted as a floor on the disagreement rather than on the numbers
+    themselves, so that any fix -- a wider bracket, complex root
+    tracking, mode selection -- trips this test instead of quietly
+    keeping it green.
+    """
+    from fwap import flexural_dispersion
+    from fwap.cylindrical import rayleigh_speed
+
+    freq = np.array([f for f, _ in _FIG2A_FLEXURAL_PHASE])
+    reference = np.array([v for _, v in _FIG2A_FLEXURAL_PHASE])
+    velocity = (
+        1.0 / flexural_dispersion(freq, **_FIG2_ROCK, **_FIG2_FLUID, a=0.10).slowness
+    )
+    finite = np.isfinite(velocity)
+
+    assert finite.sum() >= 3, "if coverage collapsed entirely, retune the grid"
+    v_rayleigh = rayleigh_speed(_FIG2_ROCK["vp"], _FIG2_ROCK["vs"])
+    assert np.all(velocity[finite] > v_rayleigh), "every answer is bracket interior"
+    assert np.all(velocity[finite] < _FIG2_ROCK["vs"])
+
+    error = (velocity[finite] - reference[finite]) / reference[finite]
+    assert error.min() > 0.5, "the returned mode is far faster than the flexural one"

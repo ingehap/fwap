@@ -37,6 +37,40 @@ the project uses [Semantic Versioning](https://semver.org/).
   complex-plane root tracking". Neither defect above involves complex `k_z` at
   all. The below-cutoff sparseness, separately, still does.
 
+  **Now checked against a published curve, which sharpens two of the claims
+  above and corrects one.** Schmitt & Cheng figure 2a plots flexural
+  dispersion for a fast sandstone the paper specifies (`V_P` 4878, `V_S` 2601,
+  `rho` 2160; fluid 1500 m/s; hole radius 0.10 m). Digitised at 600 dpi to
+  about ±1 %, it runs from the formation shear speed (2596 read against 2601)
+  to the Scholte speed (1493 at 24.9 kHz against 1484, still descending), and
+  crosses `V_R` at **4.45 kHz** — so the `(V_R, V_S)` window holds the true
+  root over just **10 %** of the plotted band.
+  On that rock the solver answers at 5 of 13 tabulated frequencies, every
+  answer inside `(V_R, V_S)` and every one **62-73 % too fast**. On a finer
+  0.2 kHz grid it lands on the right branch at exactly two frequencies, 4.2 and
+  4.4 kHz — **2 of 115 samples**, +2.8 % and +1.5 % against a ±1.2 % reading
+  uncertainty — which is precisely the sliver below the 4.45 kHz crossing where
+  the true curve is still inside the bracket. Nothing in the returned object
+  distinguishes those two from the 47 overtones.
+  The Scholte-edged bracket is worth more than "doubles coverage" — it
+  recovers **4.4-16.4 kHz at 0.66 % median error** (worst 1.7 %). Outside that
+  window it recovers nothing, because no real-axis root exists: below 4.4 kHz
+  and above 16.4 kHz a 4001-point scan finds `Im(det)` sign changes only at the
+  `s = 0` and `F = 0` endpoints, with the determinant finite and
+  `|Re|/|Im| ~ 1e-16` throughout.
+  **The correction**: the residue is not "the below-cutoff half". It is two
+  disjoint intervals, one at each end of the band, with a working middle
+  between them. Figure 2b agrees — the flexural mode's `1/Q × 100` runs 1.70 at
+  2.3 kHz to 5.34 at 5 kHz to 3.27 by 25 kHz, non-zero throughout — so the pole
+  is off the real axis everywhere and the real-axis root is an approximation
+  that happens to be excellent in the middle. Its quality does not track `1/Q`:
+  it fails where attenuation is lowest and works where it is highest, so
+  proximity to the real axis is not the criterion.
+  The digitised reference table is checked in as `_FIG2A_FLEXURAL_PHASE` in
+  `tests/test_cylindrical_solver.py`, with an end-anchor test of its own so a
+  bad digitisation cannot silently become the reference. Five tests now pin the
+  item, not three.
+
 ### Fixed
 - **The flexural high-frequency test was anchored to the wrong reference**
   (roadmap A.1). `test_flexural_high_f_slowness_above_inverse_rayleigh` compared

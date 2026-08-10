@@ -51,7 +51,10 @@ to name.
   reading showed the larger half needs no complex machinery at all — and turned
   up something nobody was looking for: in fast formations above ~15 kHz
   `flexural_dispersion` returns a flexural **overtone** labelled as the mode.
-  Not a missing answer, a wrong one.
+  Not a missing answer, a wrong one. Then the published curve was digitised and
+  corrected the *correction*: on the paper's own rock there is no frequency at
+  which the solver returns the flexural mode at all, and the real-axis residue
+  is two intervals rather than one.
 
 The common shape: **a negative claim about the outside world, or about what a
 file contains, written down once as a fact and never re-tested.** Stated flatly
@@ -71,8 +74,8 @@ training data — one hole of one tool does not change that.
 |-----------|----------------|
 | ~~**F.2 A waveform fixture CI can use**~~ | *Closed, with one thing it does not mean.* `iodp_u1347a_dsi` — an eight-receiver DSI monopole run, **CC0** on Zenodo — is registered, read by `read_ldeo_waveforms`, and exercised by `stc` at **0.948** median peak coherence. CI *can* use it but does not: the default run stays hermetic and skips it. The blocking claim ("no openly redistributable gather is known to exist") turned out to be false. Kept below. |
 | ~~**F.5 The ODP file's unknowns**~~ | *Closed.* Both answered, and the item was filed on a wrong premise — "not resolvable from the files" meant "nobody had opened the rest of the archive". The hole identity is settled by the archive's own run table (six runs matched by name and depth interval, six for six); the offsets are the LSS **8/10/10/12 ft** set, confirmed by first-break moveout to an intercept of −0.0 µs. Kept below. |
-| **A.2 Fast-formation leakage, `n=1` and `n=2`** | **Measured, and it is two defects.** *Wrong answers*: above ~15 kHz `flexural_dispersion` returns a flexural **overtone** labelled as the mode, because the search window is `(V_R, V_S)` and the fundamental has left it — `V_R` is not this mode's limit, the Scholte speed is, 30 % lower. Over 10-30 kHz the returned curve sawtooths: descends, `NaN`s, **jumps back up**. *Missing answers*: below the cutoff the root genuinely leaves the real axis. The first needs a mode-identification rule and **no complex machinery** — widening the window roughly doubles coverage; the second still needs complex-plane tracking. Pinned by three tests, not fixed: every naive selection rule tried fails. Affects `n=2` identically, so one fix repairs two solvers, and it is why both Scholte ties are scoped to slow formations. |
-| **A.1 Validation figures** | *Re-scoped from five to three* (five → three → four → three: fig 4 was restored, then the figure itself was seen and turned out **not to be a dispersion figure at all** — it is a dipole shot gather, so it cannot be scored in the overlay schema. It did settle A.2's yes/no question, which is why it was worth fetching). Which Schmitt (1988) figure carries the flexural dispersion curves is now **unknown**. Stoneley, flexural and quadrupole are now tied analytically at 1e-8 to 1e-3, against a 5 % overlay budget — so their figures were dropped as the weaker instrument. What still needs the books is the **pseudo-Rayleigh curve**, **cased Stoneley** and **VTI flexural**, which have no external tie of any kind. |
+| **A.2 Fast-formation leakage, `n=1` and `n=2`** | **Measured against the published curve, and it is two defects.** Schmitt & Cheng figure 2a plots this exact quantity for a stated rock. Digitised, it shows the flexural branch running `V_S` → Scholte and crossing `V_R` at **4.45 kHz** — so the solver's `(V_R, V_S)` window holds the true root over **10 %** of the plotted band. *Wrong answers*: on the paper's own rock the solver answers at 5 of 13 frequencies, all inside `(V_R, V_S)`, all **62-73 % too fast** — flexural overtones labelled as the mode, sawtoothing where a guided mode cannot. *Missing answers*: at both ends of the band no real-axis root exists at all. Moving the bracket edge to the Scholte speed recovers **4.4-16.4 kHz at 0.66 % median error** and nothing outside it, so the fix is now scoped rather than guessed: a bracket edit for the middle, complex `k_z` for the two ends. Pinned by five tests, not fixed. Affects `n=2` identically, so one fix repairs two solvers. |
+| **A.1 Validation figures** | *Re-scoped from five to three* (five → three → four → three: fig 4 was restored, then the figure itself was seen and turned out **not to be a dispersion figure at all** — it is a dipole shot gather, so it cannot be scored in the overlay schema. It did settle A.2's yes/no question, which is why it was worth fetching). Which figure carries the flexural dispersion curves is now known — **figure 2a of Schmitt & Cheng**, since digitised, which also gives A.1's flexural-Scholte tie its first *external* confirmation (1493 m/s read at 24.9 kHz against 1484 computed). Stoneley, flexural and quadrupole are tied analytically at 1e-8 to 1e-3, against a 5 % overlay budget — so their figures were dropped as the weaker instrument. What still needs the books is the **pseudo-Rayleigh curve**, **cased Stoneley** and **VTI flexural**, which have no external tie of any kind. |
 | **F.4 Two unconfirmed checksums** | Also body-only until this revision, which is the same failure as A.2's. `forge_dsi_las` and `iodp_u1347a_dsi` both carry digests computed from copies that did not come down their canonical URLs, because those hosts were blocked from the sessions that added them. One successful fetch each clears it. It is the only place the fixture registry asserts something it has not verified. |
 | **A.5 residue: delta-matrix reformulation** | Optional and blocked on nothing, which is why it kept falling off the list. A delta-matrix / Abo-Zena form of the elastic stack would remove the cancellation the grid-stability filter exists to work around, and raise the crack-wave ceiling above the ~240 kHz where the propagators stop being representable. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
@@ -289,6 +292,11 @@ committed by the session that wrote the note.
 > curves is no longer known. It is not fig 4. Nobody should go looking for
 > "fig 4" again on this file's say-so.
 >
+> *That unknown lasted one revision.* It is **figure 2a of Schmitt & Cheng**,
+> and it has since been digitised — see the figure-2a section under A.2. The
+> ask stays at three figures, because fig 2a was spent on A.2 rather than
+> added to A.1's overlay set.
+>
 > This is the third thing this file got wrong about one paper — pages, title,
 > and now figure content — and all three were recorded with the same
 > confidence. The common cause is that none had been checked against the
@@ -449,6 +457,13 @@ the measurement. Three tests pin the defect in
 is still the leaky problem described below. Complex-plane tracking is needed for
 *that* half. It is not needed for either defect above.
 
+> *Corrected by the figure-2 measurement below.* "That half" is not one half.
+> The real axis fails at **both** ends of the band, not only under the cutoff:
+> above the frequency where the branch drops below the fluid velocity there is
+> likewise no `Im(det)` sign change. Complex `k_z` is needed for two disjoint
+> intervals with a working middle between them, which is a different — and
+> smaller — job than the sentence above implies.
+
 *A correction to A.1, made in the same revision that created it.* The A.1
 re-scope dropped Schmitt 1988 fig 4 as "superseded" on the strength of the new
 flexural-Scholte tie. That tie is **slow-formation only**, because of exactly
@@ -458,6 +473,126 @@ would settle whether a leaky continuation exists at all. Fig 4 is restored to
 the A.1 ask for its fast half. Dropping it was the "read the table against the
 body" failure that the honesty note added two revisions ago exists to catch —
 committed by the same session that wrote the note.
+
+> *Superseded, twice.* Fig 4 turned out to be a shot gather rather than a
+> dispersion figure, and the fast-formation curve this paragraph wanted is
+> **figure 2a**, now digitised — see the next section. Fig 4 is out of the A.1
+> ask again, for a better reason than the first time: not "superseded by an
+> internal tie" but "it is not the figure". The restoration was still correct
+> at the moment it was made, on the evidence then available.
+
+### A.2 — checked against figure 2a, and the fix is now scoped rather than guessed
+
+Everything above is fwap arguing with itself: the bracket is anchored to the
+wrong speed, therefore the roots are overtones. The argument rests on fwap's own
+determinant, which is also the thing under suspicion. Schmitt & Cheng figure 2a
+plots the same quantity for a rock the paper states, so it settles the question
+from outside.
+
+**The reference.** Figure 2a, p. 239 of the bound volume: *"Dipole source.
+Dispersion (a) … of the flexural mode (1) and the first trapped mode (2) in the
+presence of a fast sandstone. The velocities are normalized with respect to the
+bore fluid velocity."* Rock from the paper's table 1: `V_P` 4878, `V_S` 2601,
+`rho` 2160; fluid 1500 m/s, 1000 kg/m³; hole radius 0.10 m. For that model
+`V_R` = 2412.8 and Scholte = 1484.4 m/s.
+
+**How it was read.** Page rendered at 600 dpi, plot frame located from the axis
+rules, curve 1's phase branch followed column by column — 1484 samples over
+2.20-24.87 kHz. The 26 x-ticks land on integer kHz to within 0.06 kHz and the
+1.400 / 1.000 y-ticks read 1.3978 / 0.9981, so axis calibration costs about
+±3 m/s. The plotted line is 9-12 px thick, which dominates: **±20 m/s, roughly
+±1 %**. That is a scan read carefully, not a validation-grade overlay, and
+nothing below leans on better than 1 %.
+
+**What the curve says, before fwap enters.** It starts at 2596 m/s — the
+formation shear speed, 2601, to −0.2 %. It ends at 1493 m/s at 24.9 kHz, still
+descending, against a Scholte speed of 1484.4: **+0.6 %**. Between those it
+crosses `V_R` at **4.45 kHz** and the fluid velocity at **17.9 kHz**.
+
+Two things follow immediately, and the second is the point of the item:
+
+* A.1's flexural-Scholte tie now has an **external** confirmation. Until now it
+  rested on fwap converging to a number fwap also computed. A published curve
+  for a *fast* formation lands on it, and A.1's tie is a *slow*-formation
+  result — so this is a check across the regime boundary, not the same claim
+  twice.
+* The solver's search window `(V_R, V_S)` contains the true root **only up to
+  4.45 kHz — 10 % of the plotted band**. Above that the root is outside the
+  bracket by construction. No tolerance, no seeding, no continuation strategy
+  can recover it, because there is nothing in the interval to find.
+
+**fwap against the figure**, same rock, 2.2-25 kHz on a 0.2 kHz grid:
+
+| | |
+|---|---|
+| coverage | **43 %** (49 of 115) |
+| every finite value | inside `(V_R, V_S)` — all bracket interior |
+| on the right branch | 2 points, at 4.2 and 4.4 kHz (+2.8 %, +1.5 %) |
+| the other 47 | two sawtooth ramps, 10.0-13.8 and 17.4-22.6 kHz, each running 2597 → ~2420 m/s |
+| error on those 47 | **+58.6 % to +72.2 %, median +65.0 %** |
+
+The two good points are exactly the ones the bracket argument predicts: below
+4.45 kHz the true curve has not yet left `(V_R, V_S)`, so the solver finds it.
+That they are the fundamental and not another coincidence is confirmed by the
+widened-bracket scan, which finds a *single* root at those frequencies. Their
++1.5 % / +2.8 % is close to but not inside the reading uncertainty here — the
+curve falls about 350 m/s per kHz through the plunge, so the ±0.06 kHz tick
+calibration contributes ±0.9 % on top of the ±0.8 % vertical, for about ±1.2 %
+combined. Right branch, agreement good, exactness not demonstrable.
+
+That is the whole of it: **2 of 115 samples, 1.7 % of the band.** Everywhere
+else the call either returns nothing or returns an overtone, and nothing in the
+returned object distinguishes those two points from the 47 wrong ones.
+
+**The bracket edit, now measured rather than estimated.** Replacing the `1/V_R`
+edge with `1/Scholte` and enumerating every `Im(det)` root in the widened
+window, against the digitised curve:
+
+| band | result |
+|---|---|
+| below 4.4 kHz | **no real-axis root exists.** A 4001-point scan at 3.0 and 4.0 kHz finds sign changes only at the two endpoints — `V_S`, where `s = 0`, and `V_f`, the `F = 0` branch point. The determinant is finite throughout and `\|Re\|/\|Im\| ~ 1e-16`, so this is the analytic structure, not a numerical failure. The true root (2534-2595 m/s) is simply off the real axis. |
+| **4.4-16.4 kHz** | **recovered: median \|error\| 0.66 %, worst 1.74 %, 18 of 31 sampled frequencies under 1 %** |
+| above 16.4 kHz | the branch has dropped below `V_f`; again no real-axis root, and the widened bracket instead returns a different branch running 2095 → 1708 m/s, 14-39 % high |
+
+So the earlier claim that widening "roughly doubles coverage" was right about
+the direction and understated what it buys: 12 kHz of the 22.7 kHz plotted band
+— **53 %** — comes back correct to better than 1.8 %, median 0.66 %. And that
+is coverage of the *right* mode, which is not what the earlier figure counted.
+The earlier claim that the residue is "the below-cutoff
+half" was wrong — the residue is two intervals, one at each end, straddling a
+working middle. Figure 2b is consistent with that: read the same way, the
+flexural mode's `1/Q × 100` runs 1.70 at 2.3 kHz → 5.34 at 5 kHz → 3.27 by
+25 kHz, so it is **non-zero across the whole band** — best `Q` about 59. The
+pole is off the real axis everywhere, and the real-axis root is an
+approximation, excellent in the middle and absent at the ends.
+
+Worth noticing that the approximation's quality does **not** track `1/Q`. It
+fails at 2.3-4.4 kHz, where attenuation is at its *lowest* (1.70), and works to
+0.66 % at 5-16 kHz, where attenuation is at its *highest* (5.34 falling to
+3.6). So "the pole is close to the real axis" is not the criterion, and a fix
+that assumes it is will be tuned on the wrong quantity.
+
+What the three regions line up with instead is **the phase velocity itself**.
+The real-axis root exists over 4.4-16.4 kHz, which is where the curve runs from
+2432 down to 1509 m/s — that is, from just under `V_R` to just over `V_f`. It
+fails above `V_R` and it fails at `V_f`. The lower edge matches the `V_R`
+crossing (4.45 kHz) to better than the grid; the upper edge is softer, because
+the curve is nearly flat there — 16 m/s over the last 8.5 kHz — so "where it
+reaches `V_f`" cannot be located to better than a kilohertz or two.
+`V_f` being a boundary is expected: it is the `F = 0` branch point. `V_R`
+being the other one is not explained here, and is the first thing worth
+checking when the fix is attempted, since it is what a mode-selection rule
+would have to key on.
+
+**Still not fixed here, and now for a stated reason rather than a hedge.** The
+measurement scopes the work: a bracket edit earns 4.4-16.4 kHz, and the two ends
+need complex `k_z`. But a bracket edit alone would ship a solver that answers
+confidently over the full band while being 14-39 % wrong above 16.4 kHz — the
+same class of defect as the overtones, traded for a different wrong branch. The
+selection problem has to be solved with the bracket, not after it. Two more
+tests in `tests/test_cylindrical_solver.py` pin the disagreement against the
+digitised table, which is checked in with its own end-anchor test so a bad
+digitisation cannot silently become the reference.
 
 ### A.2 Fast-formation flexural leakage — the original entry
 
@@ -601,6 +736,11 @@ which puts this item behind the same literature access A.1 needs.
 > What it does **not** give: a usable number. Eyeball moveout at ±20 % cannot
 > validate anything, and a shot gather is not a dispersion curve. Its value is
 > that it answers a yes/no question that had been blocking the item.
+>
+> **Figure 2a has since been digitised and does give the numbers** — the same
+> descent, `V_S` → Scholte, resolved to ±1 % across 2.2-24.9 kHz. See the
+> figure-2a section above. Fig 4 keeps only its yes/no role; it is no longer
+> the best instrument for anything in this item, and A.1 should not carry it.
 
 Scale of the consequence: fast formations average **28 %** band coverage (5/47
 fully converged over 50 draws), while slow formations converge fully.
