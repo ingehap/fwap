@@ -28,7 +28,7 @@ rather than by planning.
 | ~~2d~~ | ~~The ODP file's offsets and its 950-A/952A header (F.5)~~ | **closed** | — |
 | ~~2c~~ | ~~A waveform fixture CI can fetch (F.2)~~ | **closed** | — |
 | 1b | Leaky root tracking, **n=1 *and* n=2** (A.2) | **two defects, measured against the published curves for three fast rocks**: a bracket anchored to `V_R` instead of Scholte — it empties at 4.43-4.45 kHz whatever the formation, and where it answers it is 62 % fast in sandstone, 72 % in limestone, **134 % in granite** — plus genuine leakiness at **both** ends of the band, not just below cutoff. `n=2` checked against fig 7b and it is the **worse** of the two: 65-75 % coverage against `n=1`'s 21-36 %, so a `NaN` filter keeps more of the wrong answers. Fig 12 adds the layered path: a 16 cm invaded zone takes flexural coverage 9 % → 73 % on the same rock with every extra answer an overtone, so **coverage is an inverted health signal there**. Fig 15 shows the identical call at **1.5 % rms** in a slow formation, so the layered propagator is sound and the bracket is the whole defect | a Scholte-edged bracket earns 4.4-16.4 kHz at 0.66 % median error; the two ends need a Riemann-sheet analysis, and the selection rule has to ship with the bracket. **One fix repairs the open-hole and layered paths together** |
-| 3 | Digitised validation figures (A.1) — **3 of 5, re-scoped** | sourcing | the books, for pseudo-Rayleigh / cased Stoneley / VTI flexural. Schmitt & Cheng figs 2a, 7 and 8a are **done**. Fig 8a also refutes the re-scope's premise: traced with care it ties `stoneley_dispersion` at **0.04 % rms**, external, tighter than most of the analytic ties — the "5 % overlay budget" was a choice, not a limit |
+| 3 | Digitised validation figures (A.1) — **3 of 5, re-scoped** | sourcing | the books, for **cased Stoneley / VTI flexural** — pseudo-Rayleigh is tied by fig 1a at ~1 % on both branches. Schmitt & Cheng figs 2a, 7 and 8a are **done**. Fig 8a also refutes the re-scope's premise: traced with care it ties `stoneley_dispersion` at **0.04 % rms**, external, tighter than most of the analytic ties — the "5 % overlay budget" was a choice, not a limit |
 | 5 | Confirm two registered checksums (F.4) | one fetch each | egress to `gdr.openei.org` and `zenodo.org` |
 | 7 | Delta-matrix / Abo-Zena stack reformulation (A.5 residue) | modelling, optional | nothing |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
@@ -576,6 +576,13 @@ is tighter than most of the analytic ties this item used to prefer, and it pins
 the paper's borehole radius as a by-product. The three modes above are still
 untied; the difference is that "a digitised figure scores at best 5 %" is no
 longer a reason to expect little from them.
+
+*Amended again.* **Pseudo-Rayleigh is off that list.** Figure 1a plots the
+Stoneley and the first two pseudo-Rayleigh modes for the fast sandstone, and
+`trapped_pseudo_rayleigh_dispersion` follows both branches at **1.01 % and
+0.80 % rms** — one to one-and-a-half plotted line widths — with the `branch`
+index landing on the modes the API says it should. The residue is **cased
+Stoneley and VTI flexural**, two items rather than three.
 
 Item 2d is closed, and how it closed is the more useful part. It had been
 filed as sourcing — "the offsets need the SDT tool spec; nothing in the files

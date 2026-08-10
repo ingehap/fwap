@@ -134,6 +134,32 @@ the project uses [Semantic Versioning](https://semver.org/).
   all eight only across 3.5-5.0 kHz, which is also where they cross. No
   per-model curve was traced there and none is tabulated.
 
+  **Figure 1a supplies the pseudo-Rayleigh tie A.1 said did not exist.** It
+  plots the Stoneley and the first two pseudo-Rayleigh modes for the fast
+  sandstone — three modes, three fwap entry points:
+  `stoneley_dispersion` 36/36 at **0.90 % rms**;
+  `trapped_pseudo_rayleigh_dispersion(branch=0)` 97 % at **1.01 %**;
+  `trapped_pseudo_rayleigh_dispersion(branch=1)` 96 % at **0.80 %**. At this
+  figure's resolution a plotted line is 12.7 m/s — 0.87 % at the Stoneley,
+  0.5-0.7 % at the pseudo-Rayleigh modes — so all three sit at one to
+  one-and-a-half line widths. A small consistent negative bias is present and is
+  *not* claimed as a real offset, because the figure cannot resolve it.
+  The `branch` index is validated too: 0 lands on the first mode, 1 on the
+  second. Anchors: the Stoneley extrapolates to 1398.3 m/s against
+  `tube_wave_speed`'s 1396.3 (+0.14 %), and both pseudo-Rayleigh modes cut on at
+  the formation shear speed and descend toward the **fluid** velocity rather
+  than Scholte — the trapped family's own asymptote, never previously checked.
+  A trap worth recording: in this panel the **group curve is drawn above the
+  phase curve** for the Stoneley (correct here, since its phase velocity rises
+  with frequency, but the opposite of every other panel in the report).
+  Comparing against the wrong branch gives a spurious −2.5 %; the overlay check
+  is what caught it.
+  **Separately, `fwap.synthetic.pseudo_rayleigh_dispersion` is 37 % slow near
+  cutoff**, easing to 6 % by 25 kHz: its cutoff scale is `vs / (2 pi a)` =
+  4140 Hz against a true cutoff of 7.71 kHz, 1.9× too low. The docstring already
+  says "phenomenological"; this pins how much that word is carrying, which
+  matters because `fwap.synthetic` uses it to place an arrival a user may pick.
+
   **Figure 5a is the screw mode's own panel, and bounds the digitisation
   method.** Figure 7b measured `n=2` across three rocks but only resolves the
   fast sandstone below about 10 kHz; figure 5a plots the same mode alone on
@@ -206,7 +232,7 @@ the project uses [Semantic Versioning](https://semver.org/).
   rock alone. That claim covered two modes in one homogeneous rock and does not
   extend to layered models; corrected at its site.
 
-  Twenty-eight tests now pin the item, not three, and every reference table carries
+  Thirty-three tests now pin the item, not three, and every reference table carries
   its own shear-speed anchor test.
 
 ### Validated

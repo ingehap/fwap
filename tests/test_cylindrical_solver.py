@@ -18254,3 +18254,193 @@ def test_quadrupole_never_returns_the_screw_mode_in_this_fast_rock():
 
     error = np.abs(velocity[finite] / reference[finite] - 1.0)
     assert error.min() > 0.05, f"closest point {100 * error.min():.0f} %"
+
+
+# ----------------------------------------------------------------------
+# Figure 1a: the pseudo-Rayleigh curve A.1 said had no external tie
+#
+# "Monopole source. Dispersion (a) and attenuation (b) of the Stoneley
+# wave (1) and the first two pseudo-Rayleigh modes ((2) and (3)) in the
+# presence of a fast sandstone." Three modes, three fwap entry points,
+# on figure 2a's axes.
+#
+# A.1 lists the pseudo-Rayleigh curve among three items with "no
+# external tie of any kind". Figure 1a supplies one, for both branches,
+# and validates the `branch` index while it is at it.
+#
+# A trap, caught by overlaying the traces back onto the scan: in this
+# panel **the group curve is drawn above the phase curve** for the
+# Stoneley, and the labels say so. That is correct physics here -- the
+# Stoneley phase velocity rises with frequency in a fast formation, so
+# the group velocity exceeds it -- but it is the opposite of every other
+# panel in this report. Comparing `stoneley_dispersion` against the
+# upper curve gives a spurious -2.5 % systematic; against the right one
+# it is -0.8 %.
+#
+# Resolution: 1 px = 1.41 m/s here, so a plotted line is about 12.7 m/s
+# -- 0.87 % at the Stoneley, 0.5-0.7 % at the pseudo-Rayleigh modes.
+#
+#   curve            fwap entry point                     coverage  rms
+#   Stoneley phase   stoneley_dispersion                    36/36   0.90 %
+#   pseudo-Rayl. 1   trapped_pseudo_rayleigh(branch=0)       97 %   1.01 %
+#   pseudo-Rayl. 2   trapped_pseudo_rayleigh(branch=1)       96 %   0.80 %
+#
+# All three sit at one to one-and-a-half plotted line widths, so this is
+# a pass at what the figure can resolve. There is a consistent small
+# negative bias -- fwap reads low on all three -- that the figure cannot
+# resolve into a real offset, and it is not claimed as one.
+#
+# Anchors: the Stoneley extrapolates to 1398.3 m/s against
+# `tube_wave_speed`'s 1396.3 (+0.14 %), and both pseudo-Rayleigh modes
+# cut on at the formation shear speed.
+#
+# **Separately, the phenomenological model is not the modal solver.**
+# `fwap.synthetic.pseudo_rayleigh_dispersion` places the guided arrival
+# in synthetic wavetrains from a closed form whose cutoff scale is
+# `vs / (2 pi a)` = 4140 Hz, against a true cutoff of 7.71 kHz -- 1.9x
+# too low. Measured against this figure it is **37 % slow near cutoff**,
+# easing to 6 % by 25 kHz. Its docstring says "phenomenological"; this
+# pins how much that word is carrying.
+# ----------------------------------------------------------------------
+
+#: Phase velocity (Hz, m/s) of the three monopole modes, digitised from
+#: figure 1a. About +-13 m/s, one plotted line width.
+_FIG1A_PHASE = {
+    "stoneley": (
+        (1.0e3, 1412.7),
+        (2.0e3, 1416.7),
+        (3.0e3, 1425.2),
+        (5.0e3, 1442.1),
+        (8.0e3, 1459.1),
+        (10.0e3, 1463.6),
+        (12.0e3, 1473.9),
+        (14.0e3, 1480.3),
+        (16.0e3, 1482.4),
+        (18.0e3, 1486.8),
+    ),
+    "pr1": (
+        (8.0e3, 2607.9),
+        (9.0e3, 2552.8),
+        (10.0e3, 2425.2),
+        (12.0e3, 2090.0),
+        (14.0e3, 1888.0),
+        (16.0e3, 1777.7),
+        (18.0e3, 1712.7),
+        (20.0e3, 1668.9),
+        (22.0e3, 1641.4),
+        (24.0e3, 1624.4),
+    ),
+    "pr2": (
+        (14.0e3, 2607.9),
+        (16.0e3, 2548.6),
+        (18.0e3, 2468.0),
+        (20.0e3, 2333.1),
+        (22.0e3, 2155.7),
+        (24.0e3, 2022.9),
+    ),
+}
+
+#: Where each pseudo-Rayleigh mode cuts on in figure 1a (kHz, m/s), and
+#: the Stoneley's low-frequency limit.
+_FIG1A_CUTOFF = {"pr1": (7.71, 2614.3), "pr2": (12.89, 2629.1)}
+_FIG1A_STONELEY_LIMIT = 1398.3
+
+
+def test_figure_1a_is_anchored_on_the_tube_wave_and_the_shear_speed():
+    """Three closed-form anchors, none needing a modal solve."""
+    from fwap import tube_wave_speed
+
+    v_tube = tube_wave_speed(_FIG2_ROCK["vs"], _FIG2_ROCK["rho"], **_FIG2_FLUID)
+    assert _FIG1A_STONELEY_LIMIT / v_tube == pytest.approx(1.0, abs=0.005)
+    for mode in ("pr1", "pr2"):
+        _, v_cut = _FIG1A_CUTOFF[mode]
+        assert v_cut / _FIG2_ROCK["vs"] == pytest.approx(1.0, abs=0.015)
+    # Both pseudo-Rayleigh modes descend toward the fluid velocity, not Scholte.
+    for mode in ("pr1", "pr2"):
+        tail = _FIG1A_PHASE[mode][-1][1]
+        assert 1500.0 < tail < _FIG2_ROCK["vs"]
+
+
+@pytest.mark.parametrize("branch,mode", [(0, "pr1"), (1, "pr2")])
+def test_trapped_pseudo_rayleigh_matches_the_published_curve(branch, mode):
+    """The tie A.1 said did not exist, and a check on the branch index.
+
+    `trapped_pseudo_rayleigh_dispersion` follows both published
+    pseudo-Rayleigh curves to about 1 % -- one to one-and-a-half plotted
+    line widths at this figure's resolution. That `branch=0` lands on
+    the first mode and `branch=1` on the second is itself part of the
+    result: the index means what the API says it means.
+    """
+    from fwap import trapped_pseudo_rayleigh_dispersion
+
+    table = _FIG1A_PHASE[mode]
+    freq = np.array([f for f, _ in table])
+    reference = np.array([v for _, v in table])
+    got = trapped_pseudo_rayleigh_dispersion(
+        freq, **_FIG2_ROCK, **_FIG2_FLUID, a=0.10, branch=branch
+    )
+    velocity = 1.0 / got.slowness
+
+    assert np.isfinite(velocity).all(), "the table starts above the cutoff"
+    error = velocity / reference - 1.0
+    assert np.sqrt((error**2).mean()) < 0.02, f"rms {100 * error.std():.2f} %"
+    assert np.abs(error).max() < 0.03
+
+    # The branches are distinct and ordered: branch 1 is the faster mode.
+    other = (
+        1.0
+        / trapped_pseudo_rayleigh_dispersion(
+            freq, **_FIG2_ROCK, **_FIG2_FLUID, a=0.10, branch=1 - branch
+        ).slowness
+    )
+    overlap = np.isfinite(other)
+    if overlap.any():
+        assert not np.allclose(velocity[overlap], other[overlap], rtol=0.02)
+
+
+def test_stoneley_in_a_fast_formation_agrees_to_one_line_width():
+    """The fast-formation half of the Stoneley check.
+
+    Figure 8a tied `stoneley_dispersion` at 0.04 % rms in a slow
+    formation. This is the same solver in a fast one, over the band
+    where figure 1a still draws phase and group as separate lines: 0.9 %
+    rms, which is one plotted line width here, with fwap consistently on
+    the low side.
+    """
+    from fwap import stoneley_dispersion
+
+    table = _FIG1A_PHASE["stoneley"]
+    freq = np.array([f for f, _ in table])
+    reference = np.array([v for _, v in table])
+    velocity = (
+        1.0 / stoneley_dispersion(freq, **_FIG2_ROCK, **_FIG2_FLUID, a=0.10).slowness
+    )
+
+    assert np.isfinite(velocity).all()
+    error = velocity / reference - 1.0
+    assert np.abs(error).max() < 0.02, f"worst {100 * np.abs(error).max():.2f} %"
+    assert np.all(velocity < 1500.0), "the Stoneley never exceeds the fluid velocity"
+
+
+def test_the_phenomenological_model_is_not_the_modal_solver():
+    """Pin how much work the word "phenomenological" is doing.
+
+    `fwap.synthetic.pseudo_rayleigh_dispersion` places the guided
+    arrival in synthetic wavetrains. Its cutoff scale is
+    `vs / (2 pi a)` = 4140 Hz against a true cutoff of 7.71 kHz, so near
+    cutoff it is far too slow -- 37 % against this figure, easing to 6 %
+    by 25 kHz. The modal solver in the same package is within 1 %.
+    """
+    from fwap import pseudo_rayleigh_dispersion
+
+    table = _FIG1A_PHASE["pr1"]
+    freq = np.array([f for f, _ in table])
+    reference = np.array([v for _, v in table])
+    model = 1.0 / np.asarray(
+        pseudo_rayleigh_dispersion(_FIG2_ROCK["vs"], 1500.0, 0.10)(freq)
+    )
+
+    error = model / reference - 1.0
+    assert error.max() < -0.05, "it is slow everywhere on this band"
+    assert error.min() < -0.25, "and badly so near the cutoff"
+    assert error[-1] > error[0], "the two converge as the mode approaches V_f"
