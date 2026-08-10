@@ -44,6 +44,33 @@ Regenerations to date
   at 50 Hz spacing reproduces them exactly, and the independent ray
   estimate in :func:`fwap.leaky_radiation_attenuation` brackets the
   attenuations. No other array in the file changed.
+* ``n1_flexural_fast`` and ``n2_quadrupole_fast``, when the
+  fast-formation search window was corrected from ``(V_R, V_S)`` to
+  ``(V_f, V_S)`` with fundamental selection (roadmap A.2). The old
+  golden pinned the defect: a single finite value at 10 kHz, 2591.9 m/s
+  at n=1 -- essentially ``V_S``, i.e. a trapped mode against the ceiling
+  -- and 2390.4 at n=2, which is ``V_R`` to four figures, i.e. the
+  bracket edge. Both are outside the fundamental's range over this band.
+
+  The n=1 replacements (1873.2 / 1650.4 / 1573.1 m/s at 6 / 8 / 10 kHz)
+  were checked before being committed, following the precedent above:
+  each is a root of the modal determinant to **1e-11 - 1e-14** relative
+  to the determinant 0.1 % away, all lie strictly inside ``(V_f, V_S)``
+  and **below** ``V_R`` where the old window could not reach, the
+  sequence descends monotonically as a guided mode must, and grids of 5
+  to 161 points over the same band reproduce the 10 kHz value to
+  **0.000 %**.
+
+  The n=2 replacement (2084.9 m/s at 10 kHz) is on the fundamental and
+  below ``V_R``, but is **not** of that quality and the value pinned
+  here should be read as characterisation rather than a reference: it
+  moves by **1.7 %** across grid densities and **3.2 %** across grid
+  start points, and vanishes entirely on some. That instability is the
+  n=2 root-finding, not the bracket -- it is the same effect figure 6
+  recorded, where two grids differing by last-bit rounding gave 47 and
+  42 converged points of 71 -- and correcting A.2 did not remove it.
+  ``test_the_fast_formation_marcher_is_grid_independent_at_n1`` states
+  the contrast as an assertion.
 """
 
 from __future__ import annotations

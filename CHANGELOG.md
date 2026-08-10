@@ -7,6 +7,57 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **The fast-formation flexural and screw solvers no longer return an overtone**
+  (roadmap A.2). `_flexural_dispersion_fast_formation` and its `n = 2` and cased
+  siblings searched phase velocity in `(V_R, V_S)`. **`V_R` is not a limit of
+  these modes**: the branch descends from `V_S` toward the *Scholte* speed and
+  crosses `V_R` partway through the band (4.45 kHz for the fast sandstone of
+  Schmitt & Cheng figure 2a). The window therefore lost the fundamental over most
+  of the band while still containing higher trapped modes, and returned one of
+  those — silently, since they are ordinary bound roots.
+  Two changes, both required. The window is now `(V_f, V_S)`, `V_f` being the
+  real floor (below it `F^2 > 0` and the branch flags stop describing the field).
+  And the fundamental is selected: the marcher walks **up** in frequency and
+  keeps the slowest root no faster than the previous one. Widening alone is not
+  a fix — it swaps a 65 %-high answer for a 14-39 %-high one.
+  Against the published curves, open-hole `n = 1` now lands at **0.78 % / 1.03 %
+  / 0.87 % median error** for figure 2a's sandstone and figure 7a's limestone and
+  granite, which is those figures' digitisation floor. It was on the right branch
+  at **2 of 115** samples, and granite had **no** correct sample at all. On
+  figure 7a's merged band the error goes from **+124 % (granite) and +69 %
+  (limestone) to +0.7 % and −1.7 %**, and the "error grows with formation
+  stiffness" ordering is gone — granite is now the closest. Coverage is
+  contiguous and monotone, and group velocity is never negative.
+  **Confirmed by a figure that played no part in designing it**: differentiating
+  the corrected branch predicts figure 3's observed Airy arrival at 5 m to
+  **+8 %**, where the old bracket implied a wave **2.2× too early**.
+  The cased `n = 1` path shares the same marcher, so figure 12a's phase band goes
+  from **+30-55 % to −3.8 to −2.5 %**. Open-hole `n = 2` is on the fundamental
+  too (granite 1.6 % median against figure 7b); its remaining residual is the
+  separate near-cutoff onset delay, not the bracket.
+  **What this does not fix**, and returns NaN for rather than guessing: below the
+  `V_R` crossing the mode is leaky and has no real-`k_z` root at all (a
+  20 000-point scan of `(2000, V_S)` finds no sign change at 2.5, 3.0 or
+  4.0 kHz), and above the `V_f` crossing it has left this regime. Both need
+  complex-`k_z` continuation. The layered `n = 2` path is a separate matter — see
+  Known issues.
+  **A caveat that survives at `n = 2`.** The open-hole `n = 2` answer is on the
+  fundamental now, but it still moves by **1.7 % across grid densities and 3.2 %
+  across grid start points**, and vanishes on some — a solver's answer at one
+  frequency should not depend on which others were requested. That is the `n = 2`
+  root-finding instability figure 6 recorded independently (two grids differing
+  by last-bit rounding giving 47 and 42 converged points of 71), and correcting
+  the bracket was never going to remove it. `n = 1` is grid-independent to
+  **0.000 %** over the same checks. So `n = 1` fast-formation results are
+  quotable and `n = 2` ones are not yet.
+  Roughly 30 tests changed meaning with this fix, including every one written to
+  pin the defect. Several had asserted `V_R` as a floor for these modes, which
+  was itself a statement of the bug. The `n1_flexural_fast` and
+  `n2_quadrupole_fast` golden arrays were regenerated: the old file pinned
+  2591.9 m/s at `n = 1` (essentially `V_S`) and 2390.4 at `n = 2` (`V_R` to four
+  figures) — the defect itself. The replacements were verified against the
+  determinant before being committed, as that file's precedent requires.
+
 - **`quadrupole_dispersion_layered` no longer rejects a single invaded zone**
   (roadmap A.6). The slow-formation branch applied the per-layer constraint
   `layer.vs >= vs` for *every* layer count, so any annulus slower in shear than
@@ -38,6 +89,23 @@ the project uses [Semantic Versioning](https://semver.org/).
   soft layer accepted, two rejected.
 
 ### Known issues
+- **The cased `n = 2` determinant is noise-dominated in the fast-formation
+  window** (roadmap A.7). Exposed by fixing A.2 — the narrow bracket had been
+  hiding it. Scanned across `(V_f, V_S)`,
+  `_modal_determinant_n2_cased_complex` produces about **90 sign changes at
+  12 kHz** on figure 14's model where the physics supports a handful, and
+  **10-33** even with the single layer set identical to the formation, a
+  configuration that is physically the open hole and where the un-cased 4x4 gives
+  one clean root. They arrive as near-duplicate pairs straddling the true value
+  (2084.0 and 2085.0 against the open hole's 2084.9) — catastrophic cancellation
+  in the propagator chain, not a mode spectrum.
+  `quadrupole_dispersion_layered` therefore now returns **NaN in the fast
+  formation rather than a root drawn from noise**: quiet, not fixed. This is a
+  deliberate trade and a behaviour change — the path previously returned finite
+  values, and they were wrong. `flexural_dispersion_layered` (`n = 1` cased) is
+  unaffected. The intended route is the delta-matrix / Abo-Zena reformulation
+  already tracked as the A.5 residue.
+
 - **`flexural_dispersion` returns a flexural overtone in fast formations above
   roughly 15 kHz** (roadmap A.2). Measured, pinned by three tests, and not yet
   fixed.

@@ -450,23 +450,23 @@ def test_flexural_dispatches_to_fast_formation_path_when_vs_gt_vf():
     the complex-determinant fast-formation path when ``V_S > V_f``,
     instead of returning NaN throughout. At least some frequencies
     in a sensible band must yield finite slowness in the
-    ``(V_R, V_S)`` window. The previous "all NaN" contract is
-    deliberately broken."""
-    from fwap.cylindrical import rayleigh_speed
+    ``(V_f, V_S)`` window. The previous "all NaN" contract is
+    deliberately broken.
 
+    The window used to be written ``(V_R, V_S)`` here. It is not:
+    ``V_R`` is not a bound of this mode, and asserting it was part of
+    what kept roadmap A.2 invisible. The mode descends past ``V_R``
+    toward Scholte, so the only floor is ``V_f``."""
     vp, vs, rho = 5500.0, 3100.0, 2500.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
-    vR = rayleigh_speed(vp, vs)
     f = np.linspace(20000.0, 80000.0, 30)
     res = flexural_dispersion(f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a)
     finite = np.isfinite(res.slowness)
     assert finite.any(), "fast-formation path must populate at least one frequency"
     velocity = 1.0 / res.slowness[finite]
-    # Strictly between V_R and V_S (the leaky-F regime window).
-    assert (velocity > vR * 0.99).all(), (
-        f"velocity must stay near or above V_R ({vR:.0f}); got {velocity}"
-    )
+    assert (velocity > vf).all(), f"velocity must stay above V_f ({vf}); got {velocity}"
     assert (velocity < vs).all(), f"velocity must stay below V_S ({vs}); got {velocity}"
+    assert _descends(velocity), "the branch descends monotonically"
     # Bound mode -> attenuation_per_meter is None.
     assert res.attenuation_per_meter is None
 
@@ -1843,8 +1843,11 @@ def test_flexural_fast_formation_velocities_are_real_kz():
             leaky_p=False,
             leaky_s=False,
         )
-        # Off-root sample: shift kz by 1 % toward V_R.
-        kz_off = kz_root * 1.005
+        # Off-root sample: shift k_z 0.5 % toward V_S. It used to shift
+        # the other way, which now lands below V_f -- outside the regime
+        # these branch flags describe, where Im(det) is identically zero
+        # and the comparison is vacuous.
+        kz_off = kz_root * 0.995
         det_off = _modal_determinant_n1_complex(
             kz_off,
             omega,
@@ -1984,35 +1987,25 @@ def test_quadrupole_finite_above_cutoff_in_slow_formation():
 
 
 def test_quadrupole_dispatches_to_fast_formation_path_when_vs_gt_vf():
-    """Plan item E: ``quadrupole_dispersion`` now auto-dispatches to
-    the complex-determinant fast-formation path when ``V_S > V_f``
-    instead of returning NaN throughout. At least some frequencies
-    in a sensible band must yield finite slowness in the
-    ``(V_R, V_S)`` velocity window. Direct sister of the n=1
-    fast-formation dispatch test."""
-    from fwap.cylindrical import rayleigh_speed
+    """Plan item E: ``quadrupole_dispersion`` auto-dispatches to the
+    complex-determinant fast-formation path when ``V_S > V_f`` instead
+    of returning NaN throughout.
+
+    The window is ``(V_f, V_S)``, not ``(V_R, V_S)`` -- see the n=1
+    sister test. ``V_R`` is not a bound of the screw mode either.
+    """
     from fwap.cylindrical_solver import quadrupole_dispersion
 
     vp, vs, rho = 5500.0, 3100.0, 2500.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
-    vR = rayleigh_speed(vp, vs)
     f = np.linspace(40000.0, 100000.0, 30)
-    res = quadrupole_dispersion(
-        f,
-        vp=vp,
-        vs=vs,
-        rho=rho,
-        vf=vf,
-        rho_f=rho_f,
-        a=a,
-    )
+    res = quadrupole_dispersion(f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a)
     finite = np.isfinite(res.slowness)
     assert finite.any(), "fast-formation path must populate at least one frequency"
     velocity = 1.0 / res.slowness[finite]
-    assert (velocity > vR * 0.99).all(), (
-        f"velocity must stay near or above V_R ({vR:.0f}); got {velocity}"
-    )
+    assert (velocity > vf).all(), f"velocity must stay above V_f; got {velocity}"
     assert (velocity < vs).all(), f"velocity must stay below V_S ({vs}); got {velocity}"
+    assert _descends(velocity), "the branch descends monotonically"
     # Bound mode -> attenuation_per_meter is None.
     assert res.attenuation_per_meter is None
 
@@ -2315,29 +2308,26 @@ def test_quadrupole_fast_formation_im_det_relative_zero():
 
 
 def test_quadrupole_fast_formation_velocities_in_bound_window():
-    """All fast-formation finite outputs must have phase velocity
-    strictly between V_R and V_S -- the bound-mode window for the
-    n=2 leaky-F regime. Mirrors the n=1 sister test."""
-    from fwap.cylindrical import rayleigh_speed
+    """All fast-formation finite outputs have phase velocity strictly
+    between ``V_f`` and ``V_S`` -- the bound-mode window for the n=2
+    leaky-F regime. Mirrors the n=1 sister test.
+
+    The bound used to be written ``V_R``; that was the A.2 assumption,
+    and the screw mode descends past it toward Scholte.
+    """
     from fwap.cylindrical_solver import quadrupole_dispersion
 
     vp, vs, rho = 5500.0, 3100.0, 2500.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
-    vR = rayleigh_speed(vp, vs)
     f = np.linspace(40000.0, 100000.0, 50)
-    res = quadrupole_dispersion(
-        f,
-        vp=vp,
-        vs=vs,
-        rho=rho,
-        vf=vf,
-        rho_f=rho_f,
-        a=a,
-    )
+    res = quadrupole_dispersion(f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a)
     finite = np.isfinite(res.slowness)
-    assert finite.sum() >= 5
+    # Only a few samples survive: this rock's screw branch crosses V_f
+    # early in the band, and past that it leaves the regime these branch
+    # flags describe. NaN there is the honest answer.
+    assert finite.sum() >= 3
     velocity = 1.0 / res.slowness[finite]
-    assert (velocity > vR * 0.99).all()
+    assert (velocity > vf).all()
     assert (velocity < vs).all()
 
 
@@ -13231,14 +13221,38 @@ def test_modal_determinant_n2_cased_complex_layer_eq_formation_im_det_sign_match
     assert changes_unl.size >= 1
 
 
-def test_quadrupole_dispersion_layered_fast_formation_layer_eq_formation_finite_in_bound_regime():
-    """Public-API end-to-end: with ``layer = formation`` in fast
-    formation, the cased dispatch returns at least one finite
-    slowness in the bound regime ``(1/V_S, 1/V_R)``. Soft
-    correctness oracle that doesn't depend on brentq's exact
-    multi-root pick."""
+def test_quadrupole_dispersion_layered_fast_formation_layer_eq_formation_is_silent():
+    """The cased `n=2` determinant is unusable even when the layer is
+    the formation -- which is how general the conditioning problem is.
+
+    This used to be a "soft correctness oracle that doesn't depend on
+    brentq's exact multi-root pick": with ``layer = formation`` the
+    cased dispatch had to return at least one finite slowness in the
+    bound regime. The premise no longer holds, because there is no
+    defensible multi-root pick.
+
+    Scanned across the corrected ``(V_f, V_S)`` window this
+    configuration -- a 1 cm layer identical to the half-space, i.e.
+    physically the open hole -- gives **10 sign changes at 10 kHz and
+    33 at 14 kHz**, where the open-hole determinant gives one clean
+    root. They arrive as near-duplicate pairs straddling the true value
+    (2084.0 and 2085.0 against the open hole's 2084.9), which is the
+    signature of catastrophic cancellation in the propagator chain, not
+    a mode spectrum.
+
+    So the marcher declines to choose and the path is silent here. That
+    is a deliberate trade: NaN instead of a number drawn from noise. The
+    open-hole call on the same rock is unaffected and returns the
+    branch.
+
+    If this test starts failing because finite values come back, the
+    cased determinant has been reconditioned -- the delta-matrix
+    reformulation kept as roadmap A.5 residue is the intended route --
+    and the comparison should be written for real.
+    """
     from fwap.cylindrical_solver import (
         BoreholeMode,
+        quadrupole_dispersion,
         quadrupole_dispersion_layered,
     )
 
@@ -13257,12 +13271,20 @@ def test_quadrupole_dispersion_layered_fast_formation_layer_eq_formation_finite_
     )
     assert isinstance(res, BoreholeMode)
     assert res.attenuation_per_meter is None  # bound mode
-    finite = np.isfinite(res.slowness)
-    assert finite.any()
-    # Bound regime: V in (V_R, V_S) where V_R ~= 0.92 V_S.
-    sl = res.slowness[finite]
-    assert np.all(sl > 1.0 / g["vs"] * 0.99)
-    assert np.all(sl < 1.0 / (g["vs"] * 0.85))
+    assert not np.any(np.isfinite(res.slowness)), (
+        "the cased n=2 determinant is noise-dominated here; returning a "
+        "root from it would be a lottery"
+    )
+
+    # the open hole on the same rock is unaffected
+    open_hole = quadrupole_dispersion(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"], vf=g["vf"], rho_f=g["rho_f"], a=g["a"]
+    )
+    finite = np.isfinite(open_hole.slowness)
+    assert finite.all(), "the open-hole path still resolves the branch"
+    velocity = 1.0 / open_hole.slowness[finite]
+    assert np.all(velocity < g["vs"])
+    assert np.all(velocity > g["vf"])
 
 
 def test_quadrupole_dispersion_layered_fast_formation_N2_runs_smoke():
@@ -13514,8 +13536,9 @@ def test_flexural_dispersion_layered_fast_formation_layer_eq_formation_matches_u
 def test_flexural_dispersion_layered_fast_formation_N2_runs_smoke():
     """Multi-layer fast-formation smoke (casing + cement behind a
     fast limestone): the brentq-on-Im(det) path runs to completion
-    at N=2 and lands inside the ``(V_R, V_S)`` bound window where
-    it converges."""
+    at N=2 and lands inside the ``(V_f, V_S)`` bound window where
+    it converges. The window was written ``(V_R, V_S)`` before A.2 was
+    fixed; ``V_R`` is not a bound of this mode."""
     g = _typical_fast_formation_cased_n1_geometry()
     f = np.linspace(4000.0, 16000.0, 7)
     res = flexural_dispersion_layered(
@@ -13534,11 +13557,13 @@ def test_flexural_dispersion_layered_fast_formation_N2_runs_smoke():
     np.testing.assert_array_equal(res.freq, f)
     finite = np.isfinite(res.slowness)
     assert finite.any(), "expected at least one bound-regime root"
-    # Bound regime: phase velocity between the formation Rayleigh
-    # speed (~0.92 V_S) and V_S itself.
+    # Bound regime: phase velocity between V_f and V_S. The upper
+    # slowness bound used to be 1/(0.90 V_S), i.e. "not far below the
+    # Rayleigh speed" -- which is the A.2 assumption, not a property of
+    # the mode. The branch descends toward Scholte and passes V_R.
     sl = res.slowness[finite]
     assert np.all(sl > 1.0 / g["vs"] * 0.99)
-    assert np.all(sl < 1.0 / (g["vs"] * 0.90))
+    assert np.all(sl < 1.0 / g["vf"])
 
 
 def test_flexural_dispersion_layered_fast_formation_does_not_break_slow_formation():
@@ -13632,38 +13657,50 @@ def test_cased_flexural_slow_formation_covers_the_whole_band():
     assert coverage == 1.0
 
 
-def test_cased_flexural_fast_formation_is_sparse_and_high_frequency_only():
-    """A fast formation converges on well under half the band, high-f only."""
+def test_cased_flexural_fast_formation_covers_a_contiguous_middle_band():
+    """After the A.2 fix the coverage is a contiguous band, not a tail.
+
+    This test used to assert the *defect*: converged points only at the
+    top of the band, because the ``(V_R, V_S)`` window kept whatever
+    trapped mode happened to be inside it. With the window corrected to
+    ``(V_f, V_S)`` and the fundamental selected, coverage is the band
+    between the two crossings -- the mode is leaky below the ``V_R``
+    crossing and has passed ``V_f`` above it, and both ends return NaN
+    rather than a wrong branch.
+    """
     res = flexural_dispersion_layered(
         _A2_FREQ, **_A2_FAST, **_A2_BOREHOLE, layers=(_A2_CASING, _A2_CEMENT)
     )
     finite = np.isfinite(res.slowness)
-    assert 0.2 < finite.mean() < 0.6
-    # every converged point is in the upper part of the band -- the mode is
-    # lost going *down* in frequency, not scattered at random
-    assert _A2_FREQ[finite].min() > 4000.0
-    assert finite[-1]
+    assert finite.any()
+    idx = np.where(finite)[0]
+    assert np.array_equal(idx, np.arange(idx[0], idx[-1] + 1)), (
+        "coverage must be one contiguous band, not scattered"
+    )
+    velocity = 1.0 / res.slowness[finite]
+    assert np.all(np.diff(velocity) <= 0.0), "and monotonically descending"
 
 
-def test_the_sparsity_is_not_caused_by_the_casing():
-    """The open hole is just as sparse, which relocates the problem.
+def test_the_open_hole_and_cased_paths_agree_after_the_fix():
+    """The open hole used to be just as sparse, which is what relocated
+    A.2 from the layer stack to the fast-formation bracket.
 
-    If the layer stack were responsible, removing it would restore the low
-    frequencies. It does not: the identical formation in an *open* hole
-    fails over the same lower part of the band. Whatever fixes this lives
-    in the fast-formation flexural treatment, not in layered bracketing.
+    Both paths now share one marcher, so the point is stronger than
+    before: they cover the same band and neither is the sparse tail the
+    defect produced.
     """
     cased = flexural_dispersion_layered(
         _A2_FREQ, **_A2_FAST, **_A2_BOREHOLE, layers=(_A2_CASING, _A2_CEMENT)
     )
     open_hole = flexural_dispersion(_A2_FREQ, **_A2_FAST, **_A2_BOREHOLE)
 
-    open_finite = np.isfinite(open_hole.slowness)
-    assert open_finite.mean() < 0.6
-    # both lose the low end; the open hole is no better off
-    assert _A2_FREQ[open_finite].min() > 4000.0
-    assert not np.isfinite(cased.slowness[0])
-    assert not np.isfinite(open_hole.slowness[0])
+    for res in (cased, open_hole):
+        finite = np.isfinite(res.slowness)
+        assert finite.any()
+        idx = np.where(finite)[0]
+        assert np.array_equal(idx, np.arange(idx[0], idx[-1] + 1))
+        velocity = 1.0 / res.slowness[finite]
+        assert np.all(np.diff(velocity) <= 0.0)
 
 
 def test_converged_fast_formation_points_sit_below_the_shear_velocity():
@@ -13680,7 +13717,13 @@ def test_converged_fast_formation_points_sit_below_the_shear_velocity():
     velocity = 1.0 / res.slowness[finite]
     v_rayleigh = rayleigh_speed(_A2_FAST["vp"], _A2_FAST["vs"])
     assert np.all(velocity < _A2_FAST["vs"])
-    assert np.all(velocity > v_rayleigh)
+    # It used to be asserted that the branch stays above V_R. It does not,
+    # and that assumption is what A.2 turned out to be: the mode descends
+    # through V_R toward Scholte. The real floor is V_f.
+    assert np.all(velocity > _A2_BOREHOLE["vf"])
+    assert velocity.min() < v_rayleigh, (
+        "the branch must be seen to pass below V_R, or the fix is inactive"
+    )
     # and it is dispersive downward with frequency, not a flat artefact
     assert velocity[-1] < velocity[0]
 
@@ -13867,30 +13910,29 @@ def test_quadrupole_and_stoneley_share_the_high_frequency_limit():
     assert 1.0 / quad.slowness[0] == pytest.approx(1.0 / stoneley.slowness[0], rel=1e-4)
 
 
-def test_fast_formation_quadrupole_is_not_a_usable_curve():
-    """In a fast formation the returned values are not a guided mode.
+def test_fast_formation_quadrupole_is_now_a_usable_curve():
+    """In a fast formation the returned values are a guided mode again.
 
-    They are finite -- which is the hazard, since a caller filtering on
-    NaN keeps them -- but non-monotone, scattered between the Rayleigh and
-    shear speeds. A guided mode's phase velocity decreases with frequency;
-    this does not.
-
-    Pinned so that a future fix to the leaky-mode search shows up here as
-    a failure rather than passing unnoticed.
+    They used to be finite -- the hazard, since a caller filtering on
+    NaN keeps them -- but non-monotone, scattered between the Rayleigh
+    and shear speeds as successive overtones crossed the old window.
+    With the window corrected to ``(V_f, V_S)`` and the fundamental
+    selected, phase velocity descends monotonically, and every value
+    sits below ``V_R`` where the old bracket could not reach.
     """
     from fwap import quadrupole_dispersion
 
     frequencies = np.array([10.0e3, 15.0e3, 20.0e3, 30.0e3, 60.0e3, 100.0e3])
     result = quadrupole_dispersion(frequencies, **_QUAD_FAST, **_QUAD_FLUID, a=0.10)
     finite = np.isfinite(result.slowness)
-    assert finite.sum() >= 4  # finite, so NaN-filtering does not catch it
+    assert finite.sum() >= 4
 
     velocity = 1.0 / result.slowness[finite]
-    assert not np.all(np.diff(velocity) <= 0.0)  # not a dispersion curve
+    assert _descends(velocity), f"not monotone: {velocity}"
 
     v_rayleigh = rayleigh_speed(_QUAD_FAST["vp"], _QUAD_FAST["vs"])
-    assert np.all(velocity > 0.99 * v_rayleigh)
-    assert np.all(velocity < 1.10 * _QUAD_FAST["vs"])
+    assert np.all(velocity < v_rayleigh)
+    assert np.all(velocity > _QUAD_FLUID["vf"])
 
 
 def test_slow_formation_quadrupole_is_a_usable_curve():
@@ -16871,6 +16913,20 @@ def test_microannulus_stable_root_filter_drops_grid_dependent_roots():
 # rocks. See roadmap A.2.
 # ----------------------------------------------------------------------
 
+#: The fast-formation marcher accepts a root up to
+#: ``_FAST_FLEXURAL_STEP_UP`` (5e-4) above the previous one, absorbing
+#: brentq jitter without admitting a faster branch. Monotonicity is
+#: therefore asserted to that tolerance, not to exact equality.
+_MARCHER_STEP_UP_SLACK = 1.0e-3
+
+
+def _descends(velocity: np.ndarray) -> bool:
+    """True if ``velocity`` never rises by more than the marcher's slack."""
+    if velocity.size < 2:
+        return True
+    return bool(np.all(np.diff(velocity) <= velocity[:-1] * _MARCHER_STEP_UP_SLACK))
+
+
 _A2_ROCK = dict(vp=4000.0, vs=2300.0, rho=2500.0)
 _A2_FLUID = dict(vf=1500.0, rho_f=1000.0)
 
@@ -16891,19 +16947,16 @@ def test_fast_flexural_bracket_excludes_the_modes_own_asymptote():
     assert (v_rayleigh - v_scholte) / v_rayleigh > 0.25
 
 
-def test_fast_flexural_returns_an_overtone_above_the_crossing():
-    """The defect A.2 was filed under is two defects, and this is the
-    second: a wrong answer, not a missing one.
+def test_fast_flexural_returns_the_fundamental_above_the_crossing():
+    """A.2 fixed, at the single frequency that named the defect.
 
-    At 19.5 kHz the determinant has roots at ~1853 and ~2269 m/s. The
-    fundamental is 1853 -- it continues from 2138 m/s at 14.5 kHz, inside
-    the band where the current bracket works and only one root exists.
-    The solver returns ~2269, which is the first overtone, because that is
-    what its `(V_R, V_S)` window happens to contain.
-
-    Asserted loosely on purpose: what is pinned is that the returned value
-    sits far *above* the fundamental, not the exact overtone value, so a
-    fix shows up here as a failure rather than passing unnoticed.
+    This test used to assert the wrong answer: at 19.5 kHz the
+    determinant has roots near 1853 and 2269 m/s, the fundamental is
+    1853, and the solver returned ~2269 because that is what its
+    ``(V_R, V_S)`` window happened to contain. With the window
+    corrected to ``(V_f, V_S)`` and the fundamental selected, the call
+    returns **1853 m/s** -- the value the old test named as the one
+    being missed.
     """
     from fwap import flexural_dispersion
 
@@ -16911,29 +16964,25 @@ def test_fast_flexural_returns_an_overtone_above_the_crossing():
     velocity = 1.0 / result.slowness[0]
 
     assert np.isfinite(velocity)
-    assert velocity > 2200.0, "still returning a root from the V_R..V_S window"
-    # The fundamental is near 1853 m/s; being 20 % above it is the defect.
-    assert velocity / 1853.0 > 1.15
+    assert velocity == pytest.approx(1853.0, rel=0.01)
+    v_rayleigh = rayleigh_speed(_A2_ROCK["vp"], _A2_ROCK["vs"])
+    assert velocity < v_rayleigh, (
+        "the fundamental is below V_R here, which the old bracket could "
+        "not represent at all"
+    )
 
 
-def test_fast_flexural_returns_a_sawtooth_not_a_dispersion_curve():
-    """The clearest statement of the defect, and the one a caller would
-    notice: what comes back is stitched from several modes.
+def test_fast_flexural_returns_a_curve_not_a_sawtooth():
+    """The clearest statement of A.2, now inverted into its fix.
 
-    Over 10-30 kHz the returned velocity descends 2295 -> 2162, goes NaN
-    for four steps, **jumps back up** to 2283, descends to 2145, goes NaN
-    again, and jumps to 2275. Each overtone enters the `(V_R, V_S)` window
-    near V_S, crosses it, drops out below V_R, and the next one takes
-    over.
+    Over 10-30 kHz the returned velocity used to descend, go NaN, jump
+    **back up** by more than 100 m/s, descend again, and repeat -- each
+    overtone entering the ``(V_R, V_S)`` window near ``V_S``, crossing
+    it, and dropping out below ``V_R``. A guided mode's phase velocity
+    never increases with frequency, so what came back was not a curve.
 
-    A guided mode's phase velocity decreases with frequency. It never
-    jumps up. So this is not a sparse curve with gaps -- it is not a
-    curve. The NaN gaps are the least of it: a caller who interpolates
-    across them gets a plausible-looking result assembled from different
-    modes.
-
-    This is the same failure the `n=2` block above records, with the
-    mechanism now identified for `n=1`.
+    It is now one branch: contiguous coverage, monotone descent, no
+    upward step anywhere.
     """
     from fwap import flexural_dispersion
 
@@ -16942,12 +16991,13 @@ def test_fast_flexural_returns_a_sawtooth_not_a_dispersion_curve():
     velocity = 1.0 / result.slowness
     finite = np.isfinite(velocity)
 
-    assert finite[:5].all(), "below the crossing the mode is found"
-    assert not finite.all(), "the window empties between overtones"
-
+    assert finite.any(), "the mode is found over part of this band"
+    idx = np.where(finite)[0]
+    assert np.array_equal(idx, np.arange(idx[0], idx[-1] + 1)), (
+        "coverage is one contiguous run, not stitched from several modes"
+    )
     steps = np.diff(velocity[finite])
-    assert (steps > 0.0).any(), "a guided mode never speeds up with frequency"
-    assert steps.max() > 100.0, "the jump is a mode change, not numerical noise"
+    assert np.all(steps <= 0.0), f"phase velocity never increases; got {steps}"
 
 
 # ----------------------------------------------------------------------
@@ -17037,28 +17087,21 @@ def test_figure_2a_reference_table_is_anchored_at_both_ends():
     assert freq[0] < 3.0e3 < freq[-1]
 
 
-def test_fast_flexural_disagrees_with_the_published_curve():
-    """The published check of A.2, and it is not close.
+def test_fast_flexural_matches_the_published_curve():
+    """The published check of A.2, now the published check of its fix.
 
-    On the paper's own rock the solver returns a value at 5 of the 13
-    tabulated frequencies, every one of them between V_R and V_S, and
-    every one 62-73 % faster than the figure. The eight NaNs are not the
-    problem; the five answers are.
+    On the paper's own rock the solver used to answer at 5 of the 13
+    tabulated frequencies, every one between ``V_R`` and ``V_S`` and
+    every one 62-73 % faster than the figure. It now answers over
+    5.0-15.0 kHz -- the band between the ``V_R`` and ``V_f`` crossings --
+    at **0.78 % median error**, which is the digitisation floor of the
+    figure (about +-1 %).
 
-    The table starts at 2.5 kHz and steps 0.5-2.5 kHz, so it does not
-    sample 4.2-4.4 kHz, where the solver *is* correct because the true
-    curve has not yet left the bracket. That is not cherry-picking, it is
-    the reason the assertion below can be a clean floor: on a finer grid
-    the correct region is 2 samples in 115, and a test that straddled it
-    would have to special-case one interval.
-
-    Asserted as a floor on the disagreement rather than on the numbers
-    themselves, so that any fix -- a wider bracket, complex root
-    tracking, mode selection -- trips this test instead of quietly
-    keeping it green.
+    Outside that band it returns NaN rather than a guess: below the
+    ``V_R`` crossing the mode is leaky and has no real-``k_z`` root at
+    all, and above the ``V_f`` crossing it has left this regime.
     """
     from fwap import flexural_dispersion
-    from fwap.cylindrical import rayleigh_speed
 
     freq = np.array([f for f, _ in _FIG2A_FLEXURAL_PHASE])
     reference = np.array([v for _, v in _FIG2A_FLEXURAL_PHASE])
@@ -17067,13 +17110,17 @@ def test_fast_flexural_disagrees_with_the_published_curve():
     )
     finite = np.isfinite(velocity)
 
-    assert finite.sum() >= 3, "if coverage collapsed entirely, retune the grid"
-    v_rayleigh = rayleigh_speed(_FIG2_ROCK["vp"], _FIG2_ROCK["vs"])
-    assert np.all(velocity[finite] > v_rayleigh), "every answer is bracket interior"
+    assert finite.sum() >= 6, f"expected the middle band; got {finite.sum()}"
     assert np.all(velocity[finite] < _FIG2_ROCK["vs"])
+    assert np.all(velocity[finite] > _FIG2_FLUID["vf"])
 
-    error = (velocity[finite] - reference[finite]) / reference[finite]
-    assert error.min() > 0.5, "the returned mode is far faster than the flexural one"
+    error = np.abs((velocity[finite] - reference[finite]) / reference[finite])
+    assert np.median(error) < 0.015, f"median {np.median(error):.2%}"
+    assert error.max() < 0.03, f"worst {error.max():.2%}"
+
+    # and the answers are where the old bracket could not reach
+    v_rayleigh = rayleigh_speed(_FIG2_ROCK["vp"], _FIG2_ROCK["vs"])
+    assert np.all(velocity[finite] < v_rayleigh)
 
 
 # ----------------------------------------------------------------------
@@ -17196,36 +17243,31 @@ def test_the_bracket_empties_near_4_4_khz_whatever_the_formation(name):
 
 
 @pytest.mark.parametrize("name", sorted(_FIG7_ROCKS))
-def test_the_solver_is_silent_over_the_band_figure_7a_resolves(name):
-    """Where the figure is at its most informative, the solver says
-    nothing.
+def test_the_solver_now_answers_over_the_band_figure_7a_resolves(name):
+    """Where the figure is most informative, the solver used to say
+    nothing -- and for granite, nothing at all.
 
-    Over the tabulated band -- the part of figure 7a where each rock is
-    drawn as its own line -- `flexural_dispersion` returns NaN at every
-    frequency above the 4.45 kHz crossing, for both rocks. For granite
-    it returns NaN at **all 13**, including below the crossing: the
-    published curve is resolved from 3 to 10 kHz and fwap covers none
-    of it.
-
-    The wrong answers this item is really about live higher up, at
-    11-13 kHz, where the figure has merged the three curves. That is
-    the next test.
+    Over the tabulated band `flexural_dispersion` returned NaN at every
+    frequency above the 4.45 kHz crossing for both rocks, and at **all
+    13** for granite. It now answers over most of each band, at the
+    digitisation floor: 1.03 % median for limestone, 0.87 % for granite.
     """
     from fwap import flexural_dispersion
-    from fwap.cylindrical import rayleigh_speed
 
     rock = _FIG7_ROCKS[name]
     table = _FIG7A_FLEXURAL_PHASE[name]
     freq = np.array([f for f, _ in table])
+    reference = np.array([v for _, v in table])
     fluid = dict(vf=1500.0, rho_f=1000.0)
     velocity = 1.0 / flexural_dispersion(freq, **rock, **fluid, a=0.10).slowness
     finite = np.isfinite(velocity)
 
-    assert not finite[freq > 4.6e3].any(), "nothing survives above the crossing"
-    v_rayleigh = rayleigh_speed(rock["vp"], rock["vs"])
-    assert np.all(velocity[finite] > v_rayleigh), "any answer is bracket interior"
+    assert finite.any(), f"{name}: still empty"
+    assert finite[freq > 4.6e3].any(), "answers survive above the crossing now"
+    error = np.abs((velocity[finite] - reference[finite]) / reference[finite])
+    assert np.median(error) < 0.02, f"{name}: median {np.median(error):.2%}"
     if name == "granite":
-        assert not finite.any(), "granite is empty across the whole resolved band"
+        assert finite.sum() >= 8, "granite was empty across the whole band"
 
 
 #: Centre of the single line the three figure-7a curves have collapsed
@@ -17240,19 +17282,20 @@ _FIG7A_MERGED_BAND = (
 )
 
 
-def test_fast_flexural_error_grows_with_formation_stiffness():
-    """The reason figure 7a was worth digitising as well as figure 2a.
+def test_fast_flexural_error_no_longer_grows_with_formation_stiffness():
+    """The reason figure 7a was worth digitising as well as figure 2a,
+    and the sharpest single measure of the fix.
 
     At 11-13 kHz all three published curves have converged to one line
-    near 1570 m/s. Against it the solver reads about 2700 m/s in
-    limestone and about 3650 in granite -- **+69 % and +124 %** at the
-    low end. The `(V_R, V_S)` window rides further above the true curve
-    the faster the rock, so the defect is worst exactly where dipole
-    logging most needs the answer.
+    near 1570 m/s. The solver used to read about 2700 m/s in limestone
+    and 3650 in granite -- **+69 % and +124 %** -- because the
+    ``(V_R, V_S)`` window rides further above the true curve the faster
+    the rock. So the defect was worst exactly where dipole logging most
+    needs the answer.
 
-    The ordering is the assertion. The absolute numbers depend on the
-    ±2 % merged-band reading; that granite is far worse than limestone
-    does not.
+    All three rocks now land on the merged line within the +-2 % reading
+    uncertainty of that band, and the stiffness ordering is gone:
+    granite is now the *closest*, not the worst.
     """
     from fwap import flexural_dispersion
 
@@ -17263,14 +17306,12 @@ def test_fast_flexural_error_grows_with_formation_stiffness():
     error = {}
     for name, rock in _FIG7_ROCKS.items():
         velocity = 1.0 / flexural_dispersion(freq, **rock, **fluid, a=0.10).slowness
-        assert np.isfinite(velocity).all(), f"{name}: expected the sawtooth here"
-        error[name] = (velocity - reference) / reference
+        assert np.isfinite(velocity).all(), f"{name}: expected full coverage here"
+        error[name] = np.abs((velocity - reference) / reference)
 
-    assert error["limestone"].min() > 0.5
-    assert error["granite"].min() > 1.0
-    assert error["granite"].min() > error["limestone"].max(), (
-        "the harder the rock, the further the returned overtone is from the mode"
-    )
+    for name, err in error.items():
+        assert err.max() < 0.03, f"{name}: worst {err.max():.2%}"
+    assert error["granite"].max() < 0.02
 
 
 def test_the_two_figures_agree_where_both_resolve_the_same_rock():
@@ -17377,21 +17418,22 @@ def test_the_quadrupole_bracket_empties_near_7_6_khz(name):
 
 
 @pytest.mark.parametrize("name", sorted(_FIG7B_SCREW_PHASE))
-def test_quadrupole_keeps_more_wrong_answers_than_flexural(name):
-    """Why `n=2` is the more dangerous of the two solvers.
+def test_the_quadrupole_branch_is_corrected_but_still_arrives_late(name):
+    """What the A.2 fix does and does not buy at `n=2`, open hole.
 
-    Above the crossing `quadrupole_dispersion` keeps returning finite
-    values -- 65-75 % coverage against 21-36 % for `flexural_dispersion`
-    on the same rocks -- and they are overtones from the same
-    `(V_R, V_S)` window, tens of percent fast. A `NaN` filter is
-    therefore a *worse* guard here, not a better one.
+    `quadrupole_dispersion` used to hand back 65-75 % coverage of
+    overtones from the `(V_R, V_S)` window, tens of percent fast, which
+    made a `NaN` filter a *worse* guard at `n=2` than at `n=1`. The
+    branch is now the fundamental and descends monotonically below
+    `V_R`.
 
-    Sampled on a grid rather than at the tabulated frequencies, because
-    what comes back is a scatter with gaps: which individual frequency
-    converges is not stable and is not the point.
+    The residual is rock-dependent and is not the bracket: granite
+    lands on the published screw curve at about 1.6 % median, while
+    limestone carries a near-cutoff frequency offset -- the separate
+    onset defect figures 6 and 11 measured at 1.5-2.0 kHz, which this
+    fix does not touch.
     """
-    from fwap import flexural_dispersion, quadrupole_dispersion
-    from fwap.cylindrical import rayleigh_speed
+    from fwap import quadrupole_dispersion
 
     rock = _FIG7_ROCKS[name]
     table = _FIG7B_SCREW_PHASE[name]
@@ -17402,20 +17444,15 @@ def test_quadrupole_keeps_more_wrong_answers_than_flexural(name):
     grid = np.arange(7.9e3, ref_f[-1] + 1.0, 100.0)
     screw = 1.0 / quadrupole_dispersion(grid, **rock, **fluid, a=0.10).slowness
     finite = np.isfinite(screw)
-    assert finite.sum() >= 3, "the quadrupole solver does not go quiet here"
+    assert finite.sum() >= 3
 
-    v_rayleigh = rayleigh_speed(rock["vp"], rock["vs"])
-    assert np.all(screw[finite] > v_rayleigh), "every answer is bracket interior"
     assert np.all(screw[finite] < rock["vs"])
-    error = (screw[finite] - np.interp(grid, ref_f, ref_v)[finite]) / np.interp(
-        grid, ref_f, ref_v
-    )[finite]
-    assert error.min() > 0.05, f"{name}: expected overtones, not the screw mode"
+    assert np.all(screw[finite] > fluid["vf"])
+    assert _descends(screw[finite]), "one descending branch"
 
-    flexural = 1.0 / flexural_dispersion(grid, **rock, **fluid, a=0.10).slowness
-    assert finite.mean() > np.isfinite(flexural).mean(), (
-        "n=2 hands back more of its wrong answers than n=1 does"
-    )
+    error = np.abs(screw[finite] / np.interp(grid[finite], ref_f, ref_v) - 1.0)
+    ceiling = {"granite": 0.04, "limestone": 0.14}[name]
+    assert np.median(error) < ceiling, f"{name}: median {100 * np.median(error):.1f} %"
 
 
 # ----------------------------------------------------------------------
@@ -17737,20 +17774,21 @@ def test_figure_12a_plateaus_confirm_table_1s_invaded_zone_row():
     assert _FIG12_INVADED["rho"] > _FIG12_VIRGIN["rho"], "and makes it denser"
 
 
-def test_the_altered_zone_raises_coverage_without_improving_the_answer():
-    """The figure-12 finding, and it inverts a habit.
+def test_the_altered_zone_no_longer_inverts_the_coverage_signal():
+    """The figure-12 finding, and the fix that removes it.
 
-    Sparseness has been read as A.2's symptom throughout this project.
-    On the layered path it is the opposite signal: putting a 16 cm
-    invaded zone against the same rock takes `flexural_dispersion`'s
-    coverage from 9 % to 73 % over 2-10 kHz, and every one of those
-    extra answers is an overtone from the `(V_R, V_S)` window.
+    Sparseness had been read as A.2's symptom throughout this project.
+    On the layered path it was the opposite signal: a 16 cm invaded zone
+    took `flexural_dispersion`'s coverage from 9 % to 73 % over
+    2-10 kHz, and every extra answer was an overtone from the
+    `(V_R, V_S)` window -- so a caller checking coverage to decide
+    whether to trust an altered-zone curve was reading the metric
+    backwards.
 
-    So a caller who checks coverage to decide whether to trust an
-    altered-zone dispersion curve is reading the metric backwards.
+    Both paths now return one monotone branch, so coverage means what a
+    caller would assume it means.
     """
     from fwap import BoreholeLayer, flexural_dispersion, flexural_dispersion_layered
-    from fwap.cylindrical import rayleigh_speed
 
     fluid = dict(vf=1500.0, rho_f=1000.0)
     freq = np.arange(2.0e3, 10.001e3, 200.0)
@@ -17767,28 +17805,25 @@ def test_the_altered_zone_raises_coverage_without_improving_the_answer():
         ).slowness
     )
 
-    plain_cover = np.isfinite(plain).mean()
-    layered_cover = np.isfinite(layered).mean()
-    assert layered_cover > 4.0 * plain_cover, (
-        f"layered {100 * layered_cover:.0f} % vs plain {100 * plain_cover:.0f} %"
-    )
-
-    # ... and the extra answers are the same defect, not a better curve.
-    v_rayleigh = rayleigh_speed(_FIG12_VIRGIN["vp"], _FIG12_VIRGIN["vs"])
-    finite = np.isfinite(layered)
-    assert np.all(layered[finite] > v_rayleigh)
-    assert np.all(layered[finite] <= _FIG12_VIRGIN["vs"])
-    assert np.diff(layered[finite]).max() > 100.0, (
-        "a guided mode never speeds up with frequency; this one jumps"
-    )
+    for arr in (plain, layered):
+        finite = np.isfinite(arr)
+        assert finite.any()
+        assert np.all(np.diff(arr[finite]) <= 0.0), (
+            "a guided mode never speeds up with frequency"
+        )
+        assert np.all(arr[finite] <= _FIG12_VIRGIN["vs"])
+        assert np.all(arr[finite] > fluid["vf"])
 
 
-def test_the_layered_flexural_solver_sits_far_above_the_published_band():
-    """How wrong the extra answers are, against the figure.
+def test_the_layered_flexural_solver_now_lands_in_the_published_band():
+    """How wrong the extra answers were, against the figure -- and how
+    close they are now.
 
     Four phase curves are drawn as two lines above 6 kHz, so the pair
-    bounds the truth to a few percent -- ample, since the solver is
-    30-55 % above the band and rising with frequency.
+    bounds the truth to a few percent. The solver used to sit 30-55 %
+    above that band and rising with frequency; it now lands within
+    about 4 % of its midline at every sampled frequency, and slightly
+    *below* rather than above.
     """
     from fwap import BoreholeLayer, flexural_dispersion_layered
 
@@ -17809,10 +17844,10 @@ def test_the_layered_flexural_solver_sits_far_above_the_published_band():
         ).slowness
     )
     finite = np.isfinite(velocity)
-    assert finite.sum() >= 3, "if the sawtooth moved, retune the grid"
+    assert finite.sum() >= 3
 
-    error = velocity[finite] / (0.5 * (lo + hi))[finite] - 1.0
-    assert error.min() > 0.25, f"smallest overshoot {100 * error.min():.0f} %"
+    error = np.abs(velocity[finite] / (0.5 * (lo + hi))[finite] - 1.0)
+    assert error.max() < 0.06, f"worst {100 * error.max():.1f} %"
 
 
 # ----------------------------------------------------------------------
@@ -17953,16 +17988,19 @@ def test_the_layered_solver_tracks_the_published_slow_curves(model):
     assert np.abs(error).max() < 0.04
 
 
-def test_the_layered_defect_is_the_fast_bracket_not_the_layer_code():
-    """State the separation as a test, because it is the conclusion.
+def test_the_layered_path_now_tracks_both_the_fast_and_slow_figures():
+    """State the separation as a test, because it was the conclusion --
+    and it is what made the fix safe to attempt.
 
-    The identical call is bracket-interior nonsense on the fast rock of
-    figure 12 and accurate on the slow rock of figure 15. Anything that
-    "fixes" the layered propagator without touching the bracket would
-    break the slow half while leaving the fast half wrong.
+    The identical call was bracket-interior nonsense on the fast rock of
+    figure 12 and accurate on the slow rock of figure 15. That located
+    the defect in the bracket rather than the propagator, and said that
+    anything "fixing" the layered propagator would break the slow half
+    while leaving the fast half wrong. Correcting the bracket alone
+    brings the fast half in without disturbing the slow half, which is
+    the prediction that diagnosis made.
     """
     from fwap import BoreholeLayer, flexural_dispersion_layered
-    from fwap.cylindrical import rayleigh_speed
 
     fluid = dict(vf=1500.0, rho_f=1000.0)
 
@@ -17981,16 +18019,13 @@ def test_the_layered_defect_is_the_fast_bracket_not_the_layer_code():
     slow_freq = np.array([f for f, _ in _FIG15A_PHASE["invaded_16cm"]])
     slow_ref = np.array([v for _, v in _FIG15A_PHASE["invaded_16cm"]])
     slow = layered(_FIG15_VIRGIN, _FIG15_INVADED, slow_freq)
-    assert np.abs(slow / slow_ref - 1.0).max() < 0.04, "slow: tracks the figure"
+    assert np.abs(slow / slow_ref - 1.0).max() < 0.04, "slow: still tracks the figure"
 
     fast_freq = np.array([f for f, _, _ in _FIG12A_PHASE_BAND])
     fast_ref = 0.5 * np.array([a + b for _, a, b in _FIG12A_PHASE_BAND])
     fast = layered(_FIG12_VIRGIN, _FIG12_INVADED, fast_freq)
     finite = np.isfinite(fast)
-    assert (fast[finite] / fast_ref[finite] - 1.0).min() > 0.25, "fast: far above it"
-    assert np.all(
-        fast[finite] > rayleigh_speed(*[_FIG12_VIRGIN[k] for k in ("vp", "vs")])
-    )
+    assert np.abs(fast[finite] / fast_ref[finite] - 1.0).max() < 0.06, "fast: now too"
 
 
 # ----------------------------------------------------------------------
@@ -18103,27 +18138,38 @@ def test_figure_3_confirms_figure_2a_group_minimum_in_the_time_domain():
     assert 3.0 < freq < 10.5, "the stationary point is inside the band figure 3 spans"
 
 
-def test_the_fast_flexural_answer_implies_a_wave_arriving_twice_too_early():
-    """A.2 restated as a traveltime, which is how a user would meet it.
+def test_the_fast_flexural_answer_now_predicts_the_figure_3_arrival():
+    """The time-domain check of A.2, and the fix's strongest evidence:
+    figure 3 played no part in designing it.
 
-    Over the band figure 3 covers, `flexural_dispersion` answers at a
-    handful of frequencies with 2414-2597 m/s. Propagated over the
-    figure's own 5 m offset that is 1.9-2.1 ms, against 4.35 ms of
-    published waveform -- the returned mode would arrive before half the
-    true traveltime had elapsed.
+    The old bracket implied a wave arriving at 1.9-2.1 ms over the
+    figure's own 5 m offset against an observed Airy packet at
+    4.35 ms -- **2.2x too early**. Differentiating the corrected phase
+    branch gives a group-velocity minimum of about 1064 m/s, putting
+    the arrival at 4.70 ms: **+8 %**, and in the same direction as the
+    slow-formation tilt that figures 9 and 16 measure independently.
+
+    The group velocity is also never negative now. On the old sawtooth
+    it was negative on 18 of 48 adjacent samples, which is what made
+    the Airy phase unreadable from the output at all.
     """
     from fwap import flexural_dispersion
 
-    freq = np.array([f for f, _ in _FIG3_AIRY_ARRIVAL_MS]) * 1.0e3
-    fluid = dict(vf=1500.0, rho_f=1000.0)
-    velocity = 1.0 / flexural_dispersion(freq, **_FIG2_ROCK, **fluid, a=0.10).slowness
+    freq = np.linspace(1.0e3, 25.0e3, 481)
+    velocity = (
+        1.0 / flexural_dispersion(freq, **_FIG2_ROCK, **_FIG2_FLUID, a=0.10).slowness
+    )
     finite = np.isfinite(velocity)
-    assert finite.any(), "if coverage vanished entirely, retune the grid"
+    assert finite.sum() > 100, "if coverage collapsed, retune the grid"
 
-    implied_ms = _FIG3_OFFSET_M * 1.0e3 / velocity[finite]
+    ff, vv = freq[finite], velocity[finite]
+    v_group = 1.0 / np.gradient(ff / vv, ff)
+    assert np.all(v_group > 0.0), "group velocity must not go negative"
+
     observed = np.array([t for _, t in _FIG3_AIRY_ARRIVAL_MS]).mean()
-    assert implied_ms.max() < 0.5 * observed, (
-        f"implied {implied_ms.max():.2f} ms vs observed {observed:.2f} ms"
+    predicted = _FIG3_OFFSET_M * 1.0e3 / v_group.min()
+    assert 0.9 < predicted / observed < 1.2, (
+        f"predicted {predicted:.2f} ms vs observed {observed:.2f} ms"
     )
 
 
@@ -18234,17 +18280,17 @@ def test_the_two_screw_readings_agree_across_figures():
         assert v7 > v5, "the crowded panel reads high"
 
 
-def test_quadrupole_never_returns_the_screw_mode_in_this_fast_rock():
+def test_quadrupole_now_returns_the_screw_mode_in_this_fast_rock():
     """The `n=2` half of A.2 against the screw mode's own figure.
 
-    Over 6.4-25 kHz the solver answers at nearly three quarters of the
-    band, every value inside `(V_R, V_S)` and sweeping that window from
-    edge to edge, and **not one of them is within 5 %** of the published
-    curve. High coverage, no correct answers -- the same inversion
-    figure 12 found on the layered path.
+    Over 6.4-25 kHz the solver used to answer at nearly three quarters
+    of the band, every value inside `(V_R, V_S)` and sweeping that
+    window edge to edge, with **not one within 5 %** of the published
+    curve. It now tracks the published screw branch: monotone, below
+    `V_R`, and within a few percent once the separate near-cutoff onset
+    delay is allowed for.
     """
     from fwap import quadrupole_dispersion
-    from fwap.cylindrical import rayleigh_speed
 
     freq = np.array([f for f, _ in _FIG5A_SCREW_PHASE])
     reference = np.array([v for _, v in _FIG5A_SCREW_PHASE])
@@ -18253,13 +18299,17 @@ def test_quadrupole_never_returns_the_screw_mode_in_this_fast_rock():
     )
     finite = np.isfinite(velocity)
 
-    assert finite.mean() > 0.5, "the quadrupole solver is not sparse here"
+    assert finite.sum() >= 8
     v_rayleigh = rayleigh_speed(_FIG2_ROCK["vp"], _FIG2_ROCK["vs"])
-    assert np.all(velocity[finite] > v_rayleigh)
-    assert np.all(velocity[finite] <= _FIG2_ROCK["vs"])
+    assert np.all(velocity[finite] < v_rayleigh)
+    assert np.all(velocity[finite] > _FIG2_FLUID["vf"])
+    assert _descends(velocity[finite])
 
+    # The residual here is the near-cutoff onset delay, not the branch:
+    # shifted by ~1.1 kHz the same curve matches to 1.35 %.
     error = np.abs(velocity[finite] / reference[finite] - 1.0)
-    assert error.min() > 0.05, f"closest point {100 * error.min():.0f} %"
+    assert error.min() < 0.05, f"closest point {100 * error.min():.1f} %"
+    assert np.median(error) < 0.08, f"median {100 * np.median(error):.1f} %"
 
 
 # ----------------------------------------------------------------------
@@ -19301,14 +19351,17 @@ def test_the_dipole_goes_flat_above_3_khz_and_the_quadrupole_never_does():
     assert worst > 1.25, f"quadrupole stays sensitive: {worst}"
 
 
-def test_fwap_returns_no_screw_root_at_any_figure_14_source_frequency():
-    """Twelve plotted wavetrains, three phase velocities.
+def test_fwap_still_returns_no_screw_root_at_figure_14_source_frequencies():
+    """Twelve plotted wavetrains, and the A.2 fix does not reach them.
 
-    Figure 14 plots three models at four source centre frequencies. For
-    the virgin fast sandstone -- the reference every panel is normalised
-    against -- fwap's quadrupole solver returns no root at any of the
-    four. The `(V_R, V_S)` bracket puts the onset at 8.4 kHz, above the
-    whole figure.
+    Figure 14 plots three models at four source centre frequencies. The
+    virgin fast sandstone -- the reference every panel is normalised
+    against -- still returns no root at any of the four: the corrected
+    window moves the onset down but not below 6 kHz, and the figure's
+    sources sit at or under it.
+
+    This is the near-cutoff onset gap, not the bracket. Fixing A.2 was
+    never going to move it, and the count here is a reminder of that.
     """
     freq = 1.0e3 * np.array(_FIG14_SOURCE_KHZ)
     virgin = _fig14_quadrupole(None, freq)
@@ -19317,8 +19370,7 @@ def test_fwap_returns_no_screw_root_at_any_figure_14_source_frequency():
     found = sum(
         int(np.isfinite(_fig14_quadrupole(th, freq)).sum()) for th in (0.08, 0.16)
     )
-    assert found <= 4, f"{found} of 12 plotted pairs resolved"
-    assert found >= 1, "the layered path does resolve some of them"
+    assert found <= 6, f"{found} of 12 plotted pairs resolved"
 
 
 def test_the_figure_14_screw_onset_sits_above_the_whole_figure():
@@ -19334,68 +19386,95 @@ def test_the_figure_14_screw_onset_sits_above_the_whole_figure():
     )
 
 
-def test_every_figure_14_sample_lies_inside_the_rayleigh_shear_bracket():
-    """A.2 once more, on the figure's own three models.
+def test_figure_14_open_hole_samples_now_descend_below_the_rayleigh_speed():
+    """A.2 on the figure's own models, and the one path it does not fix.
 
-    Not one converged sample of the virgin, 8 cm or 16 cm run escapes
-    `(V_R, V_S)`. The bracket is not merely a bias on these curves, it
-    is their entire support.
+    Not one converged sample of the virgin, 8 cm or 16 cm run used to
+    escape `(V_R, V_S)`: the bracket was not a bias on these curves, it
+    was their entire support. The open-hole run now descends below
+    `V_R`, which is only representable because the window was widened.
+
+    The two **layered** runs are a different story, recorded in the next
+    test: the cased `n=2` determinant is too ill-conditioned to
+    root-find over the widened window, so the corrected code answers
+    almost nowhere rather than returning the sawtooth it used to.
     """
     freq = np.linspace(1000.0, 15000.0, 141)
     v_r = rayleigh_speed(_FIG12_VIRGIN["vp"], _FIG12_VIRGIN["vs"])
-    total = 0
-    for thickness in (None, 0.08, 0.16):
+
+    virgin = _fig14_quadrupole(None, freq)
+    good = virgin[np.isfinite(virgin)]
+    assert good.size >= 5, f"open hole resolved only {good.size}"
+    assert np.all(good < _FIG12_VIRGIN["vs"])
+    assert _descends(good), "one descending branch"
+    assert good.min() < v_r, "the branch passes below V_R"
+
+    for thickness in (0.08, 0.16):
         v = _fig14_quadrupole(thickness, freq)
-        good = v[np.isfinite(v)]
-        assert good.size, f"thickness {thickness} resolved nothing"
-        assert np.all(good > v_r), f"thickness {thickness} dipped below V_R"
-        assert np.all(good < _FIG12_VIRGIN["vs"]), f"thickness {thickness} exceeded V_S"
-        total += good.size
-    assert total > 150, f"only {total} samples examined"
+        layered = v[np.isfinite(v)]
+        assert np.all(layered < _FIG12_VIRGIN["vs"])
+        assert np.all(layered > 1500.0)
 
 
-def test_the_screw_sawtooth_drives_the_computed_group_velocity_negative():
-    """The Airy phase figure 14(c, d) is about cannot be read off this.
+def test_the_screw_group_velocity_is_no_longer_negative():
+    """The Airy phase figure 14(c, d) is about can be read off this now.
 
-    The overtone substitution walks the root up to `V_S`, loses it, and
-    re-acquires a higher branch. The ramps are steep enough that
-    `v_g = 1 / (d(f s)/df)` comes out negative across a large minority
-    of adjacent samples. A guided mode never has negative group
-    velocity, so this is not a small error in the Airy velocity -- it is
-    the absence of a usable group-velocity curve.
+    The overtone substitution used to walk the root up to `V_S`, lose
+    it, and re-acquire a higher branch; the ramps were steep enough that
+    `v_g = 1 / (d(f s)/df)` came out negative across a large minority of
+    adjacent samples. A guided mode never has negative group velocity,
+    so that was not a small error in the Airy velocity -- it was the
+    absence of a usable group-velocity curve.
 
-    If this test ever fails because no pair is negative, the sawtooth
-    has been removed and the Airy check should be written for real.
+    With one monotone branch, `v_g` is positive everywhere.
     """
     freq = np.linspace(1000.0, 15000.0, 141)
     v = _fig14_quadrupole(None, freq)
     ok = np.isfinite(v)
     f_ok, v_ok = freq[ok], v[ok]
+    assert v_ok.size >= 5
     dv_df = np.diff(v_ok) / np.diff(f_ok)
     v_g = v_ok[:-1] / (1.0 - (f_ok[:-1] / v_ok[:-1]) * dv_df)
-    negative = int((v_g < 0.0).sum())
-    assert negative > 5, f"only {negative} of {v_g.size} pairs negative"
-    assert v_ok.max() > _FIG12_VIRGIN["vs"] - 5.0, "ramps reach the V_S ceiling"
+    assert np.all(v_g > 0.0), f"{int((v_g < 0).sum())} of {v_g.size} pairs negative"
+    assert v_ok.max() < _FIG12_VIRGIN["vs"], "no run up to the V_S ceiling"
 
 
-def test_invaded_quadrupole_coverage_exceeds_virgin_coverage():
-    """Figure 12's inverted signal, reproduced at n = 2.
+def test_the_cased_n2_determinant_is_too_noisy_to_root_find():
+    """The limit of the A.2 fix, stated rather than papered over.
 
-    Adding an 8 cm layer and then a 16 cm layer makes the problem
-    strictly harder -- three media instead of one -- and the solver
-    converges on strictly more of the band each time, reaching lower in
-    frequency. Coverage is tracking the bracket, not the physics.
+    Figure 12's inverted coverage signal reproduced at `n = 2`: adding a
+    layer made the problem strictly harder and the solver converged on
+    strictly *more* of the band, because coverage was tracking the
+    bracket rather than the physics.
+
+    Widening the window removed the overtones and exposed why: scanned
+    across the full `(V_f, V_S)` window the **cased** `n = 2`
+    determinant has of order ninety sign changes at 12 kHz on this
+    model, where the physics supports a handful. That is numerical
+    noise from the propagator chain, not a mode spectrum, and the old
+    narrow bracket hid it by only ever looking at a sliver.
+
+    So the marcher refuses to pick one: past
+    `_FAST_FLEXURAL_MAX_CASED_ROOTS` crossings it reports nothing. The
+    layered `n = 2` path is therefore **quiet, not fixed** -- the
+    bracket was only one of its problems, and the remaining one is
+    conditioning, which is what the delta-matrix reformulation kept as
+    an open item (A.5 residue) is for.
+
+    The open-hole `n = 2` path shares none of this: its determinant is a
+    single 4x4 and it tracks the published screw curve.
     """
     freq = np.linspace(1000.0, 15000.0, 141)
-    counts, onsets = [], []
+    counts = []
     for thickness in (None, 0.08, 0.16):
         v = _fig14_quadrupole(thickness, freq)
-        ok = np.isfinite(v)
-        counts.append(int(ok.sum()))
-        onsets.append(freq[ok].min() / 1.0e3)
-    assert counts[0] < counts[1] < counts[2], f"coverage {counts}"
-    assert onsets[0] > onsets[1] > onsets[2], f"onsets {onsets}"
-    assert counts[2] > 1.5 * counts[0], f"coverage {counts}"
+        counts.append(int(np.isfinite(v).sum()))
+
+    # the inversion is gone: layering no longer buys spurious coverage
+    assert counts[0] > counts[1], f"coverage {counts}"
+    assert counts[0] > counts[2], f"coverage {counts}"
+    # and the layered path is near-silent rather than confidently wrong
+    assert max(counts[1], counts[2]) < 10, f"coverage {counts}"
 
 
 def test_the_figure_14_model_returns_no_attenuation_at_all():
@@ -20458,3 +20537,51 @@ def test_the_16cm_tie_is_recorded_as_corroborating_not_deciding():
         f"separate them: worst {gap.max():.2%}"
     )
     assert _FIG15B_CURVE_3_4_SEPARATION < 0.01
+
+
+def test_the_fast_formation_marcher_is_grid_independent_at_n1():
+    """What the A.2 fix delivers at n=1, and what it leaves at n=2.
+
+    A dispersion solver's answer at a frequency must not depend on which
+    other frequencies were asked for in the same call. After the fix the
+    n=1 fast-formation branch satisfies that exactly: grids of 5 to 161
+    points over the same band, and grids starting anywhere from 1 to
+    5 kHz, all return the same 10 kHz value to **0.000 %**.
+
+    The n=2 path does not. It is on the fundamental now rather than an
+    overtone, which is the fix working, but the value still moves by a
+    few percent with the grid and vanishes on some. That is the n=2
+    root-finding instability figure 6 recorded independently -- two
+    grids differing by last-bit rounding giving 47 and 42 converged
+    points of 71 -- and A.2 was never going to remove it.
+
+    So n=1 fast-formation results are quotable and n=2 ones are not yet.
+    """
+    from fwap import flexural_dispersion, quadrupole_dispersion
+
+    rock = dict(vp=4500.0, vs=2600.0, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.10)
+
+    def at_10khz(fn, grids):
+        out = []
+        for f in grids:
+            v = 1.0 / fn(f, **rock).slowness
+            out.append(v[-1])
+        return np.array(out)
+
+    by_density = [np.linspace(2000.0, 10000.0, n) for n in (5, 9, 21, 41, 81, 161)]
+    by_start = [np.linspace(lo, 10000.0, 41) for lo in (1e3, 2e3, 3e3, 4e3, 5e3)]
+
+    for grids in (by_density, by_start):
+        flex = at_10khz(flexural_dispersion, grids)
+        assert np.isfinite(flex).all(), f"n=1 lost the branch: {flex}"
+        assert np.ptp(flex) / flex.mean() < 1.0e-9, (
+            f"n=1 must not depend on the grid; spread {np.ptp(flex):.3e} m/s"
+        )
+
+    quad = at_10khz(quadrupole_dispersion, by_density)
+    good = quad[np.isfinite(quad)]
+    assert good.size >= 2
+    assert np.ptp(good) / good.mean() > 1.0e-4, (
+        "if n=2 has become grid-independent too, the instability figure 6 "
+        "recorded is gone and this test should be rewritten"
+    )
