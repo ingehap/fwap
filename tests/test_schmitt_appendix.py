@@ -480,11 +480,24 @@ def test_the_appendix_beats_fwap_on_the_published_invaded_curve() -> None:
     appendix_err, fwap_err = [], []
     for freq, published in _FIG15A_INVADED_16CM:
         omega = 2.0 * np.pi * freq
-        grid = np.linspace(900.0, 1190.0, 581)
+        # Search strictly below the *invaded* shear speed. The branch
+        # figure 15 plots descends below it (985 -> 952 over 5-8 kHz),
+        # while a second, unrelated minimum sits up near the *virgin*
+        # shear speed. Over a bracket wide enough to hold both, which
+        # one is the global minimum is a near-tie that different SciPy
+        # builds resolve differently -- so the bracket excludes the
+        # competitor rather than relying on the tie going one way.
+        grid = np.linspace(900.0, _INVADED["vs"] - 3.0, 601)
         sv = np.array([_appendix_sigma_min(c, omega) for c in grid])
+        sv = np.where(np.isfinite(sv), sv, np.inf)
         idx = int(np.argmin(sv))
         assert 0 < idx < grid.size - 1, (
             f"{freq / 1e3:.0f} kHz: minimum at a grid edge; widen the bracket"
+        )
+        assert sv[idx] < 0.05 * float(np.median(sv[np.isfinite(sv)])), (
+            f"{freq / 1e3:.0f} kHz: minimum is not sharply separated "
+            f"({sv[idx]:.2e} against a median of "
+            f"{float(np.median(sv[np.isfinite(sv)])):.2e})"
         )
         c_appendix = float(grid[idx])
         c_fwap = (
