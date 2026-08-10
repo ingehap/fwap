@@ -72,7 +72,7 @@ training data — one hole of one tool does not change that.
 | ~~**F.2 A waveform fixture CI can use**~~ | *Closed, with one thing it does not mean.* `iodp_u1347a_dsi` — an eight-receiver DSI monopole run, **CC0** on Zenodo — is registered, read by `read_ldeo_waveforms`, and exercised by `stc` at **0.948** median peak coherence. CI *can* use it but does not: the default run stays hermetic and skips it. The blocking claim ("no openly redistributable gather is known to exist") turned out to be false. Kept below. |
 | ~~**F.5 The ODP file's unknowns**~~ | *Closed.* Both answered, and the item was filed on a wrong premise — "not resolvable from the files" meant "nobody had opened the rest of the archive". The hole identity is settled by the archive's own run table (six runs matched by name and depth interval, six for six); the offsets are the LSS **8/10/10/12 ft** set, confirmed by first-break moveout to an intercept of −0.0 µs. Kept below. |
 | **A.2 Fast-formation leakage, `n=1` and `n=2`** | **Measured, and it is two defects.** *Wrong answers*: above ~15 kHz `flexural_dispersion` returns a flexural **overtone** labelled as the mode, because the search window is `(V_R, V_S)` and the fundamental has left it — `V_R` is not this mode's limit, the Scholte speed is, 30 % lower. Over 10-30 kHz the returned curve sawtooths: descends, `NaN`s, **jumps back up**. *Missing answers*: below the cutoff the root genuinely leaves the real axis. The first needs a mode-identification rule and **no complex machinery** — widening the window roughly doubles coverage; the second still needs complex-plane tracking. Pinned by three tests, not fixed: every naive selection rule tried fails. Affects `n=2` identically, so one fix repairs two solvers, and it is why both Scholte ties are scoped to slow formations. |
-| **A.1 Validation figures** | *Re-scoped from five figures to four* (three, then Schmitt 1988 fig 4 restored for its fast-formation curve — A.2 needs it and the new flexural tie does not cover it). Stoneley, flexural and quadrupole are now tied analytically at 1e-8 to 1e-3, against a 5 % overlay budget — so their figures were dropped as the weaker instrument. What still needs the books is the **pseudo-Rayleigh curve**, **cased Stoneley** and **VTI flexural**, which have no external tie of any kind. |
+| **A.1 Validation figures** | *Re-scoped from five to three* (five → three → four → three: fig 4 was restored, then the figure itself was seen and turned out **not to be a dispersion figure at all** — it is a dipole shot gather, so it cannot be scored in the overlay schema. It did settle A.2's yes/no question, which is why it was worth fetching). Which Schmitt (1988) figure carries the flexural dispersion curves is now **unknown**. Stoneley, flexural and quadrupole are now tied analytically at 1e-8 to 1e-3, against a 5 % overlay budget — so their figures were dropped as the weaker instrument. What still needs the books is the **pseudo-Rayleigh curve**, **cased Stoneley** and **VTI flexural**, which have no external tie of any kind. |
 | **F.4 Two unconfirmed checksums** | Also body-only until this revision, which is the same failure as A.2's. `forge_dsi_las` and `iodp_u1347a_dsi` both carry digests computed from copies that did not come down their canonical URLs, because those hosts were blocked from the sessions that added them. One successful fetch each clears it. It is the only place the fixture registry asserts something it has not verified. |
 | **A.5 residue: delta-matrix reformulation** | Optional and blocked on nothing, which is why it kept falling off the list. A delta-matrix / Abo-Zena form of the elastic stack would remove the cancellation the grid-stability filter exists to work around, and raise the crack-wave ceiling above the ~240 kHz where the propagators stop being representable. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
@@ -267,6 +267,32 @@ continuation exists at all. **Fig 4 is back in the ask, for its fast curve**;
 the slow half stays superseded. The count is four figures, not three. This was
 the "read the table against the body" failure the honesty note warns about,
 committed by the session that wrote the note.
+
+> **Correction to the correction: fig 4 is not a dispersion figure, and this
+> file has described it wrongly throughout.** The figure has now been seen. It
+> is a dipole **shot gather** — waveform traces against time at 14 receiver
+> offsets, `r` = 2.40-5.00 m — in a **fast sandstone**, with panel (a) at a
+> 1 kHz source centre frequency and panel (b) at 6 kHz.
+>
+> Every part of the repository's attribution was wrong: not a dispersion curve
+> but a time-domain gather; not two formations (a slow shale and a fast
+> limestone) but one; and the two panels are two *source frequencies*, not two
+> formations. It therefore **cannot be digitised into the
+> `freq_hz, slowness_s_per_m` schema at all** — the ask was never going to work
+> as written, whoever fetched the paper.
+>
+> It is still worth having, for a different reason than the one recorded: it
+> settles A.2's yes/no question. See the A.2 section.
+>
+> **A.1's remaining ask is therefore three figures, not four**, and gains an
+> unknown: which figure in Schmitt (1988) carries the flexural dispersion
+> curves is no longer known. It is not fig 4. Nobody should go looking for
+> "fig 4" again on this file's say-so.
+>
+> This is the third thing this file got wrong about one paper — pages, title,
+> and now figure content — and all three were recorded with the same
+> confidence. The common cause is that none had been checked against the
+> paper itself.
 
 Mode by mode:
 
@@ -470,6 +496,27 @@ the fast-formation flexural mode exists only above its cutoff and the
 low-frequency dipole energy travels as a shear head wave instead.
 Distinguishing those two cases is exactly what Schmitt 1988 fig 4 would settle,
 which puts this item behind the same literature access A.1 needs.
+
+> **Settled — the figure has been seen, and it refutes the second case.**
+> Schmitt 1988 fig 4 is a dipole **shot gather** in a *fast sandstone*: 14
+> traces at `r` = 2.40-5.00 m in 0.20 m steps, panel (a) at a 1 kHz source
+> centre frequency and panel (b) at 6 kHz. Both panels show a strong, coherent,
+> slowly-decaying dipole arrival. `flexural_dispersion` returns **`NaN` at both
+> 1 and 6 kHz** for a fast formation of this kind.
+>
+> So the energy is there and the solver cannot find it. "No leaky continuation
+> to find" is out; the gap is a solver limitation, not an absence of physics.
+>
+> The figure also shows the branch is *dispersive in the expected direction*.
+> Reading peak moveout by eye across the 2.60 m aperture — ±15-20 %, it is a
+> scan — panel (a) gives roughly **2400 m/s**, near the formation shear
+> velocity, and panel (b) roughly **1450 m/s**, near the Scholte speed. That is
+> the same descent the A.1 flexural tie pins to 1e-3 in *slow* formations,
+> now visible in a fast one across the band the solver returns nothing for.
+>
+> What it does **not** give: a usable number. Eyeball moveout at ±20 % cannot
+> validate anything, and a shot gather is not a dispersion curve. Its value is
+> that it answers a yes/no question that had been blocking the item.
 
 Scale of the consequence: fast formations average **28 %** band coverage (5/47
 fully converged over 50 draws), while slow formations converge fully.
