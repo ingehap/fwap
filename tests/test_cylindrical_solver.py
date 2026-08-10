@@ -19873,3 +19873,339 @@ def test_the_slow_flexural_curves_are_structurally_sound():
         dv = np.diff(vv) / np.diff(ff)
         v_g = vv[:-1] / (1.0 - (ff[:-1] / vv[:-1]) * dv)
         assert np.all(v_g > 0.0), f"{thickness}: negative group velocity"
+
+
+# ----------------------------------------------------------------------
+# Figure 17: the slow-formation quadrupole, which fwap will not compute
+#
+# "Quadrupole source. Invaded zone effects in the presence of a slow
+# sandstone. Iso-offset (z = 5m) of the waveforms obtained in the
+# presence of the only virgin formation (1), and a 8 cm (2) and 16 cm
+# (3) invaded zone. The source center frequency is successively equal to
+# 1 kHz (a), 3 kHz (b), 6 kHz (c), and 7.5 kHz (d). Each series is
+# normalized with respect to its own maximum denoted by 1.00."
+#
+# **The headline is a refusal, not a number.**
+# `quadrupole_dispersion_layered` raises `ValueError` on this model
+# before computing anything: the slow-formation branch requires every
+# layer to be at least as fast in shear as the formation, and an invaded
+# zone is by definition slower. Eight of the figure's twelve waveforms
+# are therefore not merely inaccurate -- they are unrepresentable.
+#
+# The constraint is deliberate (`_validate_flexural_layers_stacked`,
+# documented as plan G'.0) and it is right that a softer annulus is a
+# harder regime. What makes it a finding rather than a limitation is the
+# **asymmetry with the sister path**:
+#
+#   * `flexural_dispersion_layered` applies the same check only when
+#     there are **two or more** layers -- the single-layer path
+#     "documents but does not enforce it", in the code's own words.
+#   * So the *identical* one-layer invaded-zone model is accepted at
+#     n = 1 and rejected at n = 2.
+#   * And the n = 1 answers obtained in that supposedly unsupported
+#     regime are the ones figure 15 tied to the published curves at
+#     **1.47-1.48 % rms**, as good as the open-hole solver.
+#
+# So the regime the n=2 validator refuses is one the n=1 code demonstrably
+# handles. Figure 15(b) plots exactly the curves fwap will not produce --
+# and the figure-15 work digitised only panel (a), so this was reachable
+# then and missed. Figure 17 is what caught it.
+#
+# **What fwap can still do**, and it is not much: the virgin screw mode
+# resolves from 5.25 kHz up (196 of 297 samples, no interior gaps, group
+# velocity never negative -- structurally sound, like figure 16 and
+# unlike figure 14). Panels (a) and (b) sit at 1 and 3 kHz, below that
+# onset. **So of the twelve plotted waveforms, exactly two have a
+# computable screw-mode phase velocity.**
+#
+# Predicting the virgin Airy arrival: the screw packet peaks at
+# 4.91-4.99 ms across all four source frequencies -- frequency-
+# independent, so it is the Airy phase -- giving 1008.1 m/s. fwap's
+# group minimum of 954.2 m/s puts it at 5.24 ms, **+5.6 %**, against the
+# flexural mode's +3.0 % on the same rock in figure 16.
+#
+# **The published data, which stands whatever fwap does.**
+#
+# Twelve arrows again calibrate the figure, and this is the tightest
+# external agreement in the series: the four virgin arrows give
+# 1193.6 m/s against `V_S` = 1201 (**-0.61 %**) and the eight invaded
+# ones **1081.3** against 1081 (**+0.03 %**). Finding them needed a
+# better discriminator than figure 16 used -- figure 17's dense
+# high-frequency wavetrains produce blobs that pass a shape test, so the
+# arrow is identified as the arrow-shaped component *not connected to
+# the trace*. Re-running figure 16 with the stricter method reproduces
+# its twelve values exactly, so nothing there needed correcting.
+#
+#     f_c        virgin   8 cm    16 cm    spread
+#     1 kHz      0.156    0.496   1.000    **6.41x**
+#     3 kHz      0.918    0.838   1.000     1.19x
+#     6 kHz      1.000    0.455   0.546     2.20x
+#     7.5 kHz    0.757    0.312   1.000     3.21x
+#
+# Digits and ink agree to 0.028. The 1 kHz virgin glyph is the one real
+# ambiguity -- it could read 0.156 or 0.186, and the ink (0.184 +- 0.02
+# on a 39-pixel excursion) cannot separate them. Comparing the glyph
+# against known 5s and 8s elsewhere in the same figure settles it: the
+# 8s in this font are two closed bowls (0.918, 0.838) and this is the
+# open-topped 5 of 0.455.
+#
+# **Panel (a)'s 6.41x is the largest spread in the four waveform
+# figures, and the virgin trace is the smallest one.** A slow-formation
+# quadrupole at 1 kHz is barely excited; adding an invaded zone brings
+# the screw mode's useful starting energy down into the source band and
+# the response grows six-fold. That is the same mechanism figure 14
+# named in a fast formation, here with the sign of the effect much
+# larger.
+#
+# **The report's own claim for these panels, checked as written.** Page
+# 229 says the P-wavetrain growth with invaded-zone thickness is "especially
+# true with the quadrupole source (Figure 17c, d)". Splitting each trace
+# at its own arrow, P/S grows from virgin to 16 cm by **26x** at 6 kHz
+# and **69x** at 7.5 kHz, against the dipole's 15x and 13x in figure 16.
+# Read as absolute level rather than growth the claim would look false --
+# the dipole's P/S is larger at 6 kHz -- so the wording matters, and it
+# is the growth the authors wrote.
+#
+# **No delays are quoted from this figure.** Panels (b)-(d) give 8 cm
+# lags of +868.9, +867.8 and +862.4 us at 3, 6 and 7.5 kHz -- constant
+# to +-3 us across a 2.5x change in source frequency, the cycle-hopping
+# signature figure 14 established. Panel (a) clears r = 0.8 on both
+# traces but its 8 cm lag (+357 us) contradicts the peak-time shift of
+# the same trace (+100 us), so it is not quoted either.
+# ----------------------------------------------------------------------
+
+#: Figure 17: printed peak-amplitude scale factors (virgin, 8 cm, 16 cm)
+#: keyed by source centre frequency in kHz. Digits read from the page and
+#: confirmed against the plotted ink to 0.028.
+_FIG17_PEAK_AMPLITUDE = {
+    1.0: (0.156, 0.496, 1.000),
+    3.0: (0.918, 0.838, 1.000),
+    6.0: (1.000, 0.455, 0.546),
+    7.5: (0.757, 0.312, 1.000),
+}
+
+#: Figure 17: P-wavetrain over shear-packet amplitude, split at the arrow.
+_FIG17_P_OVER_S = {
+    1.0: (0.13, 0.14, 0.04),
+    3.0: (0.03, 0.07, 0.07),
+    6.0: (0.04, 0.12, 1.05),
+    7.5: (0.04, 0.59, 2.76),
+}
+
+#: Figure 17: shear speed from each drawn arrow at 5 m (m/s).
+_FIG17_ARROW_VS = {
+    1.0: (1188.2, 1078.1, 1080.2),
+    3.0: (1195.5, 1083.0, 1084.1),
+    6.0: (1191.1, 1075.9, 1080.2),
+    7.5: (1199.7, 1084.1, 1085.2),
+}
+
+#: Figure 17: time of the screw-packet peak (ms) at 5 m for the virgin
+#: model, at each of the four source centre frequencies.
+_FIG17_VIRGIN_AIRY_MS = (4.99, 4.91, 4.99, 4.95)
+
+#: Lowest frequency (kHz) at which fwap resolves the virgin slow screw
+#: mode, against the onset figure 17(b) shows a wavetrain at.
+_FIG17_VIRGIN_ONSET_KHZ = 5.25
+
+_FIG17_OFFSET_M = 5.0
+
+
+def test_fig17_scale_factors_are_internally_consistent():
+    """The transcription, including the one ambiguous glyph.
+
+    Panel (a)'s virgin factor could read 0.156 or 0.186 and the ink
+    cannot separate them on a 39-pixel excursion; the glyph shape does,
+    against known 5s and 8s in the same figure. Either reading gives the
+    same conclusion, and the assertions below hold for both.
+    """
+    for f_khz, triple in _FIG17_PEAK_AMPLITUDE.items():
+        assert max(triple) == pytest.approx(1.0), f"{f_khz} kHz: {triple}"
+        assert min(triple) > 0.0, f"{f_khz} kHz: {triple}"
+        assert sum(v == 1.0 for v in triple) == 1, f"{f_khz} kHz: {triple}"
+
+
+def test_the_figure_17_arrows_are_the_tightest_external_tie_in_the_series():
+    """Twelve arrowheads, two published velocities, no solver.
+
+    The eight invaded arrows average 1081.3 m/s against table 1's 1081.
+    Finding them needed a stricter discriminator than figure 16 used --
+    this figure's dense wavetrains produce blobs that pass a shape test,
+    so the arrow is the arrow-shaped component *not connected to the
+    trace*. Figure 16 re-measured that way reproduces its twelve values
+    exactly, so its record needed no correction.
+    """
+    virgin = np.array([t[0] for t in _FIG17_ARROW_VS.values()])
+    invaded = np.array([v for t in _FIG17_ARROW_VS.values() for v in t[1:]])
+    assert virgin.size == 4 and invaded.size == 8
+    assert invaded.mean() == pytest.approx(_FIG15_INVADED["vs"], rel=0.005)
+    assert virgin.mean() == pytest.approx(_FIG15_VIRGIN["vs"], rel=0.01)
+    assert np.abs(invaded / _FIG15_INVADED["vs"] - 1).max() < 0.01
+    assert invaded.max() < virgin.min(), "the two families do not overlap"
+
+
+def test_invasion_multiplies_the_slow_quadrupole_response_at_1_khz():
+    """Panel (a): the largest spread in any of the four waveform figures.
+
+    A slow-formation quadrupole at 1 kHz is barely excited -- the virgin
+    trace is the *smallest* in its panel at 0.156 -- and a 16 cm invaded
+    zone brings the screw mode's useful starting energy down into the
+    source band, multiplying the response by more than six.
+    """
+    virgin, eight, sixteen = _FIG17_PEAK_AMPLITUDE[1.0]
+    assert virgin < eight < sixteen
+    assert sixteen / virgin > 5.0
+    others = [max(t) / min(t) for f, t in _FIG17_PEAK_AMPLITUDE.items() if f != 1.0]
+    assert max(t := _FIG17_PEAK_AMPLITUDE[1.0]) / min(t) > max(others)
+    # larger than anything the fast-formation quadrupole managed
+    assert max(t) / min(t) > max(
+        max(x) / min(x) for x in _FIG14_PEAK_AMPLITUDE.values()
+    )
+
+
+def test_the_quadrupole_p_wavetrain_grows_faster_than_the_dipole_s():
+    """The report's claim for figures 17(c, d), read as it is written.
+
+    "The increase of the absolute and relative amplitude of the P
+    wavetrain with the thickness of the invaded zone ... is especially
+    true with the quadrupole source." It is the *growth* that is
+    compared, not the level -- read as level the claim would look false,
+    since the dipole's P/S is larger at 6 kHz.
+    """
+    for f_khz in (6.0, 7.5):
+        quad = _FIG17_P_OVER_S[f_khz]
+        dip = _FIG16_P_OVER_S[f_khz]
+        quad_growth = quad[2] / quad[0]
+        dip_growth = dip[2] / dip[0]
+        assert quad_growth > dip_growth, (
+            f"{f_khz} kHz: quadrupole {quad_growth:.0f}x vs dipole {dip_growth:.0f}x"
+        )
+        assert quad[2] > 1.0, "P overtakes S with a 16 cm zone"
+    # and read as level rather than growth it would go the other way
+    assert _FIG16_P_OVER_S[6.0][2] > _FIG17_P_OVER_S[6.0][2]
+
+
+def test_quadrupole_dispersion_layered_refuses_every_invaded_zone():
+    """The finding: eight of twelve waveforms cannot be computed at all.
+
+    An invaded zone is slower in shear than the rock it replaces. The
+    n = 2 slow-formation path rejects any such layer outright, so the
+    whole invaded-zone family in a slow formation is unrepresentable --
+    which is what figures 15(b) and 17 are about.
+    """
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    freq = np.array([6000.0])
+    for thickness in (0.08, 0.16):
+        with pytest.raises(ValueError, match="at least as fast in shear"):
+            quadrupole_dispersion_layered(
+                freq,
+                **_FIG15_VIRGIN,
+                **fluid,
+                a=0.10,
+                layers=(BoreholeLayer(**_FIG15_INVADED, thickness=thickness),),
+            )
+    # a *faster* annulus -- cement behind a slow formation -- is accepted,
+    # so it is the softness of the layer that is refused, not layering
+    cement = BoreholeLayer(vp=2823.0, vs=1729.0, rho=1920.0, thickness=0.16)
+    mode = quadrupole_dispersion_layered(
+        freq, **_FIG15_VIRGIN, **fluid, a=0.10, layers=(cement,)
+    )
+    assert mode.slowness.shape == freq.shape
+
+
+def test_the_same_model_is_accepted_at_n1_and_refused_at_n2():
+    """The asymmetry that makes the refusal a finding rather than a limit.
+
+    `flexural_dispersion_layered` applies the identical constraint only
+    when there are two or more layers, so a single invaded zone passes.
+    The answers it gives in that supposedly unsupported regime are the
+    ones figure 15 tied to the published curves at 1.47-1.48 % rms. The
+    n = 2 path refuses the same physical model.
+
+    If this test starts failing because n = 2 now accepts the model, the
+    asymmetry has been resolved and the figure-17 comparison should be
+    written for real.
+    """
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    freq = np.array([6000.0])
+    layers = (BoreholeLayer(**_FIG15_INVADED, thickness=0.16),)
+
+    n1 = flexural_dispersion_layered(
+        freq, **_FIG15_VIRGIN, **fluid, a=0.10, layers=layers
+    )
+    assert np.isfinite(n1.slowness).all(), "n=1 accepts and resolves it"
+
+    with pytest.raises(ValueError):
+        quadrupole_dispersion_layered(
+            freq, **_FIG15_VIRGIN, **fluid, a=0.10, layers=layers
+        )
+
+
+def test_two_of_figure_17s_twelve_waveforms_have_a_phase_velocity():
+    """Count what a caller could actually reproduce from this figure.
+
+    Eight invaded waveforms raise before computing. Of the four virgin
+    ones, the screw mode resolves only from 5.25 kHz, so the 1 and 3 kHz
+    panels return nothing either.
+    """
+    from fwap.cylindrical_solver import (
+        quadrupole_dispersion,
+        quadrupole_dispersion_layered,
+    )
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    probe = 1.0e3 * np.array([1.0, 3.0, 6.0, 7.5])
+    virgin = (
+        1.0 / quadrupole_dispersion(probe, **_FIG15_VIRGIN, **fluid, a=0.10).slowness
+    )
+    assert int(np.isfinite(virgin).sum()) == 2, virgin
+    assert not np.isfinite(virgin[0]) and not np.isfinite(virgin[1])
+
+    computable = int(np.isfinite(virgin).sum())
+    for thickness in (0.08, 0.16):
+        try:
+            m = quadrupole_dispersion_layered(
+                probe,
+                **_FIG15_VIRGIN,
+                **fluid,
+                a=0.10,
+                layers=(BoreholeLayer(**_FIG15_INVADED, thickness=thickness),),
+            )
+        except ValueError:
+            continue
+        computable += int(np.isfinite(1.0 / m.slowness).sum())
+    assert computable == 2, f"{computable} of 12 plotted waveforms"
+
+
+def test_the_virgin_screw_airy_arrival_is_worse_than_the_flexural_one():
+    """The one forward prediction figure 17 still allows.
+
+    The screw packet peaks within 0.05 ms of 4.96 ms across all four
+    source frequencies, so it is the Airy phase. fwap's group minimum
+    puts it at 5.24 ms -- late by more than the flexural mode's +3.0 %
+    on the same rock in figure 16, and in the same direction.
+    """
+    from fwap.cylindrical_solver import quadrupole_dispersion
+
+    arr = np.array(_FIG17_VIRGIN_AIRY_MS)
+    assert np.ptp(arr) / arr.mean() < 0.02, f"frequency-independent: {arr}"
+
+    freq = np.linspace(200.0, 15000.0, 297)
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    v = 1.0 / quadrupole_dispersion(freq, **_FIG15_VIRGIN, **fluid, a=0.10).slowness
+    idx = np.where(np.isfinite(v))[0]
+    seg = max(np.split(idx, np.where(np.diff(idx) > 1)[0] + 1), key=len)
+    ff, vv = freq[seg], v[seg]
+    v_g = 1.0 / np.gradient(ff / vv, ff)
+    predicted_ms = _FIG17_OFFSET_M / v_g.min() * 1e3
+    error = predicted_ms / arr.mean() - 1.0
+    assert 0.03 < error < 0.09, f"{predicted_ms:.2f} ms vs {arr.mean():.2f}"
+    # structurally sound, unlike figure 14's fast-formation quadrupole
+    assert np.all(v_g > 0.0)
+    assert int((np.diff(idx) > 1).sum()) == 0, "no interior gaps"
+    onset = freq[np.isfinite(v)].min() / 1.0e3
+    assert onset == pytest.approx(_FIG17_VIRGIN_ONSET_KHZ, abs=0.4)

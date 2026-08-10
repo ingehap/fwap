@@ -412,7 +412,44 @@ the project uses [Semantic Versioning](https://semver.org/).
   though, fwap resolves none of the three models (onsets 2.52 / 3.51 / 2.94 kHz):
   the panel that measures best is entirely outside coverage.
 
-  Seventy-six tests now pin the item, not three, and every reference table carries
+  **Figure 17 checks the slow-formation quadrupole, and the headline is a
+  refusal.** `quadrupole_dispersion_layered` raises `ValueError` on this model
+  before computing anything: the slow-formation branch requires every layer to be
+  at least as fast in shear as the formation, and an invaded zone is by
+  definition slower. Eight of the figure's twelve waveforms are not inaccurate —
+  they are unrepresentable. Filed separately as **A.6**, because it is not a form
+  of A.2 and its fix is a scoping decision rather than an algorithm.
+  The constraint is deliberate and defensible; what makes it a defect is the
+  asymmetry. `flexural_dispersion_layered` applies the identical check only for
+  **two or more** layers, so the same one-layer model is accepted at n=1 — and
+  those are the answers figure 15 tied to the published curves at 1.47-1.48 % rms.
+  The regime the n=2 validator refuses is one the n=1 code demonstrably handles.
+  Figure 15(b) plots exactly the curves fwap will not produce; the figure-15 work
+  digitised only panel (a), so this was reachable then and missed.
+  **Of the twelve plotted waveforms, exactly two have a computable phase
+  velocity** — the virgin screw mode resolves only from 5.25 kHz, above the 1 and
+  3 kHz panels. That curve is structurally sound (no interior gaps, group velocity
+  never negative), and predicting the virgin Airy arrival from it gives 5.24 ms
+  against 4.96 measured, **+5.6 %**, against the flexural mode's +3.0 % on the
+  same rock.
+  **The published data stands whatever fwap does**, and it is the tightest
+  external agreement in the series: the eight invaded arrows read **1081.3 m/s**
+  against table 1's 1081 (**+0.03 %**), the four virgin ones 1193.6 against 1201
+  (-0.61 %). Finding them needed a stricter discriminator than figure 16 used —
+  the arrow is the arrow-shaped component *not connected to the trace* — and
+  re-running figure 16 that way reproduces its twelve values exactly, so its
+  record needed no correction.
+  Panel (a)'s amplitude spread is **6.41x**, the largest in the four waveform
+  figures, with the *virgin* trace the smallest at 0.156: a slow-formation
+  quadrupole at 1 kHz is barely excited, and invasion brings the screw mode's
+  useful starting energy down into the source band. One glyph was genuinely
+  ambiguous (0.156 against 0.186, which the ink cannot separate on a 39-pixel
+  excursion) and is settled by comparing it against known 5s and 8s in the same
+  figure. The report's claim for panels (c) and (d) holds as written — P/S grows
+  from virgin to 16 cm by 26x and 69x against the dipole's 15x and 13x — though
+  read as absolute level rather than growth it would look false.
+
+  Eighty-four tests now pin the item, not three, and every reference table carries
   its own shear-speed anchor test.
 
 ### Validated
