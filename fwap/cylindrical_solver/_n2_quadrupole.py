@@ -166,21 +166,29 @@ def _modal_determinant_n2(
     # Row 1: u_r^{(f)} - u_r^{(s)} = 0 at r = a (cos(2 theta) sector).
     M11 = (F * I1Fa - 2.0 * I2Fa / a) / (rho_f * omega**2)
     M12 = p * K1pa + 2.0 * K2pa / a
-    M13 = kz * K2sa
+    # SV column (Hansen form) -- roadmap A.8. The azimuthal-only
+    # vector-potential ansatz is not a solution of the elastodynamic
+    # equations for n >= 1; the cylindrical vector Laplacian couples the
+    # radial and azimuthal components through a term proportional to n
+    # that such an ansatz has no term to cancel. This is Schmitt &
+    # Cheng's appendix column (pp. 235-236) with A = s K_{n-1} +
+    # n K_n / a, rewritten in the (K_1, K_2) pair via the K_{n+1}
+    # recurrence, with n = 2.
+    M13 = kz * (s * K1sa + 2.0 * K2sa / a)
     M14 = -2.0 * K2sa / a
 
     # Row 2: -(sigma_rr^{(s)} + P) = 0 at r = a (cos(2 theta) sector;
     # row negated for visual parallel with the n = 0 / n = 1 forms).
     M21 = -I2Fa
     M22 = -mu * (two_kz2_minus_kS2 * K2pa + 2.0 * p * K1pa / a + 12.0 * K2pa / (a * a))
-    M23 = -2.0 * kz * mu * (s * K1sa + 2.0 * K2sa / a)
+    M23 = -2.0 * kz * mu * (s * s * K2sa + s * K1sa / a + 6.0 * K2sa / (a * a))
     M24 = 4.0 * mu * (s * K1sa / a + 3.0 * K2sa / (a * a))
 
     # Row 3: sigma_r_theta^{(s)} = 0 at r = a (sin(2 theta) sector;
     # fluid carries no shear, so M31 = 0).
     M31 = 0.0
     M32 = 4.0 * mu * (p * K1pa / a + 3.0 * K2pa / (a * a))
-    M33 = 2.0 * kz * mu * K2sa / a
+    M33 = 4.0 * kz * mu * (s * K1sa / a + 3.0 * K2sa / (a * a))
     M34 = -mu * ((s * s + 12.0 / (a * a)) * K2sa + 2.0 * s * K1sa / a)
 
     # Row 4: sigma_rz^{(s)} = 0 at r = a (cos(2 theta) sector; M41 = 0
@@ -189,7 +197,7 @@ def _modal_determinant_n2(
     # (= column 3 here) by -i, leaving a real matrix.
     M41 = 0.0
     M42 = 2.0 * kz * mu * (p * K1pa + 2.0 * K2pa / a)
-    M43 = mu * (two_kz2_minus_kS2 + 3.0 / (a * a)) * K2sa
+    M43 = two_kz2_minus_kS2 * mu * (s * K1sa + 2.0 * K2sa / a)
     M44 = -2.0 * kz * mu * K2sa / a
 
     M = np.array(
@@ -298,21 +306,29 @@ def _modal_determinant_n2_complex(
     # Row 1: u_r^{(f)} - u_r^{(s)} = 0 at r = a (cos(2 theta) sector).
     M11 = (F * I1Fa - 2.0 * I2Fa / a) / (rho_f * omega**2)
     M12 = p * K1pa + 2.0 * K2pa / a
-    M13 = kz_c * K2sa
+    # SV column (Hansen form) -- roadmap A.8. The azimuthal-only
+    # vector-potential ansatz is not a solution of the elastodynamic
+    # equations for n >= 1; the cylindrical vector Laplacian couples the
+    # radial and azimuthal components through a term proportional to n
+    # that such an ansatz has no term to cancel. This is Schmitt &
+    # Cheng's appendix column (pp. 235-236) with A = s K_{n-1} +
+    # n K_n / a, rewritten in the (K_1, K_2) pair via the K_{n+1}
+    # recurrence, with n = 2.
+    M13 = kz_c * (s * K1sa + 2.0 * K2sa / a)
     M14 = -2.0 * K2sa / a
 
     # Row 2: -(sigma_rr^{(s)} + P) = 0 at r = a (cos(2 theta) sector;
     # row negated for visual parallel with the n=0 / n=1 forms).
     M21 = -I2Fa
     M22 = -mu * (two_kz2_minus_kS2 * K2pa + 2.0 * p * K1pa / a + 12.0 * K2pa / (a * a))
-    M23 = -2.0 * kz_c * mu * (s * K1sa + 2.0 * K2sa / a)
+    M23 = -2.0 * kz_c * mu * (s * s * K2sa + s * K1sa / a + 6.0 * K2sa / (a * a))
     M24 = 4.0 * mu * (s * K1sa / a + 3.0 * K2sa / (a * a))
 
     # Row 3: sigma_r_theta^{(s)} = 0 at r = a (sin(2 theta) sector;
     # fluid carries no shear, M31 = 0).
     M31 = 0.0 + 0j
     M32 = 4.0 * mu * (p * K1pa / a + 3.0 * K2pa / (a * a))
-    M33 = 2.0 * kz_c * mu * K2sa / a
+    M33 = 4.0 * kz_c * mu * (s * K1sa / a + 3.0 * K2sa / (a * a))
     M34 = -mu * ((s * s + 12.0 / (a * a)) * K2sa + 2.0 * s * K1sa / a)
 
     # Row 4: sigma_rz^{(s)} = 0 at r = a (cos(2 theta) sector;
@@ -320,7 +336,7 @@ def _modal_determinant_n2_complex(
     # column-C-by-(-i) rescale as the real version.
     M41 = 0.0 + 0j
     M42 = 2.0 * kz_c * mu * (p * K1pa + 2.0 * K2pa / a)
-    M43 = mu * (two_kz2_minus_kS2 + 3.0 / (a * a)) * K2sa
+    M43 = two_kz2_minus_kS2 * mu * (s * K1sa + 2.0 * K2sa / a)
     M44 = -2.0 * kz_c * mu * K2sa / a
 
     M = np.array(

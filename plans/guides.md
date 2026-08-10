@@ -435,6 +435,22 @@ document why.
   correcting this paper's citation across nine files fixed the authorship, title
   and venue and left the page range wrong — p. 246 is figure 9, with sixteen
   figures after it.
+- **A causal claim that did not survive its own test.** A.8 was recorded as
+  "almost certainly also A.7's cause", on the reasonable argument that a
+  propagator built from a non-solution has no reason to produce a clean
+  determinant. Fixing A.8 refuted it: the layer-equals-formation scan gives an
+  identical 430 sign changes at 12 kHz before and after, to the sample. The
+  cancellation is in the chain, not in the column. *A mechanism that would
+  explain a second defect is a hypothesis, not a diagnosis — and the cheapest
+  time to test it is the moment the first defect is fixed.*
+- **A conclusion inverted by its own repair.** "The 8 cm layered tie is better
+  than its own virgin control" was the measurement that turned A.6 from an
+  argument into evidence. After A.8 the control is the tighter of the two
+  (0.055 % against 0.136 %), which is what one should expect — the open-hole
+  solve carries one homogeneous half-space, the layered one also carries an
+  invaded-zone row transcribed from a scan. The A.6 conclusion is unaffected;
+  the number that carried it is not. *A comparison between two quantities both
+  dominated by the same error says less than it appears to.*
 
 ---
 
@@ -442,21 +458,31 @@ document why.
 
 Fifty-two digitised reference tables and twelve scalar anchors, each with
 provenance, an uncertainty budget and a stated resolution limit, and **90 tests**
-referencing them. Every table carries its own anchor test. Three tests are
-phrased to start failing if the defect they describe is ever repaired.
+referencing them. Every table carries its own anchor test. Three tests were
+phrased to start failing if the defect they describe was ever repaired; A.8
+repaired all three, and they now assert the agreement instead.
 
-| | before | after |
-|---|---|---|
-| best external tie | none better than 5 % | **0.04 % rms** (Stoneley, fig 8a) |
-| fast flexural, fig 2a | right branch at 2 of 115 | **0.78 % median** |
-| fast flexural, granite | **no correct sample** | 0.87 % median |
-| invaded zone at `n=2` | `ValueError` | **0.58 % rms** |
-| defects known | 1, misdiagnosed | 3, two fixed and one characterised |
+| | before | after A.2/A.6 | after A.8 |
+|---|---|---|---|
+| best external tie | none better than 5 % | 0.04 % rms (Stoneley, fig 8a) | **0.033 %** |
+| slow flexural, fig 8a | 1.29 % rms | 1.29 % rms | **0.063 %** |
+| slow screw, fig 8a | 0.94 % rms | 0.94 % rms | **0.058 %** |
+| fast flexural, fig 2a | right branch at 2 of 115 | 0.78 % median | **0.16 %** |
+| fast flexural, granite | **no correct sample** | 0.87 % median | **0.45 %** |
+| invaded zone at `n=2` | `ValueError` | 0.58 % rms | **0.136 %** |
+| `n=1` near-cutoff gap | 1.48 kHz | 1.48 kHz | **0.00 kHz** |
+| defects known | 1, misdiagnosed | 3 | 5, three fixed |
 
-The single most valuable property of the paper was not any one figure. It was
-that **five rocks and two domains made a scattered set of anomalies resolve into
-one mechanism** — a search window anchored to a speed that is not a limit of the
-mode it was searching for.
+Two properties of the paper carried this, and they are different in kind. The
+figures — five rocks, two domains — made a scattered set of anomalies resolve
+into **one mechanism**: a search window anchored to a speed that is not a limit
+of the mode it was searching for. The **appendix** then did something the
+figures could not, because it prints the matrices rather than their consequences:
+it let the formulation be checked term by term, with no root-finding, no
+digitisation and no tolerance to argue about. That is what found A.8, and A.8
+turned out to be the larger of the two — it moved every `n >= 1` tie in the table
+above by an order of magnitude, and closed four defects that had been recorded as
+separate solver limitations.
 
 ---
 
@@ -476,8 +502,14 @@ should not have to rediscover it.
    here as the only route that could *resolve* A.7 rather than characterise it.
    It did something better: checking fwap's **formulation** against it — rather
    than its output — showed that the SV column of the layer matrices is not a
-   solution of the elastodynamic equations at all (roadmap A.8), which is
-   probably A.7's cause and costs about 1.5 % on the layered `n=1` output.
+   solution of the elastodynamic equations at all (roadmap A.8). That cost about
+   1.5 % on the layered `n=1` output and an order of magnitude on every open-hole
+   `n >= 1` tie; it is now fixed, and the fix closed five further defects the
+   suite had recorded as solver limitations. It was **not** A.7's cause, which
+   the same instrument settled: with the column corrected the layer-equals-
+   formation scan gives an identical 430 sign changes at 12 kHz, so the
+   cancellation is in the propagator chain rather than in what is fed to it. A
+   prediction that fails cleanly is still a result — see §9.
    The method is worth generalising: **a paper that prints its matrices lets you
    test the formulation term by term, with no root-finding, no digitisation and
    no tolerance to argue about.** The decisive test needed no reference values —

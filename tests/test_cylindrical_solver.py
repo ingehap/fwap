@@ -365,10 +365,16 @@ SLOW_A = 0.1
 def test_flexural_low_f_slowness_approaches_inverse_vs():
     """Just above the geometric cutoff, the modal flexural slowness
     must approach 1 / V_S (Ellefsen-Cheng-Toksoz 1991 sect. III.B
-    long-wavelength asymptote). Tests f = 2 kHz where the slowness
-    should be within 2% of 1/V_S."""
+    long-wavelength asymptote).
+
+    The roadmap-A.8 correction both extended the solver's reach
+    downward (it now resolves from ~675 Hz for these parameters, vs
+    ~2 kHz before) and sharpened the asymptote: at 800 Hz the
+    slowness is 1/V_S to 2e-5 relative, where the old curve started
+    2 orders of magnitude further out. The 2 kHz check is kept as
+    the "still close a long way above cutoff" fence."""
     res = flexural_dispersion(
-        np.array([2000.0]),
+        np.array([800.0, 2000.0]),
         vp=SLOW_VP,
         vs=SLOW_VS,
         rho=SLOW_RHO,
@@ -376,8 +382,11 @@ def test_flexural_low_f_slowness_approaches_inverse_vs():
         rho_f=SLOW_RHO_F,
         a=SLOW_A,
     )
-    assert np.isfinite(res.slowness[0])
-    assert res.slowness[0] == pytest.approx(1.0 / SLOW_VS, rel=2.0e-2)
+    assert np.all(np.isfinite(res.slowness))
+    assert res.slowness[0] == pytest.approx(1.0 / SLOW_VS, rel=1.0e-4)
+    assert res.slowness[1] == pytest.approx(1.0 / SLOW_VS, rel=3.0e-2)
+    # Dispersive in the right direction: slower with frequency.
+    assert res.slowness[1] > res.slowness[0]
 
 
 def test_flexural_high_f_slowness_above_inverse_rayleigh():
@@ -473,14 +482,26 @@ def test_flexural_dispatches_to_fast_formation_path_when_vs_gt_vf():
 
 def test_flexural_returns_nan_below_geometric_cutoff():
     """The dipole flexural mode in slow formations has a low-f
-    geometric cutoff near V_S / (2 pi a) ~ 1273 Hz for these
-    parameters. Below that, no bound flexural root exists and
-    NaN is returned."""
-    f = np.array([500.0, 800.0, 1100.0])  # all below cutoff
+    cutoff below which no bound root exists and NaN is returned.
+
+    The cutoff is well BELOW the ``V_S / (2 pi a) ~ 1273 Hz``
+    geometric estimate this test used to assert: after the
+    roadmap-A.8 correction the solver resolves the mode from about
+    675 Hz for these parameters, hugging 1/V_S as it goes. 800 Hz
+    and 1100 Hz -- both "below cutoff" on the old reading -- now
+    return finite slownesses, and only 500 Hz and below is NaN."""
     res = flexural_dispersion(
-        f, vp=SLOW_VP, vs=SLOW_VS, rho=SLOW_RHO, vf=SLOW_VF, rho_f=SLOW_RHO_F, a=SLOW_A
+        np.array([300.0, 500.0, 800.0, 1100.0]),
+        vp=SLOW_VP,
+        vs=SLOW_VS,
+        rho=SLOW_RHO,
+        vf=SLOW_VF,
+        rho_f=SLOW_RHO_F,
+        a=SLOW_A,
     )
-    assert np.all(np.isnan(res.slowness))
+    assert np.all(np.isnan(res.slowness[:2]))
+    assert np.all(np.isfinite(res.slowness[2:]))
+    assert np.all(res.slowness[2:] > 1.0 / SLOW_VS)
 
 
 # ---------------------------------------------------------------------
@@ -4496,7 +4517,12 @@ def test_layered_n1_row3_at_a_layer_equals_formation_per_element():
         * mu
         * (p * float(sp.kv(0, p * a)) / a + 2.0 * float(sp.kv(1, p * a)) / (a * a))
     )
-    M33 = kz * mu * float(sp.kv(1, s * a)) / a
+    M33 = (
+        2.0
+        * kz
+        * mu
+        * (s * float(sp.kv(0, s * a)) / a + 2.0 * float(sp.kv(1, s * a)) / (a * a))
+    )
     M34 = -mu * (
         s * s * float(sp.kv(1, s * a))
         + 2.0 * s * float(sp.kv(0, s * a)) / a
@@ -4601,8 +4627,24 @@ def test_layered_n1_row3_at_a_matches_closed_form_per_column():
             + 2.0 * float(sp.kv(1, p_m * a)) / (a * a)
         )
     )
-    expected_CI = +kz * mu_m * float(sp.iv(1, s_m * a)) / a
-    expected_CK = +kz * mu_m * float(sp.kv(1, s_m * a)) / a
+    expected_CI = (
+        2.0
+        * kz
+        * mu_m
+        * (
+            -s_m * float(sp.iv(0, s_m * a)) / a
+            + 2.0 * float(sp.iv(1, s_m * a)) / (a * a)
+        )
+    )
+    expected_CK = (
+        2.0
+        * kz
+        * mu_m
+        * (
+            +s_m * float(sp.kv(0, s_m * a)) / a
+            + 2.0 * float(sp.kv(1, s_m * a)) / (a * a)
+        )
+    )
     expected_DI = -mu_m * (
         s_m * s_m * float(sp.iv(1, s_m * a))
         - 2.0 * s_m * float(sp.iv(0, s_m * a)) / a
@@ -4623,10 +4665,11 @@ def test_layered_n1_row3_at_a_matches_closed_form_per_column():
 
 
 def test_layered_n1_row3_at_a_C_column_i_k_sign_flip():
-    """The C-amplitude entries are single-Bessel-term, so the I-K
-    ratio collapses to a clean ``+I_1(s_m a) / K_1(s_m a)`` (no
-    sign flip; same Bessel-index, KEEP-sign per the F.1.a.2
-    pattern). Direct verifiable algebraic identity."""
+    """The C-amplitude entries carry the derivative-induced
+    ``X_0/a`` term after the roadmap-A.8 correction, so the I-K
+    ratio is not the bare ``+I_1/K_1``. Both flavours are the same
+    functional of ``(sigma, X_0, X_1)`` -- sigma = +1 for I, -1 for
+    K -- which is the F.1.a.2 pattern this test pins."""
     p, omega, kz = _row1_test_setup()
     F_f, p_m, s_m, _, _ = _layered_n0_radial_wavenumbers(
         kz,
@@ -4650,8 +4693,21 @@ def test_layered_n1_row3_at_a_C_column_i_k_sign_flip():
         layer=p["layer"],
     )
 
-    expected_ratio = +float(sp.iv(1, s_m * p["a"])) / float(sp.kv(1, s_m * p["a"]))
-    assert row[3].real / row[4].real == pytest.approx(expected_ratio)
+    a = p["a"]
+    mu_m = p["layer"].rho * p["layer"].vs ** 2
+
+    def c_entry(sig, B0, B1):
+        """``-2 k_z mu_m (d_r X_1 / a - X_1 / a^2)`` at r = a."""
+        return -2.0 * kz * mu_m * ((sig * s_m * B0 - B1 / a) / a - B1 / (a * a))
+
+    assert row[3].real == pytest.approx(
+        c_entry(+1.0, float(sp.iv(0, s_m * a)), float(sp.iv(1, s_m * a)))
+    )
+    assert row[4].real == pytest.approx(
+        c_entry(-1.0, float(sp.kv(0, s_m * a)), float(sp.kv(1, s_m * a)))
+    )
+    bare_ratio = +float(sp.iv(1, s_m * a)) / float(sp.kv(1, s_m * a))
+    assert row[3].real / row[4].real != pytest.approx(bare_ratio, rel=1.0e-3)
 
 
 # =====================================================================
@@ -4671,9 +4727,11 @@ def test_layered_n1_row6_at_b_layer_equals_formation_K_flavour_cancels():
     K-flavour annulus and formation columns cancel pair-wise.
 
         row6[2] (B_K) + row6[5] (B) == 0
+        row6[4] (C_K) + row6[6] (C) == 0
         row6[8] (D_K) + row6[9] (D) == 0
 
-    No C cancellation to verify since C is identically zero in u_theta.
+    The C pair is new with the roadmap-A.8 correction: u_theta does
+    couple to the SV amplitude at n >= 1.
     """
     vp, vs, rho = 4500.0, 2500.0, 2400.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
@@ -4693,16 +4751,24 @@ def test_layered_n1_row6_at_b_layer_equals_formation_K_flavour_cancels():
         layer=layer,
     )
     assert row[2].real + row[5].real == pytest.approx(0.0, abs=1.0e-14)
+    assert row[4].real + row[6].real == pytest.approx(0.0, abs=1.0e-14)
     assert row[8].real + row[9].real == pytest.approx(0.0, abs=1.0e-14)
 
 
-def test_layered_n1_row6_at_b_C_columns_are_identically_zero():
-    """Substep F.2.a.2: u_theta has B and D contributions, NOT C.
-    Columns 3 (C_I), 4 (C_K), 6 (formation C) are identically zero
-    in row 6 -- a stronger sparsity than the F.2.a.4 generic
-    pattern (which only requires A=0 and formation cols zero in
-    rows touching r=a). Row 6 distinguishes itself by also having
-    C=0 even though it touches r=b."""
+def test_layered_n1_row6_at_b_C_columns_are_nonzero():
+    """Roadmap A.8: u_theta DOES have a C contribution at n >= 1.
+
+    The Hansen SV field ``u = curl curl(chi z)`` carries
+    ``u_theta = i k_z (n/r) chi``, which vanishes only at n = 0.
+    Substep F.2.a.2 asserted the opposite -- that C never appears
+    in u_theta -- which was an artefact of the azimuthal-only
+    vector potential the SV columns used to encode. That ansatz has
+    no u_theta at all, so the entries looked structurally absent
+    rather than merely small.
+
+    Columns 3 (C_I), 4 (C_K) and 6 (formation C) are therefore
+    ``-/+ k_z X_1(s b) / b`` and non-zero; the row's only genuine
+    zero is the A column (the fluid lives at r < a)."""
     p, omega, kz = _row1_test_setup()
     row = _layered_n1_row6_at_b(
         kz,
@@ -4715,12 +4781,24 @@ def test_layered_n1_row6_at_b_C_columns_are_identically_zero():
         a=p["a"],
         layer=p["layer"],
     )
-    assert row[3] == 0.0  # C_I
-    assert row[4] == 0.0  # C_K
-    assert row[6] == 0.0  # formation C
+    from scipy import special as sp
+
+    _, _, s_m, _, s_form = _layered_n0_radial_wavenumbers(
+        kz,
+        omega,
+        vp=p["vp"],
+        vs=p["vs"],
+        vf=p["vf"],
+        layer=p["layer"],
+    )
+    b = p["a"] + p["layer"].thickness
+
+    assert row[3].real == pytest.approx(-kz * float(sp.iv(1, s_m * b)) / b)
+    assert row[4].real == pytest.approx(-kz * float(sp.kv(1, s_m * b)) / b)
+    assert row[6].real == pytest.approx(+kz * float(sp.kv(1, s_form * b)) / b)
     assert row[0] == 0.0  # A (fluid r<a)
-    # Six remaining columns (1, 2, 5, 7, 8, 9) generically non-zero.
-    for i in (1, 2, 5, 7, 8, 9):
+    # Every other column is generically non-zero in the bound regime.
+    for i in (1, 2, 3, 4, 5, 6, 7, 8, 9):
         assert row[i] != 0.0
 
 
@@ -4950,8 +5028,24 @@ def test_layered_n1_row9_at_b_matches_closed_form_per_column():
             + 2.0 * float(sp.kv(1, p_m * b)) / (b * b)
         )
     )
-    expected_CI = +kz * mu_m * float(sp.iv(1, s_m * b)) / b
-    expected_CK = +kz * mu_m * float(sp.kv(1, s_m * b)) / b
+    expected_CI = (
+        2.0
+        * kz
+        * mu_m
+        * (
+            -s_m * float(sp.iv(0, s_m * b)) / b
+            + 2.0 * float(sp.iv(1, s_m * b)) / (b * b)
+        )
+    )
+    expected_CK = (
+        2.0
+        * kz
+        * mu_m
+        * (
+            +s_m * float(sp.kv(0, s_m * b)) / b
+            + 2.0 * float(sp.kv(1, s_m * b)) / (b * b)
+        )
+    )
     expected_B = (
         -2.0
         * mu
@@ -4960,7 +5054,15 @@ def test_layered_n1_row9_at_b_matches_closed_form_per_column():
             + 2.0 * float(sp.kv(1, p_form * b)) / (b * b)
         )
     )
-    expected_C = -kz * mu * float(sp.kv(1, s_form * b)) / b
+    expected_C = (
+        -2.0
+        * kz
+        * mu
+        * (
+            s_form * float(sp.kv(0, s_form * b)) / b
+            + 2.0 * float(sp.kv(1, s_form * b)) / (b * b)
+        )
+    )
     expected_DI = -mu_m * (
         s_m * s_m * float(sp.iv(1, s_m * b))
         - 2.0 * s_m * float(sp.iv(0, s_m * b)) / b
@@ -5024,7 +5126,12 @@ def test_layered_n1_row9_at_b_annulus_K_matches_row3_M32_M33_M34_at_b():
         * mu
         * (p * float(sp.kv(0, p * b)) / b + 2.0 * float(sp.kv(1, p * b)) / (b * b))
     )
-    M33_at_b = kz * mu * float(sp.kv(1, s * b)) / b
+    M33_at_b = (
+        2.0
+        * kz
+        * mu
+        * (s * float(sp.kv(0, s * b)) / b + 2.0 * float(sp.kv(1, s * b)) / (b * b))
+    )
     M34_at_b = -mu * (
         s * s * float(sp.kv(1, s * b))
         + 2.0 * s * float(sp.kv(0, s * b)) / b
@@ -5084,7 +5191,7 @@ def test_layered_n1_row1_at_a_layer_equals_formation_per_element():
 
     M11 = (F * float(sp.iv(0, F * a)) - float(sp.iv(1, F * a)) / a) / (rho_f * omega**2)
     M12 = p * float(sp.kv(0, p * a)) + float(sp.kv(1, p * a)) / a
-    M13 = kz * float(sp.kv(1, s * a))
+    M13 = kz * (s * float(sp.kv(0, s * a)) + float(sp.kv(1, s * a)) / a)
     M14 = -float(sp.kv(1, s * a)) / a
 
     assert row[0].real == pytest.approx(M11)
@@ -5169,8 +5276,8 @@ def test_layered_n1_row1_at_a_matches_closed_form_per_column():
     )
     expected_BI = -p_m * float(sp.iv(0, p_m * a)) + float(sp.iv(1, p_m * a)) / a
     expected_BK = +p_m * float(sp.kv(0, p_m * a)) + float(sp.kv(1, p_m * a)) / a
-    expected_CI = +kz * float(sp.iv(1, s_m * a))
-    expected_CK = +kz * float(sp.kv(1, s_m * a))
+    expected_CI = +kz * (float(sp.iv(1, s_m * a)) / a - s_m * float(sp.iv(0, s_m * a)))
+    expected_CK = +kz * (s_m * float(sp.kv(0, s_m * a)) + float(sp.kv(1, s_m * a)) / a)
     expected_DI = -float(sp.iv(1, s_m * a)) / a
     expected_DK = -float(sp.kv(1, s_m * a)) / a
 
@@ -5184,10 +5291,16 @@ def test_layered_n1_row1_at_a_matches_closed_form_per_column():
 
 
 def test_layered_n1_row1_at_a_C_and_D_column_i_k_sign_flips():
-    """The C and D entries are single-Bessel-term (no derivative-
-    induced terms), so the I-K ratios collapse to clean
-    ``+I_1(s_m a) / K_1(s_m a)`` -- KEEP-sign per F.1.a.2 (direct
-    terms, no Bessel-index shift)."""
+    """The D entry is single-Bessel-term, so its I-K ratio
+    collapses to a clean ``+I_1(s_m a) / K_1(s_m a)`` -- KEEP-sign
+    per F.1.a.2.
+
+    The C entry does NOT: after the roadmap-A.8 correction it is
+    ``d_r`` of the SV scalar, so it carries a derivative-induced
+    ``X_0`` term that flips sign between the I and K flavours while
+    the direct ``X_1/a`` term keeps sign. Both flavours are the
+    same functional of ``(sigma, X_0, X_1)`` with sigma = +1 for I
+    and -1 for K, which is what this test pins."""
     p, omega, kz = _row1_test_setup()
     F_f, p_m, s_m, _, _ = _layered_n0_radial_wavenumbers(
         kz,
@@ -5210,11 +5323,25 @@ def test_layered_n1_row1_at_a_C_and_D_column_i_k_sign_flips():
         a=p["a"],
         layer=p["layer"],
     )
-    expected_ratio = +float(sp.iv(1, s_m * p["a"])) / float(sp.kv(1, s_m * p["a"]))
-    # C ratio: I_1(s_m a) / K_1(s_m a).
-    assert row[3].real / row[4].real == pytest.approx(expected_ratio)
-    # D ratio: also I_1(s_m a) / K_1(s_m a) (same Bessel arg).
-    assert row[7].real / row[8].real == pytest.approx(expected_ratio)
+    a = p["a"]
+
+    def c_entry(sig, B0, B1):
+        """``-k_z d_r X_1(s_m r)`` at r = a, one functional for both
+        flavours; ``d_r X_1 = sigma s_m X_0 - X_1/r``."""
+        return -kz * (sig * s_m * B0 - B1 / a)
+
+    assert row[3].real == pytest.approx(
+        c_entry(+1.0, float(sp.iv(0, s_m * a)), float(sp.iv(1, s_m * a)))
+    )
+    assert row[4].real == pytest.approx(
+        c_entry(-1.0, float(sp.kv(0, s_m * a)), float(sp.kv(1, s_m * a)))
+    )
+    # The derivative term really is present, so the C ratio is NOT
+    # the bare I_1/K_1 that the single-Bessel D column gives.
+    bare_ratio = +float(sp.iv(1, s_m * a)) / float(sp.kv(1, s_m * a))
+    assert row[3].real / row[4].real != pytest.approx(bare_ratio, rel=1.0e-3)
+    # D ratio: I_1(s_m a) / K_1(s_m a) (single Bessel term).
+    assert row[7].real / row[8].real == pytest.approx(bare_ratio)
 
 
 # =====================================================================
@@ -5265,7 +5392,16 @@ def test_layered_n1_row2_at_a_layer_equals_formation_per_element():
         + 2.0 * p * float(sp.kv(0, p * a)) / a
         + 4.0 * float(sp.kv(1, p * a)) / (a * a)
     )
-    M23 = -2.0 * kz * mu * (s * float(sp.kv(0, s * a)) + float(sp.kv(1, s * a)) / a)
+    M23 = (
+        -2.0
+        * kz
+        * mu
+        * (
+            s * s * float(sp.kv(1, s * a))
+            + s * float(sp.kv(0, s * a)) / a
+            + 2.0 * float(sp.kv(1, s * a)) / (a * a)
+        )
+    )
     M24 = (
         +2.0
         * mu
@@ -5366,16 +5502,24 @@ def test_layered_n1_row2_at_a_matches_closed_form_per_column():
         + 4.0 * float(sp.kv(1, p_m * a)) / (a * a)
     )
     expected_CI = (
-        +2.0
+        -2.0
         * kz
         * mu_m
-        * (s_m * float(sp.iv(0, s_m * a)) - float(sp.iv(1, s_m * a)) / a)
+        * (
+            s_m * s_m * float(sp.iv(1, s_m * a))
+            - s_m * float(sp.iv(0, s_m * a)) / a
+            + 2.0 * float(sp.iv(1, s_m * a)) / (a * a)
+        )
     )
     expected_CK = (
         -2.0
         * kz
         * mu_m
-        * (s_m * float(sp.kv(0, s_m * a)) + float(sp.kv(1, s_m * a)) / a)
+        * (
+            s_m * s_m * float(sp.kv(1, s_m * a))
+            + s_m * float(sp.kv(0, s_m * a)) / a
+            + 2.0 * float(sp.kv(1, s_m * a)) / (a * a)
+        )
     )
     expected_DI = (
         +2.0
@@ -5443,7 +5587,11 @@ def test_layered_n1_row4_at_a_layer_equals_formation_per_element():
 
     M41 = 0.0
     M42 = +2.0 * kz * mu * (p * float(sp.kv(0, p * a)) + float(sp.kv(1, p * a)) / a)
-    M43 = +mu * two_kz2_minus_kS2 * float(sp.kv(1, s * a))
+    M43 = (
+        +mu
+        * two_kz2_minus_kS2
+        * (s * float(sp.kv(0, s * a)) + float(sp.kv(1, s * a)) / a)
+    )
     M44 = -kz * mu * float(sp.kv(1, s * a)) / a
 
     assert row[0].real == pytest.approx(M41)
@@ -5541,8 +5689,16 @@ def test_layered_n1_row4_at_a_matches_closed_form_per_column():
         * mu_m
         * (p_m * float(sp.kv(0, p_m * a)) + float(sp.kv(1, p_m * a)) / a)
     )
-    expected_CI = +mu_m * two_kz2_minus_kSm2 * float(sp.iv(1, s_m * a))
-    expected_CK = +mu_m * two_kz2_minus_kSm2 * float(sp.kv(1, s_m * a))
+    expected_CI = (
+        +mu_m
+        * two_kz2_minus_kSm2
+        * (float(sp.iv(1, s_m * a)) / a - s_m * float(sp.iv(0, s_m * a)))
+    )
+    expected_CK = (
+        +mu_m
+        * two_kz2_minus_kSm2
+        * (s_m * float(sp.kv(0, s_m * a)) + float(sp.kv(1, s_m * a)) / a)
+    )
     expected_DI = -kz * mu_m * float(sp.iv(1, s_m * a)) / a
     expected_DK = -kz * mu_m * float(sp.kv(1, s_m * a)) / a
 
@@ -5555,9 +5711,14 @@ def test_layered_n1_row4_at_a_matches_closed_form_per_column():
 
 
 def test_layered_n1_row4_at_a_C_and_D_column_i_k_sign_flips():
-    """The C and D entries are single-Bessel-term direct ``X_1`` /
-    ``X_1/a`` forms, so the I-K ratio collapses to a clean
-    ``+I_1(s_m a) / K_1(s_m a)`` -- KEEP-sign per F.1.a.2."""
+    """The D entry is a single-Bessel-term direct ``X_1`` form, so
+    its I-K ratio collapses to a clean ``+I_1(s_m a) / K_1(s_m a)``
+    -- KEEP-sign per F.1.a.2.
+
+    The C entry does not: after the roadmap-A.8 correction it
+    carries ``d_r X_1(s_m r)``, whose ``X_0`` term flips sign
+    between the flavours. Both are the same functional of
+    ``(sigma, X_0, X_1)`` with sigma = +1 for I and -1 for K."""
     p, omega, kz = _row1_test_setup()
     F_f, p_m, s_m, _, _ = _layered_n0_radial_wavenumbers(
         kz,
@@ -5581,8 +5742,24 @@ def test_layered_n1_row4_at_a_C_and_D_column_i_k_sign_flips():
         layer=p["layer"],
     )
 
+    a = p["a"]
+    two_kz2_minus_kSm2 = 2.0 * kz * kz - (omega / p["layer"].vs) ** 2
+    mu_m = p["layer"].rho * p["layer"].vs ** 2
+
+    def c_entry(sig, B0, B1):
+        """``-mu_m (2 k_z^2 - k_Sm^2) d_r X_1(s_m r)`` at r = a."""
+        return -mu_m * two_kz2_minus_kSm2 * (sig * s_m * B0 - B1 / a)
+
+    assert row[3].real == pytest.approx(
+        c_entry(+1.0, float(sp.iv(0, s_m * a)), float(sp.iv(1, s_m * a)))
+    )
+    assert row[4].real == pytest.approx(
+        c_entry(-1.0, float(sp.kv(0, s_m * a)), float(sp.kv(1, s_m * a)))
+    )
     expected_ratio = +float(sp.iv(1, s_m * p["a"])) / float(sp.kv(1, s_m * p["a"]))
-    assert row[3].real / row[4].real == pytest.approx(expected_ratio)
+    # C carries a derivative term after the A.8 correction, so its
+    # I-K ratio is no longer the bare single-Bessel one; D still is.
+    assert row[3].real / row[4].real != pytest.approx(expected_ratio, rel=1.0e-3)
     assert row[7].real / row[8].real == pytest.approx(expected_ratio)
 
 
@@ -5693,10 +5870,12 @@ def test_layered_n1_row5_at_b_matches_closed_form_per_column():
 
     expected_BI = +p_m * float(sp.iv(0, p_m * b)) - float(sp.iv(1, p_m * b)) / b
     expected_BK = -p_m * float(sp.kv(0, p_m * b)) - float(sp.kv(1, p_m * b)) / b
-    expected_CI = -kz * float(sp.iv(1, s_m * b))
-    expected_CK = -kz * float(sp.kv(1, s_m * b))
+    expected_CI = +kz * (s_m * float(sp.iv(0, s_m * b)) - float(sp.iv(1, s_m * b)) / b)
+    expected_CK = -kz * (s_m * float(sp.kv(0, s_m * b)) + float(sp.kv(1, s_m * b)) / b)
     expected_B = +p_form * float(sp.kv(0, p_form * b)) + float(sp.kv(1, p_form * b)) / b
-    expected_C = +kz * float(sp.kv(1, s_form * b))
+    expected_C = +kz * (
+        s_form * float(sp.kv(0, s_form * b)) + float(sp.kv(1, s_form * b)) / b
+    )
     expected_DI = +float(sp.iv(1, s_m * b)) / b
     expected_DK = +float(sp.kv(1, s_m * b)) / b
     expected_D = -float(sp.kv(1, s_form * b)) / b
@@ -5860,10 +6039,10 @@ def test_layered_n1_row7_at_b_matches_closed_form_per_column():
 
     expected_BI = -kz * float(sp.iv(1, p_m * b))
     expected_BK = -kz * float(sp.kv(1, p_m * b))
-    expected_CI = +s_m * float(sp.iv(0, s_m * b))
-    expected_CK = -s_m * float(sp.kv(0, s_m * b))
+    expected_CI = -s_m * s_m * float(sp.iv(1, s_m * b))
+    expected_CK = -s_m * s_m * float(sp.kv(1, s_m * b))
     expected_B = +kz * float(sp.kv(1, p_form * b))
-    expected_C = +s_form * float(sp.kv(0, s_form * b))
+    expected_C = +s_form * s_form * float(sp.kv(1, s_form * b))
 
     assert row[1].real == pytest.approx(expected_BI)
     assert row[2].real == pytest.approx(expected_BK)
@@ -5874,15 +6053,16 @@ def test_layered_n1_row7_at_b_matches_closed_form_per_column():
 
 
 def test_layered_n1_row7_at_b_C_column_I_K_ratio_has_sign_flip():
-    """C-column I-K ratio in row 7 is NEGATIVE: row[3]/row[4] =
-    -I_0(s_m b)/K_0(s_m b). This is the F.1.a.2 sign-flip rule
-    applied to the derivative-induced ``(1/r) d_r [r X_1] =
-    +/- s X_0`` term: the I-flavour produces +s_m I_0; the
-    K-flavour produces -s_m K_0. Ratio is sign-flipped (vs the
-    +I_n/K_n ratios in row 5's D and row 1's C/D entries).
+    """Both the B and C columns of row 7 (axial-displacement
+    continuity at r = b) are single-Bessel-term direct ``X_1``
+    forms, so both I-K ratios are ``+I_1/K_1`` -- KEEP-sign per
+    F.1.a.2, no derivative-induced ``X_0`` term in either.
 
-    Compared to the B-column ratio, which IS +I_1/K_1 (single-
-    Bessel-term direct ``X_1`` form, KEEP-sign per F.1.a.2)."""
+    For C this is a consequence of the roadmap-A.8 correction: the
+    Hansen SV field has ``u_z = -s^2 chi``, proportional to the
+    scalar itself rather than to its radial derivative. The old
+    azimuthal-only ansatz put ``+/- s X_0`` here instead, which is
+    why this ratio used to be sign-flipped."""
     p, omega, kz = _row1_test_setup()
     F_f, p_m, s_m, _, _ = _layered_n0_radial_wavenumbers(
         kz,
@@ -5910,8 +6090,8 @@ def test_layered_n1_row7_at_b_C_column_I_K_ratio_has_sign_flip():
     # B ratio: +I_1/K_1 (KEEP sign).
     expected_B_ratio = +float(sp.iv(1, p_m * b)) / float(sp.kv(1, p_m * b))
     assert row[1].real / row[2].real == pytest.approx(expected_B_ratio)
-    # C ratio: -I_0/K_0 (FLIP sign on derivative-induced term).
-    expected_C_ratio = -float(sp.iv(0, s_m * b)) / float(sp.kv(0, s_m * b))
+    # C ratio: +I_1/K_1 (KEEP sign; u_z carries no d_r term).
+    expected_C_ratio = +float(sp.iv(1, s_m * b)) / float(sp.kv(1, s_m * b))
     assert row[3].real / row[4].real == pytest.approx(expected_C_ratio)
 
 
@@ -6038,16 +6218,24 @@ def test_layered_n1_row8_at_b_matches_closed_form_per_column():
         + 4.0 * float(sp.kv(1, p_m * b)) / (b * b)
     )
     expected_CI = (
-        -2.0
+        +2.0
         * kz
         * mu_m
-        * (s_m * float(sp.iv(0, s_m * b)) - float(sp.iv(1, s_m * b)) / b)
+        * (
+            s_m * s_m * float(sp.iv(1, s_m * b))
+            - s_m * float(sp.iv(0, s_m * b)) / b
+            + 2.0 * float(sp.iv(1, s_m * b)) / (b * b)
+        )
     )
     expected_CK = (
         +2.0
         * kz
         * mu_m
-        * (s_m * float(sp.kv(0, s_m * b)) + float(sp.kv(1, s_m * b)) / b)
+        * (
+            s_m * s_m * float(sp.kv(1, s_m * b))
+            + s_m * float(sp.kv(0, s_m * b)) / b
+            + 2.0 * float(sp.kv(1, s_m * b)) / (b * b)
+        )
     )
     expected_B = -mu * (
         two_kz2_minus_kS2 * float(sp.kv(1, p_form * b))
@@ -6058,7 +6246,11 @@ def test_layered_n1_row8_at_b_matches_closed_form_per_column():
         -2.0
         * kz
         * mu
-        * (s_form * float(sp.kv(0, s_form * b)) + float(sp.kv(1, s_form * b)) / b)
+        * (
+            s_form * s_form * float(sp.kv(1, s_form * b))
+            + s_form * float(sp.kv(0, s_form * b)) / b
+            + 2.0 * float(sp.kv(1, s_form * b)) / (b * b)
+        )
     )
     expected_DI = (
         +2.0
@@ -6136,7 +6328,14 @@ def test_layered_n1_row8_at_b_annulus_K_matches_negated_row2_M22_M23_M24_at_b():
         + 4.0 * float(sp.kv(1, p * b)) / (b * b)
     )
     M23_at_b = (
-        -2.0 * kz * mu * (s * float(sp.kv(0, s * b)) + float(sp.kv(1, s * b)) / b)
+        -2.0
+        * kz
+        * mu
+        * (
+            s * s * float(sp.kv(1, s * b))
+            + s * float(sp.kv(0, s * b)) / b
+            + 2.0 * float(sp.kv(1, s * b)) / (b * b)
+        )
     )
     M24_at_b = (
         +2.0
@@ -6268,15 +6467,27 @@ def test_layered_n1_row10_at_b_matches_closed_form_per_column():
         * mu_m
         * (p_m * float(sp.kv(0, p_m * b)) + float(sp.kv(1, p_m * b)) / b)
     )
-    expected_CI = +mu_m * two_kz2_minus_kSm2 * float(sp.iv(1, s_m * b))
-    expected_CK = +mu_m * two_kz2_minus_kSm2 * float(sp.kv(1, s_m * b))
+    expected_CI = (
+        +mu_m
+        * two_kz2_minus_kSm2
+        * (float(sp.iv(1, s_m * b)) / b - s_m * float(sp.iv(0, s_m * b)))
+    )
+    expected_CK = (
+        +mu_m
+        * two_kz2_minus_kSm2
+        * (s_m * float(sp.kv(0, s_m * b)) + float(sp.kv(1, s_m * b)) / b)
+    )
     expected_B = (
         -2.0
         * kz
         * mu
         * (p_form * float(sp.kv(0, p_form * b)) + float(sp.kv(1, p_form * b)) / b)
     )
-    expected_C = -mu * two_kz2_minus_kS2 * float(sp.kv(1, s_form * b))
+    expected_C = (
+        -mu
+        * two_kz2_minus_kS2
+        * (s_form * float(sp.kv(0, s_form * b)) + float(sp.kv(1, s_form * b)) / b)
+    )
     expected_DI = -kz * mu_m * float(sp.iv(1, s_m * b)) / b
     expected_DK = -kz * mu_m * float(sp.kv(1, s_m * b)) / b
     expected_D = +kz * mu * float(sp.kv(1, s_form * b)) / b
@@ -6327,7 +6538,11 @@ def test_layered_n1_row10_at_b_annulus_K_matches_row4_M42_M43_M44_at_b():
     M42_at_b = (
         +2.0 * kz * mu * (p * float(sp.kv(0, p * b)) + float(sp.kv(1, p * b)) / b)
     )
-    M43_at_b = +mu * two_kz2_minus_kS2 * float(sp.kv(1, s * b))
+    M43_at_b = (
+        +mu
+        * two_kz2_minus_kS2
+        * (s * float(sp.kv(0, s * b)) + float(sp.kv(1, s * b)) / b)
+    )
     M44_at_b = -kz * mu * float(sp.kv(1, s * b)) / b
 
     assert row10[2].real == pytest.approx(M42_at_b)
@@ -8016,7 +8231,7 @@ def test_modal_row1_at_a_n1_vti_isotropic_collapse_matches_M11_M12_M13_M14():
 
     M11 = (F * float(sp.iv(0, F * a)) - float(sp.iv(1, F * a)) / a) / (rho_f * omega**2)
     M12 = p * float(sp.kv(0, p * a)) + float(sp.kv(1, p * a)) / a
-    M13 = kz * float(sp.kv(1, s * a))
+    M13 = kz * (s * float(sp.kv(0, s * a)) + float(sp.kv(1, s * a)) / a)
     M14 = -float(sp.kv(1, s * a)) / a
 
     assert row[0].real == pytest.approx(M11, rel=1.0e-12)
@@ -8106,7 +8321,9 @@ def test_modal_row1_at_a_n1_vti_uses_christoffel_roots_not_naive():
     expected_BqP = (
         alpha_qP * float(sp.kv(0, alpha_qP * a)) + float(sp.kv(1, alpha_qP * a)) / a
     )
-    expected_CqSV = kz * float(sp.kv(1, alpha_qSV * a))
+    expected_CqSV = kz * (
+        alpha_qSV * float(sp.kv(0, alpha_qSV * a)) + float(sp.kv(1, alpha_qSV * a)) / a
+    )
     expected_DSH = -float(sp.kv(1, alpha_SH * a)) / a
 
     assert row[1].real == pytest.approx(expected_BqP, rel=1.0e-12)
@@ -8163,7 +8380,16 @@ def test_modal_row2_at_a_n1_vti_isotropic_collapse_matches_M21_M22_M23_M24():
         + 2.0 * p * float(sp.kv(0, p * a)) / a
         + 4.0 * float(sp.kv(1, p * a)) / (a * a)
     )
-    M23 = -2.0 * kz * mu * (s * float(sp.kv(0, s * a)) + float(sp.kv(1, s * a)) / a)
+    M23 = (
+        -2.0
+        * kz
+        * mu
+        * (
+            s * s * float(sp.kv(1, s * a))
+            + s * float(sp.kv(0, s * a)) / a
+            + 2.0 * float(sp.kv(1, s * a)) / (a * a)
+        )
+    )
     M24 = (
         +2.0
         * mu
@@ -8247,8 +8473,9 @@ def test_modal_row2_at_a_n1_vti_matches_closed_form_per_column():
         + 4.0 * cij["c66"] * float(sp.kv(1, alpha_qP * a)) / (a * a)
     )
     expected_CqSV = -kz * (
-        q_qSV / alpha_qSV * float(sp.kv(0, alpha_qSV * a))
-        + 2.0 * cij["c66"] * float(sp.kv(1, alpha_qSV * a)) / a
+        q_qSV * float(sp.kv(1, alpha_qSV * a))
+        + 2.0 * cij["c66"] * alpha_qSV * float(sp.kv(0, alpha_qSV * a)) / a
+        + 4.0 * cij["c66"] * float(sp.kv(1, alpha_qSV * a)) / (a * a)
     )
     expected_DSH = (
         +2.0
@@ -8434,7 +8661,12 @@ def test_modal_row3_at_a_n1_vti_isotropic_collapse_matches_M31_M32_M33_M34():
         * mu
         * (p * float(sp.kv(0, p * a)) / a + 2.0 * float(sp.kv(1, p * a)) / (a * a))
     )
-    M33 = kz * mu * float(sp.kv(1, s * a)) / a
+    M33 = (
+        2.0
+        * kz
+        * mu
+        * (s * float(sp.kv(0, s * a)) / a + 2.0 * float(sp.kv(1, s * a)) / (a * a))
+    )
     M34 = -mu * (
         s * s * float(sp.kv(1, s * a))
         + 2.0 * s * float(sp.kv(0, s * a)) / a
@@ -8533,7 +8765,15 @@ def test_modal_row3_at_a_n1_vti_matches_closed_form_per_column():
             + 2.0 * float(sp.kv(1, alpha_qP * a)) / (a * a)
         )
     )
-    expected_CqSV = +kz * cij["c66"] * float(sp.kv(1, alpha_qSV * a)) / a
+    expected_CqSV = (
+        +2.0
+        * kz
+        * cij["c66"]
+        * (
+            alpha_qSV * float(sp.kv(0, alpha_qSV * a)) / a
+            + 2.0 * float(sp.kv(1, alpha_qSV * a)) / (a * a)
+        )
+    )
     expected_DSH = -cij["c66"] * (
         alpha_SH**2 * float(sp.kv(1, alpha_SH * a))
         + 2.0 * alpha_SH * float(sp.kv(0, alpha_SH * a)) / a
@@ -8638,7 +8878,11 @@ def test_modal_row4_at_a_n1_vti_isotropic_collapse_matches_M41_M42_M43_M44():
 
     M41 = 0.0
     M42 = 2.0 * kz * mu * (p * float(sp.kv(0, p * a)) + float(sp.kv(1, p * a)) / a)
-    M43 = mu * two_kz2_minus_kS2 * float(sp.kv(1, s * a))
+    M43 = (
+        mu
+        * two_kz2_minus_kS2
+        * (s * float(sp.kv(0, s * a)) + float(sp.kv(1, s * a)) / a)
+    )
     M44 = -kz * mu * float(sp.kv(1, s * a)) / a
 
     assert row[0].real == pytest.approx(M41)
@@ -8736,7 +8980,13 @@ def test_modal_row4_at_a_n1_vti_matches_closed_form_per_column():
         * (alpha_qP * float(sp.kv(0, alpha_qP * a)) + float(sp.kv(1, alpha_qP * a)) / a)
     )
     expected_CqSV = (
-        +cij["c44"] * p_qSV / (cij["c13"] + cij["c44"]) * float(sp.kv(1, alpha_qSV * a))
+        +cij["c44"]
+        * p_qSV
+        / (cij["c13"] + cij["c44"])
+        * (
+            alpha_qSV * float(sp.kv(0, alpha_qSV * a))
+            + float(sp.kv(1, alpha_qSV * a)) / a
+        )
     )
     expected_DSH = -kz * cij["c44"] * float(sp.kv(1, alpha_SH * a)) / a
 
@@ -10863,17 +11113,21 @@ def test_layer_e_matrix_n1_at_b_rows_match_F2_row5_to_row10_layer_cols():
 
 
 def test_layer_e_matrix_n1_sparsity_pattern():
-    """Pin the known-zero entries of E(r) at n=1:
+    """Pin the known-zero entries of E(r) at n=1, and the ones that
+    are NOT zero after the roadmap-A.8 correction.
 
-    * Row 1 (``u_z``) cols 4, 5 (``D_I``, ``D_K``): SH potential
-      ``psi_z`` does not contribute to ``u_z``.
-    * Row 2 (``u_theta``) cols 2, 3 (``C_I``, ``C_K``): SV
-      potential ``psi_theta`` does not contribute to
-      ``u_theta``.
+    * Row 1 (``u_z``) cols 4, 5 (``D_I``, ``D_K``) ARE zero: the SH
+      potential ``psi_z`` does not contribute to ``u_z``.
+    * Row 2 (``u_theta``) cols 2, 3 (``C_I``, ``C_K``) are NOT
+      zero. The Hansen SV field ``curl curl(chi z)`` carries
+      ``u_theta = i k_z (n/r) chi``, which vanishes only at n = 0.
+      This test used to assert them zero, which held only for the
+      azimuthal-only vector potential ``psi_theta e_theta`` the SV
+      columns encoded before A.8 -- an ansatz that is not a
+      solution of the elastodynamic equations for n >= 1.
 
-    These zero entries are baked into E(r); confirms the F.2.a.6
-    erratum direction (the cos/sin sectors don't decouple wholly
-    at n=1, but specific (state-row, amplitude-col) pairs do)."""
+    Only one (state-row, amplitude-col) pair decouples at n=1, so
+    E(r) is denser than the F.2.a.6 erratum recorded."""
     p = _typical_g_prime_b1_layer_params()
     E = _layer_e_matrix_n1(
         kz=p["kz"],
@@ -10883,12 +11137,12 @@ def test_layer_e_matrix_n1_sparsity_pattern():
         rho=p["rho"],
         r=0.1,
     )
-    # u_z row, D cols.
+    # u_z row, D cols: genuinely zero.
     assert E[1, 4] == 0.0
     assert E[1, 5] == 0.0
-    # u_theta row, C cols.
-    assert E[2, 2] == 0.0
-    assert E[2, 3] == 0.0
+    # u_theta row, C cols: non-zero at n >= 1 (roadmap A.8).
+    assert E[2, 2] != 0.0
+    assert E[2, 3] != 0.0
 
 
 def test_layer_e_matrix_n1_real_in_bound_regime():
@@ -11346,13 +11600,52 @@ def test_modal_determinant_n1_cased_N2_runs_smoke():
 
 
 def _typical_g_prime_d_cased_geometry():
-    """Slow-formation cased-hole fixture for G'.d tests. Casing
-    + cement layers both faster in shear than the formation
-    (V_S = 800 m/s); the slow-formation per-layer constraint
-    (validated by ``_validate_flexural_layers_stacked``) holds."""
+    """Cased-hole fixture for G'.d tests. Casing + cement layers
+    both faster in shear than the formation; the per-layer
+    constraint (validated by ``_validate_flexural_layers_stacked``)
+    holds.
+
+    The formation is FAST (V_S = 2600 m/s). It used to be slow
+    (V_S = 800 m/s), which the roadmap-A.8 correction put out of
+    reach: with a steel casing the dipole mode sits just above a
+    slow formation's shear speed (measured 830-880 m/s across
+    3-9 kHz for the old parameters), so it is leaky in the
+    formation and the real-valued bound-regime determinant has no
+    root for it. Before A.8 the defective SV column produced a
+    spurious bound root there, rising with frequency -- backwards
+    for a flexural mode -- which is what these tests were pinning.
+    See ``test_cased_slow_formation_dipole_is_leaky_not_bound``.
+
+    The fast-formation stack routes through the complex leaky
+    marcher instead and gives a proper cased dipole curve,
+    2600 -> 1506 m/s over 2-6.5 kHz."""
     return dict(
         casing=BoreholeLayer(vp=5860.0, vs=3140.0, rho=7800.0, thickness=0.01),
         cement=BoreholeLayer(vp=2300.0, vs=1300.0, rho=1900.0, thickness=0.05),
+        vp=4500.0,
+        vs=2600.0,
+        rho=2400.0,
+        vf=1500.0,
+        rho_f=1000.0,
+        a=0.1,
+    )
+
+
+def _bound_invaded_geometry():
+    """Slow-formation fixture with an annulus soft enough that the
+    n >= 1 modes stay inside the bound regime.
+
+    This is the invaded-zone regime -- the one Schmitt & Cheng
+    figure 15 validates fwap against -- rather than the cased-hole
+    regime. After the roadmap-A.8 correction the real-valued
+    layered determinant only sees modes slower than every shear
+    speed in the stack, which a stiff annulus pushes past; a
+    lightly-altered annulus keeps them bound. Flexural coverage is
+    45/45 and screw 36/45 over 1-12 kHz for one, two and three
+    layers."""
+    return dict(
+        inner=BoreholeLayer(vp=1980.0, vs=900.0, rho=2300.0, thickness=0.01),
+        outer=BoreholeLayer(vp=1804.0, vs=820.0, rho=2000.0, thickness=0.04),
         vp=2200.0,
         vs=800.0,
         rho=2200.0,
@@ -11387,9 +11680,10 @@ def test_flexural_dispersion_layered_N1_path_unchanged_after_G_prime_d():
 def test_flexural_dispersion_layered_N2_runs_smoke():
     """G'.d two-layer regression: typical casing + cement
     geometry produces a finite, smoothly-dispersive flexural
-    slowness curve across the dipole-sonic band (3-12 kHz)."""
+    slowness curve across the band where the cased dipole mode is
+    resolvable (2-6.5 kHz; above that it has passed V_f)."""
     g = _typical_g_prime_d_cased_geometry()
-    f = np.linspace(3000.0, 12000.0, 8)
+    f = np.linspace(2000.0, 6500.0, 8)
     res = flexural_dispersion_layered(
         f,
         vp=g["vp"],
@@ -11405,11 +11699,8 @@ def test_flexural_dispersion_layered_N2_runs_smoke():
     assert res.name == "flexural"
     assert res.azimuthal_order == 1
     np.testing.assert_array_equal(res.freq, f)
-    # Smoothness fence on contiguous finite values. Slow-formation
-    # flexural slowness diverges sharply near the geometric cutoff
-    # (~ 1.3 kHz here), so step-to-step changes are large at the LF
-    # end of the band and shrink toward the HF asymptote. The fence
-    # is a coarse sanity check, not a tight oracle.
+    # Smoothness fence on contiguous finite values: a coarse sanity
+    # check, not a tight oracle.
     s_finite = res.slowness[finite]
     rel_steps = np.abs(np.diff(s_finite)) / s_finite[:-1]
     assert np.all(rel_steps < 0.50)
@@ -11511,11 +11802,10 @@ def test_flexural_dispersion_layered_N2_collapse_to_N1_via_thin_outer_layer():
 
 def test_flexural_dispersion_layered_three_layer_runs_smoke():
     """Smoke test for N=3 (casing + cement + mudcake): the
-    propagator chain extends past N=2 cleanly. All three layers
-    must be at least as fast in shear as the formation."""
+    propagator chain extends past N=2 cleanly."""
     g = _typical_g_prime_d_cased_geometry()
     mudcake = BoreholeLayer(vp=2000.0, vs=1100.0, rho=1700.0, thickness=0.003)
-    f = np.linspace(4000.0, 10000.0, 4)
+    f = np.linspace(4000.0, 6500.0, 4)
     res = flexural_dispersion_layered(
         f,
         vp=g["vp"],
@@ -11534,8 +11824,12 @@ def test_flexural_dispersion_layered_N2_rejects_softer_layer():
     """The G'.d brentq path enforces ``layer.vs >= vs`` per layer
     via ``_validate_flexural_layers_stacked``. A softer layer
     triggers ``ValueError`` rather than NaN slownesses or a
-    silent unbound-mode failure."""
-    g = _typical_g_prime_d_cased_geometry()
+    silent unbound-mode failure.
+
+    The constraint is a slow-formation one, so this uses the
+    bound-regime (invaded-zone) fixture rather than the cased
+    fixture, whose formation is fast."""
+    g = _bound_invaded_geometry()
     soft_cement = BoreholeLayer(
         vp=1500.0,
         vs=600.0,
@@ -11551,7 +11845,7 @@ def test_flexural_dispersion_layered_N2_rejects_softer_layer():
             vf=g["vf"],
             rho_f=g["rho_f"],
             a=g["a"],
-            layers=(g["casing"], soft_cement),
+            layers=(g["inner"], soft_cement),
         )
 
 
@@ -11567,8 +11861,12 @@ def test_modal_determinant_n1_cased_vanishes_at_converged_root_multi_freq():
     ``flexural_dispersion_layered`` (cased-hole, two-layer): the
     propagator-matrix determinant is at least 6 orders of
     magnitude smaller than its value at ``kz * 1.005``. Multi-
-    frequency sharper than G'.d's single-frequency oracles."""
-    g = _typical_g_prime_d_cased_geometry()
+    frequency sharper than G'.d's single-frequency oracles.
+
+    Uses the bound-regime (invaded-zone) fixture: this is the
+    real-valued determinant, so it only has roots where the mode
+    is slower than every shear speed in the stack."""
+    g = _bound_invaded_geometry()
     f = np.linspace(4000.0, 12000.0, 6)
     res = flexural_dispersion_layered(
         f,
@@ -11578,7 +11876,7 @@ def test_modal_determinant_n1_cased_vanishes_at_converged_root_multi_freq():
         vf=g["vf"],
         rho_f=g["rho_f"],
         a=g["a"],
-        layers=(g["casing"], g["cement"]),
+        layers=(g["inner"], g["outer"]),
     )
     finite = np.isfinite(res.slowness)
     assert finite.any()
@@ -11596,7 +11894,7 @@ def test_modal_determinant_n1_cased_vanishes_at_converged_root_multi_freq():
             vf=g["vf"],
             rho_f=g["rho_f"],
             a=g["a"],
-            layers=(g["casing"], g["cement"]),
+            layers=(g["inner"], g["outer"]),
         )
         det_off = _modal_determinant_n1_cased(
             kz_root * 1.005,
@@ -11607,7 +11905,7 @@ def test_modal_determinant_n1_cased_vanishes_at_converged_root_multi_freq():
             vf=g["vf"],
             rho_f=g["rho_f"],
             a=g["a"],
-            layers=(g["casing"], g["cement"]),
+            layers=(g["inner"], g["outer"]),
         )
         assert abs(det_at) < abs(det_off) * 1.0e-6, (
             f"f={fi:.1f}: |det_at|={abs(det_at):.3e} not << "
@@ -11621,11 +11919,15 @@ def test_flexural_dispersion_layered_thin_inner_layer_collapses_to_outer_only():
     layer slowness should match the F.2 single-layer answer with
     just the outer layer.
 
-    Uses a harder outer layer (vs > V_f) so the F.2 single-layer
-    flexural root is clearly bound."""
+    Uses an outer layer just stiffer than the formation, which
+    keeps the mode inside the bound regime the real-valued layered
+    determinant can see. (It used to use ``vs = 2700 m/s``; after
+    the roadmap-A.8 correction an annulus that stiff pushes the
+    dipole mode past the formation shear speed, where it is leaky
+    -- see ``_bound_invaded_geometry``.)"""
     vp_form, vs_form, rho_form = 2200.0, 800.0, 2200.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
-    outer = BoreholeLayer(vp=2900.0, vs=2700.0, rho=2400.0, thickness=0.05)
+    outer = BoreholeLayer(vp=1804.0, vs=820.0, rho=2400.0, thickness=0.05)
     inner_trivial = BoreholeLayer(
         vp=outer.vp,
         vs=outer.vs,
@@ -11718,12 +12020,12 @@ def test_flexural_dispersion_layered_cement_stiffness_sensitivity():
     that the cased-hole propagator captures and the unlayered
     ``flexural_dispersion`` does not.
 
-    Empirical direction (from the typical cased-hole fixture at
-    5 kHz): stiffer cement -> SMALLER slowness (faster wave).
-    Same direction as the Stoneley cement-bond signature
-    (commit 9df7a78). Pinned here as a regression target; the
-    quantitative tolerance is loose because the direction depends
-    on which mode the brentq-expansion-loop converges to."""
+    Direction (from the typical cased-hole fixture at 5 kHz):
+    stiffer cement -> SMALLER slowness (faster wave). Same
+    direction as the Stoneley cement-bond signature (commit
+    9df7a78), and monotone across V_S = 1100 .. 2600 m/s of
+    cement. Pinned here as a regression target with a loose
+    quantitative tolerance."""
     g = _typical_g_prime_d_cased_geometry()
     f = np.array([5000.0])
     casing = g["casing"]
@@ -12022,12 +12324,15 @@ def test_layer_e_matrix_n2_determinant_nonzero_in_bound_regime():
 
 
 def test_layer_e_matrix_n2_sparsity_pattern():
-    """Pin the known-zero entries of E_n2(r):
+    """Pin the known-zero entries of E_n2(r), and the ones that are
+    NOT zero after the roadmap-A.8 correction.
 
-    * Row 1 (``u_z``) cols 4, 5 (``D_I``, ``D_K``): SH potential
-      ``psi_z`` doesn't contribute to ``u_z``.
-    * Row 2 (``u_theta``) cols 2, 3 (``C_I``, ``C_K``): SV
-      potential ``psi_theta`` doesn't contribute to ``u_theta``."""
+    * Row 1 (``u_z``) cols 4, 5 (``D_I``, ``D_K``) ARE zero: the SH
+      potential ``psi_z`` doesn't contribute to ``u_z``.
+    * Row 2 (``u_theta``) cols 2, 3 (``C_I``, ``C_K``) are NOT
+      zero: the Hansen SV field carries ``u_theta = i k_z (n/r)
+      chi``, non-zero for every n >= 1. See the n=1 twin of this
+      test for the full note."""
     p = _typical_g_pp_b1_layer_params()
     E = _layer_e_matrix_n2(
         kz=p["kz"],
@@ -12037,12 +12342,12 @@ def test_layer_e_matrix_n2_sparsity_pattern():
         rho=p["rho"],
         r=0.1,
     )
-    # u_z row, D cols.
+    # u_z row, D cols: genuinely zero.
     assert E[1, 4] == 0.0
     assert E[1, 5] == 0.0
-    # u_theta row, C cols.
-    assert E[2, 2] == 0.0
-    assert E[2, 3] == 0.0
+    # u_theta row, C cols: non-zero at n >= 1 (roadmap A.8).
+    assert E[2, 2] != 0.0
+    assert E[2, 3] != 0.0
 
 
 def test_layer_e_matrix_n2_K_flavour_matches_modal_determinant_n2_docstring():
@@ -12089,22 +12394,22 @@ def test_layer_e_matrix_n2_K_flavour_matches_modal_determinant_n2_docstring():
 
     # Row 1 (BC1) layer cols are -E[u_r row, K-flavour cols]:
     # B_K: +p K_1 + 2 K_2/a    (docstring)
-    # C_K: +kz K_2             (docstring)
+    # C_K: +kz [s K_1 + 2 K_2/a]   (docstring, post-A.8)
     # D_K: -2 K_2/a            (docstring)
     assert -E[0, 1] == pytest.approx(+p_ * K1pa + 2.0 * K2pa / a, rel=1e-12)
-    assert -E[0, 3] == pytest.approx(+kz * K2sa, rel=1e-12)
+    assert -E[0, 3] == pytest.approx(+kz * (s_ * K1sa + 2.0 * K2sa / a), rel=1e-12)
     assert -E[0, 5] == pytest.approx(-2.0 * K2sa / a, rel=1e-12)
 
     # Row 2 (BC2) layer cols negated:
     # B_K: -mu * [(2 kz^2 - kS^2) K_2 + 2 p K_1/a + 12 K_2/a^2]
-    # C_K: -2 mu kz * [s K_1 + 2 K_2/a]
+    # C_K: -2 mu kz * [s^2 K_2 + s K_1/a + 6 K_2/a^2]
     # D_K: +4 mu * [s K_1/a + 3 K_2/a^2]
     assert -E[3, 1] == pytest.approx(
         -mu * (two_kz2_minus_kS2 * K2pa + 2.0 * p_ * K1pa / a + 12.0 * K2pa / (a * a)),
         rel=1e-12,
     )
     assert -E[3, 3] == pytest.approx(
-        -2.0 * mu * kz * (s_ * K1sa + 2.0 * K2sa / a),
+        -2.0 * mu * kz * (s_ * s_ * K2sa + s_ * K1sa / a + 6.0 * K2sa / (a * a)),
         rel=1e-12,
     )
     assert -E[3, 5] == pytest.approx(
@@ -12114,13 +12419,16 @@ def test_layer_e_matrix_n2_K_flavour_matches_modal_determinant_n2_docstring():
 
     # Row 3 (BC3) layer cols positive (no negation):
     # B_K: +4 mu * [p K_1/a + 3 K_2/a^2]
-    # C_K: +2 mu kz K_2/a
+    # C_K: +4 mu kz * [s K_1/a + 3 K_2/a^2]
     # D_K: -mu * [(s^2 + 12/a^2) K_2 + 2 s K_1/a]
     assert E[5, 1] == pytest.approx(
         +4.0 * mu * (p_ * K1pa / a + 3.0 * K2pa / (a * a)),
         rel=1e-12,
     )
-    assert E[5, 3] == pytest.approx(+2.0 * mu * kz * K2sa / a, rel=1e-12)
+    assert E[5, 3] == pytest.approx(
+        +4.0 * mu * kz * (s_ * K1sa / a + 3.0 * K2sa / (a * a)),
+        rel=1e-12,
+    )
     assert E[5, 5] == pytest.approx(
         -mu * ((s_ * s_ + 12.0 / (a * a)) * K2sa + 2.0 * s_ * K1sa / a),
         rel=1e-12,
@@ -12128,14 +12436,14 @@ def test_layer_e_matrix_n2_K_flavour_matches_modal_determinant_n2_docstring():
 
     # Row 4 (BC4) layer cols positive:
     # B_K: +2 mu kz * [p K_1 + 2 K_2/a]
-    # C_K: +mu * [(2 kz^2 - kS^2) + 3/a^2] K_2
+    # C_K: +mu (2 kz^2 - kS^2) * [s K_1 + 2 K_2/a]
     # D_K: -2 mu kz K_2/a
     assert E[4, 1] == pytest.approx(
         +2.0 * mu * kz * (p_ * K1pa + 2.0 * K2pa / a),
         rel=1e-12,
     )
     assert E[4, 3] == pytest.approx(
-        +mu * (two_kz2_minus_kS2 + 3.0 / (a * a)) * K2sa,
+        +mu * two_kz2_minus_kS2 * (s_ * K1sa + 2.0 * K2sa / a),
         rel=1e-12,
     )
     assert E[4, 5] == pytest.approx(-2.0 * mu * kz * K2sa / a, rel=1e-12)
@@ -12143,9 +12451,13 @@ def test_layer_e_matrix_n2_K_flavour_matches_modal_determinant_n2_docstring():
 
 def test_layer_e_matrix_n2_n2_factors_appear():
     """Pin the explicit n=2 factors: ``12 = 2 n (n+1)`` in the
-    F_2 / r^2 term of sigma_rr; ``3 = n^2 - 1`` in the SV column
-    of sigma_rz. Catches a transcription error where an n=1
-    formula was reused at n=2."""
+    F_2 / r^2 term of the P column of sigma_rr, and ``6 = n (n+1)``
+    in the same term of its SV column. Catches a transcription
+    error where an n=1 formula was reused at n=2.
+
+    The SV anchor moved with the roadmap-A.8 correction: the old
+    SV column of sigma_rz carried a spurious ``3 = n^2 - 1`` term
+    that the Hansen form does not produce."""
     from scipy import special as _special
 
     p = _typical_g_pp_b1_layer_params()
@@ -12170,12 +12482,16 @@ def test_layer_e_matrix_n2_n2_factors_appear():
     )
     assert E[3, 1] == pytest.approx(expected, rel=1e-12)
 
-    # sigma_rz row (4) C_K col (3): expect (2 kz^2 - kS^2 + 3/a^2) K_2
-    # (with leading +mu).
+    # sigma_rr row (3) C_K col (3): expect +2 mu kz * [s^2 K_2
+    # + s K_1/a + 6 K_2/a^2] (E carries the un-negated sigma_rr,
+    # BC2 negates it); the 6 is n (n+1) at n = 2.
     s_ = float(np.sqrt(p["kz"] * p["kz"] - (p["omega"] / p["vs"]) ** 2))
+    K1sa = float(_special.kv(1, s_ * a))
     K2sa = float(_special.kv(2, s_ * a))
-    expected_rz = mu * (2.0 * p["kz"] ** 2 - kS2 + 3.0 / (a * a)) * K2sa
-    assert E[4, 3] == pytest.approx(expected_rz, rel=1e-12)
+    expected_sv = (
+        2.0 * mu * p["kz"] * (s_ * s_ * K2sa + s_ * K1sa / a + 6.0 * K2sa / (a * a))
+    )
+    assert E[3, 3] == pytest.approx(expected_sv, rel=1e-12)
 
 
 # =====================================================================
@@ -12647,16 +12963,23 @@ def test_quadrupole_dispersion_layered_N1_layer_eq_formation_matches_unlayered()
 
 
 def test_quadrupole_dispersion_layered_N2_runs_smoke():
-    """G''.d two-layer regression: casing + cement geometry
-    produces finite quadrupole slownesses in the bound-mode window
-    (15-18 kHz at this fixture). Uses the slow-formation-ceiling
-    fixture (formation Vs = 1200 < vf = 1500) so casing + cement
-    can satisfy the per-layer constraint while keeping the
-    quadrupole geometric cutoff inside an exercisable band."""
+    """G''.d two-layer regression: a two-layer invaded-zone stack
+    produces finite quadrupole slownesses across 6-12 kHz.
+
+    Retargeted for roadmap A.8: this used to run on the cased
+    fixture (steel casing + cement). With the SV column corrected
+    the n >= 1 modes of a stiff annulus sit above the formation
+    shear speed and are leaky, so the real-valued layered
+    determinant -- the only n=2 layered path fwap has -- has no
+    root there. See
+    ``test_cased_slow_formation_dipole_is_leaky_not_bound``. The
+    invaded-zone stack keeps them bound and exercises the same
+    behaviour.
+    """
     from fwap.cylindrical_solver import quadrupole_dispersion_layered
 
-    g = _typical_g_pp_d_cased_geometry()
-    f = np.linspace(15000.0, 18000.0, 4)
+    g = _bound_invaded_geometry()
+    f = np.linspace(6000.0, 12000.0, 4)
     res = quadrupole_dispersion_layered(
         f,
         vp=g["vp"],
@@ -12665,7 +12988,7 @@ def test_quadrupole_dispersion_layered_N2_runs_smoke():
         vf=g["vf"],
         rho_f=g["rho_f"],
         a=g["a"],
-        layers=(g["casing"], g["cement"]),
+        layers=(g["inner"], g["outer"]),
     )
     assert res.name == "quadrupole"
     assert res.azimuthal_order == 2
@@ -12714,8 +13037,8 @@ def test_quadrupole_dispersion_layered_N2_layer_permutation_changes_slowness():
     ordering is a physical parameter, not a labelling convention."""
     from fwap.cylindrical_solver import quadrupole_dispersion_layered
 
-    g = _typical_g_pp_d_cased_geometry()
-    f = np.array([16000.0, 17000.0, 18000.0])
+    g = _bound_invaded_geometry()
+    f = np.array([8000.0, 10000.0, 12000.0])
     res_cs = quadrupole_dispersion_layered(
         f,
         vp=g["vp"],
@@ -12724,7 +13047,7 @@ def test_quadrupole_dispersion_layered_N2_layer_permutation_changes_slowness():
         vf=g["vf"],
         rho_f=g["rho_f"],
         a=g["a"],
-        layers=(g["casing"], g["cement"]),
+        layers=(g["inner"], g["outer"]),
     )
     res_sc = quadrupole_dispersion_layered(
         f,
@@ -12734,7 +13057,7 @@ def test_quadrupole_dispersion_layered_N2_layer_permutation_changes_slowness():
         vf=g["vf"],
         rho_f=g["rho_f"],
         a=g["a"],
-        layers=(g["cement"], g["casing"]),
+        layers=(g["outer"], g["inner"]),
     )
     # Both should produce at least some finite slownesses for the
     # comparison to be meaningful.
@@ -12794,14 +13117,14 @@ def test_quadrupole_dispersion_layered_N3_runs_smoke():
     """G''.d N=3 smoke (casing + cement + mudcake): the brentq +
     propagator-chain path runs to completion at three layers and
     returns a finite slowness in the LWD-relevant band where the
-    cased quadrupole is bound. Mudcake placed *inside* the casing
-    requires the radial-outward layer order ``(mudcake, casing,
-    cement)``."""
+    cased quadrupole is bound. Mudcake placed *inside* the invaded zone
+    requires the radial-outward layer order ``(mudcake, inner,
+    outer)``."""
     from fwap.cylindrical_solver import quadrupole_dispersion_layered
 
-    g = _typical_g_pp_d_cased_geometry()
-    mudcake = BoreholeLayer(vp=2200.0, vs=1300.0, rho=1700.0, thickness=0.002)
-    f = np.array([16000.0, 17000.0, 18000.0])
+    g = _bound_invaded_geometry()
+    mudcake = BoreholeLayer(vp=1980.0, vs=900.0, rho=1700.0, thickness=0.002)
+    f = np.array([8000.0, 10000.0, 12000.0])
     res = quadrupole_dispersion_layered(
         f,
         vp=g["vp"],
@@ -12810,7 +13133,7 @@ def test_quadrupole_dispersion_layered_N3_runs_smoke():
         vf=g["vf"],
         rho_f=g["rho_f"],
         a=g["a"],
-        layers=(mudcake, g["casing"], g["cement"]),
+        layers=(mudcake, g["inner"], g["outer"]),
     )
     assert res.name == "quadrupole"
     assert res.azimuthal_order == 2
@@ -12846,15 +13169,9 @@ def test_quadrupole_dispersion_layered_det_vanishes_at_brentq_roots_multi_freq()
         quadrupole_dispersion_layered,
     )
 
-    g = _typical_g_pp_d_cased_geometry()
-    # Use the thin-cement variant where the bound regime is widest.
-    cement_thin = BoreholeLayer(
-        vp=g["cement"].vp,
-        vs=g["cement"].vs,
-        rho=g["cement"].rho,
-        thickness=0.02,
-    )
-    f = np.linspace(14000.0, 18000.0, 5)
+    g = _bound_invaded_geometry()
+    cement_thin = g["outer"]
+    f = np.linspace(6000.0, 14000.0, 5)
     res = quadrupole_dispersion_layered(
         f,
         vp=g["vp"],
@@ -12863,7 +13180,7 @@ def test_quadrupole_dispersion_layered_det_vanishes_at_brentq_roots_multi_freq()
         vf=g["vf"],
         rho_f=g["rho_f"],
         a=g["a"],
-        layers=(g["casing"], cement_thin),
+        layers=(g["inner"], cement_thin),
     )
     finite_idx = np.where(np.isfinite(res.slowness))[0]
     assert finite_idx.size >= 4, (
@@ -12882,7 +13199,7 @@ def test_quadrupole_dispersion_layered_det_vanishes_at_brentq_roots_multi_freq()
             vf=g["vf"],
             rho_f=g["rho_f"],
             a=g["a"],
-            layers=(g["casing"], cement_thin),
+            layers=(g["inner"], cement_thin),
         )
         det_off = _modal_determinant_n2_cased(
             kz_root * 1.005,
@@ -12893,7 +13210,7 @@ def test_quadrupole_dispersion_layered_det_vanishes_at_brentq_roots_multi_freq()
             vf=g["vf"],
             rho_f=g["rho_f"],
             a=g["a"],
-            layers=(g["casing"], cement_thin),
+            layers=(g["inner"], cement_thin),
         )
         assert abs(det_off) > 0.0
         assert abs(det_at) < abs(det_off) * 1.0e-6, (
@@ -12962,20 +13279,15 @@ def test_quadrupole_dispersion_layered_thin_inner_formation_layer_approaches_out
     only residual difference, which vanishes linearly in ``h``."""
     from fwap.cylindrical_solver import quadrupole_dispersion_layered
 
-    g = _typical_g_pp_d_cased_geometry()
-    cement_thin = BoreholeLayer(
-        vp=g["cement"].vp,
-        vs=g["cement"].vs,
-        rho=g["cement"].rho,
-        thickness=0.02,
-    )
+    g = _bound_invaded_geometry()
+    cement_thin = g["outer"]
     inner_form = BoreholeLayer(
         vp=g["vp"],
         vs=g["vs"],
         rho=g["rho"],
         thickness=1.0e-4,
     )
-    f = np.array([15000.0, 16000.0])
+    f = np.array([8000.0, 10000.0])
     res_n1 = quadrupole_dispersion_layered(
         f,
         vp=g["vp"],
@@ -12984,7 +13296,7 @@ def test_quadrupole_dispersion_layered_thin_inner_formation_layer_approaches_out
         vf=g["vf"],
         rho_f=g["rho_f"],
         a=g["a"],
-        layers=(g["casing"], cement_thin),
+        layers=(g["inner"], cement_thin),
     )
     res_n2 = quadrupole_dispersion_layered(
         f,
@@ -12994,7 +13306,7 @@ def test_quadrupole_dispersion_layered_thin_inner_formation_layer_approaches_out
         vf=g["vf"],
         rho_f=g["rho_f"],
         a=g["a"],
-        layers=(inner_form, g["casing"], cement_thin),
+        layers=(inner_form, g["inner"], cement_thin),
     )
     finite = np.isfinite(res_n1.slowness) & np.isfinite(res_n2.slowness)
     assert finite.any(), "fixture must yield bound modes in both"
@@ -13016,27 +13328,38 @@ def test_quadrupole_dispersion_layered_cement_bond_stiffer_cement_makes_mode_fas
     This is the *opposite* of the original plan-doc prediction
     (which argued by impedance-coupling intuition that stiffer
     cement should pull slowness toward the formation-shear
-    asymptote). The numerical evidence over cement Vs in
-    [1300, 1500] m/s with the slow-formation fixture
-    (``vs_form = 1200``) consistently shows the simpler "stiffer
-    annulus transmits the wave faster" reading: stiffer cement
-    -> smaller slowness."""
+    asymptote). The numerical evidence over annulus Vs in
+    [810, 900] m/s with the bound-regime invaded fixture
+    (``vs_form = 800``) consistently shows the simpler "stiffer
+    annulus transmits the wave faster" reading: stiffer annulus
+    -> smaller slowness.
+
+    Retargeted for roadmap A.8: this used to run on the cased
+    fixture (steel casing + cement). With the SV column corrected
+    the n >= 1 modes of a stiff annulus sit above the formation
+    shear speed and are leaky, so the real-valued layered
+    determinant -- the only n=2 layered path fwap has -- has no
+    root there. See
+    ``test_cased_slow_formation_dipole_is_leaky_not_bound``. The
+    invaded-zone stack keeps them bound and exercises the same
+    behaviour.
+    """
     from fwap.cylindrical_solver import quadrupole_dispersion_layered
 
-    g = _typical_g_pp_d_cased_geometry()
+    g = _bound_invaded_geometry()
     cement_soft = BoreholeLayer(
-        vp=2300.0,
-        vs=1300.0,
-        rho=1900.0,
-        thickness=0.02,
+        vp=1782.0,
+        vs=810.0,
+        rho=2000.0,
+        thickness=0.04,
     )
     cement_stiff = BoreholeLayer(
-        vp=2700.0,
-        vs=1500.0,
-        rho=1950.0,
-        thickness=0.02,
+        vp=1980.0,
+        vs=900.0,
+        rho=2000.0,
+        thickness=0.04,
     )
-    f = np.array([14000.0, 15000.0, 16000.0])
+    f = np.array([8000.0, 10000.0, 12000.0])
     res_soft = quadrupole_dispersion_layered(
         f,
         vp=g["vp"],
@@ -13045,7 +13368,7 @@ def test_quadrupole_dispersion_layered_cement_bond_stiffer_cement_makes_mode_fas
         vf=g["vf"],
         rho_f=g["rho_f"],
         a=g["a"],
-        layers=(g["casing"], cement_soft),
+        layers=(g["inner"], cement_soft),
     )
     res_stiff = quadrupole_dispersion_layered(
         f,
@@ -13055,7 +13378,7 @@ def test_quadrupole_dispersion_layered_cement_bond_stiffer_cement_makes_mode_fas
         vf=g["vf"],
         rho_f=g["rho_f"],
         a=g["a"],
-        layers=(g["casing"], cement_stiff),
+        layers=(g["inner"], cement_stiff),
     )
     common = np.isfinite(res_soft.slowness) & np.isfinite(res_stiff.slowness)
     assert common.sum() >= 2, (
@@ -13068,8 +13391,8 @@ def test_quadrupole_dispersion_layered_cement_bond_stiffer_cement_makes_mode_fas
     stiff_sl = res_stiff.slowness[common]
     assert np.all(stiff_sl < soft_sl), (
         f"expected stiffer cement to give smaller slowness;\n"
-        f"  soft (Vs=1300) slownesses: {soft_sl}\n"
-        f"  stiff(Vs=1500) slownesses: {stiff_sl}"
+        f"  soft (Vs=810) slownesses: {soft_sl}\n"
+        f"  stiff(Vs=900) slownesses: {stiff_sl}"
     )
     # Sanity: the shift should be a few percent (not tiny noise,
     # not >50% which would indicate a different-mode ambiguity).
@@ -13646,15 +13969,56 @@ def _a2_coverage(**kwargs) -> float:
     return float(np.isfinite(res.slowness).mean())
 
 
-def test_cased_flexural_slow_formation_covers_the_whole_band():
-    """A slow formation behind casing converges everywhere.
+def test_cased_slow_formation_dipole_is_leaky_not_bound():
+    """A slow formation behind steel casing has no BOUND dipole mode.
 
-    This is the control for the fast-formation test below: it shows the
-    layered machinery itself is sound, so the sparsity there is about the
-    formation regime rather than about the presence of a layer stack.
+    This test used to assert full coverage of the band, which was the
+    A.8 defect speaking: the azimuthal-only SV column produced a
+    spurious bound root that *rose* with frequency (199, 445, 755 m/s
+    at 6, 9, 12 kHz) -- backwards for a flexural mode, and far below
+    every wave speed in the problem.
+
+    With the SV column corrected the real-valued determinant has no
+    sign change anywhere in the bound window, because the mode is not
+    bound: a steel casing raises the composite bending stiffness until
+    the dipole mode outruns the formation shear speed and radiates
+    into it. The mode is still there -- ``Im(det)`` of the complex
+    cased determinant with the leaky formation branch crosses zero at
+    830 m/s (3 kHz) and 877 m/s (6 kHz), just above ``V_S = 800`` --
+    but reaching it needs a leaky search, which
+    ``flexural_dispersion_layered`` only runs for fast formations.
+
+    The bound path is exercised instead by
+    :func:`_bound_invaded_geometry`, whose annulus is soft enough to
+    keep the mode below every shear speed in the stack; the
+    fast-formation cased stack is covered by the test below.
     """
     coverage = _a2_coverage(**_A2_SLOW, **_A2_BOREHOLE, layers=(_A2_CASING, _A2_CEMENT))
-    assert coverage == 1.0
+    assert coverage == 0.0
+
+    # The mode is leaky, not absent: Im(det) of the complex cased
+    # determinant crosses zero just above the formation shear speed.
+    from fwap.cylindrical_solver._cased import _modal_determinant_n1_cased_complex
+
+    omega = 2.0 * np.pi * 6000.0
+    v_grid = np.linspace(810.0, 1000.0, 200)
+    im_det = np.array(
+        [
+            _modal_determinant_n1_cased_complex(
+                complex(omega / v, 0.0),
+                omega,
+                **_A2_SLOW,
+                **_A2_BOREHOLE,
+                layers=(_A2_CASING, _A2_CEMENT),
+                leaky_p=True,
+                leaky_s=True,
+            ).imag
+            for v in v_grid
+        ]
+    )
+    crossings = np.where(np.diff(np.sign(im_det)) != 0)[0]
+    assert crossings.size == 1
+    assert 860.0 < v_grid[crossings[0]] < 890.0
 
 
 def test_cased_flexural_fast_formation_covers_a_contiguous_middle_band():
@@ -17088,18 +17452,23 @@ def test_figure_2a_reference_table_is_anchored_at_both_ends():
 
 
 def test_fast_flexural_matches_the_published_curve():
-    """The published check of A.2, now the published check of its fix.
+    """The published check of A.2, then of A.8.
 
     On the paper's own rock the solver used to answer at 5 of the 13
     tabulated frequencies, every one between ``V_R`` and ``V_S`` and
-    every one 62-73 % faster than the figure. It now answers over
-    5.0-15.0 kHz -- the band between the ``V_R`` and ``V_f`` crossings --
-    at **0.78 % median error**, which is the digitisation floor of the
-    figure (about +-1 %).
+    every one 62-73 % faster than the figure. A.2 corrected the search
+    window to ``(V_f, V_S)`` and took it to 0.78 % median over
+    5.0-15.0 kHz. A.8 corrected the SV column and took it to **0.16 %
+    median, 0.37 % worst, over 3.0-17.5 kHz** -- 9 of the 13 points,
+    and well inside the figure's own +-1 % digitisation floor.
 
-    Outside that band it returns NaN rather than a guess: below the
-    ``V_R`` crossing the mode is leaky and has no real-``k_z`` root at
-    all, and above the ``V_f`` crossing it has left this regime.
+    Two of those points sit ABOVE ``V_R``: the low-frequency plateau is
+    at the formation shear speed, and ``V_R`` was never a limit of this
+    mode. The old bracket could not reach them by construction.
+
+    Outside the band it returns NaN rather than a guess: below the
+    plateau the mode has not formed, and above the ``V_f`` crossing it
+    has left this regime.
     """
     from fwap import flexural_dispersion
 
@@ -17110,17 +17479,17 @@ def test_fast_flexural_matches_the_published_curve():
     )
     finite = np.isfinite(velocity)
 
-    assert finite.sum() >= 6, f"expected the middle band; got {finite.sum()}"
-    assert np.all(velocity[finite] < _FIG2_ROCK["vs"])
+    assert finite.sum() >= 9, f"expected the middle band; got {finite.sum()}"
+    assert np.all(velocity[finite] <= _FIG2_ROCK["vs"])
     assert np.all(velocity[finite] > _FIG2_FLUID["vf"])
 
     error = np.abs((velocity[finite] - reference[finite]) / reference[finite])
-    assert np.median(error) < 0.015, f"median {np.median(error):.2%}"
-    assert error.max() < 0.03, f"worst {error.max():.2%}"
+    assert np.median(error) < 0.004, f"median {np.median(error):.2%}"
+    assert error.max() < 0.008, f"worst {error.max():.2%}"
 
-    # and the answers are where the old bracket could not reach
+    # and the answers reach above V_R, where the old bracket could not
     v_rayleigh = rayleigh_speed(_FIG2_ROCK["vp"], _FIG2_ROCK["vs"])
-    assert np.all(velocity[finite] < v_rayleigh)
+    assert (velocity[finite] > v_rayleigh).sum() >= 2
 
 
 # ----------------------------------------------------------------------
@@ -17428,10 +17797,20 @@ def test_the_quadrupole_branch_is_corrected_but_still_arrives_late(name):
     `V_R`.
 
     The residual is rock-dependent and is not the bracket: granite
-    lands on the published screw curve at about 1.6 % median, while
-    limestone carries a near-cutoff frequency offset -- the separate
-    onset defect figures 6 and 11 measured at 1.5-2.0 kHz, which this
-    fix does not touch.
+    lands on the published screw curve at about 2.6 % median, while
+    limestone resolves at only one frequency in the traced band.
+
+    Roadmap A.8 corrected the SV column and improved every
+    well-conditioned tie in this file by an order of magnitude. It did
+    not help here, and cost coverage: granite 22 -> 14 converged points
+    of 72 and 2.0 -> 2.6 % median; limestone 11 -> 1 of 30 and
+    8.6 -> 12.8 %. That is consistent with A.7's diagnosis rather than
+    at odds with it -- the n=2 fast-formation determinant is
+    noise-dominated, so which spurious crossings the marcher latches
+    onto changes with any change to the determinant. The n=1 twin of
+    this comparison went the other way on the same rocks: granite
+    1.24 -> 0.45 % median with coverage 57 -> 68, limestone
+    1.39 -> 0.31 % with 14 -> 29.
     """
     from fwap import quadrupole_dispersion
 
@@ -17444,7 +17823,8 @@ def test_the_quadrupole_branch_is_corrected_but_still_arrives_late(name):
     grid = np.arange(7.9e3, ref_f[-1] + 1.0, 100.0)
     screw = 1.0 / quadrupole_dispersion(grid, **rock, **fluid, a=0.10).slowness
     finite = np.isfinite(screw)
-    assert finite.sum() >= 3
+    coverage = {"granite": 8, "limestone": 1}[name]
+    assert finite.sum() >= coverage, f"{name}: {finite.sum()} converged"
 
     assert np.all(screw[finite] < rock["vs"])
     assert np.all(screw[finite] > fluid["vf"])
@@ -17625,17 +18005,19 @@ def test_the_stoneley_curve_pins_the_borehole_radius():
 
 @pytest.mark.parametrize("mode", ["flexural", "screw"])
 def test_both_shear_solvers_lose_the_same_1_5_khz_above_cutoff(mode):
-    """The same near-cutoff gap at `n=1` and `n=2`, and it is one width.
+    """The near-cutoff gap was the SV column, and it has closed.
 
-    In the slow sandstone the published flexural curve starts at
-    1.04 kHz and fwap's first root is at 2.52; the screw curve starts at
-    3.74 and fwap's first root is at 5.26. **1.48 and 1.52 kHz** -- the
-    same gap for two modes whose cutoffs are 2.7 kHz apart, which makes
-    it another quantity set by the hole rather than by the mode.
+    This test used to record a **1.48 kHz** flexural and **1.52 kHz**
+    screw gap between the published onset and fwap's first root -- the
+    same width for two modes whose cutoffs are 2.7 kHz apart, which
+    read like a quantity set by the hole. It was not: it was the
+    roadmap-A.8 SV column. Corrected, in the same slow sandstone,
 
-    Above the gap both solvers are continuous. This is the benign form
-    of the same near-cutoff failure that swallows the whole band in fast
-    formations (A.2).
+        flexural   published 1.04 kHz   fwap 1.04   gap  0.00 kHz
+        screw      published 3.74 kHz   fwap 3.86   gap +0.12 kHz
+
+    Both solvers now switch on at the published onset, to within one
+    step of this grid, and stay continuous above it.
     """
     from fwap import flexural_dispersion, quadrupole_dispersion
 
@@ -17648,22 +18030,28 @@ def test_both_shear_solvers_lose_the_same_1_5_khz_above_cutoff(mode):
 
     assert finite.any(), "the mode must be found somewhere above its cutoff"
     gap = grid[finite][0] - onset
-    assert 1.2 < gap < 1.8, f"{mode}: gap is {gap:.2f} kHz"
+    assert -0.05 < gap < 0.2, f"{mode}: gap is {gap:.2f} kHz"
     assert finite[np.argmax(finite) :].all(), "and it is contiguous, not a scatter"
 
 
 @pytest.mark.parametrize("mode", ["flexural", "screw"])
 def test_the_slow_shear_modes_agree_to_a_couple_of_percent(mode):
-    """Bounded, and worse than the Stoneley by an order of magnitude.
+    """All three modes now tie at the resolution of the figure.
 
-    Above the near-cutoff gap both shear solvers track the published
-    curves to about 1-2 % -- good, but not the 0.04 % the Stoneley
-    manages on the same panel with the same calibration. The flexural
-    offset is systematic (zero near 3.3 kHz, -1.8 % at 5-6 kHz,
-    recovering to -0.8 % by 14 kHz) rather than scatter.
+    This test used to record a real, systematic flexural residual --
+    1.29 % rms, zero near 3.3 kHz and -1.8 % at 5-6 kHz -- against a
+    Stoneley control at 0.03 % on the same panel with the same
+    calibration, and left it unexplained. It was the roadmap-A.8 SV
+    column. Corrected:
 
-    Asserted as a ceiling plus the ordering against the Stoneley, so a
-    regression trips it and a genuine improvement does not.
+        Stoneley (control)   0.034 % rms   (unchanged)
+        flexural             1.29 -> 0.063 % rms
+        screw                0.94 -> 0.058 % rms
+
+    So the order-of-magnitude split between the axisymmetric mode and
+    the two n >= 1 modes is gone, and all three sit at the +-0.3 % the
+    plotted line is worth. Asserted as a ceiling, so a regression trips
+    it and a further improvement does not.
     """
     from fwap import flexural_dispersion, quadrupole_dispersion, stoneley_dispersion
 
@@ -17676,15 +18064,18 @@ def test_the_slow_shear_modes_agree_to_a_couple_of_percent(mode):
 
     assert np.isfinite(velocity).all(), "the table starts above the near-cutoff gap"
     error = np.abs(velocity / reference - 1.0)
-    assert error.max() < 0.03, f"{mode} worst point {100 * error.max():.2f} %"
+    assert error.max() < 0.003, f"{mode} worst point {100 * error.max():.3f} %"
 
     st = _FIG8A_PHASE["stoneley"]
     st_f = np.array([f for f, _ in st])
     st_v = np.array([v for _, v in st])
     st_got = 1.0 / stoneley_dispersion(st_f, **_FIG8_ROCK, **fluid, a=0.10).slowness
     st_error = np.abs(st_got / st_v - 1.0)
-    assert st_error.max() < 0.2 * error.max(), (
-        "the Stoneley is the tightly tied mode here; the shear modes are not"
+    # The shear modes are no longer the loose ones: all three are within
+    # a factor of two of each other, and of the figure's own resolution.
+    assert st_error.max() < 0.003
+    assert error.max() < 3.0 * st_error.max(), (
+        "the n >= 1 modes should now tie as tightly as the Stoneley"
     )
 
 
@@ -18737,18 +19128,22 @@ def test_figure_9_and_figure_8a_agree_on_the_group_minimum():
     assert measured / predicted == pytest.approx(1.0, abs=0.02)
 
 
-def test_differentiating_the_slow_flexural_curve_moves_the_airy_frequency():
-    """What a 1.3 % phase residual costs in the group domain.
+def test_differentiating_the_slow_flexural_curve_keeps_the_airy_frequency():
+    """What removing the 1.3 % phase residual buys in the group domain.
 
-    `flexural_dispersion` follows figure 8a's slow-formation phase curve
-    to 1.29 % rms. Differentiated, its group minimum lands 3 % low in
-    value and about 25 % low in *frequency* -- near 3.9 kHz where the
-    figure puts it near 5.2. The phase residual is a tilt rather than an
-    offset, and a tilt moves the stationary point.
+    This test recorded the cost of a tilt: `flexural_dispersion`
+    followed figure 8a's slow-formation phase curve to 1.29 % rms, and
+    differentiating put the group minimum 3 % low in value and about
+    **25 % low in frequency** -- near 3.9 kHz where the figure puts it
+    near 5.2. A tilt in the phase residual moves the stationary point,
+    and that is the part a user notices: it places the Airy phase of a
+    synthetic waveform wrongly while the phase velocities still look
+    right.
 
-    Asserted on the frequency, because that is the part a user would
-    notice: it places the Airy phase of a synthetic waveform wrongly
-    while the phase velocities still look right.
+    The roadmap-A.8 correction removed the tilt. The group minimum is
+    now **998.4 m/s at 5.15 kHz** against the figure's 992.0 at 5.2 --
+    **+0.6 % in value and -1 % in frequency**. Kept, with the
+    assertions inverted, as the group-domain check on the phase fix.
     """
     from fwap import flexural_dispersion
 
@@ -18764,9 +19159,11 @@ def test_differentiating_the_slow_flexural_curve_moves_the_airy_frequency():
     v_min, f_min = group[i], f[i] / 1e3
     ref_v, ref_f = _FIG8A_GROUP_MINIMUM
 
-    assert v_min / ref_v == pytest.approx(1.0, abs=0.06), "value is close"
-    assert f_min < 0.85 * ref_f, (
-        f"the Airy frequency is the part that moves: {f_min:.2f} vs {ref_f} kHz"
+    assert v_min / ref_v == pytest.approx(1.0, abs=0.02), (
+        f"value: {v_min:.1f} vs {ref_v} m/s"
+    )
+    assert f_min / ref_f == pytest.approx(1.0, abs=0.05), (
+        f"and the Airy frequency no longer moves: {f_min:.2f} vs {ref_f} kHz"
     )
 
 
@@ -18876,12 +19273,19 @@ def test_stc_on_the_published_waveforms_matches_the_published_curve():
 
 
 def test_the_near_cutoff_gap_is_a_solver_limitation_not_an_absence():
-    """Panel (a) is the waveform evidence.
+    """Panel (a) is the waveform evidence, and most of the gap is gone.
 
-    `flexural_dispersion` finds no root for this rock below about
-    2.5 kHz. Figure 10(a) shows a coherent arrival at 0.86 kHz --
-    `fwap.stc` picks it at 0.960 and puts it at the shear speed -- so
-    the mode is there and propagating where the solver is silent.
+    This test recorded a solver silent below about **2.5 kHz** while
+    figure 10(a) showed a coherent arrival at 0.86 kHz -- `fwap.stc`
+    picking it at 0.960 and putting it at the shear speed. After the
+    roadmap-A.8 correction the flexural solver's first root for this
+    rock is at **0.99 kHz**, against a published onset of 1.04, so the
+    1.66 kHz shortfall is down to 0.13 kHz.
+
+    The waveform evidence still bites, just barely: 0.86 kHz is below
+    even the corrected onset, so the packet is still in a band the
+    solver reports as empty. The claim survives; its magnitude does
+    not.
     """
     from fwap import flexural_dispersion
 
@@ -18899,7 +19303,10 @@ def test_the_near_cutoff_gap_is_a_solver_limitation_not_an_absence():
     got = 1.0 / flexural_dispersion(grid, **_FIG15_VIRGIN, **fluid, a=0.10).slowness
     ok = np.isfinite(got)
     assert ok.any()
-    assert grid[ok][0] / 1e3 > 2.0, "and stays silent well above the packet"
+    first = grid[ok][0] / 1e3
+    assert dominant < first < 1.1, (
+        f"still silent at the packet, but only just: first root {first:.2f} kHz"
+    )
     assert coherence > 0.9 and phase > 1000.0, "while the waveforms show the mode"
 
 
@@ -18961,13 +19368,23 @@ _NEAR_CUTOFF_GAPS = (
 )
 
 
-def test_figure_11b_shows_the_screw_mode_where_the_solver_is_silent():
-    """The mode propagates at 4.68 kHz; `quadrupole_dispersion` has no
-    root there.
+def test_figure_11b_screw_mode_is_now_found_and_lands_on_the_published_curve():
+    """The mode propagates at 4.68 kHz, and the solver now finds it.
 
-    Envelope moveout r^2 = 0.982 and `stc` lands within 3.3 % of figure
-    8a's traced screw curve, so this is the screw mode and not something
-    else. The solver's first root for this rock is at 5.25 kHz.
+    This test used to record a silence: the waveforms showed a coherent
+    screw arrival at 4.68 kHz -- envelope moveout r^2 = 0.982, `stc`
+    within 3.3 % of figure 8a's traced screw curve -- in a band where
+    `quadrupole_dispersion` returned NaN, its first root for this rock
+    being at 5.25 kHz.
+
+    The roadmap-A.8 correction moved that first root to 3.85 kHz, and
+    at 4.68 kHz the solver now returns **1180.2 m/s** against figure
+    8a's traced 1179.0 -- **+0.10 %**. The band the solver reported as
+    empty holds the mode the published curve predicts, and the solver
+    agrees with the curve to a tenth of a percent.
+
+    Panel (a) at 1.83 kHz remains NaN, correctly: the paper draws no
+    screw curve below 3.74 kHz, so there is no trapped mode to find.
     """
     from fwap import quadrupole_dispersion
 
@@ -18984,7 +19401,19 @@ def test_figure_11b_shows_the_screw_mode_where_the_solver_is_silent():
             np.array([dominant * 1e3]), **_FIG15_VIRGIN, **fluid, a=0.10
         ).slowness[0]
     )
-    assert not np.isfinite(v), "and the solver returns nothing at that frequency"
+    assert np.isfinite(v), "the solver now resolves the mode at that frequency"
+    assert v / published == pytest.approx(1.0, abs=0.005), (
+        f"and lands on the published curve: {v:.1f} vs {published}"
+    )
+
+    # Panel (a) stays silent, and should: no trapped mode exists there.
+    below = _FIG11_PANELS[0][1]
+    assert not np.isfinite(
+        1.0
+        / quadrupole_dispersion(
+            np.array([below * 1e3]), **_FIG15_VIRGIN, **fluid, a=0.10
+        ).slowness[0]
+    )
 
 
 def test_figure_11a_is_a_gap_the_solver_is_right_to_have():
@@ -19884,54 +20313,67 @@ def test_figure_16_confirms_figure_8a_group_minimum_from_the_time_domain():
     )
 
 
-def test_the_layered_group_velocity_is_twice_as_wrong_as_the_open_hole_one():
-    """Figure 15's verdict, qualified where it stops holding.
+def test_the_layered_airy_prediction_is_still_the_looser_one():
+    """Figure 15's verdict, re-measured after A.8.
 
-    Figure 15 tied these three models' *phase* velocity at 1.47-1.48 %
-    rms and concluded the layered solver is as accurate as the open-hole
-    one. Differentiate, and that stops being true: predicting figure
-    16's Airy arrival from the group-velocity minimum is ~3 % late for
-    the virgin rock -- figure 9's result, reached from another figure --
-    and about twice that once a layer is present.
+    This test recorded the open-hole Airy prediction ~3 % late and the
+    layered ones about twice that, all in the same direction. The
+    roadmap-A.8 correction removed the open-hole error almost entirely
+    and left the layered gap roughly where it was:
 
-    The comparison is made against the *latest* measured arrival in each
-    model, the most charitable end of the range, so the gap is a floor
-    rather than a headline.
+        model     predicted   measured range   error vs mean
+        virgin      5.01 ms     5.01-5.11        -0.9 %
+        8 cm        5.78 ms     5.37-5.68        +4.0 %
+        16 cm       5.77 ms     5.45-5.84        +2.2 %
+
+    So the ordering the test was written to pin survives -- the layered
+    prediction is the looser one -- but it is now a comparison between
+    a sub-percent open-hole number and a few-percent layered one, and
+    the virgin prediction has crossed from late to slightly early.
+    Compared against the measured MEAN rather than the latest arrival,
+    since the virgin prediction now sits inside the measured range.
     """
     errors = {}
     for name, thickness in (("virgin", None), ("8 cm", 0.08), ("16 cm", 0.16)):
         v_g, _ = _fig16_group_minimum(thickness)
         predicted_ms = _FIG16_OFFSET_M / v_g * 1e3
-        latest = max(_FIG16_AIRY_MS[name])
-        errors[name] = predicted_ms / latest - 1.0
-        assert predicted_ms > latest, (
-            f"{name}: fwap predicts {predicted_ms:.2f} ms, measured at most "
-            f"{latest:.2f} ms -- the Airy phase is late, not early"
-        )
-    assert 0.01 < errors["virgin"] < 0.05, errors
+        mean_ms = float(np.mean(_FIG16_AIRY_MS[name]))
+        errors[name] = predicted_ms / mean_ms - 1.0
+    assert abs(errors["virgin"]) < 0.015, errors
     for name in ("8 cm", "16 cm"):
-        assert errors[name] > 1.7 * errors["virgin"], errors
+        assert errors[name] > 0.015, errors
+        assert abs(errors[name]) > 1.7 * abs(errors["virgin"]), errors
 
 
-def test_fwap_resolves_nothing_at_figure_16_lowest_source_frequency():
-    """The panel that measures best is the one fwap cannot reach.
+def test_only_the_invaded_models_are_out_of_reach_at_figure_16_lowest_frequency():
+    """The panel that measures best is now half within reach.
 
-    Panel (a) has the compact wavelets, the cleanest correlations and
-    the frequency-independent Airy pick. At 1 kHz the flexural solver
-    returns no root for the virgin rock or for either invaded model --
-    the near-cutoff gap figure 10 proved is a solver limitation rather
-    than physics, now confirmed on the layered path too.
+    This test recorded a solver silent at 1 kHz for all three of
+    figure 16's models, with onsets at 2.52 / 3.51 / 2.94 kHz. The
+    roadmap-A.8 correction moved the OPEN-HOLE onset to 0.99 kHz, so
+    the virgin model now resolves at the 1 kHz panel and returns the
+    formation shear speed there.
+
+    The two invaded models did not follow: their onsets are 3.74 and
+    3.00 kHz, essentially unchanged, so the layered near-cutoff gap is
+    a separate matter from the SV column -- and the panel with the
+    compact wavelets and the frequency-independent Airy pick is still
+    out of reach for them.
     """
     probe = np.array([1000.0])
-    for thickness in (None, 0.08, 0.16):
+    virgin_at_1khz = _fig16_flexural(None, probe)
+    assert np.all(np.isfinite(virgin_at_1khz))
+    assert virgin_at_1khz[0] == pytest.approx(_FIG15_VIRGIN["vs"], rel=1.0e-3)
+    for thickness in (0.08, 0.16):
         v = _fig16_flexural(thickness, probe)
         assert not np.any(np.isfinite(v)), f"thickness {thickness}: {v}"
     freq = np.linspace(200.0, 12000.0, 241)
+    onsets = {}
     for name, thickness in (("virgin", None), ("8 cm", 0.08), ("16 cm", 0.16)):
         v = _fig16_flexural(thickness, freq)
-        onset = freq[np.isfinite(v)].min() / 1.0e3
-        assert onset == pytest.approx(_FIG16_ONSET_KHZ[name], abs=0.35)
-        assert onset > 1.0, f"{name} onset {onset} kHz is above the 1 kHz panel"
+        onsets[name] = freq[np.isfinite(v)].min() / 1.0e3
+    assert onsets["virgin"] < 1.0, onsets
+    assert onsets["8 cm"] > 3.0 and onsets["16 cm"] > 2.5, onsets
 
 
 def test_the_slow_flexural_curves_are_structurally_sound():
@@ -20276,13 +20718,15 @@ def test_six_of_figure_17s_twelve_waveforms_now_have_a_phase_velocity():
     assert computable == 6, f"{computable} of 12 plotted waveforms"
 
 
-def test_the_virgin_screw_airy_arrival_is_worse_than_the_flexural_one():
-    """The one forward prediction figure 17 still allows.
+def test_the_virgin_screw_airy_arrival_is_late_by_a_percent():
+    """The one forward prediction figure 17 allows, now much tighter.
 
     The screw packet peaks within 0.05 ms of 4.96 ms across all four
     source frequencies, so it is the Airy phase. fwap's group minimum
-    puts it at 5.24 ms -- late by more than the flexural mode's +3.0 %
-    on the same rock in figure 16, and in the same direction.
+    used to put it at 5.24 ms, **+5.6 %** and late; after the
+    roadmap-A.8 correction it puts it at 5.03 ms, **+1.35 %** and still
+    late. The onset moved with it, from 5.25 kHz to 3.85 kHz against a
+    published 3.74.
     """
     from fwap.cylindrical_solver import quadrupole_dispersion
 
@@ -20298,12 +20742,13 @@ def test_the_virgin_screw_airy_arrival_is_worse_than_the_flexural_one():
     v_g = 1.0 / np.gradient(ff / vv, ff)
     predicted_ms = _FIG17_OFFSET_M / v_g.min() * 1e3
     error = predicted_ms / arr.mean() - 1.0
-    assert 0.03 < error < 0.09, f"{predicted_ms:.2f} ms vs {arr.mean():.2f}"
+    assert 0.005 < error < 0.03, f"{predicted_ms:.2f} ms vs {arr.mean():.2f}"
     # structurally sound, unlike figure 14's fast-formation quadrupole
     assert np.all(v_g > 0.0)
     assert int((np.diff(idx) > 1).sum()) == 0, "no interior gaps"
     onset = freq[np.isfinite(v)].min() / 1.0e3
-    assert onset == pytest.approx(_FIG17_VIRGIN_ONSET_KHZ, abs=0.4)
+    # A.8 moved the onset down from 5.25 kHz to the published 3.74.
+    assert onset == pytest.approx(3.74, abs=0.2)
 
 
 # ----------------------------------------------------------------------
@@ -20462,14 +20907,27 @@ def test_quadrupole_layered_tracks_figure_15b(model):
     assert rms < 0.035, f"{model}: rms {rms:.2%}"
 
 
-def test_the_8cm_layered_tie_is_better_than_its_own_virgin_control():
+def test_the_layered_screw_ties_hold_after_the_sv_correction():
     """The evidence that the refused regime was computed correctly.
 
-    If the layered path were unsound where the guard used to block it,
-    it would score worse than the open-hole solver on the same figure.
-    It scores better -- 0.58 % rms against the virgin control's 1.29 % --
-    which is what turns "the guard is over-strict" from an argument into
-    a measurement.
+    A.6 removed a guard that blocked ``quadrupole_dispersion_layered``
+    at one layer, and the argument that the guard was over-strict rested
+    on the 8 cm model scoring 0.58 % rms against the open-hole virgin
+    control's 1.29 % on this same figure.
+
+    The roadmap-A.8 correction improved all three by an order of
+    magnitude and, in doing so, reordered them:
+
+        virgin (open-hole control)   1.29 -> 0.055 %
+        8 cm invaded                 0.58 -> 0.136 %
+        16 cm invaded                2.12 -> 0.197 %
+
+    The open-hole control is now the tightest, which is what one should
+    expect: it solves one homogeneous half-space, while the layered
+    models also carry the invaded-zone row transcribed from the paper's
+    scanned table 1. The A.6 conclusion is unaffected -- the layered
+    path ties the published curves it used to refuse, to within a
+    fifth of a percent.
     """
     from fwap.cylindrical_solver import (
         quadrupole_dispersion,
@@ -20504,9 +20962,15 @@ def test_the_8cm_layered_tie_is_better_than_its_own_virgin_control():
         return float(np.sqrt((rel**2).mean()))
 
     eight = score("invaded_8cm")
+    sixteen = score("invaded_16cm")
     control = score("virgin")
-    assert eight < 0.012, f"8 cm layered rms {eight:.2%}"
-    assert eight < control, f"8 cm {eight:.2%} vs virgin control {control:.2%}"
+    assert control < 0.002, f"virgin control rms {control:.3%}"
+    assert eight < 0.003, f"8 cm layered rms {eight:.3%}"
+    assert sixteen < 0.004, f"16 cm layered rms {sixteen:.3%}"
+    # Both layered ties are within a small multiple of the open-hole
+    # control, which is the claim A.6 needed.
+    assert eight < 4.0 * control
+    assert sixteen < 5.0 * control
 
 
 def test_the_16cm_tie_is_recorded_as_corroborating_not_deciding():
@@ -20532,30 +20996,34 @@ def test_the_16cm_tie_is_recorded_as_corroborating_not_deciding():
     ok = np.isfinite(curve4)
     assert ok.any(), "curve 4 resolves somewhere in the band"
     gap = np.abs(curve4[ok] - ref[ok]) / ref[ok]
-    assert gap.max() < 0.03, (
-        "curves 3 and 4 are close enough that this comparison cannot "
-        f"separate them: worst {gap.max():.2%}"
+    # 3.1 % at 4.0 kHz narrowing to 0.7 % by 5.5 kHz. The A.8 correction
+    # sharpened curve 4 itself, so this now reads the true curve-3/4
+    # separation rather than the solver's error on top of it.
+    assert gap.max() < 0.035, f"worst {gap.max():.2%}"
+    assert gap.min() < 0.01, (
+        "curves 3 and 4 converge to within 1 % at the top of the band, "
+        f"so an rms comparison cannot separate them: closest {gap.min():.2%}"
     )
     assert _FIG15B_CURVE_3_4_SEPARATION < 0.01
 
 
 def test_the_fast_formation_marcher_is_grid_independent_at_n1():
-    """What the A.2 fix delivers at n=1, and what it leaves at n=2.
+    """What A.2 delivered at n=1, and what A.8 changed at n=2.
 
     A dispersion solver's answer at a frequency must not depend on which
-    other frequencies were asked for in the same call. After the fix the
-    n=1 fast-formation branch satisfies that exactly: grids of 5 to 161
+    other frequencies were asked for in the same call. After A.2 the
+    n=1 fast-formation branch satisfied that exactly: grids of 5 to 161
     points over the same band, and grids starting anywhere from 1 to
     5 kHz, all return the same 10 kHz value to **0.000 %**.
 
-    The n=2 path does not. It is on the fundamental now rather than an
-    overtone, which is the fix working, but the value still moves by a
-    few percent with the grid and vanishes on some. That is the n=2
-    root-finding instability figure 6 recorded independently -- two
-    grids differing by last-bit rounding giving 47 and 42 converged
-    points of 71 -- and A.2 was never going to remove it.
-
-    So n=1 fast-formation results are quotable and n=2 ones are not yet.
+    The n=2 path used to move by a few percent with the grid. After the
+    roadmap-A.8 correction it no longer does -- every grid that
+    converges returns the same value bit for bit -- but it still drops
+    to NaN on some grids (the finest, and the lowest-starting). So the
+    n=2 fast-formation instability has changed character: it is now an
+    all-or-nothing convergence failure rather than a wandering answer,
+    which is a strictly better failure mode but still not quotable
+    coverage.
     """
     from fwap import flexural_dispersion, quadrupole_dispersion
 
@@ -20578,10 +21046,16 @@ def test_the_fast_formation_marcher_is_grid_independent_at_n1():
             f"n=1 must not depend on the grid; spread {np.ptp(flex):.3e} m/s"
         )
 
-    quad = at_10khz(quadrupole_dispersion, by_density)
+    quad = at_10khz(quadrupole_dispersion, by_density + by_start)
     good = quad[np.isfinite(quad)]
     assert good.size >= 2
-    assert np.ptp(good) / good.mean() > 1.0e-4, (
-        "if n=2 has become grid-independent too, the instability figure 6 "
+    # Where it converges the answer is now grid-independent too ...
+    assert np.ptp(good) / good.mean() < 1.0e-9, (
+        f"n=2 values should agree where they exist; spread {np.ptp(good):.3e}"
+    )
+    # ... but it does not converge on every grid, which is the residual
+    # n=2 fast-formation instability figure 6 recorded independently.
+    assert not np.isfinite(quad).all(), (
+        "if n=2 now converges on every grid, the instability figure 6 "
         "recorded is gone and this test should be rewritten"
     )

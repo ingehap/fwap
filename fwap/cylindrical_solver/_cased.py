@@ -1621,10 +1621,28 @@ def _layer_e_matrix_n1(
     E = np.zeros((6, 6))
     # Row 0: u_r = d_r phi + (1/r) d_theta psi_z - d_z psi_theta.
     # Post-rescale: col*(-i) on C cols cancels the -i k_z factor.
+    # SV columns (Hansen form) -- roadmap A.8. fwap previously built
+    # these from a vector potential carrying only an azimuthal
+    # component, which the cylindrical vector Laplacian does not
+    # admit for n >= 1: the coupling between the radial and
+    # azimuthal components carries a factor n that such an ansatz
+    # has no term to cancel, so the column was not a solution of
+    # the elastodynamic equations. These are Schmitt & Cheng's
+    # appendix columns (pp. 235-236) in fwap's row order and phase,
+    # with P1 = d_r B_n, and B = I (sigma = +1) or K (sigma = -1):
+    #     P1 = sigma s B_{n-1} - (n/r) B_n
+    #     P2 = s^2 B_n + n(n+1) B_n/r^2 - sigma s B_{n-1}/r
+    #     P3 = (n/r) [ (1+n) B_n/r - sigma s B_{n-1} ]
+    _P1_C_I = +s * I0_s - 1.0 * I1_s / r
+    _P2_C_I = s * s * I1_s + 2.0 * I1_s / (r * r) - s * I0_s / r
+    _P3_C_I = 1.0 / r * (2.0 * I1_s / r - s * I0_s)
+    _P1_C_K = -s * K0_s - 1.0 * K1_s / r
+    _P2_C_K = s * s * K1_s + 2.0 * K1_s / (r * r) + s * K0_s / r
+    _P3_C_K = 1.0 / r * (2.0 * K1_s / r + s * K0_s)
     E[0, 0] = +p * I0_p - I1_p / r  # B_I
     E[0, 1] = -p * K0_p - K1_p / r  # B_K
-    E[0, 2] = -kz * I1_s  # C_I
-    E[0, 3] = -kz * K1_s  # C_K
+    E[0, 2] = kz * _P1_C_I
+    E[0, 3] = kz * _P1_C_K
     E[0, 4] = +I1_s / r  # D_I
     E[0, 5] = +K1_s / r  # D_K
     # Row 1: u_z = i k_z phi + (1/r) d_r(r psi_theta).
@@ -1632,16 +1650,16 @@ def _layer_e_matrix_n1(
     # on C cols leaves +s I_0 / -s K_0.
     E[1, 0] = -kz * I1_p  # B_I
     E[1, 1] = -kz * K1_p  # B_K
-    E[1, 2] = +s * I0_s  # C_I
-    E[1, 3] = -s * K0_s  # C_K
+    E[1, 2] = -s * s * I1_s
+    E[1, 3] = -s * s * K1_s
     E[1, 4] = 0.0  # D_I (SH no u_z)
     E[1, 5] = 0.0  # D_K
     # Row 2: u_theta = (1/r) d_theta phi - d_r psi_z. Sin sector;
     # no row scaling (no z-derivative). C cols zero (SV no u_theta).
     E[2, 0] = -I1_p / r  # B_I
     E[2, 1] = -K1_p / r  # B_K
-    E[2, 2] = 0.0  # C_I (SV no u_theta)
-    E[2, 3] = 0.0  # C_K
+    E[2, 2] = -kz * 1.0 / r * I1_s
+    E[2, 3] = -kz * 1.0 / r * K1_s
     E[2, 4] = -s * I0_s + I1_s / r  # D_I (sign flip on s I_0)
     E[2, 5] = +s * K0_s + K1_s / r  # D_K
     # Row 3: sigma_rr = lambda div u + 2 mu d_r u_r. No row scaling.
@@ -1652,18 +1670,16 @@ def _layer_e_matrix_n1(
     E[3, 1] = +mu * (
         two_kz2_minus_kS2 * K1_p + 2.0 * p * K0_p / r + 4.0 * K1_p / (r * r)
     )  # B_K
-    E[3, 2] = -2.0 * kz * mu * (s * I0_s - I1_s / r)  # C_I
-    E[3, 3] = +2.0 * kz * mu * (s * K0_s + K1_s / r)  # C_K
+    E[3, 2] = 2.0 * kz * mu * _P2_C_I
+    E[3, 3] = 2.0 * kz * mu * _P2_C_K
     E[3, 4] = +2.0 * mu * (s * I0_s / r - 2.0 * I1_s / (r * r))  # D_I
     E[3, 5] = -2.0 * mu * (s * K0_s / r + 2.0 * K1_s / (r * r))  # D_K
     # Row 4: sigma_rz = mu (d_z u_r + d_r u_z). Post-rescale: row*i
     # on B cols (z-derivative-bearing); col*(-i) on C cols.
     E[4, 0] = -2.0 * kz * mu * (p * I0_p - I1_p / r)  # B_I
     E[4, 1] = +2.0 * kz * mu * (p * K0_p + K1_p / r)  # B_K
-    E[4, 2] = +mu * two_kz2_minus_kS2 * I1_s  # C_I
-    E[4, 3] = +mu * two_kz2_minus_kS2 * K1_s  # C_K
-    # D cols: SH cross-couples to sigma_rz via -k_z mu D K_1/r at n=1
-    # (F.2.a.6 erratum: cos/sin sectors are NOT block-diagonal).
+    E[4, 2] = -two_kz2_minus_kS2 * mu * _P1_C_I
+    E[4, 3] = -two_kz2_minus_kS2 * mu * _P1_C_K
     E[4, 4] = -kz * mu * I1_s / r  # D_I
     E[4, 5] = -kz * mu * K1_s / r  # D_K
     # Row 5: sigma_r_theta = mu [d_r(u_theta) + (1/r) d_theta u_r
@@ -1671,8 +1687,8 @@ def _layer_e_matrix_n1(
     # scaling.
     E[5, 0] = +2.0 * mu * (-p * I0_p / r + 2.0 * I1_p / (r * r))  # B_I
     E[5, 1] = +2.0 * mu * (+p * K0_p / r + 2.0 * K1_p / (r * r))  # B_K
-    E[5, 2] = +kz * mu * I1_s / r  # C_I
-    E[5, 3] = +kz * mu * K1_s / r  # C_K
+    E[5, 2] = 2.0 * kz * mu * _P3_C_I
+    E[5, 3] = 2.0 * kz * mu * _P3_C_K
     E[5, 4] = -mu * (s * s * I1_s - 2.0 * s * I0_s / r + 4.0 * I1_s / (r * r))  # D_I
     E[5, 5] = -mu * (s * s * K1_s + 2.0 * s * K0_s / r + 4.0 * K1_s / (r * r))  # D_K
     return E
@@ -2327,18 +2343,36 @@ def _layer_e_matrix_n2(
     E = np.zeros((6, 6))
     # Row 0: u_r = d_r phi + (n/r) psi_z - i k_z psi_theta. At n=2,
     # the d_theta-induced term is +(2/r) psi_z. col*(-i) on C cols.
+    # SV columns (Hansen form) -- roadmap A.8. fwap previously built
+    # these from a vector potential carrying only an azimuthal
+    # component, which the cylindrical vector Laplacian does not
+    # admit for n >= 1: the coupling between the radial and
+    # azimuthal components carries a factor n that such an ansatz
+    # has no term to cancel, so the column was not a solution of
+    # the elastodynamic equations. These are Schmitt & Cheng's
+    # appendix columns (pp. 235-236) in fwap's row order and phase,
+    # with P1 = d_r B_n, and B = I (sigma = +1) or K (sigma = -1):
+    #     P1 = sigma s B_{n-1} - (n/r) B_n
+    #     P2 = s^2 B_n + n(n+1) B_n/r^2 - sigma s B_{n-1}/r
+    #     P3 = (n/r) [ (1+n) B_n/r - sigma s B_{n-1} ]
+    _P1_C_I = +s * I1_s - 2.0 * I2_s / r
+    _P2_C_I = s * s * I2_s + 6.0 * I2_s / (r * r) - s * I1_s / r
+    _P3_C_I = 2.0 / r * (3.0 * I2_s / r - s * I1_s)
+    _P1_C_K = -s * K1_s - 2.0 * K2_s / r
+    _P2_C_K = s * s * K2_s + 6.0 * K2_s / (r * r) + s * K1_s / r
+    _P3_C_K = 2.0 / r * (3.0 * K2_s / r + s * K1_s)
     E[0, 0] = +p * I1_p - 2.0 * I2_p / r  # B_I
     E[0, 1] = -p * K1_p - 2.0 * K2_p / r  # B_K
-    E[0, 2] = -kz * I2_s  # C_I
-    E[0, 3] = -kz * K2_s  # C_K
+    E[0, 2] = kz * _P1_C_I
+    E[0, 3] = kz * _P1_C_K
     E[0, 4] = +2.0 * I2_s / r  # D_I
     E[0, 5] = +2.0 * K2_s / r  # D_K
     # Row 1: u_z = i k_z phi + (1/r) d_r [r psi_theta]. row*i on
     # all entries; col*(-i) on C cols (net factor 1).
     E[1, 0] = -kz * I2_p  # B_I
     E[1, 1] = -kz * K2_p  # B_K
-    E[1, 2] = +s * I1_s - I2_s / r  # C_I
-    E[1, 3] = -s * K1_s - K2_s / r  # C_K
+    E[1, 2] = -s * s * I2_s
+    E[1, 3] = -s * s * K2_s
     E[1, 4] = 0.0  # D_I (SH no u_z)
     E[1, 5] = 0.0  # D_K
     # Row 2: u_theta = (n/r) phi cos -> -(n/r) F_n sin sector;
@@ -2346,8 +2380,8 @@ def _layer_e_matrix_n2(
     # u_theta).
     E[2, 0] = -2.0 * I2_p / r  # B_I
     E[2, 1] = -2.0 * K2_p / r  # B_K
-    E[2, 2] = 0.0  # C_I
-    E[2, 3] = 0.0  # C_K
+    E[2, 2] = -kz * 2.0 / r * I2_s
+    E[2, 3] = -kz * 2.0 / r * K2_s
     E[2, 4] = -s * I1_s + 2.0 * I2_s / r  # D_I
     E[2, 5] = +s * K1_s + 2.0 * K2_s / r  # D_K
     # Row 3: sigma_rr = lambda div u + 2 mu d_r u_r. Lame
@@ -2358,16 +2392,16 @@ def _layer_e_matrix_n2(
     E[3, 1] = +mu * (
         two_kz2_minus_kS2 * K2_p + 2.0 * p * K1_p / r + 12.0 * K2_p / (r * r)
     )  # B_K
-    E[3, 2] = -2.0 * kz * mu * (s * I1_s - 2.0 * I2_s / r)  # C_I
-    E[3, 3] = +2.0 * kz * mu * (s * K1_s + 2.0 * K2_s / r)  # C_K
+    E[3, 2] = 2.0 * kz * mu * _P2_C_I
+    E[3, 3] = 2.0 * kz * mu * _P2_C_K
     E[3, 4] = +4.0 * mu * (s * I1_s / r - 3.0 * I2_s / (r * r))  # D_I
     E[3, 5] = -4.0 * mu * (s * K1_s / r + 3.0 * K2_s / (r * r))  # D_K
     # Row 4: sigma_rz = mu (d_z u_r + d_r u_z). row*i on all
     # entries; col*(-i) on C cols. n^2-1 = 3 factor in the C cols.
     E[4, 0] = -2.0 * kz * mu * (p * I1_p - 2.0 * I2_p / r)  # B_I
     E[4, 1] = +2.0 * kz * mu * (p * K1_p + 2.0 * K2_p / r)  # B_K
-    E[4, 2] = +mu * (two_kz2_minus_kS2 + 3.0 / (r * r)) * I2_s  # C_I
-    E[4, 3] = +mu * (two_kz2_minus_kS2 + 3.0 / (r * r)) * K2_s  # C_K
+    E[4, 2] = -two_kz2_minus_kS2 * mu * _P1_C_I
+    E[4, 3] = -two_kz2_minus_kS2 * mu * _P1_C_K
     E[4, 4] = -2.0 * kz * mu * I2_s / r  # D_I
     E[4, 5] = -2.0 * kz * mu * K2_s / r  # D_K
     # Row 5: sigma_r_theta = mu [d_r u_theta + (1/r) d_theta u_r
@@ -2375,8 +2409,8 @@ def _layer_e_matrix_n2(
     # scaling. n^2 (n+1) = 12 factor in the F_n / r^2 term.
     E[5, 0] = +4.0 * mu * (-p * I1_p / r + 3.0 * I2_p / (r * r))  # B_I
     E[5, 1] = +4.0 * mu * (+p * K1_p / r + 3.0 * K2_p / (r * r))  # B_K
-    E[5, 2] = +2.0 * kz * mu * I2_s / r  # C_I
-    E[5, 3] = +2.0 * kz * mu * K2_s / r  # C_K
+    E[5, 2] = 2.0 * kz * mu * _P3_C_I
+    E[5, 3] = 2.0 * kz * mu * _P3_C_K
     E[5, 4] = -mu * ((s * s + 12.0 / (r * r)) * I2_s - 2.0 * s * I1_s / r)  # D_I
     E[5, 5] = -mu * ((s * s + 12.0 / (r * r)) * K2_s + 2.0 * s * K1_s / r)  # D_K
     return E
@@ -2773,24 +2807,42 @@ def _layer_e_matrix_n1_complex(
 
     E: np.ndarray = np.zeros((6, 6), dtype=complex)
     # Row 0: u_r
+    # SV columns (Hansen form) -- roadmap A.8. fwap previously built
+    # these from a vector potential carrying only an azimuthal
+    # component, which the cylindrical vector Laplacian does not
+    # admit for n >= 1: the coupling between the radial and
+    # azimuthal components carries a factor n that such an ansatz
+    # has no term to cancel, so the column was not a solution of
+    # the elastodynamic equations. These are Schmitt & Cheng's
+    # appendix columns (pp. 235-236) in fwap's row order and phase,
+    # with P1 = d_r B_n, and B = I (sigma = +1) or K (sigma = -1):
+    #     P1 = sigma s B_{n-1} - (n/r) B_n
+    #     P2 = s^2 B_n + n(n+1) B_n/r^2 - sigma s B_{n-1}/r
+    #     P3 = (n/r) [ (1+n) B_n/r - sigma s B_{n-1} ]
+    _P1_C_I = +s * I0_s - 1.0 * I1_s / r
+    _P2_C_I = s * s * I1_s + 2.0 * I1_s / (r * r) - s * I0_s / r
+    _P3_C_I = 1.0 / r * (2.0 * I1_s / r - s * I0_s)
+    _P1_C_K = -s * K0_s - 1.0 * K1_s / r
+    _P2_C_K = s * s * K1_s + 2.0 * K1_s / (r * r) + s * K0_s / r
+    _P3_C_K = 1.0 / r * (2.0 * K1_s / r + s * K0_s)
     E[0, 0] = +p * I0_p - I1_p / r
     E[0, 1] = -p * K0_p - K1_p / r
-    E[0, 2] = -kz_c * I1_s
-    E[0, 3] = -kz_c * K1_s
+    E[0, 2] = kz_c * _P1_C_I
+    E[0, 3] = kz_c * _P1_C_K
     E[0, 4] = +I1_s / r
     E[0, 5] = +K1_s / r
     # Row 1: u_z
     E[1, 0] = -kz_c * I1_p
     E[1, 1] = -kz_c * K1_p
-    E[1, 2] = +s * I0_s
-    E[1, 3] = -s * K0_s
+    E[1, 2] = -s * s * I1_s
+    E[1, 3] = -s * s * K1_s
     E[1, 4] = 0.0
     E[1, 5] = 0.0
     # Row 2: u_theta
     E[2, 0] = -I1_p / r
     E[2, 1] = -K1_p / r
-    E[2, 2] = 0.0
-    E[2, 3] = 0.0
+    E[2, 2] = -kz_c * 1.0 / r * I1_s
+    E[2, 3] = -kz_c * 1.0 / r * K1_s
     E[2, 4] = -s * I0_s + I1_s / r
     E[2, 5] = +s * K0_s + K1_s / r
     # Row 3: sigma_rr
@@ -2800,23 +2852,23 @@ def _layer_e_matrix_n1_complex(
     E[3, 1] = +mu * (
         two_kz2_minus_kS2 * K1_p + 2.0 * p * K0_p / r + 4.0 * K1_p / (r * r)
     )
-    E[3, 2] = -2.0 * kz_c * mu * (s * I0_s - I1_s / r)
-    E[3, 3] = +2.0 * kz_c * mu * (s * K0_s + K1_s / r)
+    E[3, 2] = 2.0 * kz_c * mu * _P2_C_I
+    E[3, 3] = 2.0 * kz_c * mu * _P2_C_K
     E[3, 4] = +2.0 * mu * (s * I0_s / r - 2.0 * I1_s / (r * r))
     E[3, 5] = -2.0 * mu * (s * K0_s / r + 2.0 * K1_s / (r * r))
     # Row 4: sigma_rz. D cols cross-couple at n=1 (F.2.a.6 erratum:
     # the cos / sin sectors are NOT block-diagonal).
     E[4, 0] = -2.0 * kz_c * mu * (p * I0_p - I1_p / r)
     E[4, 1] = +2.0 * kz_c * mu * (p * K0_p + K1_p / r)
-    E[4, 2] = +mu * two_kz2_minus_kS2 * I1_s
-    E[4, 3] = +mu * two_kz2_minus_kS2 * K1_s
+    E[4, 2] = -two_kz2_minus_kS2 * mu * _P1_C_I
+    E[4, 3] = -two_kz2_minus_kS2 * mu * _P1_C_K
     E[4, 4] = -kz_c * mu * I1_s / r
     E[4, 5] = -kz_c * mu * K1_s / r
     # Row 5: sigma_r_theta
     E[5, 0] = +2.0 * mu * (-p * I0_p / r + 2.0 * I1_p / (r * r))
     E[5, 1] = +2.0 * mu * (+p * K0_p / r + 2.0 * K1_p / (r * r))
-    E[5, 2] = +kz_c * mu * I1_s / r
-    E[5, 3] = +kz_c * mu * K1_s / r
+    E[5, 2] = 2.0 * kz_c * mu * _P3_C_I
+    E[5, 3] = 2.0 * kz_c * mu * _P3_C_K
     E[5, 4] = -mu * (s * s * I1_s - 2.0 * s * I0_s / r + 4.0 * I1_s / (r * r))
     E[5, 5] = -mu * (s * s * K1_s + 2.0 * s * K0_s / r + 4.0 * K1_s / (r * r))
     return E
@@ -2996,13 +3048,22 @@ def _modal_determinant_n1_cased_complex(
     )
     E_form_b[4, 0] = +2.0 * kz_c * mu_form * (p_form * K0pb + K1pb / b)
     E_form_b[5, 0] = +2.0 * mu_form * (p_form * K0pb / b + 2.0 * K1pb / (b * b))
-    # Col 1: C_form (SV vector, K-flavour); col*(-i) absorbed
-    E_form_b[0, 1] = -kz_c * K1sb
-    E_form_b[1, 1] = -s_form * K0sb
-    E_form_b[2, 1] = 0.0
-    E_form_b[3, 1] = +2.0 * kz_c * mu_form * (s_form * K0sb + K1sb / b)
-    E_form_b[4, 1] = +mu_form * A_form * K1sb
-    E_form_b[5, 1] = +kz_c * mu_form * K1sb / b
+    # Col 1: C_form (SV vector, K-flavour); col*(-i) absorbed.
+    # Hansen form -- roadmap A.8; mirrors the C_K column of
+    # _layer_e_matrix_n1_complex with the leaky-branch Bessel pair,
+    # with P1 = d_r B_n and sigma = -1 for the K / Hankel family:
+    #     P1 = sigma s B_{n-1} - (n/r) B_n
+    #     P2 = s^2 B_n + n(n+1) B_n/r^2 - sigma s B_{n-1}/r
+    #     P3 = (n/r) [ (1+n) B_n/r - sigma s B_{n-1} ]
+    _P1_form = -s_form * K0sb - K1sb / b
+    _P2_form = s_form * s_form * K1sb + 2.0 * K1sb / (b * b) + s_form * K0sb / b
+    _P3_form = 1.0 / b * (2.0 * K1sb / b + s_form * K0sb)
+    E_form_b[0, 1] = kz_c * _P1_form
+    E_form_b[1, 1] = -s_form * s_form * K1sb
+    E_form_b[2, 1] = -kz_c * K1sb / b
+    E_form_b[3, 1] = 2.0 * kz_c * mu_form * _P2_form
+    E_form_b[4, 1] = -A_form * mu_form * _P1_form
+    E_form_b[5, 1] = 2.0 * kz_c * mu_form * _P3_form
     # Col 2: D_form (SH vector, K-flavour)
     E_form_b[0, 2] = +K1sb / b
     E_form_b[1, 2] = 0.0
@@ -3139,24 +3200,42 @@ def _layer_e_matrix_n2_complex(
 
     E: np.ndarray = np.zeros((6, 6), dtype=complex)
     # Row 0: u_r
+    # SV columns (Hansen form) -- roadmap A.8. fwap previously built
+    # these from a vector potential carrying only an azimuthal
+    # component, which the cylindrical vector Laplacian does not
+    # admit for n >= 1: the coupling between the radial and
+    # azimuthal components carries a factor n that such an ansatz
+    # has no term to cancel, so the column was not a solution of
+    # the elastodynamic equations. These are Schmitt & Cheng's
+    # appendix columns (pp. 235-236) in fwap's row order and phase,
+    # with P1 = d_r B_n, and B = I (sigma = +1) or K (sigma = -1):
+    #     P1 = sigma s B_{n-1} - (n/r) B_n
+    #     P2 = s^2 B_n + n(n+1) B_n/r^2 - sigma s B_{n-1}/r
+    #     P3 = (n/r) [ (1+n) B_n/r - sigma s B_{n-1} ]
+    _P1_C_I = +s * I1_s - 2.0 * I2_s / r
+    _P2_C_I = s * s * I2_s + 6.0 * I2_s / (r * r) - s * I1_s / r
+    _P3_C_I = 2.0 / r * (3.0 * I2_s / r - s * I1_s)
+    _P1_C_K = -s * K1_s - 2.0 * K2_s / r
+    _P2_C_K = s * s * K2_s + 6.0 * K2_s / (r * r) + s * K1_s / r
+    _P3_C_K = 2.0 / r * (3.0 * K2_s / r + s * K1_s)
     E[0, 0] = +p * I1_p - 2.0 * I2_p / r
     E[0, 1] = -p * K1_p - 2.0 * K2_p / r
-    E[0, 2] = -kz_c * I2_s
-    E[0, 3] = -kz_c * K2_s
+    E[0, 2] = kz_c * _P1_C_I
+    E[0, 3] = kz_c * _P1_C_K
     E[0, 4] = +2.0 * I2_s / r
     E[0, 5] = +2.0 * K2_s / r
     # Row 1: u_z
     E[1, 0] = -kz_c * I2_p
     E[1, 1] = -kz_c * K2_p
-    E[1, 2] = +s * I1_s - I2_s / r
-    E[1, 3] = -s * K1_s - K2_s / r
+    E[1, 2] = -s * s * I2_s
+    E[1, 3] = -s * s * K2_s
     E[1, 4] = 0.0
     E[1, 5] = 0.0
     # Row 2: u_theta
     E[2, 0] = -2.0 * I2_p / r
     E[2, 1] = -2.0 * K2_p / r
-    E[2, 2] = 0.0
-    E[2, 3] = 0.0
+    E[2, 2] = -kz_c * 2.0 / r * I2_s
+    E[2, 3] = -kz_c * 2.0 / r * K2_s
     E[2, 4] = -s * I1_s + 2.0 * I2_s / r
     E[2, 5] = +s * K1_s + 2.0 * K2_s / r
     # Row 3: sigma_rr
@@ -3166,22 +3245,22 @@ def _layer_e_matrix_n2_complex(
     E[3, 1] = +mu * (
         two_kz2_minus_kS2 * K2_p + 2.0 * p * K1_p / r + 12.0 * K2_p / (r * r)
     )
-    E[3, 2] = -2.0 * kz_c * mu * (s * I1_s - 2.0 * I2_s / r)
-    E[3, 3] = +2.0 * kz_c * mu * (s * K1_s + 2.0 * K2_s / r)
+    E[3, 2] = 2.0 * kz_c * mu * _P2_C_I
+    E[3, 3] = 2.0 * kz_c * mu * _P2_C_K
     E[3, 4] = +4.0 * mu * (s * I1_s / r - 3.0 * I2_s / (r * r))
     E[3, 5] = -4.0 * mu * (s * K1_s / r + 3.0 * K2_s / (r * r))
     # Row 4: sigma_rz
     E[4, 0] = -2.0 * kz_c * mu * (p * I1_p - 2.0 * I2_p / r)
     E[4, 1] = +2.0 * kz_c * mu * (p * K1_p + 2.0 * K2_p / r)
-    E[4, 2] = +mu * (two_kz2_minus_kS2 + 3.0 / (r * r)) * I2_s
-    E[4, 3] = +mu * (two_kz2_minus_kS2 + 3.0 / (r * r)) * K2_s
+    E[4, 2] = -two_kz2_minus_kS2 * mu * _P1_C_I
+    E[4, 3] = -two_kz2_minus_kS2 * mu * _P1_C_K
     E[4, 4] = -2.0 * kz_c * mu * I2_s / r
     E[4, 5] = -2.0 * kz_c * mu * K2_s / r
     # Row 5: sigma_r_theta
     E[5, 0] = +4.0 * mu * (-p * I1_p / r + 3.0 * I2_p / (r * r))
     E[5, 1] = +4.0 * mu * (+p * K1_p / r + 3.0 * K2_p / (r * r))
-    E[5, 2] = +2.0 * kz_c * mu * I2_s / r
-    E[5, 3] = +2.0 * kz_c * mu * K2_s / r
+    E[5, 2] = 2.0 * kz_c * mu * _P3_C_I
+    E[5, 3] = 2.0 * kz_c * mu * _P3_C_K
     E[5, 4] = -mu * ((s * s + 12.0 / (r * r)) * I2_s - 2.0 * s * I1_s / r)
     E[5, 5] = -mu * ((s * s + 12.0 / (r * r)) * K2_s + 2.0 * s * K1_s / r)
     return E
@@ -3346,13 +3425,22 @@ def _modal_determinant_n2_cased_complex(
     )
     E_form_b[4, 0] = +2.0 * kz_c * mu_form * (p_form * K1pb + 2.0 * K2pb / b)
     E_form_b[5, 0] = +4.0 * mu_form * (p_form * K1pb / b + 3.0 * K2pb / (b * b))
-    # Col 1: C_form (SV vector, K-flavour); col*(-i) absorbed
-    E_form_b[0, 1] = -kz_c * K2sb
-    E_form_b[1, 1] = -s_form * K1sb - K2sb / b
-    E_form_b[2, 1] = 0.0
-    E_form_b[3, 1] = +2.0 * kz_c * mu_form * (s_form * K1sb + 2.0 * K2sb / b)
-    E_form_b[4, 1] = +mu_form * (A_form + 3.0 / (b * b)) * K2sb
-    E_form_b[5, 1] = +2.0 * kz_c * mu_form * K2sb / b
+    # Col 1: C_form (SV vector, K-flavour); col*(-i) absorbed.
+    # Hansen form -- roadmap A.8; mirrors the C_K column of
+    # _layer_e_matrix_n2_complex with the leaky-branch Bessel pair,
+    # with P1 = d_r B_n and sigma = -1 for the K / Hankel family:
+    #     P1 = sigma s B_{n-1} - (n/r) B_n
+    #     P2 = s^2 B_n + n(n+1) B_n/r^2 - sigma s B_{n-1}/r
+    #     P3 = (n/r) [ (1+n) B_n/r - sigma s B_{n-1} ]
+    _P1_form = -s_form * K1sb - 2.0 * K2sb / b
+    _P2_form = s_form * s_form * K2sb + 6.0 * K2sb / (b * b) + s_form * K1sb / b
+    _P3_form = 2.0 / b * (3.0 * K2sb / b + s_form * K1sb)
+    E_form_b[0, 1] = kz_c * _P1_form
+    E_form_b[1, 1] = -s_form * s_form * K2sb
+    E_form_b[2, 1] = -kz_c * 2.0 / b * K2sb
+    E_form_b[3, 1] = 2.0 * kz_c * mu_form * _P2_form
+    E_form_b[4, 1] = -(A_form) * mu_form * _P1_form
+    E_form_b[5, 1] = 2.0 * kz_c * mu_form * _P3_form
     # Col 2: D_form (SH vector, K-flavour)
     E_form_b[0, 2] = +2.0 * K2sb / b
     E_form_b[1, 2] = 0.0

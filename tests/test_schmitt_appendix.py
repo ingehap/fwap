@@ -334,25 +334,27 @@ def test_the_p_and_sh_layer_columns_are_exact(n: int, matrix) -> None:
         (2, _layer_e_matrix_n2_complex),
     ],
 )
-def test_the_sv_layer_columns_are_not_solutions(n: int, matrix) -> None:
-    """Roadmap A.8, and the reason the cased determinants misbehave.
+def test_the_sv_layer_columns_are_solutions(n: int, matrix) -> None:
+    """Roadmap A.8, fixed: the SV columns are solutions again.
 
-    The two SV columns cannot be written in the appendix basis with
-    r-independent coefficients: they drift by tens of percent over the
-    same 4 cm. Since the appendix basis spans the whole solution space,
-    a column that is a solution *must* have constant coefficients, so
-    these are not solutions.
+    This test was written to fail. It found that the two SV columns
+    could not be written in the appendix basis with r-independent
+    coefficients -- they drifted by 24 to 86 % over a 4 cm change in
+    radius -- and since the appendix basis spans the whole solution
+    space, a column that is a solution *must* have constant
+    coefficients.
 
-    The cause is the ansatz. fwap builds the SV field from a vector
+    The cause was the ansatz. fwap built the SV field from a vector
     potential with only an azimuthal component; the cylindrical vector
     Laplacian couples the radial and azimuthal components through a term
     proportional to ``n``, which that ansatz has nothing to cancel. At
     ``n = 0`` the term vanishes -- hence the companion test on
     ``_layer_e_matrix_n0``.
 
-    If this test starts failing because the drift has collapsed, A.8 has
-    been fixed and the end-to-end comparison below should tighten with
-    it.
+    The columns are now the Hansen form ``curl curl(chi z)``, which is
+    Schmitt & Cheng's appendix column, and the drift has collapsed from
+    tens of percent to ~1e-12: the same bound the P and SH columns meet
+    in the test above.
     """
     kz = _OMEGA / _C_TRIAL
     if "complex" in matrix.__name__:
@@ -367,9 +369,10 @@ def test_the_sv_layer_columns_are_not_solutions(n: int, matrix) -> None:
 
     drift = _coefficient_drift(at, n, _RADII, _CEMENT)
     for c in (2, 3):
-        assert drift[c] > 0.1, (
-            f"{matrix.__name__} col {c}: drift {drift[c]:.2e} -- if this has "
-            "gone to zero the SV basis has been corrected"
+        assert drift[c] < 1.0e-8, (
+            f"{matrix.__name__} col {c}: drift {drift[c]:.2e} -- the SV "
+            "columns must express in the appendix basis with constant "
+            "coefficients, like the P and SH columns"
         )
 
 
@@ -467,15 +470,28 @@ def _appendix_sigma_min(c: float, omega: float, n: int = 1) -> float:
         return np.inf
 
 
-def test_the_appendix_beats_fwap_on_the_published_invaded_curve() -> None:
-    """The end-to-end cost of the SV defect, against figure 15.
+def test_the_appendix_and_fwap_now_agree_on_the_published_invaded_curve() -> None:
+    """The end-to-end check that closed A.8, against figure 15.
 
-    A determinant assembled only from the appendix lands within about
-    0.4 % of the published curve and shows no systematic sign.
-    ``flexural_dispersion_layered`` is low at every frequency by 1.5-2 %.
-    Figure 15's "1.47 % rms" was read, when it was measured, as the
-    layered propagator being sound; it is nearly sound, and this is what
-    the remaining 1.5 % is.
+    This test was the measurement that made A.8 a finding. A determinant
+    assembled only from the appendix landed within about 0.4 % of the
+    published curve with no systematic sign, while
+    ``flexural_dispersion_layered`` was low at every frequency by
+    1.5-2 %. Figure 15's "1.47 % rms" had been read, when it was
+    measured, as the layered propagator being sound; it was nearly
+    sound, and the remaining 1.5 % was the SV column.
+
+    With the column corrected the two formulations are the same answer:
+
+        f (kHz)   published   appendix          fwap
+          5.0        985.0      985.4 (+0.05%)    985.5 (+0.05%)
+          6.0        970.1      968.2 (-0.19%)    968.3 (-0.18%)
+          8.0        952.5      951.0 (-0.16%)    951.0 (-0.16%)
+
+    They agree with each other to 0.011 % and with the figure to 0.19 %,
+    and fwap's one-sided bias is gone. Kept as a tie: an independent
+    assembly of the same boundary-value problem now reproduces the
+    solver, which is the strongest form this check can take.
     """
     appendix_err, fwap_err = [], []
     for freq, published in _FIG15A_INVADED_16CM:
@@ -515,12 +531,15 @@ def test_the_appendix_beats_fwap_on_the_published_invaded_curve() -> None:
 
     appendix = np.array(appendix_err)
     fwap = np.array(fwap_err)
-    assert np.abs(appendix).max() < 0.01, f"appendix {100 * appendix}"
-    assert np.all(fwap < -0.008), f"fwap should be low everywhere: {100 * fwap}"
-    assert np.abs(appendix).max() < np.abs(fwap).min(), (
-        f"appendix worst {100 * np.abs(appendix).max():.2f} % vs fwap best "
-        f"{100 * np.abs(fwap).min():.2f} %"
+    assert np.abs(appendix).max() < 0.005, f"appendix {100 * appendix}"
+    assert np.abs(fwap).max() < 0.005, f"fwap {100 * fwap}"
+    # The two assemblies agree with each other far more tightly than
+    # either agrees with the digitised curve.
+    assert np.abs(fwap - appendix).max() < 5.0e-4, (
+        f"appendix {100 * appendix} vs fwap {100 * fwap}"
     )
+    # And fwap's bias is gone: it is no longer low at every frequency.
+    assert not np.all(fwap < 0.0), f"fwap {100 * fwap}"
 
 
 # ----------------------------------------------------------------------
@@ -536,10 +555,10 @@ def test_the_appendix_beats_fwap_on_the_published_invaded_curve() -> None:
 # comparing both against figure 8a's three published curves for the same
 # rock:
 #
-#     mode              n    appendix    fwap
-#     Stoneley          0    0.03 %      0.03 %
-#     flexural          1    **0.08 %**  1.30 %
-#     screw             2    **0.06 %**  0.43 %
+#     mode              n    appendix    fwap (before)   fwap (now)
+#     Stoneley          0    0.03 %      0.03 %          0.032 %
+#     flexural          1    **0.08 %**  1.30 %          **0.075 %**
+#     screw             2    **0.06 %**  0.43 %          **0.057 %**
 #
 # Two things follow. The published curves are reproducible to **0.06 %**,
 # so the "about +-1 %" that this project has been calling the
@@ -562,31 +581,33 @@ def test_the_appendix_beats_fwap_on_the_published_invaded_curve() -> None:
 # to `_modal_determinant_n1` and `_modal_determinant_n2` (real and
 # complex), it moved figure 8a's flexural from **1.29 % to 0.063 % rms**
 # and its screw from **0.43 % to 0.058 %**, and the fast-formation
-# flexural of figures 2a and 7a from 0.78 / 1.03 / 0.87 % to
-# **0.23 / 0.38 / 0.44 %**.
+# flexural of figure 2a from 0.78 % to **0.16 %**.
 #
-# It was reverted because it is only half the change. The layered paths
-# carry the same ansatz in separate code, so correcting the open hole
-# alone breaks five internal-consistency invariants -- `layer ==
-# formation` no longer collapses to the unlayered result -- and leaves
-# the solver in a worse state than either endpoint. The full change is
-# 63 SV-column references across `_cased.py` and `_n1_layered.py`, about
-# thirty-six test updates and a golden regeneration. Roadmap A.8 carries
-# the recipe.
+# **It is now landed everywhere**, including the layered paths, the
+# cased propagator E-matrices (real and complex), the hand-coded 10x10
+# single-layer determinant and the VTI qSV column, so the
+# `layer == formation` and `N=1 vs F.2` invariants hold against the
+# corrected forms rather than the old ones. The tests in this file that
+# were written to fail while the defect stood have been inverted; they
+# now pin the agreement.
 
 
-def test_the_open_hole_determinants_carry_the_same_defect() -> None:
-    """A.8 reaches further than the layer matrices.
+def test_the_open_hole_determinants_match_the_appendix() -> None:
+    """A.8 reached further than the layer matrices, and is closed there.
 
     Figure 8a plots three modes for one slow sandstone. Rebuilt from the
     appendix, all three land within 0.1 % of the published curve. fwap
-    matches at ``n = 0`` and is an order of magnitude worse at ``n = 1``
-    and ``n = 2`` -- the orders where the azimuthal-only SV ansatz stops
-    being a solution.
+    used to match at ``n = 0`` and be an order of magnitude worse at
+    ``n = 1`` and ``n = 2`` -- the orders where the azimuthal-only SV
+    ansatz stops being a solution:
 
-    If this test starts failing because the n >= 1 gap has closed, A.8
-    has been fixed and this file's section 5 should be rewritten as a
-    tie rather than a defect.
+        mode         n    appendix    fwap (before)   fwap (now)
+        Stoneley     0    0.03 %      0.03 %          0.032 %
+        flexural     1    0.08 %      1.30 %          0.075 %
+        screw        2    0.06 %      0.43 %          0.057 %
+
+    All three now sit at the appendix's own agreement with the figure,
+    and the n >= 1 / n = 0 split is gone.
     """
     from fwap import flexural_dispersion, stoneley_dispersion
     from fwap.cylindrical_solver import quadrupole_dispersion
@@ -608,9 +629,10 @@ def test_the_open_hole_determinants_carry_the_same_defect() -> None:
         assert finite.all(), f"n={n}: {got}"
         scores[n] = float(np.sqrt((((got - ref) / ref) ** 2).mean()))
 
-    # n = 0 is the control: the ansatz is a solution there.
+    # n = 0 is the control: the ansatz was always a solution there.
     assert scores[0] < 0.002, f"n=0 rms {scores[0]:.2%}"
-    # n >= 1 carry the defect, an order of magnitude worse.
-    assert scores[1] > 0.005, f"n=1 rms {scores[1]:.2%}"
-    assert scores[2] > 0.002, f"n=2 rms {scores[2]:.2%}"
-    assert scores[1] > 5.0 * scores[0]
+    # n >= 1 now sit at the same level rather than an order of magnitude
+    # above it.
+    assert scores[1] < 0.002, f"n=1 rms {scores[1]:.2%}"
+    assert scores[2] < 0.002, f"n=2 rms {scores[2]:.2%}"
+    assert scores[1] < 5.0 * scores[0]

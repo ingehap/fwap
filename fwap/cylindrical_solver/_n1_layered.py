@@ -554,57 +554,38 @@ def flexural_dispersion_layered(
     for i, f in enumerate(f_arr):
         omega = 2.0 * np.pi * float(f)
 
-        if n_layers == 1:
-            layer = layers_tuple[0]
-
-            def _det(kz_, omega=omega, layer=layer):
-                return _modal_determinant_n1_layered(
-                    kz_,
-                    omega,
-                    vp,
-                    vs,
-                    rho,
-                    vf,
-                    rho_f,
-                    a,
-                    layer=layer,
-                )
-
-            kz_lo, kz_hi = _flexural_kz_bracket_layered(
+        # Every layer count goes through the cased determinant. A
+        # single layer used to be routed through the standalone
+        # ``_modal_determinant_n1_layered``, a second implementation of
+        # the same boundary-value problem. Both carried the SV ansatz
+        # corrected under roadmap A.8, and keeping two copies of that
+        # correction in step is exactly the drift the
+        # ``layer == formation`` invariants exist to catch.
+        # ``_modal_determinant_n1_layered`` is retained as a directly
+        # pinned algebraic reference; it is no longer on this path.
+        def _det(kz_, omega=omega, layers_tuple=layers_tuple):
+            return _modal_determinant_n1_cased(
+                kz_,
                 omega,
-                vp,
-                vs,
-                rho,
-                vf,
-                rho_f,
-                a,
-                layer,
+                vp=vp,
+                vs=vs,
+                rho=rho,
+                vf=vf,
+                rho_f=rho_f,
+                a=a,
+                layers=layers_tuple,
             )
-        else:
 
-            def _det(kz_, omega=omega, layers_tuple=layers_tuple):
-                return _modal_determinant_n1_cased(
-                    kz_,
-                    omega,
-                    vp=vp,
-                    vs=vs,
-                    rho=rho,
-                    vf=vf,
-                    rho_f=rho_f,
-                    a=a,
-                    layers=layers_tuple,
-                )
-
-            kz_lo, kz_hi = _flexural_kz_bracket_cased(
-                omega,
-                vp,
-                vs,
-                rho,
-                vf,
-                rho_f,
-                a,
-                layers_tuple,
-            )
+        kz_lo, kz_hi = _flexural_kz_bracket_cased(
+            omega,
+            vp,
+            vs,
+            rho,
+            vf,
+            rho_f,
+            a,
+            layers_tuple,
+        )
         try:
             d_lo = _det(kz_lo)
             d_hi = _det(kz_hi)
@@ -738,6 +719,26 @@ def flexural_dispersion_layered(
 # Substep F.2.a.2 -- displacements per region (cos and sin sectors)
 # =====================================================================
 #
+# The SV amplitude C is the Hansen potential -- roadmap A.8. Its
+# displacement field is
+#
+#       u^{(C)} = curl curl (chi z),   chi = C X_1(s r) e^{i theta}
+#
+# which has THREE non-zero components,
+#
+#       u_r     = i k_z d_r chi
+#       u_theta = i k_z (n / r) chi          (n = 1 here)
+#       u_z     = -s^2 chi
+#
+# An azimuthal-only vector potential ``psi_theta e_theta`` -- which
+# is what the C columns encoded before the A.8 correction, and what
+# gives ``u_r ~ X_1`` with no u_theta at all -- is not a solution of
+# the elastodynamic equations for n >= 1: the cylindrical vector
+# Laplacian couples the radial and azimuthal components through a
+# term proportional to n that such an ansatz has no term to cancel.
+# It happens to be a solution at n = 0, which is why the n=0 layered
+# block (F.1) is unaffected.
+#
 # Bessel-derivative identities reused from F.1.a.2 (sign-flipped
 # I-twin of the K-flavour identities the existing n=1 block uses):
 #
@@ -757,14 +758,16 @@ def flexural_dispersion_layered(
 #     u_r^{(s,K)}     = -B  p   K_0(p r)
 #                       - B  K_1(p r) / r
 #                       + D  K_1(s r) / r
-#                       - i k_z C  K_1(s r)        (cos)
+#                       - i k_z C  [s K_0(s r)
+#                                    + K_1(s r) / r]   (cos)
 #
 #     u_z^{(s,K)}     = i k_z B  K_1(p r)
-#                       - C  s   K_0(s r)          (cos)
+#                       - C  s^2 K_1(s r)          (cos)
 #
-#   Sin sector (u_theta only; B and D contribute):
+#   Sin sector (u_theta; B, C and D all contribute):
 #
 #     u_theta^{(s,K)} = -B  K_1(p r) / r
+#                       - k_z C  K_1(s r) / r
 #                       + D  s   K_0(s r)
 #                       + D  K_1(s r) / r          (sin)
 #
@@ -776,14 +779,16 @@ def flexural_dispersion_layered(
 #     u_r^{(m,I)}     = +B_I p_m I_0(p_m r)
 #                       - B_I I_1(p_m r) / r
 #                       + D_I I_1(s_m r) / r
-#                       - i k_z C_I I_1(s_m r)     (cos)
+#                       + i k_z C_I [s_m I_0(s_m r)
+#                                     - I_1(s_m r) / r]  (cos)
 #
 #     u_z^{(m,I)}     = i k_z B_I I_1(p_m r)
-#                       + C_I s_m I_0(s_m r)       (cos)
+#                       - C_I s_m^2 I_1(s_m r)     (cos)
 #
 #   Sin sector:
 #
 #     u_theta^{(m,I)} = -B_I I_1(p_m r) / r
+#                       - k_z C_I I_1(s_m r) / r
 #                       + D_I s_m I_0(s_m r)
 #                       + D_I I_1(s_m r) / r       (sin)
 #
@@ -794,7 +799,7 @@ def flexural_dispersion_layered(
 #     +B_I p_m I_0(p_m r) vs -B_K p_m K_0(p_m r).
 #   * The "I_1 / r" / "K_1 / r" coefficient KEEPS sign:
 #     -B_I I_1(p_m r) / r vs -B_K K_1(p_m r) / r.
-#   * The "s I_0" / "s K_0" coefficient in u_z and u_theta flips
+#   * The "s I_0" / "s K_0" coefficient in u_r and u_theta flips
 #     sign: +C_I s_m I_0 vs -C_K s_m K_0; +D_I s_m I_0 vs
 #     -D_K s_m K_0.
 #
@@ -842,7 +847,8 @@ def flexural_dispersion_layered(
 #           + 2 mu p K_0(p r) / r        (... Lame-reduced)
 #           + 4 mu K_1(p r) / r^2
 #
-#       C:  -2 i k_z mu [s K_0(s r) + K_1(s r) / r]
+#       C:  -2 i k_z mu [s^2 K_1(s r) + s K_0(s r) / r
+#                         + 2 K_1(s r) / r^2]
 #
 #       D:  +2 mu [s K_0(s r) / r + 2 K_1(s r) / r^2]
 #
@@ -850,7 +856,7 @@ def flexural_dispersion_layered(
 #
 #       B:  -2 mu [p K_0(p r) / r + 2 K_1(p r) / r^2]
 #
-#       C:  -mu k_z K_1(s r) / r
+#       C:  -2 mu k_z [s K_0(s r) / r + 2 K_1(s r) / r^2]
 #
 #       D:  mu [s^2 K_1(s r) + 2 s K_0(s r) / r + 4 K_1(s r) / r^2]
 #
@@ -858,9 +864,10 @@ def flexural_dispersion_layered(
 #
 #       B:  -2 i k_z mu [p K_0(p r) + K_1(p r) / r]
 #
-#       C:  i mu (2 k_z^2 - k_S^2) K_1(s r)        ... (the i comes
-#           from the substep-1.5 row-4-by-i convention; in the
-#           pre-rescale form, this is ``mu (2 k_z^2 - k_S^2) K_1``
+#       C:  i mu (2 k_z^2 - k_S^2) [s K_0(s r)
+#                                     + K_1(s r) / r]  ... (the i
+#           comes from the substep-1.5 row-4-by-i convention; in the
+#           pre-rescale form this is ``mu (2 k_z^2 - k_S^2) d_r K_1``
 #           multiplied by i.)
 #
 #       D:  -i k_z mu K_1(s r) / r
@@ -986,12 +993,12 @@ def flexural_dispersion_layered(
 #   Sin rows:
 #
 #     Row 3  (sigma_rtheta at a) : A 0 | B R     | C i*R   | D R
-#     Row 6  (u_theta at r=b)    : A 0 | B R     | C 0     | D R
+#     Row 6  (u_theta at r=b)    : A 0 | B R     | C i*R   | D R
 #     Row 9  (sigma_rtheta at b) : A 0 | B R     | C i*R   | D R
 #
-# (The C-columns enter the sin-sector sigma_rtheta rows via the
-# ``(1/r) d_theta u_r`` mechanism, with the ``i k_z`` factor on
-# the C amplitude in u_r preserved by the d_theta. The D-columns
+# (The C-columns enter the sin-sector rows -- sigma_rtheta and
+# u_theta alike -- with the ``i k_z`` factor on the C amplitude
+# preserved by the d_theta. The D-columns
 # enter the cos-sector u_r / sigma_rr rows via the ``(1/r)
 # d_theta(psi_z)`` mechanism, with no ``i k_z`` factor since
 # psi_z carries no ``d_z``. Row 7 has ``D 0`` because u_z does
@@ -1017,10 +1024,10 @@ def flexural_dispersion_layered(
 #                          = +1 * det(M_10)
 #
 # So the rescaling is determinant-preserving, the same property
-# F.1.a.5 relied on. Note row 6 has ``C 0`` (u_theta does not
-# couple to the C amplitude per the substep-F.2.a.2 derivation),
-# so the col-by-(-i) on column C is irrelevant in that row but
-# still applied uniformly across the matrix.
+# F.1.a.5 relied on. Row 6 (u_theta) does couple to the C amplitude
+# at n >= 1 -- see the roadmap-A.8 note in substep F.2.a.2 -- with
+# an ``i k_z (n/r) chi`` entry that the col-by-(-i) makes real like
+# every other C entry.
 
 # =====================================================================
 # Substep F.2.a.6 -- assembly structure (block-diagonal claim
@@ -1256,10 +1263,14 @@ def _layered_n1_row3_at_a(
     row[1] = 2.0 * mu_m * (-p_m * I0_pm_a / a + 2.0 * I1_pm_a / (a * a))
     # B_K column (matches M32 at layer=formation).
     row[2] = 2.0 * mu_m * (+p_m * K0_pm_a / a + 2.0 * K1_pm_a / (a * a))
+    # SV columns (Hansen form) -- roadmap A.8: u = curl curl(chi z)
+    # has radial, azimuthal AND axial components; the azimuthal-only
+    # vector potential the old columns encoded is not a solution of
+    # the elastodynamic equations for n >= 1.
     # C_I column (post-rescale; col-by-(-i) cancels the +i factor).
-    row[3] = +kz * mu_m * I1_sm_a / a
+    row[3] = 2.0 * kz * mu_m * (-s_m * I0_sm_a / a + 2.0 * I1_sm_a / (a * a))
     # C_K column (matches M33 at layer=formation).
-    row[4] = +kz * mu_m * K1_sm_a / a
+    row[4] = 2.0 * kz * mu_m * (+s_m * K0_sm_a / a + 2.0 * K1_sm_a / (a * a))
     # Formation columns (B, C, D) vanish at r = a.
     row[5] = 0.0
     row[6] = 0.0
@@ -1289,42 +1300,46 @@ def _layered_n1_row3_at_a(
 #
 # Coefficients from substep F.2.a.2's u_theta formulae:
 #
-#   u_theta^{(m,K)} = -B_K K_1(p_m r)/r + D_K [s_m K_0(s_m r) + K_1(s_m r)/r]
-#   u_theta^{(m,I)} = -B_I I_1(p_m r)/r + D_I [-s_m I_0(s_m r) + I_1(s_m r)/r]
+#   u_theta^{(m,K)} = -B_K K_1(p_m r)/r - i k_z C_K K_1(s_m r)/r
+#                                        + D_K [s_m K_0(s_m r) + K_1(s_m r)/r]
+#   u_theta^{(m,I)} = -B_I I_1(p_m r)/r - i k_z C_I I_1(s_m r)/r
+#                                        + D_I [-s_m I_0(s_m r) + I_1(s_m r)/r]
 #                                          (sign flip on +s I_0)
-#   u_theta^{(s)}    = -B   K_1(p r)/r   + D   [s   K_0(s r) + K_1(s r)/r]
+#   u_theta^{(s)}   = -B   K_1(p r)/r   - i k_z C   K_1(s r)/r
+#                                        + D   [s   K_0(s r) + K_1(s r)/r]
 #
-# C does NOT appear in u_theta (substep F.2.a.2): the SV potential
-# psi_theta enters via -d_z(psi_theta) in u_r and via the SV part
-# of curl in u_z, but not directly in u_theta. C columns (3, 4, 6)
-# are therefore identically zero in row 6.
+# C DOES appear in u_theta at n >= 1 -- roadmap A.8. The Hansen SV
+# field ``curl curl(chi z)`` carries ``u_theta = i k_z (n/r) chi``,
+# which vanishes only at n = 0. Substep F.2.a.2 originally asserted
+# the opposite, because the C columns then encoded an azimuthal-only
+# vector potential ``psi_theta e_theta``, which has no u_theta at
+# all -- and is not a solution of the elastodynamic equations for
+# n >= 1. Columns 3, 4 and 6 are therefore non-zero in row 6.
 #
 # Subtracting (annulus - formation):
 #
-#       Row 6 (pre-rescale, all real -- no z-derivative-bearing
-#       terms in u_theta) =
+#       Row 6 (pre-rescale; the B and D entries are real, the C
+#       entries carry the ``i k_z`` of u_theta) =
 #
 #           [  0,                                  (A; fluid r<a)
 #             -I_1(p_m b) / b,                     (B_I)
 #             -K_1(p_m b) / b,                     (B_K)
-#              0,                                  (C_I -- not in u_theta)
-#              0,                                  (C_K -- not in u_theta)
+#             -i k_z I_1(s_m b) / b,               (C_I)
+#             -i k_z K_1(s_m b) / b,               (C_K)
 #             +K_1(p b) / b,                       (B; subtracted)
-#              0,                                  (C -- not in u_theta)
+#             +i k_z K_1(s b) / b,                 (C; subtracted)
 #             -s_m I_0(s_m b) + I_1(s_m b) / b,    (D_I; sign flip on s_m I_0)
 #             +s_m K_0(s_m b) + K_1(s_m b) / b,    (D_K)
 #             -s K_0(s b) - K_1(s b) / b ]        (D; subtracted)
 #
-# Imaginary-power pattern: all real (matches F.2.a.5 row-6 entry
-# ``A 0 | B R | C 0 | D R``). Phase rescale: row 6 is NOT
-# z-derivative-bearing (no row * i); the column-by-(-i) on C
-# columns is irrelevant since C entries are zero. Row 6 is real
-# both pre- and post-rescale.
+# Imaginary-power pattern: matches the F.2.a.5 row-6 entry
+# ``A 0 | B R | C i*R | D R``. Phase rescale: row 6 is NOT
+# z-derivative-bearing (no row * i); the column-by-(-i) on the C
+# columns makes their ``i k_z`` entries real, so the row is real
+# post-rescale.
 #
 # Substep-F.2.a.7 (a) K-flavour cancellation at layer=formation:
-# B_K + B = 0 (rows 2 and 5 cancel) and D_K + D = 0 (rows 8 and 9
-# cancel). The C columns are zero on both sides, so no C
-# cancellation to verify (C doesn't appear in u_theta at all).
+# B_K + B = 0, C_K + C = 0 and D_K + D = 0.
 
 
 def _layered_n1_row6_at_b(
@@ -1412,13 +1427,17 @@ def _layered_n1_row6_at_b(
     row[1] = -I1_pm_b / b
     # B_K column (annulus P, singular branch).
     row[2] = -K1_pm_b / b
-    # C columns are zero throughout row 6 (C doesn't appear in u_theta).
-    row[3] = 0.0
-    row[4] = 0.0
+    # C columns -- roadmap A.8. They are NOT zero: the Hansen SV
+    # field ``curl curl(chi z)`` carries u_theta = i k_z (n/r) chi,
+    # which vanishes only at n = 0. The old azimuthal-only vector
+    # potential had no u_theta at all, which is what made these
+    # entries look structurally absent.
+    row[3] = -kz * I1_sm_b / b
+    row[4] = -kz * K1_sm_b / b
     # B column (formation P; sign-flipped vs B_K because subtracted).
     row[5] = +K1_p_b / b
-    # C column (formation; zero by the same C-not-in-u_theta reason).
-    row[6] = 0.0
+    # C column (formation; subtracted -- see the annulus C columns).
+    row[6] = +kz * K1_s_b / b
     # D_I column (annulus SH; sign flip on the d_r-induced ``s_m I_0`` term).
     row[7] = -s_m * I0_sm_b + I1_sm_b / b
     # D_K column (annulus SH).
@@ -1555,13 +1574,17 @@ def _layered_n1_row9_at_b(
     row[1] = 2.0 * mu_m * (-p_m * I0_pm_b / b + 2.0 * I1_pm_b / (b * b))
     # B_K (matches row 3 B_K form at r=b instead of r=a).
     row[2] = 2.0 * mu_m * (+p_m * K0_pm_b / b + 2.0 * K1_pm_b / (b * b))
+    # SV columns (Hansen form) -- roadmap A.8: u = curl curl(chi z)
+    # has radial, azimuthal AND axial components; the azimuthal-only
+    # vector potential the old columns encoded is not a solution of
+    # the elastodynamic equations for n >= 1.
     # C_I, C_K (post-rescale; col-by-(-i) cancels +i factor).
-    row[3] = +kz * mu_m * I1_sm_b / b
-    row[4] = +kz * mu_m * K1_sm_b / b
+    row[3] = 2.0 * kz * mu_m * (-s_m * I0_sm_b / b + 2.0 * I1_sm_b / (b * b))
+    row[4] = 2.0 * kz * mu_m * (+s_m * K0_sm_b / b + 2.0 * K1_sm_b / (b * b))
     # B column (formation; subtracted, sign-flipped vs B_K at layer=formation).
     row[5] = -2.0 * mu * (+p * K0_p_b / b + 2.0 * K1_p_b / (b * b))
     # C column (formation; subtracted, post-rescale).
-    row[6] = -kz * mu * K1_s_b / b
+    row[6] = -2.0 * kz * mu * (s * K0_s_b / b + 2.0 * K1_s_b / (b * b))
     # D_I (sign-flipped d_r-induced ``s_m I_0/b`` term).
     row[7] = -mu_m * (
         s_m * s_m * I1_sm_b - 2.0 * s_m * I0_sm_b / b + 4.0 * I1_sm_b / (b * b)
@@ -1696,7 +1719,9 @@ def _layered_n1_row1_at_a(
     I1_pm_a = float(special.iv(1, p_m * a))
     K0_pm_a = float(special.kv(0, p_m * a))
     K1_pm_a = float(special.kv(1, p_m * a))
+    I0_sm_a = float(special.iv(0, s_m * a))
     I1_sm_a = float(special.iv(1, s_m * a))
+    K0_sm_a = float(special.kv(0, s_m * a))
     K1_sm_a = float(special.kv(1, s_m * a))
 
     row: np.ndarray = np.zeros(10, dtype=complex)
@@ -1706,10 +1731,14 @@ def _layered_n1_row1_at_a(
     row[1] = -p_m * I0_pm_a + I1_pm_a / a
     # B_K column (matches M12 at layer=formation).
     row[2] = +p_m * K0_pm_a + K1_pm_a / a
+    # SV columns (Hansen form) -- roadmap A.8: u = curl curl(chi z)
+    # has radial, azimuthal AND axial components; the azimuthal-only
+    # vector potential the old columns encoded is not a solution of
+    # the elastodynamic equations for n >= 1.
     # C_I column (post-rescale; col-by-(-i) cancels +i factor).
-    row[3] = +kz * I1_sm_a
+    row[3] = +kz * (I1_sm_a / a - s_m * I0_sm_a)
     # C_K column (matches M13 at layer=formation; post-rescale).
-    row[4] = +kz * K1_sm_a
+    row[4] = +kz * (s_m * K0_sm_a + K1_sm_a / a)
     # Formation columns (B, C) vanish at r = a.
     row[5] = 0.0
     row[6] = 0.0
@@ -1849,10 +1878,24 @@ def _layered_n1_row2_at_a(
     row[2] = -mu_m * (
         two_kz2_minus_kSm2 * K1_pm_a + 2.0 * p_m * K0_pm_a / a + 4.0 * K1_pm_a / (a * a)
     )
+    # SV columns (Hansen form) -- roadmap A.8: u = curl curl(chi z)
+    # has radial, azimuthal AND axial components; the azimuthal-only
+    # vector potential the old columns encoded is not a solution of
+    # the elastodynamic equations for n >= 1.
     # C_I column (post-rescale; col-by-(-i) cancels +i factor).
-    row[3] = +2.0 * kz * mu_m * (s_m * I0_sm_a - I1_sm_a / a)
+    row[3] = (
+        -2.0
+        * kz
+        * mu_m
+        * (s_m * s_m * I1_sm_a - s_m * I0_sm_a / a + 2.0 * I1_sm_a / (a * a))
+    )
     # C_K column (matches M23 at layer=formation).
-    row[4] = -2.0 * kz * mu_m * (s_m * K0_sm_a + K1_sm_a / a)
+    row[4] = (
+        -2.0
+        * kz
+        * mu_m
+        * (s_m * s_m * K1_sm_a + s_m * K0_sm_a / a + 2.0 * K1_sm_a / (a * a))
+    )
     # Formation columns (B, C) vanish at r = a.
     row[5] = 0.0
     row[6] = 0.0
@@ -1997,7 +2040,9 @@ def _layered_n1_row4_at_a(
     I1_pm_a = float(special.iv(1, p_m * a))
     K0_pm_a = float(special.kv(0, p_m * a))
     K1_pm_a = float(special.kv(1, p_m * a))
+    I0_sm_a = float(special.iv(0, s_m * a))
     I1_sm_a = float(special.iv(1, s_m * a))
+    K0_sm_a = float(special.kv(0, s_m * a))
     K1_sm_a = float(special.kv(1, s_m * a))
 
     mu_m = layer.rho * layer.vs * layer.vs
@@ -2011,10 +2056,14 @@ def _layered_n1_row4_at_a(
     row[1] = -2.0 * kz * mu_m * (p_m * I0_pm_a - I1_pm_a / a)
     # B_K column (matches M42 at layer=formation).
     row[2] = +2.0 * kz * mu_m * (p_m * K0_pm_a + K1_pm_a / a)
+    # SV columns (Hansen form) -- roadmap A.8: u = curl curl(chi z)
+    # has radial, azimuthal AND axial components; the azimuthal-only
+    # vector potential the old columns encoded is not a solution of
+    # the elastodynamic equations for n >= 1.
     # C_I column (post-rescale; row * i AND col-by-(-i), net factor 1).
-    row[3] = +mu_m * two_kz2_minus_kSm2 * I1_sm_a
+    row[3] = +mu_m * two_kz2_minus_kSm2 * (I1_sm_a / a - s_m * I0_sm_a)
     # C_K column (matches M43 at layer=formation).
-    row[4] = +mu_m * two_kz2_minus_kSm2 * K1_sm_a
+    row[4] = +mu_m * two_kz2_minus_kSm2 * (s_m * K0_sm_a + K1_sm_a / a)
     # Formation columns (B, C) vanish at r = a.
     row[5] = 0.0
     row[6] = 0.0
@@ -2135,10 +2184,13 @@ def _layered_n1_row5_at_b(
     I1_pm_b = float(special.iv(1, p_m * b))
     K0_pm_b = float(special.kv(0, p_m * b))
     K1_pm_b = float(special.kv(1, p_m * b))
+    I0_sm_b = float(special.iv(0, s_m * b))
     I1_sm_b = float(special.iv(1, s_m * b))
+    K0_sm_b = float(special.kv(0, s_m * b))
     K1_sm_b = float(special.kv(1, s_m * b))
     K0_p_b = float(special.kv(0, p * b))
     K1_p_b = float(special.kv(1, p * b))
+    K0_s_b = float(special.kv(0, s * b))
     K1_s_b = float(special.kv(1, s * b))
 
     row: np.ndarray = np.zeros(10, dtype=complex)
@@ -2148,14 +2200,18 @@ def _layered_n1_row5_at_b(
     row[1] = +p_m * I0_pm_b - I1_pm_b / b
     # B_K column (annulus, sign flipped vs row 1 due to BC subtraction).
     row[2] = -p_m * K0_pm_b - K1_pm_b / b
+    # SV columns (Hansen form) -- roadmap A.8: u = curl curl(chi z)
+    # has radial, azimuthal AND axial components; the azimuthal-only
+    # vector potential the old columns encoded is not a solution of
+    # the elastodynamic equations for n >= 1.
     # C_I column (post-rescale; col-by-(-i) cancels -i factor).
-    row[3] = -kz * I1_sm_b
+    row[3] = +kz * (s_m * I0_sm_b - I1_sm_b / b)
     # C_K column (post-rescale).
-    row[4] = -kz * K1_sm_b
+    row[4] = -kz * (s_m * K0_sm_b + K1_sm_b / b)
     # B column (formation; subtracted, sign-flipped vs B_K at layer=formation).
     row[5] = +p * K0_p_b + K1_p_b / b
     # C column (formation; subtracted, post-rescale).
-    row[6] = +kz * K1_s_b
+    row[6] = +kz * (s * K0_s_b + K1_s_b / b)
     # D_I column (annulus SH cross-coupling).
     row[7] = +I1_sm_b / b
     # D_K column (annulus SH).
@@ -2289,12 +2345,12 @@ def _layered_n1_row7_at_b(
     del F_f  # row 7 doesn't touch the fluid column
     b = a + layer.thickness
 
-    I0_sm_b = float(special.iv(0, s_m * b))
     I1_pm_b = float(special.iv(1, p_m * b))
-    K0_sm_b = float(special.kv(0, s_m * b))
+    I1_sm_b = float(special.iv(1, s_m * b))
     K1_pm_b = float(special.kv(1, p_m * b))
-    K0_s_b = float(special.kv(0, s * b))
+    K1_sm_b = float(special.kv(1, s_m * b))
     K1_p_b = float(special.kv(1, p * b))
+    K1_s_b = float(special.kv(1, s * b))
 
     row: np.ndarray = np.zeros(10, dtype=complex)
     # A column: fluid r<a; doesn't reach r=b.
@@ -2303,14 +2359,18 @@ def _layered_n1_row7_at_b(
     row[1] = -kz * I1_pm_b
     # B_K column (post-rescale).
     row[2] = -kz * K1_pm_b
+    # SV columns (Hansen form) -- roadmap A.8: u = curl curl(chi z)
+    # has radial, azimuthal AND axial components; the azimuthal-only
+    # vector potential the old columns encoded is not a solution of
+    # the elastodynamic equations for n >= 1.
     # C_I column (post-rescale; row * i AND col-by-(-i), net factor 1).
-    row[3] = +s_m * I0_sm_b
-    # C_K column (post-rescale; sign-flipped on the s K_0 term per F.1.a.2).
-    row[4] = -s_m * K0_sm_b
+    row[3] = -s_m * s_m * I1_sm_b
+    # C_K column (post-rescale).
+    row[4] = -s_m * s_m * K1_sm_b
     # B column (formation; subtracted, sign-flipped vs B_K via row * i on -i k_z K_1).
     row[5] = +kz * K1_p_b
     # C column (formation; subtracted, post-rescale).
-    row[6] = +s * K0_s_b
+    row[6] = +s * s * K1_s_b
     # D columns: u_z has no D contribution (curl_z drops psi_z).
     row[7] = 0.0
     row[8] = 0.0
@@ -2463,16 +2523,30 @@ def _layered_n1_row8_at_b(
     row[2] = +mu_m * (
         two_kz2_minus_kSm2 * K1_pm_b + 2.0 * p_m * K0_pm_b / b + 4.0 * K1_pm_b / (b * b)
     )
+    # SV columns (Hansen form) -- roadmap A.8: u = curl curl(chi z)
+    # has radial, azimuthal AND axial components; the azimuthal-only
+    # vector potential the old columns encoded is not a solution of
+    # the elastodynamic equations for n >= 1.
     # C_I (post-rescale; col-by-(-i) cancels -i factor).
-    row[3] = -2.0 * kz * mu_m * (s_m * I0_sm_b - I1_sm_b / b)
+    row[3] = (
+        +2.0
+        * kz
+        * mu_m
+        * (s_m * s_m * I1_sm_b - s_m * I0_sm_b / b + 2.0 * I1_sm_b / (b * b))
+    )
     # C_K (post-rescale).
-    row[4] = +2.0 * kz * mu_m * (s_m * K0_sm_b + K1_sm_b / b)
+    row[4] = (
+        +2.0
+        * kz
+        * mu_m
+        * (s_m * s_m * K1_sm_b + s_m * K0_sm_b / b + 2.0 * K1_sm_b / (b * b))
+    )
     # B column (formation, subtracted; cancels B_K at layer=formation).
     row[5] = -mu * (
         two_kz2_minus_kS2 * K1_p_b + 2.0 * p * K0_p_b / b + 4.0 * K1_p_b / (b * b)
     )
     # C column (formation, subtracted; post-rescale).
-    row[6] = -2.0 * kz * mu * (s * K0_s_b + K1_s_b / b)
+    row[6] = -2.0 * kz * mu * (s * s * K1_s_b + s * K0_s_b / b + 2.0 * K1_s_b / (b * b))
     # D_I (sign-flipped d_r-induced ``s_m I_0/b`` term).
     row[7] = +2.0 * mu_m * (s_m * I0_sm_b / b - 2.0 * I1_sm_b / (b * b))
     # D_K (annulus, negative sigma_rr form because d_r [K_1/r] gives
@@ -2592,10 +2666,13 @@ def _layered_n1_row10_at_b(
     I1_pm_b = float(special.iv(1, p_m * b))
     K0_pm_b = float(special.kv(0, p_m * b))
     K1_pm_b = float(special.kv(1, p_m * b))
+    I0_sm_b = float(special.iv(0, s_m * b))
     I1_sm_b = float(special.iv(1, s_m * b))
+    K0_sm_b = float(special.kv(0, s_m * b))
     K1_sm_b = float(special.kv(1, s_m * b))
     K0_p_b = float(special.kv(0, p * b))
     K1_p_b = float(special.kv(1, p * b))
+    K0_s_b = float(special.kv(0, s * b))
     K1_s_b = float(special.kv(1, s * b))
 
     mu_m = layer.rho * layer.vs * layer.vs
@@ -2612,14 +2689,18 @@ def _layered_n1_row10_at_b(
     row[1] = -2.0 * kz * mu_m * (p_m * I0_pm_b - I1_pm_b / b)
     # B_K column (annulus, mirrors row 4 at r=b).
     row[2] = +2.0 * kz * mu_m * (p_m * K0_pm_b + K1_pm_b / b)
+    # SV columns (Hansen form) -- roadmap A.8: u = curl curl(chi z)
+    # has radial, azimuthal AND axial components; the azimuthal-only
+    # vector potential the old columns encoded is not a solution of
+    # the elastodynamic equations for n >= 1.
     # C_I column (post-rescale; row * i AND col-by-(-i), net factor 1).
-    row[3] = +mu_m * two_kz2_minus_kSm2 * I1_sm_b
+    row[3] = +mu_m * two_kz2_minus_kSm2 * (I1_sm_b / b - s_m * I0_sm_b)
     # C_K column (annulus).
-    row[4] = +mu_m * two_kz2_minus_kSm2 * K1_sm_b
+    row[4] = +mu_m * two_kz2_minus_kSm2 * (s_m * K0_sm_b + K1_sm_b / b)
     # B column (formation, subtracted; cancels B_K at layer=formation).
     row[5] = -2.0 * kz * mu * (p * K0_p_b + K1_p_b / b)
     # C column (formation, subtracted; post-rescale).
-    row[6] = -mu * two_kz2_minus_kS2 * K1_s_b
+    row[6] = -mu * two_kz2_minus_kS2 * (s * K0_s_b + K1_s_b / b)
     # D_I column (annulus SH; post-rescale).
     row[7] = -kz * mu_m * I1_sm_b / b
     # D_K column (annulus).

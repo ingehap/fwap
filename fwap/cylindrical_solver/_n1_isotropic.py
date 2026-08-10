@@ -2104,21 +2104,29 @@ def _modal_determinant_n1(
     # Row 1: u_r^{(f)} - u_r^{(s)} = 0 at r = a (cos sector).
     M11 = (F * I0Fa - I1Fa / a) / (rho_f * omega**2)
     M12 = p * K0pa + K1pa / a
-    M13 = kz * K1sa
+    # SV column (Hansen form) -- roadmap A.8. The azimuthal-only
+    # vector-potential ansatz is not a solution of the elastodynamic
+    # equations for n >= 1; the cylindrical vector Laplacian couples the
+    # radial and azimuthal components through a term proportional to n
+    # that such an ansatz has no term to cancel. This is Schmitt &
+    # Cheng's appendix column (pp. 235-236) with A = s K_{n-1} +
+    # n K_n / a, rewritten in the (K_{n-1}, K_n) pair via the K_{n+1}
+    # recurrence.
+    M13 = kz * (s * K0sa + K1sa / a)
     M14 = -K1sa / a
 
     # Row 2: -(sigma_rr^{(s)} + P) = 0 at r = a (cos sector;
     # row negated for visual parallel with the n=0 form).
     M21 = -I1Fa
     M22 = -mu * (two_kz2_minus_kS2 * K1pa + 2.0 * p * K0pa / a + 4.0 * K1pa / (a * a))
-    M23 = -2.0 * kz * mu * (s * K0sa + K1sa / a)
+    M23 = -2.0 * kz * mu * (s * s * K1sa + s * K0sa / a + 2.0 * K1sa / (a * a))
     M24 = 2.0 * mu * (s * K0sa / a + 2.0 * K1sa / (a * a))
 
     # Row 3: sigma_r_theta^{(s)} = 0 at r = a (sin sector;
     # fluid carries no shear, so M31 = 0).
     M31 = 0.0
     M32 = 2.0 * mu * (p * K0pa / a + 2.0 * K1pa / (a * a))
-    M33 = kz * mu * K1sa / a
+    M33 = 2.0 * kz * mu * (s * K0sa / a + 2.0 * K1sa / (a * a))
     M34 = -mu * (s * s * K1sa + 2.0 * s * K0sa / a + 4.0 * K1sa / (a * a))
 
     # Row 4: sigma_rz^{(s)} = 0 at r = a (cos sector; M41 = 0
@@ -2127,7 +2135,7 @@ def _modal_determinant_n1(
     # column C (= column 3 here) by -i, leaving a real matrix.
     M41 = 0.0
     M42 = 2.0 * kz * mu * (p * K0pa + K1pa / a)
-    M43 = mu * two_kz2_minus_kS2 * K1sa
+    M43 = two_kz2_minus_kS2 * mu * (s * K0sa + K1sa / a)
     M44 = -kz * mu * K1sa / a
 
     M = np.array(
@@ -2241,21 +2249,29 @@ def _modal_determinant_n1_complex(
     # Row 1: u_r^{(f)} - u_r^{(s)} = 0 at r = a (cos sector).
     M11 = (F * I0Fa - I1Fa / a) / (rho_f * omega**2)
     M12 = p * K0pa + K1pa / a
-    M13 = kz_c * K1sa
+    # SV column (Hansen form) -- roadmap A.8. The azimuthal-only
+    # vector-potential ansatz is not a solution of the elastodynamic
+    # equations for n >= 1; the cylindrical vector Laplacian couples the
+    # radial and azimuthal components through a term proportional to n
+    # that such an ansatz has no term to cancel. This is Schmitt &
+    # Cheng's appendix column (pp. 235-236) with A = s K_{n-1} +
+    # n K_n / a, rewritten in the (K_{n-1}, K_n) pair via the K_{n+1}
+    # recurrence.
+    M13 = kz_c * (s * K0sa + K1sa / a)
     M14 = -K1sa / a
 
     # Row 2: -(sigma_rr^{(s)} + P) = 0 at r = a (cos sector;
     # row negated for visual parallel with the n=0 form).
     M21 = -I1Fa
     M22 = -mu * (two_kz2_minus_kS2 * K1pa + 2.0 * p * K0pa / a + 4.0 * K1pa / (a * a))
-    M23 = -2.0 * kz_c * mu * (s * K0sa + K1sa / a)
+    M23 = -2.0 * kz_c * mu * (s * s * K1sa + s * K0sa / a + 2.0 * K1sa / (a * a))
     M24 = 2.0 * mu * (s * K0sa / a + 2.0 * K1sa / (a * a))
 
     # Row 3: sigma_r_theta^{(s)} = 0 at r = a (sin sector;
     # fluid carries no shear, so M31 = 0).
     M31 = 0.0 + 0j
     M32 = 2.0 * mu * (p * K0pa / a + 2.0 * K1pa / (a * a))
-    M33 = kz_c * mu * K1sa / a
+    M33 = 2.0 * kz_c * mu * (s * K0sa / a + 2.0 * K1sa / (a * a))
     M34 = -mu * (s * s * K1sa + 2.0 * s * K0sa / a + 4.0 * K1sa / (a * a))
 
     # Row 4: sigma_rz^{(s)} = 0 at r = a (cos sector). Same
@@ -2263,7 +2279,7 @@ def _modal_determinant_n1_complex(
     # version, applied after the K -> Hankel substitution above.
     M41 = 0.0 + 0j
     M42 = 2.0 * kz_c * mu * (p * K0pa + K1pa / a)
-    M43 = mu * two_kz2_minus_kS2 * K1sa
+    M43 = two_kz2_minus_kS2 * mu * (s * K0sa + K1sa / a)
     M44 = -kz_c * mu * K1sa / a
 
     M = np.array(
