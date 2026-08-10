@@ -521,3 +521,96 @@ def test_the_appendix_beats_fwap_on_the_published_invaded_curve() -> None:
         f"appendix worst {100 * np.abs(appendix).max():.2f} % vs fwap best "
         f"{100 * np.abs(fwap).min():.2f} %"
     )
+
+
+# ----------------------------------------------------------------------
+# 5. A.8 is not confined to the layered paths
+# ----------------------------------------------------------------------
+#
+# The section above measures the SV defect through the layer matrices.
+# The same ansatz appears in the **open-hole** determinants, and the
+# tests below measure it there, where there is no propagator and no
+# conditioning question to muddy the result.
+#
+# Assembling the open-hole boundary-value problem from the appendix and
+# comparing both against figure 8a's three published curves for the same
+# rock:
+#
+#     mode              n    appendix    fwap
+#     Stoneley          0    0.03 %      0.03 %
+#     flexural          1    **0.08 %**  1.30 %
+#     screw             2    **0.06 %**  0.43 %
+#
+# Two things follow. The published curves are reproducible to **0.06 %**,
+# so the "about +-1 %" that this project has been calling the
+# digitisation floor for the n >= 1 modes was never the digitisation --
+# it was fwap's model error, and the digitisation is an order of
+# magnitude better than assumed. And `n = 0` agreeing with the appendix
+# to 0.03 % is the control: where the azimuthal-only ansatz *is* a
+# solution, the two formulations agree exactly.
+#
+# **The correction was derived, applied and measured before being
+# reverted.** For the open-hole determinants the corrected SV column is,
+# at general ``n`` with ``A = s K_{n-1} + n K_n / a``:
+#
+#     M13 = kz * A
+#     M23 = -2 kz mu (s^2 K_n + s K_{n-1} / a + n(n+1) K_n / a^2)
+#     M33 = 2 kz mu (n / a) (s K_{n-1} + (n+1) K_n / a)
+#     M43 = (2 kz^2 - kS^2) mu * A
+#
+# verified against the appendix column to 1e-16 at both orders. Applied
+# to `_modal_determinant_n1` and `_modal_determinant_n2` (real and
+# complex), it moved figure 8a's flexural from **1.29 % to 0.063 % rms**
+# and its screw from **0.43 % to 0.058 %**, and the fast-formation
+# flexural of figures 2a and 7a from 0.78 / 1.03 / 0.87 % to
+# **0.23 / 0.38 / 0.44 %**.
+#
+# It was reverted because it is only half the change. The layered paths
+# carry the same ansatz in separate code, so correcting the open hole
+# alone breaks five internal-consistency invariants -- `layer ==
+# formation` no longer collapses to the unlayered result -- and leaves
+# the solver in a worse state than either endpoint. The full change is
+# 63 SV-column references across `_cased.py` and `_n1_layered.py`, about
+# thirty-six test updates and a golden regeneration. Roadmap A.8 carries
+# the recipe.
+
+
+def test_the_open_hole_determinants_carry_the_same_defect() -> None:
+    """A.8 reaches further than the layer matrices.
+
+    Figure 8a plots three modes for one slow sandstone. Rebuilt from the
+    appendix, all three land within 0.1 % of the published curve. fwap
+    matches at ``n = 0`` and is an order of magnitude worse at ``n = 1``
+    and ``n = 2`` -- the orders where the azimuthal-only SV ansatz stops
+    being a solution.
+
+    If this test starts failing because the n >= 1 gap has closed, A.8
+    has been fixed and this file's section 5 should be rewritten as a
+    tie rather than a defect.
+    """
+    from fwap import flexural_dispersion, stoneley_dispersion
+    from fwap.cylindrical_solver import quadrupole_dispersion
+
+    rock = dict(vp=2751.0, vs=1201.0, rho=2100.0)
+    published = {
+        0: ((3.0e3, 1076.7), (5.0e3, 1059.6), (8.0e3, 1046.3), (12.0e3, 1037.2)),
+        1: ((3.0e3, 1163.0), (5.0e3, 1099.5), (8.0e3, 1061.5), (12.0e3, 1044.8)),
+        2: ((8.0e3, 1104.8), (10.0e3, 1081.3), (12.0e3, 1066.8), (14.0e3, 1057.3)),
+    }
+    solver = {0: stoneley_dispersion, 1: flexural_dispersion, 2: quadrupole_dispersion}
+
+    scores = {}
+    for n, table in published.items():
+        freq = np.array([f for f, _ in table])
+        ref = np.array([v for _, v in table])
+        got = 1.0 / solver[n](freq, **rock, **_FLUID, a=_HOLE).slowness
+        finite = np.isfinite(got)
+        assert finite.all(), f"n={n}: {got}"
+        scores[n] = float(np.sqrt((((got - ref) / ref) ** 2).mean()))
+
+    # n = 0 is the control: the ansatz is a solution there.
+    assert scores[0] < 0.002, f"n=0 rms {scores[0]:.2%}"
+    # n >= 1 carry the defect, an order of magnitude worse.
+    assert scores[1] > 0.005, f"n=1 rms {scores[1]:.2%}"
+    assert scores[2] > 0.002, f"n=2 rms {scores[2]:.2%}"
+    assert scores[1] > 5.0 * scores[0]

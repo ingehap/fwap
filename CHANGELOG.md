@@ -37,7 +37,23 @@ the project uses [Semantic Versioning](https://semver.org/).
   code — and wants the paper's cased-hole figures (20, 21) digitised to validate.
   Very likely also the root of A.7: a propagator built from a non-solution has no
   reason to yield a clean determinant.
-  Pinned by twelve tests in `tests/test_schmitt_appendix.py`.
+  **Scope enlarged, and the correction demonstrated before being reverted.** The
+  same ansatz appears in the *open-hole* determinants. Rebuilding that problem
+  from the appendix and scoring both against figure 8a's three published curves
+  for one rock: Stoneley **0.03 % vs fwap's 0.03 %**, flexural **0.08 % vs
+  1.30 %**, screw **0.06 % vs 0.43 %**. The published curves are therefore
+  reproducible to 0.06 %, which means the "about ±1 %" this project has quoted as
+  the digitisation floor for every `n >= 1` tie was fwap's model error rather than
+  the scan; `n = 0` agreeing to 0.03 % is the control.
+  The corrected column was derived from the appendix, verified against it to
+  1e-16 at both orders, and applied: figure 8a's flexural moved **1.29 % →
+  0.063 %**, its screw **0.43 % → 0.058 %**, and figures 2a/7a's fast flexural
+  **0.78 / 1.03 / 0.87 % → 0.23 / 0.38 / 0.44 %**. It was then reverted, because
+  it is only half the change — the layered paths carry the same ansatz in separate
+  code, so correcting the open hole alone breaks five `layer == formation`
+  collapse-to-unlayered invariants and leaves the solver in a worse state than
+  either endpoint. Roadmap A.8 carries the formulas and the remaining scope.
+  Pinned by thirteen tests in `tests/test_schmitt_appendix.py`.
 
 ### Fixed
 - **The fast-formation flexural and screw solvers no longer return an overtone**
