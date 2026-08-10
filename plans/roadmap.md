@@ -293,6 +293,52 @@ committed by the session that wrote the note.
 > and now figure content — and all three were recorded with the same
 > confidence. The common cause is that none had been checked against the
 > paper itself.
+>
+> **Then the paper arrived and there were two of them.** The document that
+> contains this fig 4 is *Schmitt, D. P., & Cheng, C. H., "Shear Wave Logging
+> In (Multilayered) Elastic Formations: An Overview", MIT Earth Resources
+> Laboratory, pp. 213-246* — two authors, different title, different venue,
+> **and its own figure numbering**. The JASA article this file cites is the
+> single-author *Shear wave logging in elastic formations*, 84(6), 2215-2229.
+> They are closely related — same method, near-identical abstract — but they
+> are not the same document, and figure numbers do not carry across. The
+> repository has been citing one and numbering figures from the other.
+>
+> **Its table 1 also has no "shale".** The notebook cites "Schmitt 1988,
+> table 1, 'shale'" at 2740/1280/2400 and "'limestone'" at 4900/2840/2700.
+> The actual table has no shale at all, and its limestone is
+> **5081/2771/2160**. The real entries are:
+>
+> | layer | `alpha` m/s | `beta` m/s | `rho` kg/m³ | `Q_alpha` | `Q_beta` |
+> |---|---|---|---|---|---|
+> | water | 1500 | 0 | 1000 | 30 | — |
+> | fast sandstone | 4878 | 2601 | 2160 | 60 | 60 |
+> | invaded zone | 4390 | 2341 | 2360 | 40 | 40 |
+> | limestone | 5081 | 2771 | 2160 | 60 | 60 |
+> | granite | 5881 | 3750 | 2160 | 60 | 60 |
+> | slow sandstone | 2751 | 1201 | 2100 | 50 | 50 |
+> | invaded zone | 2338 | 1081 | 2000 | 40 | 35 |
+> | casing | 6098 | 3354 | 7500 | 1000 | 1000 |
+> | cement 1 | 2823 | 1729 | 1920 | 40 | 30 |
+> | cement 2 | 2823 | 1555 | 1730 | 40 | 30 |
+>
+> **The correct figure list** (Schmitt & Cheng, ERL):
+>
+> 1. monopole, fast sandstone — Stoneley + first two **pseudo-Rayleigh** modes
+> 2. dipole, fast sandstone — **flexural** + first trapped mode
+> 3. dipole, fast sandstone — source-centre-frequency effects at 5 m
+> 4. dipole, fast sandstone — shot gathers at 1 and 6 kHz *(the one supplied)*
+> 5. quadrupole, fast sandstone — screw + first trapped mode
+> 6. quadrupole, fast sandstone — shot gathers at 1.5 and 6 kHz
+> 7. **flexural and screw dispersion for granite, limestone and fast sandstone**
+> 8. slow sandstone — Stoneley, flexural and screw
+> 9. dipole, slow sandstone — source-centre-frequency effects
+>
+> **This changes A.1's residue.** Figure 1 is a **pseudo-Rayleigh dispersion
+> curve for a fast sandstone** — one of the three overlays A.1 still wants, and
+> it is in a document already in hand. Figures 2 and 7 are the fast-formation
+> flexural curves A.2 needs. Only **cased Stoneley** and **VTI flexural** now
+> have no identified source.
 
 Mode by mode:
 
@@ -497,6 +543,44 @@ low-frequency dipole energy travels as a shear head wave instead.
 Distinguishing those two cases is exactly what Schmitt 1988 fig 4 would settle,
 which puts this item behind the same literature access A.1 needs.
 
+> **The whole paper has since been read. It is a different paper from the one
+> cited, and it answers more than the figure did.** The document is
+>
+> > Schmitt, D. P., & **Cheng, C. H.** *Shear Wave Logging In (Multilayered)
+> > Elastic Formations: An Overview.* MIT Earth Resources Laboratory, pp.
+> > 213-246.
+>
+> — **two** authors, a different title, and an ERL report rather than the JASA
+> article this file cites. Its figure numbering is its own, which is why "fig 4"
+> resolved to a shot gather.
+>
+> **Its abstract settles A.2's open question in the authors' own words**:
+> *"Whatever the formation (fast or slow) and the configuration, the low
+> frequency part of both the flexural and screw modes follows the virgin
+> formation shear wave characteristics."* The low-frequency flexural branch
+> exists in fast formations and tracks `V_S`. There is no head-wave escape
+> hatch, and no missing physics — only a solver that cannot find it.
+>
+> **Measured on the paper's own table-1 formations**, `flexural_dispersion`
+> over 1-20 kHz:
+>
+> | formation (table 1) | `V_P` | `V_S` | `rho` | fwap coverage |
+> |---|---|---|---|---|
+> | fast sandstone | 4878 | 2601 | 2160 | **20 %** |
+> | limestone | 5081 | 2771 | 2160 | **20 %** |
+> | granite | 5881 | 3750 | 2160 | **10 %** — one point in ten |
+> | slow sandstone | 2751 | 1201 | 2100 | 80 %, clean descent to Scholte |
+>
+> The paper plots continuous curves for all four. That is the size of A.2,
+> stated against the reference it was always meant to be checked against.
+>
+> **Figure 2 is the one this item needed**: *"Dipole source. Dispersion (a),
+> attenuation (b), and excitation (c) of the flexural mode (1) and the first
+> trapped mode (2) in the presence of a fast sandstone."* Figure 7 adds
+> flexural and screw dispersion for granite, limestone and fast sandstone
+> together. Both are fast-formation flexural dispersion over the band fwap
+> returns almost nothing for.
+>
 > **Settled — the figure has been seen, and it refutes the second case.**
 > Schmitt 1988 fig 4 is a dipole **shot gather** in a *fast sandstone*: 14
 > traces at `r` = 2.40-5.00 m in 0.20 m steps, panel (a) at a 1 kHz source
@@ -618,6 +702,13 @@ depend on them.
 
 - Schmitt, D. P. (1988). Shear wave logging in elastic formations. *J. Acoust.
   Soc. Am.* 84(6), 2215-2229. https://doi.org/10.1121/1.397015
+- Schmitt, D. P., & Cheng, C. H. *Shear Wave Logging In (Multilayered) Elastic
+  Formations: An Overview.* MIT Earth Resources Laboratory, pp. 213-246.
+  **A second, closely related document, and the one every "fig N" in this
+  file actually refers to.** Same method and a near-identical abstract, but two
+  authors, a different title and its own figure numbering. Its table 1 and
+  figure list are transcribed under A.1. Distinguish the two before citing a
+  figure number: they do not carry across.
   <br>*Corrected:* every citation of this paper outside `fwap/validation.py`
   gave the pages as **2230-2244** and hyphenated the title as "Shear-wave" —
   thirteen page ranges and twelve titles across nine files, all propagated from
