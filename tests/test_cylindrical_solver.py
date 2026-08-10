@@ -18119,3 +18119,138 @@ def test_the_fast_flexural_answer_implies_a_wave_arriving_twice_too_early():
     assert implied_ms.max() < 0.5 * observed, (
         f"implied {implied_ms.max():.2f} ms vs observed {observed:.2f} ms"
     )
+
+
+# ----------------------------------------------------------------------
+# Figure 5a: the screw mode's own figure, and a bound on the method
+#
+# Figure 7b measured `n=2` across three rocks, but its curves merge and
+# it only resolves the fast sandstone below about 10 kHz. Figure 5a
+# (p. 242) is the screw mode's own panel -- "Quadrupole source.
+# Dispersion (a) ... of the screw mode (1) and the first trapped mode
+# (2) in the presence of a fast sandstone" -- on figure 2a's axes,
+# 0-25 kHz, with only two modes on it. It is the direct `n=2`
+# counterpart of figure 2a.
+#
+# Traced in two overlapping passes: a wide window through the plunge,
+# then a narrow one with a small slope cap for the flat tail, because
+# mode 2's group curve crosses mode 1's phase near 18 kHz and a single
+# pass follows the steeper branch down. Monotone to +0.002 normalised
+# over the whole span, which is inside the line width.
+#
+#   cutoff value            1.7385   vs V_S/V_f 1.7340   +0.26 %
+#   at 24.87 kHz            1522.6   vs Scholte  1484.4  +2.57 %
+#   crosses V_R             7.58 kHz     (figure 7b gave 7.69)
+#   crosses V_f             never, inside the plotted band
+#
+# Two things worth keeping. The screw mode approaches Scholte **more
+# slowly** than the flexural one: still +2.6 % at 25 kHz where the
+# flexural mode was +0.6 %, and it never drops below the fluid velocity
+# at all, where the flexural mode crossed it at 17.9 kHz.
+#
+# And the cross-figure agreement is a bound on the digitisation method
+# itself, obtained without reference to fwap. Nine frequencies from 7 to
+# 12 kHz, read off two different pages with different axis ranges, agree
+# to **+0.4 % to +1.8 %**, with figure 7b systematically about 1 % high.
+# That is looser than the 0.4 % figures 2a and 7a managed for the
+# flexural mode, and it is the honest error bar for readings taken off
+# the crowded three-rock panels.
+#
+# **fwap over 6.4-25 kHz**: 72 % coverage, every value inside
+# `(V_R, V_S)` and sweeping it end to end (2413-2598), **not one point
+# within 5 %**, errors +15 % to +67 % with median +53 %, and upward
+# jumps of +102 m/s. The screw mode is never returned for this rock.
+# ----------------------------------------------------------------------
+
+#: Screw-mode phase velocity (Hz, m/s), digitised from figure 5a.
+#: About +-20 m/s.
+_FIG5A_SCREW_PHASE = (
+    (6.5e3, 2597.5),
+    (7.0e3, 2530.8),
+    (8.0e3, 2300.8),
+    (9.0e3, 2071.9),
+    (10.0e3, 1913.9),
+    (12.0e3, 1743.6),
+    (14.0e3, 1654.8),
+    (16.0e3, 1605.2),
+    (18.0e3, 1573.9),
+    (20.0e3, 1551.6),
+    (22.0e3, 1538.2),
+    (24.5e3, 1524.8),
+)
+
+#: Where figure 5a's screw curve leaves the axis (kHz, m/s).
+_FIG5A_SCREW_ONSET = (6.29, 2607.8)
+
+#: The same rock's screw mode read off figure 7b (Hz, m/s), for the
+#: cross-figure comparison.
+_FIG7B_SANDSTONE_SCREW = ((7.0e3, 2552.8), (8.0e3, 2329.6), (9.0e3, 2088.6))
+
+
+def test_figure_5a_screw_curve_is_anchored_at_both_ends():
+    """The `n=2` counterpart of figure 2a's end-anchor test.
+
+    The screw mode leaves the axis at the formation shear speed and
+    heads for the Scholte speed, so both ends are computable
+    independently. It gets there more slowly than the flexural mode --
+    still 2.6 % above Scholte at 25 kHz, and never below the fluid
+    velocity -- which is why the tolerance at the top end is looser.
+    """
+    from fwap import scholte_speed
+
+    velocity = np.array([v for _, v in _FIG5A_SCREW_PHASE])
+    v_scholte = scholte_speed(**_FIG2_ROCK, **_FIG2_FLUID)
+
+    assert _FIG5A_SCREW_ONSET[1] / _FIG2_ROCK["vs"] == pytest.approx(1.0, abs=0.01)
+    assert np.diff(velocity).max() < 20.0, "phase velocity does not increase"
+    assert 1.0 < velocity[-1] / v_scholte < 1.05, "descending toward Scholte"
+    assert velocity[-1] > 1500.0, "the screw mode stays above the fluid velocity"
+
+
+def test_the_two_screw_readings_agree_across_figures():
+    """A bound on the digitisation method that owes nothing to fwap.
+
+    The same rock's screw mode is drawn twice -- figure 5a on a 0-25 kHz
+    axis with two curves, figure 7b on a 4-20 kHz axis with six. The two
+    reads agree to under 2 %, with figure 7b high, which is the expected
+    direction for a reading taken off the more crowded panel.
+
+    This is the loosest of the three cross-figure checks in this file,
+    and it is the one to quote when asking how much a number traced off
+    a busy panel can be trusted.
+    """
+    fig5 = dict(_FIG5A_SCREW_PHASE)
+    for freq, v7 in _FIG7B_SANDSTONE_SCREW:
+        v5 = fig5[freq]
+        assert v7 / v5 == pytest.approx(1.0, abs=0.02), (
+            f"{freq / 1e3:.0f} kHz: 5a {v5}, 7b {v7}"
+        )
+        assert v7 > v5, "the crowded panel reads high"
+
+
+def test_quadrupole_never_returns_the_screw_mode_in_this_fast_rock():
+    """The `n=2` half of A.2 against the screw mode's own figure.
+
+    Over 6.4-25 kHz the solver answers at nearly three quarters of the
+    band, every value inside `(V_R, V_S)` and sweeping that window from
+    edge to edge, and **not one of them is within 5 %** of the published
+    curve. High coverage, no correct answers -- the same inversion
+    figure 12 found on the layered path.
+    """
+    from fwap import quadrupole_dispersion
+    from fwap.cylindrical import rayleigh_speed
+
+    freq = np.array([f for f, _ in _FIG5A_SCREW_PHASE])
+    reference = np.array([v for _, v in _FIG5A_SCREW_PHASE])
+    velocity = (
+        1.0 / quadrupole_dispersion(freq, **_FIG2_ROCK, **_FIG2_FLUID, a=0.10).slowness
+    )
+    finite = np.isfinite(velocity)
+
+    assert finite.mean() > 0.5, "the quadrupole solver is not sparse here"
+    v_rayleigh = rayleigh_speed(_FIG2_ROCK["vp"], _FIG2_ROCK["vs"])
+    assert np.all(velocity[finite] > v_rayleigh)
+    assert np.all(velocity[finite] <= _FIG2_ROCK["vs"])
+
+    error = np.abs(velocity[finite] / reference[finite] - 1.0)
+    assert error.min() > 0.05, f"closest point {100 * error.min():.0f} %"

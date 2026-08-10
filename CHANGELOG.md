@@ -134,6 +134,29 @@ the project uses [Semantic Versioning](https://semver.org/).
   all eight only across 3.5-5.0 kHz, which is also where they cross. No
   per-model curve was traced there and none is tabulated.
 
+  **Figure 5a is the screw mode's own panel, and bounds the digitisation
+  method.** Figure 7b measured `n=2` across three rocks but only resolves the
+  fast sandstone below about 10 kHz; figure 5a plots the same mode alone on
+  figure 2a's axes, 0-25 kHz. Traced in two overlapping passes, because mode 2's
+  group curve crosses mode 1's phase near 18 kHz and a single pass follows the
+  steeper branch down.
+  Cutoff value 1.7385 against `V_S/V_f` 1.7340 (**+0.26 %**); 1522.6 m/s at
+  24.87 kHz against Scholte 1484.4 (**+2.57 %**, still descending); crosses
+  `V_R` at **7.58 kHz** where figure 7b independently gave 7.69; and never
+  crosses `V_f` inside the plotted band. So **the screw mode approaches Scholte
+  more slowly than the flexural one** — +2.6 % at 25 kHz where the flexural mode
+  was +0.6 %, and it never drops below the fluid velocity where the flexural
+  mode crossed it at 17.9 kHz.
+  The cross-figure agreement is an error bar on the method itself, obtained
+  without reference to fwap: the same rock read off two pages with different
+  axis ranges agrees to **+0.4 % to +1.8 %** across 7-12 kHz, figure 7b
+  systematically about 1 % high — looser than the ±0.4 % figures 2a and 7a
+  managed for the flexural mode, and the number to quote for readings off the
+  crowded three-rock panels.
+  fwap over 6.4-25 kHz: **72 % coverage, not one point within 5 %**, every value
+  inside `(V_R, V_S)` and sweeping it end to end, errors +15 % to +67 % with
+  median +53 %.
+
   **Figure 3 restates the defect as a traveltime, and cross-checks two
   figures against each other.** It plots 21 synthetic dipole waveforms at a 5 m
   offset in the rock of figure 2a, source centre frequency 0.5 to 10.5 kHz.
@@ -183,7 +206,7 @@ the project uses [Semantic Versioning](https://semver.org/).
   rock alone. That claim covered two modes in one homogeneous rock and does not
   extend to layered models; corrected at its site.
 
-  Twenty-five tests now pin the item, not three, and every reference table carries
+  Twenty-eight tests now pin the item, not three, and every reference table carries
   its own shear-speed anchor test.
 
 ### Validated
