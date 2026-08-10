@@ -278,14 +278,24 @@ the project uses [Semantic Versioning](https://semver.org/).
   At this scan quality the glyphs are not reliably legible ("0.0014" and
   "0.0019" cannot be told apart).
 
-  **Figure 13 measures how little a dipole sees invasion at 1 kHz.** Only its
-  first panel is measurable — panels (b)-(d) are ringing wavetrains exceeding the
-  trace spacing with guide lines drawn through them, and no extraction reached a
-  cross-correlation above 0.8 against the virgin trace, so nothing is quoted from
-  them. Panel (a) extracts cleanly: the 8 cm model lags the virgin waveform by
-  **+0.1 us** and the 16 cm model by **+1.2 us** at 5 m, correlating at 0.992 and
-  0.981 — **under 0.1 % of the traveltime**. That is the time-domain form of
-  figure 12's shared low-frequency plateau.
+  **Figure 13 measures how little a dipole sees invasion at 1 kHz.** Panel (a)
+  extracts cleanly: the 8 cm model lags the virgin waveform by **+0.1 us** and the
+  16 cm model by **+1.2 us** at 5 m, correlating at 0.992 and 0.981 — **under
+  0.1 % of the traveltime**. That is the time-domain form of figure 12's shared
+  low-frequency plateau.
+  **Corrected while working figure 14**: this entry previously said only panel (a)
+  was measurable and that nothing in (b)-(d) cleared r = 0.8. That was an artefact
+  of the extraction, not the figure — the half-window was narrower than the widest
+  trace's excursion, clipping the *virgin* trace in panel (b) to 68 % coverage so
+  every correlation there ran against a truncated reference. Widened, **panel (b)
+  measures**: at 3 kHz the 8 cm model lags by **+54.6 us** and the 16 cm model by
+  **+99.0 us**, at r = 0.930 and 0.848, invariant to +-0.01 us across 36 crop and
+  window choices. So the separation figure 12 predicts above 2 kHz is measured
+  after all, and it is steep — the 16 cm delay grows **79x** between 1 and 3 kHz.
+  Panels (c) and (d) remain refused, now positively: their components merge
+  (coverage stuck at 0.76-0.78 whatever the window) and panel (d)'s lags are
+  +264 / +319 us regardless of window, the constant-lag signature of cycle
+  hopping.
 
   **Figure 15 then exonerates the layered code.** It is figure 12's slow
   counterpart — same four models, same solver calls, table 1's slow sandstone
@@ -316,7 +326,50 @@ the project uses [Semantic Versioning](https://semver.org/).
   rock alone. That claim covered two modes in one homogeneous rock and does not
   extend to layered models; corrected at its site.
 
-  Forty-eight tests now pin the item, not three, and every reference table carries
+  **Figure 14 marks the boundary of what this defect can be blamed for.** It is
+  figure 13's quadrupole counterpart — same fast sandstone, same three models,
+  same 5 m offset, source centre frequencies 1.5/3/6/7.5 kHz. Its ringing
+  wavetrains defeat cross-correlation in panels (b)-(d), but **panel (a) is a
+  compact wavelet and does measure**: the 8 cm model lags the virgin waveform by
+  **+9.7 us** at r = 0.924 and the 16 cm model by **+36.5 us** at r = 0.797, both
+  invariant (+-0.06 us) across 36 combinations of crop start, crop end and
+  extraction half-window. Panels (b)-(d) are refused for a positive reason rather
+  than a threshold: their 8 cm lags are 237.7 / 238.9 / 235.1 us at 3 / 6 /
+  7.5 kHz, constant to +-2 us across a 2.5x change in source frequency and with
+  negative zero-lag correlations — the signature of cycle hopping, not of a delay.
+  **That 36.5 us must not be read against figure 13(a)'s 1.2 us as a
+  dipole/quadrupole gap**: the panels are at different source frequencies, and
+  the delay is a steep function of frequency (see the figure-13 correction
+  below). The two figures share no source frequency where both are measurable.
+  Also legible is the printed peak-amplitude scale factor on all twelve traces,
+  transcribed and then checked
+  independently by measuring the plotted ink, the two agreeing to within **0.027**
+  in the worst panel. The published claim holds: the quadrupole's amplitude
+  spread across invasion thickness is **2.90x** at its lowest source frequency
+  against the dipole's **1.25x**, and while the dipole goes flat to 1 % at 6 and
+  7.5 kHz the quadrupole never drops below **1.29x**. Panel (c) is genuinely
+  non-monotone on both readings.
+  **But that content is out of scope for a dispersion solver, not merely wrong
+  in one.** Peak amplitude at a fixed offset is excitation times propagation;
+  `BoreholeMode` has no excitation field, and `attenuation_per_meter` is `None`
+  from both the plain and the layered quadrupole path here. A corrected bracket
+  would not reproduce figure 14.
+  What it would fix is the rest: of the twelve plotted (model, frequency) pairs
+  the solver returns a phase velocity for **three**, the virgin rock giving no
+  root at any of the four source frequencies (onset 8.4 kHz, above the whole
+  figure); all **194** converged samples across the three models sit strictly
+  inside `(V_R, V_S)`; coverage again inverts with invasion thickness (49 / 63 /
+  82 of 141, onsets 8.40 / 4.10 / 3.40 kHz); and the one dispersion claim the
+  paragraph makes — an Airy-phase group velocity rising with thickness — emerges
+  **with the wrong sign**, the sawtooth ramps driving `v_g = 1/(d(f*s)/df)`
+  negative on 18 of 48 adjacent virgin samples. There is no usable
+  group-velocity curve to be in error.
+  It also bounds figure 6's reproducibility caveat: repeating that
+  two-ways-of-building-a-grid check on this fast-formation model gave identical
+  coverage every time, so the instability is model-specific rather than a
+  property of the `n=2` marcher everywhere.
+
+  Sixty-six tests now pin the item, not three, and every reference table carries
   its own shear-speed anchor test.
 
 ### Validated

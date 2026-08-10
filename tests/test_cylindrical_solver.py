@@ -18983,13 +18983,6 @@ def test_the_near_cutoff_gap_is_an_absolute_offset_not_a_percentage():
 # (3) invaded zone. The source center frequency is successively equal to
 # 1 kHz (a), 3 kHz (b), 6 kHz (c), and 7.5 kHz (d)."
 #
-# **Only panel (a) is measurable, and that is stated first.** Panels
-# (b)-(d) are long ringing wavetrains whose amplitude exceeds the trace
-# spacing, with the authors' guide lines drawn through them. No
-# combination of band width and component filter got a cross-correlation
-# above 0.8 against the virgin trace, so **no delays are quoted from
-# them** -- the same wall figure 6 hit.
-#
 # Panel (a) extracts cleanly, and the answer is a number worth having:
 # cross-correlated against the virgin trace, the 8 cm model lags by
 # **+0.1 us** and the 16 cm model by **+1.2 us**, at correlations of
@@ -19001,14 +18994,35 @@ def test_the_near_cutoff_gap_is_an_absolute_offset_not_a_percentage():
 # figure 12's own reading put that plateau at 1.7357 for the whole
 # group. Figure 13(a) says how far apart they actually are there.
 #
-# The effect does grow -- figure 12 shows the curves separating above
-# 2 kHz -- but this figure's higher-frequency panels are beyond the
-# method, so that growth is not measured here.
+# **Corrected while working figure 14.** This block used to say "only
+# panel (a) is measurable" and that no extraction cleared r = 0.8 in
+# panels (b)-(d). That was an artefact of my own extraction, not of the
+# figure: the half-window was narrower than the widest trace's own
+# excursion, so the virgin trace in panel (b) was clipped to 68 %
+# coverage and the correlation was computed against a truncated
+# reference. Widened, **panel (b) measures**: at 3 kHz the 8 cm model
+# lags by **+54.6 us** and the 16 cm model by **+99.0 us**, at
+# correlations of 0.930 and 0.848, invariant to +-0.01 us across 36
+# combinations of crop start, crop end and half-window.
+#
+# So the growth figure 12 predicts above 2 kHz **is** measured here, and
+# it is steep: the 16 cm delay goes from 1.2 us at 1 kHz to 99.0 us at
+# 3 kHz, a factor of **79** for a 3x change in source frequency.
+#
+# Panels (c) and (d) are still refused, now for a positive reason. Their
+# traces overlap so the components merge -- coverage sticks at 0.76-0.78
+# whatever the window -- and panel (d)'s best-fit lags are +264 and
+# +319 us regardless of window choice, the constant-lag signature of a
+# cross-correlation hopping cycles rather than measuring a delay.
 # ----------------------------------------------------------------------
 
 #: Figure 13(a): cross-correlation lag against the virgin trace at a
 #: 1 kHz source and 5 m offset (microseconds), and the correlation.
 _FIG13A_INVASION_LAG_US = {"8 cm": (0.1, 0.992), "16 cm": (1.2, 0.981)}
+
+#: Figure 13(b): the same at 3 kHz. Recovered after the extraction
+#: half-window was widened; see the correction note above.
+_FIG13B_INVASION_LAG_US = {"8 cm": (54.6, 0.930), "16 cm": (99.0, 0.848)}
 _FIG13_OFFSET_M = 5.0
 
 
@@ -19029,6 +19043,28 @@ def test_invasion_is_undetectable_at_1_khz():
     assert min(v for v, _ in _FIG13A_INVASION_LAG_US.values()) >= 0.0
 
 
+def test_the_dipole_invasion_delay_grows_steeply_between_1_and_3_khz():
+    """Figure 13(b), recovered after the extraction was fixed.
+
+    Figure 12 shows the three models' dispersion curves separating above
+    about 2 kHz. Figure 13(b) is that separation in the time domain: at
+    3 kHz the 16 cm model lags the virgin waveform by 99 us against
+    1.2 us at 1 kHz. Both panels correlate above 0.84, and both lag
+    rather than lead.
+    """
+    for name, (lag_us, corr) in _FIG13B_INVASION_LAG_US.items():
+        assert lag_us > 0.0, f"{name}: {lag_us} us"
+        assert corr > 0.84, f"{name}: r = {corr}"
+    assert _FIG13B_INVASION_LAG_US["16 cm"][0] > _FIG13B_INVASION_LAG_US["8 cm"][0]
+    # and every 3 kHz delay exceeds every 1 kHz one
+    assert min(v for v, _ in _FIG13B_INVASION_LAG_US.values()) > max(
+        v for v, _ in _FIG13A_INVASION_LAG_US.values()
+    )
+    travel_ms = _FIG13_OFFSET_M * 1.0e3 / _FIG2_ROCK["vs"]
+    frac = _FIG13B_INVASION_LAG_US["16 cm"][0] * 1e-3 / travel_ms
+    assert 0.01 < frac < 0.10, f"{frac:.3%} of the traveltime"
+
+
 def test_the_1_khz_invasion_lag_is_a_negligible_fraction_of_traveltime():
     """Put the microseconds in context.
 
@@ -19040,3 +19076,405 @@ def test_the_1_khz_invasion_lag_is_a_negligible_fraction_of_traveltime():
     travel_ms = _FIG13_OFFSET_M * 1.0e3 / _FIG2_ROCK["vs"]
     worst = max(abs(v) for v, _ in _FIG13A_INVASION_LAG_US.values())
     assert worst * 1e-3 / travel_ms < 0.001, "under 0.1 % of the traveltime"
+
+
+# ----------------------------------------------------------------------
+# Figure 14: the quadrupole invaded zone, where the effect is amplitude
+#
+# "Quadrupole source. Invaded zone effects in the presence of a fast
+# sandstone. Iso-offset (z = 5m) of the waveforms obtained in the
+# presence of the only virgin formation (1), and a 8 cm (2) and 16 cm
+# (3) invaded zone. The source center frequency is successively equal to
+# 1.5 kHz (a), 3 kHz (b), 6 kHz (c), and 7.5 kHz (d)."
+#
+# I expected this figure to hit the ringing-wavetrain wall that stopped
+# figures 6 and 13(b)-(d). That was half wrong. Panel (a) is not a
+# wavetrain -- it is a compact three-to-four-cycle wavelet that extracts
+# cleanly across the full band. The first pass called it unmeasurable
+# only because the extraction half-window was narrower than the 16 cm
+# trace's own excursion, clipping it to 60 % coverage; the overlay check
+# caught that.
+#
+# Widened, panel (a) gives the quadrupole's invasion delay: the 8 cm
+# model lags the virgin waveform by +9.2 us at r = 0.924, the 16 cm model
+# by +36.7 us at r = 0.795. Both are invariant -- across 36 combinations
+# of crop start (+-110 px), crop end (+-180 px) and half-window
+# (+-15 px), the spread in each is **zero**. The 16 cm correlation sits
+# at the 0.8 bar because the waveform changes shape (invasion adds
+# cycles), not because the measurement wobbles.
+#
+# Against figure 13's dipole at 1 kHz (+0.1 and +1.2 us), the
+# quadrupole's 16 cm delay is **30x the dipole's** -- 1.9 % of the 5 m
+# traveltime against 0.06 %.
+#
+# Panels (b)-(d) are refused, and for a positive reason rather than a
+# threshold: their best-fit 8 cm lags are +237.7, +238.9 and +235.1 us at
+# 3, 6 and 7.5 kHz -- constant to +-2 us across a 2.5x change in source
+# frequency, with *negative* zero-lag correlations. A physical invasion
+# delay does not do that; a cycle-hopping cross-correlation does.
+#
+# Also legible is the printed peak-amplitude scale factor on all twelve
+# traces, and that is where the rest of this figure's content is. The
+# report says so on p. 228 -- "the variations of the peak amplitude as a
+# function of the invaded zone thickness are more pronounced with low
+# source center frequencies than previously (Figure 14a, b relative to
+# 1.5 kHz and 3 kHz)" -- and it names the mechanism: "due to a higher
+# frequency location of the useful starting energy of the screw mode".
+#
+# Digits transcribed, then checked independently by measuring the ink:
+# the plotted peak excursions reproduce the printed numbers to within
+# 0.027 in the worst panel and under 0.01 typically, the residual being
+# the finite line width, which inflates a small trace relative to a
+# large one. Both readings agree that panel (c) is genuinely
+# non-monotone in thickness.
+#
+# The dipole/quadrupole contrast, both measured the same way:
+#
+#     f_c        dipole (fig 13)   quadrupole (fig 14)
+#     low          1.25x             2.90x   (1 vs 1.5 kHz)
+#     3 kHz        1.03x             1.68x
+#     6 kHz        1.00x             1.30x
+#     7.5 kHz      1.00x             1.65x
+#
+# The dipole is flat to 3 % at every frequency at or above 3 kHz; the
+# quadrupole never drops below 1.29x. The published claim holds.
+#
+# **fwap cannot be checked against the substance of this figure, and the
+# reason is worth stating exactly.** Peak amplitude at a fixed offset is
+# excitation times propagation, and `BoreholeMode` carries neither for
+# this model: there is no excitation field on it at all, and
+# `attenuation_per_meter` comes back `None` from both the plain and the
+# layered quadrupole path. The figure's main effect is outside the API
+# surface -- a *correct* dispersion solver would not reproduce it
+# either. That is a scope limit, not a defect.
+#
+# The dispersion the figure implies, fwap mostly does not return. Of the
+# twelve (model, source frequency) pairs plotted, the quadrupole solver
+# produces a phase velocity for **three**: the virgin formation gives no
+# root at any of 1.5, 3, 6 or 7.5 kHz, its onset sitting at 8.4 kHz. The
+# A.2 bracket is again the whole story -- all 194 converged samples
+# across the three runs lie strictly inside `(V_R, V_S)`, none outside.
+#
+# And the one dispersion claim in the figure-14 paragraph -- "the
+# increase of the group velocity of the Airy phase" at 6 and 7.5 kHz --
+# does not come out inaccurate here, it comes out with the wrong sign.
+# The overtone sawtooth ramps at roughly 0.5 (m/s)/Hz, steep enough that
+# `v_g = 1 / (d(f s)/df)` goes **negative** on 18 of 48 adjacent virgin
+# pairs. No guided mode has a negative group velocity, so the Airy phase
+# cannot be read off this output at all.
+#
+# Coverage inverts with invasion thickness, as in figure 12: virgin 49
+# of 141 samples (first root 8.40 kHz), 8 cm 63 (4.10 kHz), 16 cm 82
+# (3.40 kHz). The three-medium problem converges further, and lower,
+# than the one-medium problem contained in it.
+#
+# Unlike figure 6's slow-formation model, these counts were stable
+# across bit-identical grids built two ways and across repeat calls, so
+# the grid sensitivity recorded there is model-specific, not universal.
+# The tests below still assert bands rather than exact counts.
+# ----------------------------------------------------------------------
+
+#: Figure 14: printed peak-amplitude scale factors (virgin, 8 cm, 16 cm)
+#: keyed by source centre frequency in kHz. Read off the page and
+#: confirmed by measuring the plotted excursions (agreement <= 0.027).
+_FIG14_PEAK_AMPLITUDE = {
+    1.5: (0.345, 0.587, 1.000),
+    3.0: (0.597, 0.847, 1.000),
+    6.0: (0.838, 0.772, 1.000),
+    7.5: (0.607, 0.804, 1.000),
+}
+
+#: Figure 13, the dipole counterpart, measured from the plotted
+#: excursions by the same routine. Digits were read for 1 and 3 kHz and
+#: agree; 6 and 7.5 kHz are excursion measurements only.
+_FIG13_PEAK_AMPLITUDE = {
+    1.0: (0.799, 0.907, 1.000),
+    3.0: (1.000, 0.996, 0.975),
+    6.0: (0.998, 0.998, 1.000),
+    7.5: (1.000, 0.998, 1.000),
+}
+
+#: Figure 14(a): cross-correlation lag against the virgin trace at a
+#: 1.5 kHz quadrupole source and 5 m offset (microseconds), and the
+#: correlation. Invariant across 36 crop/window choices.
+_FIG14A_INVASION_LAG_US = {"8 cm": (9.7, 0.924), "16 cm": (36.5, 0.797)}
+
+#: Figure 14(b)-(d): the best-fit 8 cm lags, refused. Constant across a
+#: 2.5x change in source frequency, which a real delay would not be.
+_FIG14_REFUSED_LAG_US = {3.0: 237.7, 6.0: 238.9, 7.5: 235.1}
+
+#: The four source centre frequencies of figure 14 (kHz).
+_FIG14_SOURCE_KHZ = (1.5, 3.0, 6.0, 7.5)
+
+#: Receiver offset of every figure-14 panel (m).
+_FIG14_OFFSET_M = 5.0
+
+#: Lowest frequency (kHz) at which fwap's plain quadrupole solver
+#: returns a root for the figure-14 virgin fast sandstone.
+_FIG14_VIRGIN_ONSET_KHZ = 8.4
+
+
+def _fig14_quadrupole(thickness: float | None, freq: np.ndarray) -> np.ndarray:
+    """Phase velocity (m/s) for figure 14's model, NaN where no root."""
+    from fwap.cylindrical_solver import (
+        quadrupole_dispersion,
+        quadrupole_dispersion_layered,
+    )
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    if thickness is None:
+        mode = quadrupole_dispersion(freq, **_FIG12_VIRGIN, **fluid, a=0.10)
+    else:
+        mode = quadrupole_dispersion_layered(
+            freq,
+            **_FIG12_VIRGIN,
+            **fluid,
+            a=0.10,
+            layers=(BoreholeLayer(**_FIG12_INVADED, thickness=thickness),),
+        )
+    return 1.0 / mode.slowness
+
+
+def test_fig14_scale_factors_are_internally_consistent():
+    """The transcription, before it is used for anything.
+
+    Each panel is normalised to its own maximum, so every triple must
+    contain exactly one 1.000 and nothing above it. Panel (c) is the odd
+    one out and that is not a mis-read: two independent readings of the
+    page -- the printed digits and the plotted ink -- both put the 8 cm
+    trace *below* the virgin one there.
+    """
+    for f_khz, triple in _FIG14_PEAK_AMPLITUDE.items():
+        assert max(triple) == pytest.approx(1.0), f"{f_khz} kHz: {triple}"
+        assert min(triple) > 0.0, f"{f_khz} kHz: {triple}"
+        assert sum(v == 1.0 for v in triple) == 1, f"{f_khz} kHz: {triple}"
+    virgin, eight, _ = _FIG14_PEAK_AMPLITUDE[6.0]
+    assert eight < virgin, "panel (c) is non-monotone in invasion thickness"
+    for f_khz in (1.5, 3.0, 7.5):
+        a, b, c = _FIG14_PEAK_AMPLITUDE[f_khz]
+        assert a < b < c, f"{f_khz} kHz rises with thickness: {(a, b, c)}"
+
+
+def test_the_quadrupole_sees_invasion_far_more_strongly_than_the_dipole():
+    """The published comparison, measured.
+
+    "The variations of the peak amplitude as a function of the invaded
+    zone thickness are more pronounced with low source center
+    frequencies than previously" -- previously being the dipole of
+    figure 13. At the lowest source frequency each figure plots, the
+    quadrupole's spread is 2.90x against the dipole's 1.25x.
+    """
+
+    def spread(triple: tuple[float, float, float]) -> float:
+        return max(triple) / min(triple)
+
+    quad_low = spread(_FIG14_PEAK_AMPLITUDE[1.5])
+    dip_low = spread(_FIG13_PEAK_AMPLITUDE[1.0])
+    assert quad_low == pytest.approx(2.90, abs=0.05)
+    assert dip_low == pytest.approx(1.25, abs=0.05)
+    assert quad_low > 2.0 * dip_low, f"{quad_low} vs {dip_low}"
+    # and at the one frequency both figures share
+    assert spread(_FIG14_PEAK_AMPLITUDE[3.0]) > 1.6
+    assert spread(_FIG13_PEAK_AMPLITUDE[3.0]) < 1.05
+
+
+def test_the_dipole_goes_flat_above_3_khz_and_the_quadrupole_never_does():
+    """Where each source stops resolving a shallow altered zone.
+
+    The report's own words for figure 13(c, d) are that "the peak
+    amplitude still varies little from one case to another". Measured,
+    "little" is under 1 %. The quadrupole's smallest spread over the
+    same band is 1.29x.
+    """
+    for f_khz in (6.0, 7.5):
+        triple = _FIG13_PEAK_AMPLITUDE[f_khz]
+        assert max(triple) / min(triple) < 1.01, f"dipole {f_khz} kHz: {triple}"
+    worst = min(
+        max(t) / min(t) for f_khz, t in _FIG14_PEAK_AMPLITUDE.items() if f_khz >= 3.0
+    )
+    assert worst > 1.25, f"quadrupole stays sensitive: {worst}"
+
+
+def test_fwap_returns_no_screw_root_at_any_figure_14_source_frequency():
+    """Twelve plotted wavetrains, three phase velocities.
+
+    Figure 14 plots three models at four source centre frequencies. For
+    the virgin fast sandstone -- the reference every panel is normalised
+    against -- fwap's quadrupole solver returns no root at any of the
+    four. The `(V_R, V_S)` bracket puts the onset at 8.4 kHz, above the
+    whole figure.
+    """
+    freq = 1.0e3 * np.array(_FIG14_SOURCE_KHZ)
+    virgin = _fig14_quadrupole(None, freq)
+    assert not np.any(np.isfinite(virgin)), f"expected no roots, got {virgin}"
+
+    found = sum(
+        int(np.isfinite(_fig14_quadrupole(th, freq)).sum()) for th in (0.08, 0.16)
+    )
+    assert found <= 4, f"{found} of 12 plotted pairs resolved"
+    assert found >= 1, "the layered path does resolve some of them"
+
+
+def test_the_figure_14_screw_onset_sits_above_the_whole_figure():
+    """Quantify the gap between the published band and fwap's."""
+    freq = np.linspace(1000.0, 15000.0, 141)
+    virgin = _fig14_quadrupole(None, freq)
+    ok = np.isfinite(virgin)
+    assert ok.any(), "the solver resolves the mode somewhere"
+    onset_khz = freq[ok].min() / 1.0e3
+    assert onset_khz == pytest.approx(_FIG14_VIRGIN_ONSET_KHZ, abs=0.6)
+    assert onset_khz > max(_FIG14_SOURCE_KHZ), (
+        f"onset {onset_khz} kHz is above every source frequency in the figure"
+    )
+
+
+def test_every_figure_14_sample_lies_inside_the_rayleigh_shear_bracket():
+    """A.2 once more, on the figure's own three models.
+
+    Not one converged sample of the virgin, 8 cm or 16 cm run escapes
+    `(V_R, V_S)`. The bracket is not merely a bias on these curves, it
+    is their entire support.
+    """
+    freq = np.linspace(1000.0, 15000.0, 141)
+    v_r = rayleigh_speed(_FIG12_VIRGIN["vp"], _FIG12_VIRGIN["vs"])
+    total = 0
+    for thickness in (None, 0.08, 0.16):
+        v = _fig14_quadrupole(thickness, freq)
+        good = v[np.isfinite(v)]
+        assert good.size, f"thickness {thickness} resolved nothing"
+        assert np.all(good > v_r), f"thickness {thickness} dipped below V_R"
+        assert np.all(good < _FIG12_VIRGIN["vs"]), f"thickness {thickness} exceeded V_S"
+        total += good.size
+    assert total > 150, f"only {total} samples examined"
+
+
+def test_the_screw_sawtooth_drives_the_computed_group_velocity_negative():
+    """The Airy phase figure 14(c, d) is about cannot be read off this.
+
+    The overtone substitution walks the root up to `V_S`, loses it, and
+    re-acquires a higher branch. The ramps are steep enough that
+    `v_g = 1 / (d(f s)/df)` comes out negative across a large minority
+    of adjacent samples. A guided mode never has negative group
+    velocity, so this is not a small error in the Airy velocity -- it is
+    the absence of a usable group-velocity curve.
+
+    If this test ever fails because no pair is negative, the sawtooth
+    has been removed and the Airy check should be written for real.
+    """
+    freq = np.linspace(1000.0, 15000.0, 141)
+    v = _fig14_quadrupole(None, freq)
+    ok = np.isfinite(v)
+    f_ok, v_ok = freq[ok], v[ok]
+    dv_df = np.diff(v_ok) / np.diff(f_ok)
+    v_g = v_ok[:-1] / (1.0 - (f_ok[:-1] / v_ok[:-1]) * dv_df)
+    negative = int((v_g < 0.0).sum())
+    assert negative > 5, f"only {negative} of {v_g.size} pairs negative"
+    assert v_ok.max() > _FIG12_VIRGIN["vs"] - 5.0, "ramps reach the V_S ceiling"
+
+
+def test_invaded_quadrupole_coverage_exceeds_virgin_coverage():
+    """Figure 12's inverted signal, reproduced at n = 2.
+
+    Adding an 8 cm layer and then a 16 cm layer makes the problem
+    strictly harder -- three media instead of one -- and the solver
+    converges on strictly more of the band each time, reaching lower in
+    frequency. Coverage is tracking the bracket, not the physics.
+    """
+    freq = np.linspace(1000.0, 15000.0, 141)
+    counts, onsets = [], []
+    for thickness in (None, 0.08, 0.16):
+        v = _fig14_quadrupole(thickness, freq)
+        ok = np.isfinite(v)
+        counts.append(int(ok.sum()))
+        onsets.append(freq[ok].min() / 1.0e3)
+    assert counts[0] < counts[1] < counts[2], f"coverage {counts}"
+    assert onsets[0] > onsets[1] > onsets[2], f"onsets {onsets}"
+    assert counts[2] > 1.5 * counts[0], f"coverage {counts}"
+
+
+def test_the_figure_14_model_returns_no_attenuation_at_all():
+    """Why the figure's main result is out of scope, not merely wrong.
+
+    Peak amplitude at a fixed 5 m offset is excitation times
+    propagation. `BoreholeMode` has no excitation field, and for this
+    model `attenuation_per_meter` is `None` on every path. Neither
+    factor is available, so figure 14's amplitudes are not something a
+    fixed A.2 would deliver.
+    """
+    from fwap.cylindrical_solver import (
+        quadrupole_dispersion,
+        quadrupole_dispersion_layered,
+    )
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    freq = 1.0e3 * np.array(_FIG14_SOURCE_KHZ)
+    plain = quadrupole_dispersion(freq, **_FIG12_VIRGIN, **fluid, a=0.10)
+    layered = quadrupole_dispersion_layered(
+        freq,
+        **_FIG12_VIRGIN,
+        **fluid,
+        a=0.10,
+        layers=(BoreholeLayer(**_FIG12_INVADED, thickness=0.16),),
+    )
+    assert plain.attenuation_per_meter is None
+    assert layered.attenuation_per_meter is None
+    assert not hasattr(plain, "excitation")
+
+
+def test_the_quadrupole_invasion_delay_at_1p5_khz():
+    """Figure 14(a): the quadrupole's own invasion delay.
+
+    Both models delay rather than advance, thicker delays more, and at
+    5 m the 16 cm figure is a couple of percent of the traveltime.
+    """
+    for name, (lag_us, corr) in _FIG14A_INVASION_LAG_US.items():
+        assert lag_us > 0.0, f"{name}: invasion delays rather than advances"
+        assert corr > 0.75, f"{name}: r = {corr}"
+    quad = _FIG14A_INVASION_LAG_US["16 cm"][0]
+    assert quad > _FIG14A_INVASION_LAG_US["8 cm"][0]
+    travel_ms = _FIG14_OFFSET_M * 1.0e3 / _FIG12_VIRGIN["vs"]
+    assert 0.005 < quad * 1e-3 / travel_ms < 0.05, "a couple of percent"
+
+
+def test_the_invasion_delay_is_a_steep_function_of_source_frequency():
+    """Why figure 14's delay must not be read as a dipole/quadrupole gap.
+
+    It is tempting to set figure 14(a)'s 36.5 us against figure 13(a)'s
+    1.2 us and call the quadrupole thirty times more delay-sensitive.
+    The two panels are at *different* source frequencies -- 1.5 against
+    1 kHz -- and figure 13's own panels show how steeply that matters:
+    the dipole's 16 cm delay goes 1.2 -> 99.0 us between 1 and 3 kHz, a
+    factor of 79 for a factor of 3 in frequency. The quadrupole's
+    1.5 kHz value lands between those two, about where interpolating the
+    dipole would put it.
+
+    No source frequency is shared between the two figures where both are
+    measurable, so **the figures do not support a like-for-like delay
+    comparison** -- only the peak-amplitude one, which the report itself
+    makes. This test exists to keep that distinction from eroding.
+    """
+    dip_1k = _FIG13A_INVASION_LAG_US["16 cm"][0]
+    dip_3k = _FIG13B_INVASION_LAG_US["16 cm"][0]
+    quad_1p5k = _FIG14A_INVASION_LAG_US["16 cm"][0]
+    assert dip_3k / dip_1k > 50.0, f"{dip_1k} -> {dip_3k} us"
+    assert dip_1k < quad_1p5k < dip_3k, (
+        "the quadrupole's 1.5 kHz delay is bracketed by the dipole's own "
+        f"1 and 3 kHz values: {dip_1k} < {quad_1p5k} < {dip_3k}"
+    )
+
+
+def test_the_refused_figure_14_lags_are_refused_for_a_reason():
+    """Why panels (b)-(d) are not quoted.
+
+    Their best-fit 8 cm lags are the same number at 3, 6 and 7.5 kHz.
+    A delay caused by a 8 cm layer would change with the wavelength
+    probing it; a cross-correlation hopping cycles in a ringing
+    wavetrain would not. The spread across a 2.5x change in source
+    frequency is the evidence, and it is recorded so the refusal can be
+    checked rather than taken on trust.
+    """
+    lags = np.array(list(_FIG14_REFUSED_LAG_US.values()))
+    assert np.ptp(lags) < 5.0, f"constant to a few us: {lags}"
+    assert lags.min() > 100.0, "and far larger than panel (a)'s"
+    # panel (a), which is quoted, is nothing like them
+    assert _FIG14A_INVASION_LAG_US["16 cm"][0] < 0.2 * lags.min()
