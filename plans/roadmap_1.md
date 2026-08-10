@@ -77,15 +77,21 @@ the crack wave carries it at roughly 100:1. And a second real log — ODP Leg
 157 Hole 952A, handed over after F.3 shipped — showed the AXIS-only reader was
 right but not sufficient, since that file declares no AXIS at all.
 
-**2c is the most valuable row and is no longer blocked on work.** It was
-"hosting a subset is redistribution" for its whole life; ODP 952A is 1.55 MB as
-delivered, so the question is now whether its terms permit hosting, which is
-reading rather than engineering.
+~~**2c is the most valuable row and is no longer blocked on work.**~~ **Closed
+since**, and not by the file that paragraph was about. ODP 952A made the row
+*actionable* by being small; what closed it was noticing that the premise
+underneath — no openly redistributable gather exists — was simply false, and
+that a **CC0** eight-receiver DSI run (IODP U1347A) had been public throughout.
+The 952A work was not wasted: it produced the waveform reader and the F.5
+provenance method that the U1347A entry then used.
 
-Item 3 still cannot be closed by writing code here. Note the qualifier that
-survived from earlier revisions and turned out to be the important one: the
-obstacle was always *which host serves a file*, never a blanket network wall —
-which is exactly how item 2 eventually closed.
+Item 3 still cannot be closed by writing code here — but note how much of it
+turned out not to need the books at all. It went five figures → three → four,
+the reductions coming from analytic ties that already existed or cost nothing to
+add, and the one restoration from re-reading A.2 against it. Before calling the
+remaining four blocked, the qualifier that survived earlier revisions is worth
+keeping in view: the obstacle was always *which host serves a file*, never a
+blanket network wall — which is exactly how item 2 eventually closed.
 
 **Items 1a and 1c both came and went inside a revision, and neither was on any
 list beforehand.** Both were found by an oracle aimed at something else. The
