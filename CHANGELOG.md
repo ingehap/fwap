@@ -6,6 +6,37 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Known issues
+- **`flexural_dispersion` returns a flexural overtone in fast formations above
+  roughly 15 kHz** (roadmap A.2). Measured, pinned by three tests, and not yet
+  fixed.
+  `_flexural_dispersion_fast_formation` searches phase velocity in
+  `(V_R, V_S)`. **`V_R` is not a limit of this mode** — the flexural branch
+  asymptotes to the *Scholte* speed, which is 30 % lower (1472.6 against
+  2115.8 m/s for `vp/vs/rho = 4000/2300/2500`). So the fundamental leaves the
+  search window entirely, and what the window still contains is an overtone.
+  At 19.5 kHz the determinant's roots over `(Scholte, V_S)` are 1853 and
+  2269 m/s; the fundamental is 1853 and **the call returns 2269**, with nothing
+  to mark it as a different branch. Over 10-30 kHz the returned velocity
+  descends 2295 → 2162, goes `NaN`, **jumps back up** to 2283, descends to
+  2145, goes `NaN`, jumps to 2275 — successive overtones crossing the window.
+  A guided mode never speeds up with frequency, so this is not a sparse curve
+  with gaps; it is not a curve. Callers who interpolate across the gaps get a
+  plausible-looking result assembled from several modes.
+  Widening the bracket to `(Scholte, V_S)` roughly doubles coverage over
+  1-12 kHz on three fast rocks (32 → 72 %, 16 → 40 %, 20 → 68 %), but it is not
+  a one-line fix: the window then holds several roots and the fundamental has
+  to be identified. Taking the highest seeds onto an overtone; taking the
+  lowest is non-monotone on two of three rocks; seeding at cutoff with a
+  "velocity must decrease" guard is monotone but drops coverage to 4/28, 16/28
+  and 10/28. A mode-identification criterion is needed, and shipping a
+  half-validated change to a physics solver is worse than shipping the
+  measurement.
+  Slow formations are unaffected — this is the fast-formation path only.
+  **This corrects the item's own diagnosis**, which said "a fix means
+  complex-plane root tracking". Neither defect above involves complex `k_z` at
+  all. The below-cutoff sparseness, separately, still does.
+
 ### Fixed
 - **The flexural high-frequency test was anchored to the wrong reference**
   (roadmap A.1). `test_flexural_high_f_slowness_above_inverse_rayleigh` compared
