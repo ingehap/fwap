@@ -16834,3 +16834,111 @@ def test_microannulus_stable_root_filter_drops_grid_dependent_roots():
     # test is about the filter and not about the needle being unreachable.
     solo = [c for c in first if abs(c - needle_centre) < half_width]
     assert solo
+
+
+# ----------------------------------------------------------------------
+# A.2, measured: the fast-formation bracket is anchored to the wrong speed
+#
+# `_flexural_dispersion_fast_formation` searches phase velocity in
+# `(V_R, V_S)`. V_R is not a limit of this mode. The flexural branch
+# asymptotes to the *Scholte* speed, which is well below V_R -- for the
+# rock here, 1472.6 against 2115.8, so the bracket excludes 30 % of the
+# velocity axis and truncates the fundamental where it crosses V_R.
+#
+# Two consequences, and the second is the serious one:
+#
+#   * below the crossing the mode is found, above it the bracket is empty
+#     and the call returns NaN -- which reads as "sparse coverage", the
+#     symptom A.2 was filed under;
+#   * in between, the window still contains roots, but they are flexural
+#     *overtones* entering near V_S. The solver returns one of those,
+#     labelled as the flexural mode, with no indication anything is wrong.
+#
+# Enumerating Im(det) roots over (Scholte, V_S) at 19.5 kHz gives 1853 and
+# 2269 m/s. The fundamental -- continued from 2138 m/s at 14.5 kHz, where
+# the current bracket still works and only one root exists -- is 1853. The
+# solver returns 2269.
+#
+# Pinned rather than fixed. A correct fix must identify the fundamental
+# among several roots, and neither naive rule works: taking the highest
+# seeds onto an overtone, taking the lowest is non-monotone on 2 of 3 test
+# rocks. See roadmap A.2.
+# ----------------------------------------------------------------------
+
+_A2_ROCK = dict(vp=4000.0, vs=2300.0, rho=2500.0)
+_A2_FLUID = dict(vf=1500.0, rho_f=1000.0)
+
+
+def test_fast_flexural_bracket_excludes_the_modes_own_asymptote():
+    """V_R is not a limit of this mode; the Scholte speed is.
+
+    The bracket's lower edge sits above the value the mode converges to,
+    so the search window cannot contain the high-frequency branch at all.
+    """
+    from fwap import scholte_speed
+    from fwap.cylindrical import rayleigh_speed
+
+    v_rayleigh = rayleigh_speed(_A2_ROCK["vp"], _A2_ROCK["vs"])
+    v_scholte = scholte_speed(**_A2_ROCK, **_A2_FLUID)
+
+    assert v_scholte < v_rayleigh, "the asymptote must be inside the bracket"
+    assert (v_rayleigh - v_scholte) / v_rayleigh > 0.25
+
+
+def test_fast_flexural_returns_an_overtone_above_the_crossing():
+    """The defect A.2 was filed under is two defects, and this is the
+    second: a wrong answer, not a missing one.
+
+    At 19.5 kHz the determinant has roots at ~1853 and ~2269 m/s. The
+    fundamental is 1853 -- it continues from 2138 m/s at 14.5 kHz, inside
+    the band where the current bracket works and only one root exists.
+    The solver returns ~2269, which is the first overtone, because that is
+    what its `(V_R, V_S)` window happens to contain.
+
+    Asserted loosely on purpose: what is pinned is that the returned value
+    sits far *above* the fundamental, not the exact overtone value, so a
+    fix shows up here as a failure rather than passing unnoticed.
+    """
+    from fwap import flexural_dispersion
+
+    result = flexural_dispersion(np.array([19.5e3]), **_A2_ROCK, **_A2_FLUID, a=0.10)
+    velocity = 1.0 / result.slowness[0]
+
+    assert np.isfinite(velocity)
+    assert velocity > 2200.0, "still returning a root from the V_R..V_S window"
+    # The fundamental is near 1853 m/s; being 20 % above it is the defect.
+    assert velocity / 1853.0 > 1.15
+
+
+def test_fast_flexural_returns_a_sawtooth_not_a_dispersion_curve():
+    """The clearest statement of the defect, and the one a caller would
+    notice: what comes back is stitched from several modes.
+
+    Over 10-30 kHz the returned velocity descends 2295 -> 2162, goes NaN
+    for four steps, **jumps back up** to 2283, descends to 2145, goes NaN
+    again, and jumps to 2275. Each overtone enters the `(V_R, V_S)` window
+    near V_S, crosses it, drops out below V_R, and the next one takes
+    over.
+
+    A guided mode's phase velocity decreases with frequency. It never
+    jumps up. So this is not a sparse curve with gaps -- it is not a
+    curve. The NaN gaps are the least of it: a caller who interpolates
+    across them gets a plausible-looking result assembled from different
+    modes.
+
+    This is the same failure the `n=2` block above records, with the
+    mechanism now identified for `n=1`.
+    """
+    from fwap import flexural_dispersion
+
+    freq = np.linspace(10.0e3, 30.0e3, 21)
+    result = flexural_dispersion(freq, **_A2_ROCK, **_A2_FLUID, a=0.10)
+    velocity = 1.0 / result.slowness
+    finite = np.isfinite(velocity)
+
+    assert finite[:5].all(), "below the crossing the mode is found"
+    assert not finite.all(), "the window empties between overtones"
+
+    steps = np.diff(velocity[finite])
+    assert (steps > 0.0).any(), "a guided mode never speeds up with frequency"
+    assert steps.max() > 100.0, "the jump is a mode change, not numerical noise"

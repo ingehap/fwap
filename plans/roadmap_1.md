@@ -10,7 +10,7 @@ time, so check both against the tree before acting on either.
 
 ## The shape of it
 
-Six things are open, and they fall into three kinds — which matters more than
+Five things are open, and they fall into three kinds — which matters more than
 their ordering, because the kinds differ in whether they can be worked on from a
 coding session at all. The struck-out rows are kept because how they closed is
 the useful part of the story: each came loose from a larger item by measurement
@@ -27,8 +27,8 @@ rather than by planning.
 | ~~6~~ | ~~The debond inverse in `sonic_ml.bench` (G.6)~~ | **closed** | — |
 | ~~2d~~ | ~~The ODP file's offsets and its 950-A/952A header (F.5)~~ | **closed** | — |
 | ~~2c~~ | ~~A waveform fixture CI can fetch (F.2)~~ | **closed** | — |
-| 1b | Leaky-mode root tracking, **n=1 *and* n=2** (A.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
-| 3 | Digitised validation figures (A.1) — **3 of 5, re-scoped** | sourcing | the books, for pseudo-Rayleigh / cased Stoneley / VTI flexural only |
+| 1b | Leaky root tracking, **n=1 *and* n=2** (A.2) | **two defects, measured**: a bracket anchored to `V_R` instead of Scholte (no complex machinery needed, but needs a mode-identification rule), and genuine below-cutoff leakiness | the second half needs a Riemann-sheet analysis; the first needs only care |
+| 3 | Digitised validation figures (A.1) — **4 of 5, re-scoped** | sourcing | the books, for pseudo-Rayleigh / cased Stoneley / VTI flexural, plus Schmitt 1988 fig 4's *fast* curve, which A.2 needs |
 | 5 | Confirm two registered checksums (F.4) | one fetch each | egress to `gdr.openei.org` and `zenodo.org` |
 | 7 | Delta-matrix / Abo-Zena stack reformulation (A.5 residue) | modelling, optional | nothing |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |

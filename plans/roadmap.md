@@ -60,8 +60,8 @@ file is too big" — it is licence and provenance work on a file already here.
 |-----------|----------------|
 | ~~**F.2 A waveform fixture CI can use**~~ | *Closed, with one thing it does not mean.* `iodp_u1347a_dsi` — an eight-receiver DSI monopole run, **CC0** on Zenodo — is registered, read by `read_ldeo_waveforms`, and exercised by `stc` at **0.948** median peak coherence. CI *can* use it but does not: the default run stays hermetic and skips it. The blocking claim ("no openly redistributable gather is known to exist") turned out to be false. Kept below. |
 | ~~**F.5 The ODP file's unknowns**~~ | *Closed.* Both answered, and the item was filed on a wrong premise — "not resolvable from the files" meant "nobody had opened the rest of the archive". The hole identity is settled by the archive's own run table (six runs matched by name and depth interval, six for six); the offsets are the LSS **8/10/10/12 ft** set, confirmed by first-break moveout to an intercept of −0.0 µs. Kept below. |
-| **A.2 Fast-formation leakage, `n=1` and `n=2`** | **The last physics gap, and it was missing from this table for several revisions** while being discussed at length below and tracked in `roadmap_1.md`. A reader skimming here would have concluded it was closed. In a fast formation the flexural root leaves the real `k_z` axis; widening the real bracket provably cannot recover it. Affects the quadrupole identically, so one fix repairs two solvers, and it is why both Scholte ties are scoped to slow formations. Needs complex-plane root tracking. |
-| **A.1 Validation figures** | *Re-scoped from five figures to three.* Stoneley, flexural and quadrupole are now tied analytically at 1e-8 to 1e-3, against a 5 % overlay budget — so their figures were dropped as the weaker instrument. What still needs the books is the **pseudo-Rayleigh curve**, **cased Stoneley** and **VTI flexural**, which have no external tie of any kind. |
+| **A.2 Fast-formation leakage, `n=1` and `n=2`** | **Measured; it is two defects, and the worse one is a wrong answer rather than a missing one.** Above ~15 kHz `flexural_dispersion` returns a flexural *overtone* labelled as the mode — the search window is `(V_R, V_S)` and the fundamental has left it, because `V_R` is not this mode's limit; the Scholte speed is, 30 % lower. Widening the window roughly doubles coverage but needs a mode-identification rule, so it is pinned rather than fixed. The below-cutoff half is still the leaky problem and still needs complex-plane tracking. **Also was missing from this table for several revisions** while being discussed at length below and tracked in `roadmap_1.md`. A reader skimming here would have concluded it was closed. In a fast formation the flexural root leaves the real `k_z` axis; widening the real bracket provably cannot recover it. Affects the quadrupole identically, so one fix repairs two solvers, and it is why both Scholte ties are scoped to slow formations. Needs complex-plane root tracking. |
+| **A.1 Validation figures** | *Re-scoped from five figures to four* (three, then Schmitt 1988 fig 4 restored for its fast-formation curve — A.2 needs it and the new flexural tie does not cover it). Stoneley, flexural and quadrupole are now tied analytically at 1e-8 to 1e-3, against a 5 % overlay budget — so their figures were dropped as the weaker instrument. What still needs the books is the **pseudo-Rayleigh curve**, **cased Stoneley** and **VTI flexural**, which have no external tie of any kind. |
 | **F.4 Two unconfirmed checksums** | Also body-only until this revision, which is the same failure as A.2's. `forge_dsi_las` and `iodp_u1347a_dsi` both carry digests computed from copies that did not come down their canonical URLs, because those hosts were blocked from the sessions that added them. One successful fetch each clears it. It is the only place the fixture registry asserts something it has not verified. |
 | **A.5 residue: delta-matrix reformulation** | Optional and blocked on nothing, which is why it kept falling off the list. A delta-matrix / Abo-Zena form of the elastic stack would remove the cancellation the grid-stability filter exists to work around, and raise the crack-wave ceiling above the ~240 kHz where the propagators stop being representable. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
@@ -206,8 +206,18 @@ with a wrong solver too.
 **The item was over-scoped, and re-measuring shrank it.** It used to ask for
 five digitised figures and to justify them with "these are the only checks that
 tie the solver to literature rather than to itself". That sentence stopped being
-true as the analytic ties accumulated, and nobody re-read it against them. Mode
-by mode:
+true as the analytic ties accumulated, and nobody re-read it against them.
+
+*Correction, one revision later.* This re-scope dropped **Schmitt 1988 fig 4**
+outright. Wrong for its fast-formation half: the new flexural tie is
+slow-formation **only**, because fast formations are exactly where `n=1` goes
+leaky, and A.2 records that this figure is what would settle whether a leaky
+continuation exists at all. **Fig 4 is back in the ask, for its fast curve**;
+the slow half stays superseded. The count is four figures, not three. This was
+the "read the table against the body" failure the honesty note warns about,
+committed by the session that wrote the note.
+
+Mode by mode:
 
 | Mode | f → 0 | f → ∞ | Tightness |
 |---|---|---|---|
@@ -263,7 +273,70 @@ Note the figure numbering: this list previously cited "Tang & Cheng 2004
 Fig. 3.4", which does not match the notebook's sections (figs 3.7 and 3.10 for
 quadrupole, 7.1 for cased Stoneley). The notebook is the accurate list.
 
-### A.2 Fast-formation flexural leakage
+### A.2 — measured, and it is two defects rather than one
+
+**The diagnosis below is incomplete, and the correction matters more than the
+detail.** A.2 says "a fix means complex-plane root tracking". Measuring the
+fast-formation `n=1` solver instead of reading it shows that a large part of the
+failure has nothing to do with leakiness, and the more serious part is not a
+coverage problem at all.
+
+`_flexural_dispersion_fast_formation` searches phase velocity in `(V_R, V_S)`.
+**`V_R` is not a limit of this mode.** The flexural branch asymptotes to the
+*Scholte* speed — the same result A.1's new tie rests on — and Scholte is far
+below `V_R`: 1472.6 against 2115.8 m/s for `vp/vs/rho = 4000/2300/2500`. So the
+window excludes 30 % of the velocity axis, and the fundamental leaves it
+entirely at about 15 kHz.
+
+**Defect 1 — truncation.** Below the crossing the mode is found; above it the
+window no longer holds the fundamental. Continuing the branch from 2138.1 m/s at
+14.5 kHz, where the current bracket still works and only one root exists, gives
+a monotone curve running to 1525.2 m/s at 59.5 kHz — within 3.6 % of Scholte,
+still descending. None of it is reachable through the present bracket. Widening
+to `(Scholte, V_S)` roughly doubles coverage on three fast rocks over the
+1-12 kHz band A.2 complains about: **32 → 72 %, 16 → 40 %, 20 → 68 %**.
+
+**Defect 2 — the window still returns something, and it is the wrong mode.**
+Overtones enter near `V_S` as frequency rises, so `(V_R, V_S)` is not empty above
+the crossing; it holds an overtone. At 19.5 kHz the determinant's roots over
+`(Scholte, V_S)` are 1853 and 2269 m/s. The fundamental is 1853. **The solver
+returns 2269**, labelled as the flexural mode, with nothing to indicate it is a
+different branch. Over 10-30 kHz the returned velocity descends 2295 → 2162,
+goes `NaN`, **jumps back up** to 2283, descends to 2145, goes `NaN`, jumps to
+2275. A guided mode never speeds up with frequency: this is not a sparse curve,
+it is a sawtooth stitched from successive overtones. A caller interpolating
+across the gaps gets a plausible-looking answer assembled from different modes.
+
+That is the same hazard the `n=2` block records — finite values a `NaN` filter
+keeps — with the mechanism now identified.
+
+**Why this is not fixed here.** Widening the bracket is one line; identifying
+the fundamental among several roots is not, and both naive rules fail. Taking
+the highest root seeds onto an overtone. Taking the lowest is non-monotone on
+two of three test rocks. Seeding at cutoff and marching upward with a
+"velocity must decrease" guard is monotone on all three but drops coverage to
+4/28, 16/28 and 10/28 — the guard cannot recover once a step is missed. A
+correct fix needs a mode-identification criterion rather than a bracket edit,
+and shipping a half-validated change to a physics solver is worse than shipping
+the measurement. Three tests pin the defect in
+`tests/test_cylindrical_solver.py` so a fix shows up as a failure.
+
+**What survives of the original diagnosis.** The below-cutoff sparseness — the
+`NaN`s under about 10 kHz in the rock above — is untouched by any of this, and
+is still the leaky problem described below. Complex-plane tracking is needed for
+*that* half. It is not needed for either defect above.
+
+*A correction to A.1, made in the same revision that created it.* The A.1
+re-scope dropped Schmitt 1988 fig 4 as "superseded" on the strength of the new
+flexural-Scholte tie. That tie is **slow-formation only**, because of exactly
+the leakiness this item is about. The figure's fast-formation curve is not
+superseded, and the paragraph below explains why it is load-bearing: it is what
+would settle whether a leaky continuation exists at all. Fig 4 is restored to
+the A.1 ask for its fast half. Dropping it was the "read the table against the
+body" failure that the honesty note added two revisions ago exists to catch —
+committed by the same session that wrote the note.
+
+### A.2 Fast-formation flexural leakage — the original entry
 
 Was filed as "cased flexural bracketing", which measurement showed to be the
 wrong diagnosis. The layered `n=1` solver no longer refuses fast formations, but
