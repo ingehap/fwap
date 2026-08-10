@@ -28,7 +28,7 @@ rather than by planning.
 | ~~2d~~ | ~~The ODP file's offsets and its 950-A/952A header (F.5)~~ | **closed** | — |
 | ~~2c~~ | ~~A waveform fixture CI can fetch (F.2)~~ | **closed** | — |
 | 1b | Leaky-mode root tracking, n=1 (A.2) | modelling *and* derivation | a Riemann-sheet analysis — possibly literature access |
-| 3 | Digitised validation figures (A.1, curve shapes) | sourcing | access to the books |
+| 3 | Digitised validation figures (A.1) — **3 of 5, re-scoped** | sourcing | the books, for pseudo-Rayleigh / cased Stoneley / VTI flexural only |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
 
 **The shape has changed since the last revision, and mostly by closing.** G.2
@@ -520,6 +520,20 @@ claim nobody had re-tested. Before 1b or 3 is called blocked on "literature
 access" or "the books", the same question is worth asking: has anyone checked
 recently, or is that a search result from a year ago wearing the clothes of a
 fact?
+
+**That question was then put to item 3, and it shrank it by two fifths.** A.1
+justified five digitised figures with "these are the only checks that tie the
+solver to literature rather than to itself" — a sentence that had quietly
+stopped being true as the analytic oracles accumulated. Stoneley is now tied at
+1e-8 and 0.1 %, quadrupole at 1e-3, and flexural at 1e-3 after this revision,
+against an overlay budget of 5 %. Three of the five figures were the weaker
+instrument and are dropped. The flexural tie cost nothing but noticing that the
+`n=2` argument had never been applied to `n=1`, and it exposed a test anchored
+to the wrong reference with a tolerance wide enough to hide the 9 % gap.
+
+The residue is real and does need the books: pseudo-Rayleigh's *curve*, cased
+Stoneley, and VTI flexural have no external tie of any kind. But the item is no
+longer blocking the package's headline mode, which is what made it feel urgent.
 
 Item 2d is closed, and how it closed is the more useful part. It had been
 filed as sourcing — "the offsets need the SDT tool spec; nothing in the files

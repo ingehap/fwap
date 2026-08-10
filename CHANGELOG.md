@@ -6,7 +6,47 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **The flexural high-frequency test was anchored to the wrong reference**
+  (roadmap A.1). `test_flexural_high_f_slowness_above_inverse_rayleigh` compared
+  the modal `n=1` slowness against `rayleigh_speed` with `rel=0.10`. The
+  flexural mode does not approach the vacuum-loaded Rayleigh speed: it settles
+  at **0.908 V_R** and stays there, so the tolerance was absorbing a 9 %
+  reference error rather than bounding the solver — the test was passing on
+  17 % of its own margin, and a real regression of a few percent would not have
+  moved it. The test now asserts only the inequality, which is genuine physics
+  (fluid loading holds a surface wave below its vacuum-loaded speed), and the
+  quantitative claim moved to a correct reference.
+  The docstring had named the right target all along — "positive **Scholte** /
+  fluid-loading offset" — and used Rayleigh as a proxy because `scholte_speed`
+  did not exist yet.
+
 ### Added
+- **The flexural mode is tied to the plane Scholte speed** (roadmap A.1). The
+  argument the `n=2` block already rests on — at short wavelength the borehole
+  wall looks flat to *every* azimuthal order — had never been applied to `n=1`,
+  which is the mode the package sells. `scholte_speed` solves a plane
+  fluid/solid interface problem: no Bessel functions, no borehole radius, no
+  azimuthal order, so agreement is an external check rather than the solver
+  confirming itself.
+  Measured on a slow formation at `a` = 0.10 m, flexural velocity over the
+  Scholte speed runs **1.0166 → 1.00025** across 10–400 kHz, monotone, and the
+  new test asserts convergence to 1e-3 rather than proximity. All three
+  azimuthal orders agree at 400 kHz to **6e-6**, which no per-mode check can
+  see — a branch error in any single order shows up there as a disagreement.
+  Scoped to slow formations deliberately: in fast ones `n=1` is leaky and the
+  real-axis search returns scatter or `NaN`, which is roadmap A.2 and the same
+  failure the `n=2` block records.
+  **This re-scoped A.1 rather than adding to it.** The item asked for five
+  digitised figures on the grounds that they were "the only checks that tie the
+  solver to literature rather than to itself" — a sentence that had stopped
+  being true as the analytic oracles accumulated, and that nobody re-read
+  against them. An overlay is scored against a 5 % RMS budget, loose on purpose
+  because tracing a printed log-axis figure costs a couple of percent by itself;
+  Stoneley is tied at 1e-8 and 0.1 %, quadrupole and now flexural at 1e-3. Three
+  of the five figures were the weaker instrument and are dropped. What still
+  needs the books is the **pseudo-Rayleigh curve**, **cased-hole Stoneley** and
+  **VTI flexural**, none of which any analytic oracle reaches.
 - **A real full-waveform sonic gather is in the fixture registry** (roadmap
   F.2), which had been the highest-value open item since the project started.
   `iodp_u1347a_dsi` is an eight-receiver Schlumberger **DSI** monopole run from

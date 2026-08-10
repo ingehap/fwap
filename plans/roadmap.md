@@ -60,7 +60,7 @@ file is too big" — it is licence and provenance work on a file already here.
 |-----------|----------------|
 | ~~**F.2 A waveform fixture CI can use**~~ | *Closed, with one thing it does not mean.* `iodp_u1347a_dsi` — an eight-receiver DSI monopole run, **CC0** on Zenodo — is registered, read by `read_ldeo_waveforms`, and exercised by `stc` at **0.948** median peak coherence. CI *can* use it but does not: the default run stays hermetic and skips it. The blocking claim ("no openly redistributable gather is known to exist") turned out to be false. Kept below. |
 | ~~**F.5 The ODP file's unknowns**~~ | *Closed.* Both answered, and the item was filed on a wrong premise — "not resolvable from the files" meant "nobody had opened the rest of the archive". The hole identity is settled by the archive's own run table (six runs matched by name and depth interval, six for six); the offsets are the LSS **8/10/10/12 ft** set, confirmed by first-break moveout to an intercept of −0.0 µs. Kept below. |
-| **A.1 Validation figures** | Ties the solver to published literature rather than to itself. Still needs the books. |
+| **A.1 Validation figures** | *Re-scoped from five figures to three.* Stoneley, flexural and quadrupole are now tied analytically at 1e-8 to 1e-3, against a 5 % overlay budget — so their figures were dropped as the weaker instrument. What still needs the books is the **pseudo-Rayleigh curve**, **cased Stoneley** and **VTI flexural**, which have no external tie of any kind. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
 | ~~**G.6 The debond inverse in the benchmark harness**~~ | *Closed.* `sonic_ml.bench.debond` scores both rivals on identical held-out indices. It paid for itself immediately: the per-regime rows show the closed form is **6× worse on wide gaps than tight** (16.5 % vs 2.5 %), which the single averaged number had hidden. Kept below. |
 | ~~**F. A real sonic log**~~ | *Largely closed.* A Schlumberger DSI log is registered and tested; the package's shear picks match the vendor's to **0.12 %** median on real rock. |
@@ -182,14 +182,61 @@ slowness one, kHz left unconverted); each is refused with a named diagnosis, and
 units are never silently rescaled, since a reference adjusted to fit would agree
 with a wrong solver too.
 
-**The data is not, and cannot be from here.** No reference CSV is shipped, so
-the notebook currently validates nothing against literature — its closing cell
-says so rather than letting green plots imply otherwise. The remaining work is
-digitising three figures (Paillet & Cheng 1991 fig 4.5; Schmitt 1988 fig 4; Tang
-& Cheng 2004 figs 3.7/3.10, 7.1; Schmitt 1989 fig 5), which needs the published
-figures themselves — a task for a human with the books, not a coding session.
-Once a CSV lands in `docs/notebooks/_data/` under the documented name, no code
-changes: the section scores and gates automatically.
+**The item was over-scoped, and re-measuring shrank it.** It used to ask for
+five digitised figures and to justify them with "these are the only checks that
+tie the solver to literature rather than to itself". That sentence stopped being
+true as the analytic ties accumulated, and nobody re-read it against them. Mode
+by mode:
+
+| Mode | f → 0 | f → ∞ | Tightness |
+|---|---|---|---|
+| Stoneley `n=0` | tube wave (White 1983) | `scholte_speed` | 1e-8 / 0.1 % |
+| Flexural `n=1` | 1/V_S (Ellefsen-Cheng-Toksöz) | `scholte_speed` | 1e-3 |
+| Quadrupole `n=2` | — | `scholte_speed` | 1e-3 |
+| Leaky | — | radiation attenuation | order of magnitude |
+| Pseudo-Rayleigh | — | cutoff `1/a` scaling only | curve untied |
+| Cased Stoneley | — | — | **untied** |
+| VTI flexural | — | — | **untied** |
+
+A digitised overlay is scored against a **5 % RMS** budget, and that budget is
+loose on purpose because tracing a printed log-axis figure costs a couple of
+percent by itself. So for Stoneley, flexural and quadrupole an overlay is three
+to seven orders of magnitude weaker than the tie already in place: it cannot
+fail unless the solver is catastrophically broken, in which case the tie fails
+first and louder. **Figures 4.5 (Stoneley half), 3.7/3.10 and Schmitt 1988
+fig 4 are dropped from the ask.**
+
+**The flexural row is new, and it was free.** The argument the `n=2` block
+rests on — at short wavelength the wall looks flat to *every* azimuthal order —
+had never been applied to `n=1`, the mode the package sells. Measured on a slow
+formation at `a` = 0.10 m, flexural velocity over the plane Scholte speed runs
+1.0166 → 1.00025 across 10–400 kHz, monotone, and all three azimuthal orders
+agree at 400 kHz to 6e-6.
+
+*What that exposed.* `test_flexural_high_f_slowness_above_inverse_rayleigh`
+was anchored to `rayleigh_speed` with `rel=0.10`. The flexural mode does **not**
+approach the vacuum-loaded Rayleigh speed — it settles at 0.908 V_R and stays
+there — so the tolerance was absorbing a 9 % reference error rather than
+bounding the solver, and the test was passing on 17 % of its own margin. Its
+docstring named the right target ("positive **Scholte** / fluid-loading
+offset") and used Rayleigh as a proxy because `scholte_speed` did not exist
+yet. It does now, and it was already wired to two other modes. The test keeps
+the inequality, which is real physics, and the quantitative claim moved to the
+Scholte check.
+
+*Scoped to slow formations, deliberately.* In fast ones `n=1` is leaky and the
+real-axis search returns scatter or `NaN` — roadmap A.2, and the same failure
+the `n=2` block already records.
+
+**What is genuinely left, and it does need the books.** Three overlays, none
+of which any analytic oracle reaches: the **pseudo-Rayleigh curve** (Paillet &
+Cheng 1991 fig 4.5 — its cutoff has a `1/a` scaling check, the dispersion does
+not), **cased-hole Stoneley** (Tang & Cheng 2004 fig 7.1) and **VTI flexural**
+(Schmitt 1989 fig 5). Cased Stoneley may yield to White's tube-wave formula
+generalised with the casing and cement compliances in series, which would be a
+derivation rather than a lookup; nothing comparable suggests itself for the
+other two. Once a CSV lands in `docs/notebooks/_data/` under the documented
+name, no code changes: the section scores and gates automatically.
 
 Note the figure numbering: this list previously cited "Tang & Cheng 2004
 Fig. 3.4", which does not match the notebook's sections (figs 3.7 and 3.10 for
