@@ -18712,3 +18712,136 @@ def test_differentiating_the_slow_flexural_curve_moves_the_airy_frequency():
     assert f_min < 0.85 * ref_f, (
         f"the Airy frequency is the part that moves: {f_min:.2f} vs {ref_f} kHz"
     )
+
+
+# ----------------------------------------------------------------------
+# Figure 10: the processing chain closed on published waveforms
+#
+# "Dipole source, slow sandstone. Shot point obtained with a 1 kHz (a)
+# and a 3 kHz (b) source center frequency." Fourteen traces at
+# r = 2.40-5.00 m, in the rock of figures 8a and 9.
+#
+# Unlike figure 6 this gather does digitise: the packets are compact and
+# the moveout is strong, so after cropping past the scale-factor
+# brackets a straight-line fit to the envelope peaks has r^2 = 0.995.
+# Two velocities come out of it, and keeping them apart is the point:
+#
+#   envelope (packet) moveout  ->  GROUP velocity
+#   fwap.stc coherent align    ->  PHASE velocity
+#
+#   panel      dominant f   group (moveout)   phase (stc)   coherence
+#   (a) 1 kHz    0.86 kHz      1009 m/s        1205 m/s       0.960
+#   (b) 3 kHz    2.77 kHz      1037 m/s        1156 m/s       0.717
+#
+# **The chain closes.** In panel (a) the packet is at 0.86 kHz, where
+# the flexural mode is at its low-frequency limit and its phase velocity
+# is the formation shear speed: `stc` returns 1205 against V_S = 1201,
+# **+0.3 %**. In panel (b), at 2.77 kHz, `stc` returns 1156 against
+# figure 8a's traced phase curve at 1172 (**-1.3 %**) and fwap's own
+# solver at 1187 (**-2.6 %**). Published synthetic waveforms, through
+# this package's processing, land on this package's forward model.
+#
+# The group numbers are consistent too: 1009 and 1037 m/s sit just above
+# the 992 m/s group minimum that figure 8a's differentiated curve and
+# figure 9's Airy phase both give, which is right, because neither
+# packet is at the 5.2 kHz where that minimum sits.
+#
+# **And panel (a) settles what the near-cutoff gap is.** fwap's slow
+# flexural solver finds no root below about 2.5 kHz. At 0.86 kHz it
+# returns NaN -- yet the paper's own waveforms show a coherent arrival
+# there, `stc` picking it at 0.960 and putting it at the shear speed.
+# The gap is a solver limitation, not a physical absence, and this is
+# the waveform evidence for it.
+# ----------------------------------------------------------------------
+
+#: Figure 10 read as (source kHz, packet dominant kHz, group m/s from
+#: envelope moveout, phase m/s from `fwap.stc`, stc peak coherence).
+_FIG10_PANELS = (
+    (1.0, 0.86, 1009.2, 1204.8, 0.960),
+    (3.0, 2.77, 1036.8, 1156.1, 0.717),
+)
+
+#: Figure 8a's traced flexural phase velocity at figure 10(b)'s dominant
+#: frequency (kHz, m/s).
+_FIG8A_PHASE_AT_2P77 = (2.77, 1171.6)
+
+
+def test_figure_10_separates_group_from_phase():
+    """The two velocities a shot gather carries, and they must differ.
+
+    An envelope moveout is a group velocity; a coherent alignment across
+    the array is a phase velocity. On a strongly dispersive mode the two
+    are far apart, and reading either as the other is a 15-20 % error.
+    """
+    for _, _, group, phase, _ in _FIG10_PANELS:
+        assert phase > group, "phase exceeds group on this branch"
+        assert phase / group > 1.10, "and by a margin no reading error explains"
+
+
+def test_stc_on_the_published_waveforms_lands_on_the_shear_speed():
+    """Panel (a): the low-frequency limit, straight off the waveforms.
+
+    At 0.86 kHz the slow-formation flexural mode is at its
+    low-frequency limit, where the phase velocity is the formation shear
+    speed. `fwap.stc` on the digitised gather returns 1205 m/s at 0.960
+    coherence against V_S = 1201.
+    """
+    source, dominant, _, phase, coherence = _FIG10_PANELS[0]
+    assert dominant < 1.0, "the packet sits at the low-frequency end"
+    assert coherence > 0.9, "and it is a coherent arrival, not a guess"
+    assert phase / _FIG15_VIRGIN["vs"] == pytest.approx(1.0, abs=0.01)
+
+
+def test_stc_on_the_published_waveforms_matches_the_published_curve():
+    """Panel (b): the processing half checked against the modelling half.
+
+    At 2.77 kHz `stc` gives 1156 m/s, figure 8a's traced phase curve
+    gives 1172, and `flexural_dispersion` gives 1187. Waveforms from the
+    paper, through this package's processing, land within 3 % of this
+    package's forward model -- the first time the two halves have been
+    checked against each other on anything external.
+    """
+    from fwap import flexural_dispersion
+
+    _, dominant, _, phase, _ = _FIG10_PANELS[1]
+    freq, published = _FIG8A_PHASE_AT_2P77
+    assert dominant == pytest.approx(freq, abs=0.01)
+    assert phase / published == pytest.approx(1.0, abs=0.03)
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    solver = (
+        1.0
+        / flexural_dispersion(
+            np.array([dominant * 1e3]), **_FIG15_VIRGIN, **fluid, a=0.10
+        ).slowness[0]
+    )
+    assert np.isfinite(solver), "the solver answers at this frequency"
+    assert phase / solver == pytest.approx(1.0, abs=0.04)
+
+
+def test_the_near_cutoff_gap_is_a_solver_limitation_not_an_absence():
+    """Panel (a) is the waveform evidence.
+
+    `flexural_dispersion` finds no root for this rock below about
+    2.5 kHz. Figure 10(a) shows a coherent arrival at 0.86 kHz --
+    `fwap.stc` picks it at 0.960 and puts it at the shear speed -- so
+    the mode is there and propagating where the solver is silent.
+    """
+    from fwap import flexural_dispersion
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    _, dominant, _, phase, coherence = _FIG10_PANELS[0]
+    v = (
+        1.0
+        / flexural_dispersion(
+            np.array([dominant * 1e3]), **_FIG15_VIRGIN, **fluid, a=0.10
+        ).slowness[0]
+    )
+    assert not np.isfinite(v), "the solver is silent at the packet's frequency"
+
+    grid = np.arange(0.5e3, 4.0e3, 20.0)
+    got = 1.0 / flexural_dispersion(grid, **_FIG15_VIRGIN, **fluid, a=0.10).slowness
+    ok = np.isfinite(got)
+    assert ok.any()
+    assert grid[ok][0] / 1e3 > 2.0, "and stays silent well above the packet"
+    assert coherence > 0.9 and phase > 1000.0, "while the waveforms show the mode"

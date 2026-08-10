@@ -134,6 +134,21 @@ the project uses [Semantic Versioning](https://semver.org/).
   all eight only across 3.5-5.0 kHz, which is also where they cross. No
   per-model curve was traced there and none is tabulated.
 
+  **Figure 10 closes the processing chain on published waveforms.** The
+  slow-formation dipole shot gather (14 traces, r = 2.40-5.00 m) digitises
+  cleanly — an envelope-peak moveout fit has r^2 = 0.995 — and yields two
+  velocities that must be kept apart: envelope moveout is *group*
+  (1009 / 1037 m/s), `fwap.stc` alignment is *phase* (1205 / 1156 m/s).
+  In panel (a) the packet sits at 0.86 kHz, the flexural low-frequency limit,
+  and `stc` returns **1205 m/s at 0.960 coherence against `V_S` = 1201**
+  (+0.3 %). In panel (b), at 2.77 kHz, `stc` gives 1156 against figure 8a's
+  traced curve at 1172 (−1.3 %) and `flexural_dispersion` at 1187 (−2.6 %) —
+  **published waveforms, through this package's processing, landing on this
+  package's forward model**.
+  Panel (a) also settles the near-cutoff gap: `flexural_dispersion` is silent
+  below ~2.5 kHz, yet the waveforms show a coherent arrival at 0.86 kHz moving
+  at the shear speed. The gap is a solver limitation, not a physical absence.
+
   **Figure 9 prices the slow-formation residual in the group domain.** It is
   figure 3's counterpart for the slow sandstone at a 4 m offset. Every trace
   from 2.0 kHz up carries an Airy packet at **4.068 +- 0.045 ms**, drifting only
@@ -276,7 +291,7 @@ the project uses [Semantic Versioning](https://semver.org/).
   rock alone. That claim covered two modes in one homogeneous rock and does not
   extend to layered models; corrected at its site.
 
-  Thirty-nine tests now pin the item, not three, and every reference table carries
+  Forty-three tests now pin the item, not three, and every reference table carries
   its own shear-speed anchor test.
 
 ### Validated
