@@ -7,6 +7,48 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **A real full-waveform sonic gather is in the fixture registry** (roadmap
+  F.2), which had been the highest-value open item since the project started.
+  `iodp_u1347a_dsi` is an eight-receiver Schlumberger **DSI** monopole run from
+  IODP Expedition 324, Hole U1347A — 1307 depths, 512 samples at 10 µs on
+  0.1524 m receiver spacing, published by the Lamont-Doherty Borehole Research
+  Group on Zenodo under **CC0**.
+  **The claim that blocked this was false.** Both `scripts/fetch_real_data.py`
+  and `tests/test_real_data.py` said no openly redistributable full-waveform
+  sonic gather was known to exist. What had actually been established was that
+  none had been *found* — a different claim, and one that went stale the moment
+  anyone looked again. Both docstrings now say so explicitly rather than
+  quietly dropping the sentence.
+  **`read_ldeo_waveforms` reads the format** (`fwap.io._ldeo`, with
+  `LdeoWaveforms`, `LDEO_TOOL_NAMES` and `LDEO_MODE_NAMES`). The archive
+  publishes every sonic run twice — the original service-company DLIS, and a
+  plain binary export about a fifth the size carrying a short self-describing
+  header. For a fixture the export is the better file.
+  The reader **verifies rather than trusts**, for one specific reason: the
+  format is big-endian, and read little-endian its header decodes to enormous
+  garbage rather than to nothing, so a trusting reader would allocate wildly or
+  return silently wrong samples. `4·(1 + n_receiver·n_sample)·(1 + n_depth)`
+  must equal the file size exactly, and the sample interval must be
+  sonic-plausible, both before a single sample is read.
+  It also **declines to invent the transmitter offsets**, which are in neither
+  the export nor the DLIS it came from. `ArrayGeometry` is the caller's to
+  build; `plans/roadmap.md` F.5 records how the equivalent question was settled
+  for another hole.
+  **Measured on the real gathers**: `stc` over 50 gathers spanning 3575–3636 m
+  returns a median peak coherence of **0.948**, with 96 % above 0.6. Slowness
+  ranges over a factor of four across the interval, which is the lithology
+  (chert, chalk, basalt) rather than noise — so the test asserts that no pick
+  sits on a *search-band edge* instead of asserting a value. That check earned
+  itself immediately: the first band tried, (5e-5, 6e-4) s/m, returned 10 % of
+  its picks pinned at 6e-4, which look like measurements and are not.
+  One registry change came with it: `RealDataset` gained `member` and
+  `member_sha256`, because Zenodo publishes the hole's whole 578 MB logging
+  archive as a single file and the digest that matters is the extracted
+  member's — recompressing a zip changes the archive's hash and leaves the
+  member's alone.
+  The entry is still **fetched rather than vendored**, but the reason has
+  changed and is recorded: CC0 removes the licensing objection, and 578 MB is
+  now the only one.
 - **The debond inverse is scored by `sonic_ml.bench`** (roadmap G.6), which
   was the last open piece of G.2. `sonic_ml.bench.debond` adds
   `evaluate_thickness`, the `ThicknessPredictor` protocol, `gap_regime_labels`,

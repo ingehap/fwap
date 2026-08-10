@@ -16,10 +16,13 @@ Run them with::
     python scripts/fetch_real_data.py --fetch all
     pytest tests/test_real_data.py -v
 
-What these tests do *not* cover: neither file is a full-waveform sonic gather,
-because no openly redistributable one is known to exist. The sonic processing
-chain -- and every quantitative claim built on it -- is still validated only
-against synthetics. See the module docstring of the fetch script.
+This file used to say that no openly redistributable full-waveform sonic gather
+was known to exist. ``iodp_u1347a_dsi`` is the counterexample -- an
+eight-receiver DSI run published under CC0 -- so the registry now reaches real
+waveforms and not only real *parsing* oddities. What is still true, and narrower,
+is that one hole of one tool bounds how wrong the processing can be without
+turning ``sonic_ml``'s synthetic identifiability results into field
+measurements. See the module docstring of the fetch script.
 """
 
 from __future__ import annotations
@@ -67,9 +70,17 @@ def test_registry_entries_are_well_formed():
     names = [d.name for d in fetch_real_data.DATASETS]
     assert len(names) == len(set(names)), "dataset names must be unique"
     for dataset in fetch_real_data.DATASETS:
-        assert dataset.kind in {"las", "segy", "dlis"}
+        assert dataset.kind in {"las", "segy", "dlis", "ldeo"}
         assert dataset.url.startswith("https://")
         assert len(dataset.sha256) == 64
+        # A member is only meaningful with its own digest: the archive's hash
+        # cannot vouch for it, because recompressing a zip changes one and not
+        # the other.
+        if dataset.member is not None:
+            assert dataset.member_sha256 is not None
+            assert len(dataset.member_sha256) == 64
+        else:
+            assert dataset.member_sha256 is None
         # Provenance and licence are not optional: a fixture whose origin is
         # unrecorded cannot be audited later.
         assert dataset.provenance.strip()
@@ -271,3 +282,123 @@ def test_real_sonic_reference_picks_are_physically_ordered():
     vp_vs = dtsm[both] / dtco[both]
     assert 1.4 < np.median(vp_vs) < 2.4
     assert np.all(vp_vs < 5.0)
+
+
+# ------------------------------------------------------------------
+# IODP U1347A -- a real eight-receiver DSI gather (F.2)
+# ------------------------------------------------------------------
+
+
+def _require_member(name: str) -> Path:
+    """Return a zip-archived dataset's extracted member, or skip."""
+    dataset = fetch_real_data.find(name)
+    _require(name)  # archive present and its own checksum good
+    try:
+        return fetch_real_data.extract_member(dataset)
+    except ValueError as exc:  # pragma: no cover - depends on local files
+        pytest.fail(f"{name}: {exc}")
+
+
+def test_reads_a_real_dsi_waveform_gather():
+    """The registry's first real waveforms, read by the package's own reader.
+
+    Every field here is asserted against the archive's published file
+    description rather than against what the reader happened to return, so a
+    reader that silently changed convention would fail rather than agree with
+    itself.
+    """
+    from fwap import read_ldeo_waveforms
+
+    path = _require_member("iodp_u1347a_dsi")
+    wf = read_ldeo_waveforms(path, max_depths=0)
+
+    assert wf.tool == "DSI"
+    assert wf.mode == "Monopole"
+    assert (wf.n_depth, wf.n_receiver, wf.n_sample) == (1307, 8, 512)
+    assert wf.sample_interval == pytest.approx(1.0e-5)
+    assert wf.depth_increment == pytest.approx(0.1524, rel=1e-6)
+    assert wf.record_length == pytest.approx(5.12e-3)
+
+
+def test_real_dsi_depths_are_monotonic_and_regular():
+    """A depth axis that is not monotonic would invalidate every depth-indexed
+    result downstream, and no synthetic in this suite can drift the way a real
+    wireline depth channel can."""
+    from fwap import read_ldeo_waveforms
+
+    wf = read_ldeo_waveforms(_require_member("iodp_u1347a_dsi"))
+    step = np.diff(wf.depth)
+    assert (step > 0).all(), "depths must increase"
+    assert np.median(step) == pytest.approx(wf.depth_increment, rel=1e-3)
+    assert wf.depth[-1] - wf.depth[0] == pytest.approx(199.0, abs=0.5)
+
+
+def test_real_dsi_gathers_are_signal_not_padding():
+    """Guards the failure that would make every other assertion vacuous.
+
+    A misread offset or a wrong record length would still yield an array of the
+    right shape -- full of zeros, or of one receiver repeated. Both are checked
+    directly: every receiver must carry energy, and no two receivers may be
+    identical.
+    """
+    from fwap import read_ldeo_waveforms
+
+    wf = read_ldeo_waveforms(_require_member("iodp_u1347a_dsi"), max_depths=200)
+    rms = np.sqrt(np.mean(wf.data**2, axis=2))
+
+    assert np.isfinite(wf.data).all()
+    assert (rms > 0).all(), "a receiver with no energy means a misread record"
+    for i in range(wf.n_receiver - 1):
+        same = np.isclose(wf.data[:, i], wf.data[:, i + 1]).all(axis=1)
+        assert not same.any(), f"receivers {i} and {i + 1} are identical"
+
+
+def test_stc_on_real_dsi_gathers_finds_coherent_arrivals():
+    """The point of the whole exercise: the processing meets data it did not
+    generate.
+
+    The assertion is deliberately loose on the *value* -- U1347A logs chert,
+    chalk and basalt over this interval, so slowness genuinely ranges over a
+    factor of four and pinning a number would be pinning the lithology. What is
+    asserted instead is that coherent arrivals exist at all, and that none of
+    them sits on an edge of the search band. The second is the more useful
+    check: a band too narrow for the formation returns picks pinned to its own
+    boundary, which look like measurements and are not. The first band tried
+    here was (5e-5, 6e-4) and 10 % of its picks came back pinned at 6e-4.
+    """
+    from fwap import read_ldeo_waveforms, stc
+
+    # Receiver spacing is 0.1524 m, from the archive's file description. It
+    # happens to equal the depth increment -- both are six inches -- but they
+    # are different quantities, so it is written out rather than reused.
+    receiver_spacing = 0.1524
+    band = (5.0e-5, 1.0e-3)
+
+    wf = read_ldeo_waveforms(_require_member("iodp_u1347a_dsi"), max_depths=400)
+    offsets = 3.0 + np.arange(wf.n_receiver) * receiver_spacing
+
+    peaks, slownesses = [], []
+    for k in range(0, wf.data.shape[0], 8):
+        result = stc(
+            wf.gather(k),
+            wf.sample_interval,
+            offsets,
+            slowness_range=band,
+            n_slowness=221,
+            window_length=6.0e-4,
+        )
+        i, _ = np.unravel_index(np.argmax(result.coherence), result.coherence.shape)
+        peaks.append(result.coherence.max())
+        slownesses.append(result.slowness[i])
+
+    peaks = np.asarray(peaks)
+    slownesses = np.asarray(slownesses)
+    assert np.median(peaks) > 0.8, f"median peak coherence {np.median(peaks):.3f}"
+    assert (peaks > 0.6).mean() > 0.8
+
+    good = slownesses[peaks > 0.6]
+    pinned = np.isclose(good, band[0]) | np.isclose(good, band[1])
+    assert not pinned.any(), (
+        f"{pinned.sum()} of {good.size} picks sit on a search-band edge, so the "
+        "band clipped the formation instead of bracketing it"
+    )
