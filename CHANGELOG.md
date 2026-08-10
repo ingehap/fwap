@@ -50,6 +50,16 @@ the project uses [Semantic Versioning](https://semver.org/).
   the bracket was never going to remove it. `n = 1` is grid-independent to
   **0.000 %** over the same checks. So `n = 1` fast-formation results are
   quotable and `n = 2` ones are not yet.
+  **The same wrong bound existed in a second place.** `sonic_ml`'s
+  `test_solver_flexural_asymptotes_bracket_oracles` asserted that the flexural
+  mode stays between `1/vs` and `1/V_R`, and passed only because the solver had
+  the identical bound built into its search window and so could not produce a
+  counterexample. It now checks the real bracket and asserts the branch is *seen*
+  to descend past `1/V_R`. `flexural_hf_slowness` itself is unchanged — it
+  returns the Rayleigh slowness, which is what it says — but its docstring
+  claimed the Scholte limit is "a few percent slower"; for a 4000/2300 m/s
+  formation it is 1470 against 2116 m/s, about 30 %, and that understatement is
+  what made the bound look safe to assert.
   Roughly 30 tests changed meaning with this fix, including every one written to
   pin the defect. Several had asserted `V_R` as a floor for these modes, which
   was itself a statement of the bug. The `n1_flexural_fast` and
