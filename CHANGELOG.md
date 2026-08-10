@@ -134,6 +134,22 @@ the project uses [Semantic Versioning](https://semver.org/).
   all eight only across 3.5-5.0 kHz, which is also where they cross. No
   per-model curve was traced there and none is tabulated.
 
+  **Figure 9 prices the slow-formation residual in the group domain.** It is
+  figure 3's counterpart for the slow sandstone at a 4 m offset. Every trace
+  from 2.0 kHz up carries an Airy packet at **4.068 +- 0.045 ms**, drifting only
+  −1.8 % across a fivefold change in source centre frequency — 983 m/s.
+  Differentiating figure 8a's traced phase curve gives a group minimum of
+  **992 +- 4 m/s at 5.1-5.5 kHz**, so the paper's time-domain and
+  frequency-domain figures agree to **0.9 %**.
+  Differentiating fwap's phase output gives **960.4 m/s at 3.89 kHz** — 3 % low
+  in value but **25 % low in frequency**, from a phase curve only 1.3 % off. The
+  slow-flexural residual figure 8a found is a tilt rather than an offset, and a
+  tilt moves the stationary point: a synthetic waveform built from fwap's slow
+  flexural curve places its Airy phase at the wrong frequency while the phase
+  velocities still look right.
+  Coverage on the slow path is 100 % across every grid step tried, showing none
+  of the `n=2` grid instability below.
+
   **Figure 6 shows the `n=2` cutoff itself is 32 % too high, and that coverage
   is not reproducible.** It plots quadrupole shot gathers at 1.5 kHz and 6 kHz
   source centre frequencies, 14 traces at r = 2.40-5.00 m.
@@ -260,7 +276,7 @@ the project uses [Semantic Versioning](https://semver.org/).
   rock alone. That claim covered two modes in one homogeneous rock and does not
   extend to layered models; corrected at its site.
 
-  Thirty-six tests now pin the item, not three, and every reference table carries
+  Thirty-nine tests now pin the item, not three, and every reference table carries
   its own shear-speed anchor test.
 
 ### Validated

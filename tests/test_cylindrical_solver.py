@@ -18576,3 +18576,139 @@ def test_quadrupole_dispersion_is_not_reproducible_across_equal_grids():
         "if this ever passes, the marcher has been made grid-stable -- good news, "
         "and the coverage numbers in this file can then be trusted as rock properties"
     )
+
+
+# ----------------------------------------------------------------------
+# Figure 9: the slow-formation waveforms, and what differentiation costs
+#
+# "Dipole source, slow sandstone. Source center frequency effects. The
+# offset is equal to 4 m. The source center frequency varies from .5 kHz
+# to 10.5 kHz by steps of .5 kHz." Figure 3's counterpart in the rock of
+# figure 8a -- and this time in the regime where fwap works, so it is a
+# prediction test rather than a defect measurement.
+#
+# Digitised from the 21 baselines (155.5 px apart) with the time axis
+# fitted to the seven label decimal points: 304.9 px per ms, residual
+# +-0.011 ms.
+#
+# Every trace from 2.0 kHz up carries a compact late packet at
+# **4.068 +- 0.045 ms**, drifting only **-1.8 %** while the source centre
+# frequency changes fivefold. That is an Airy phase, and a tighter one
+# than figure 3's -4.4 %. At the figure's own 4 m offset it implies a
+# group velocity of **983 m/s** (960-1009).
+#
+# Three ways to that number, two of them from the paper:
+#
+#   figure 9, measured in the time domain      983 m/s
+#   figure 8a phase curve, differentiated      992 +- 4 m/s at 5.1-5.5 kHz
+#   fwap phase output, differentiated          960.4 m/s at 3.89 kHz
+#
+# The two readings of the paper agree to **0.9 %** -- a time-domain
+# figure against a frequency-domain one, which also validates the
+# differentiation. fwap is **3.2 % low** on the value.
+#
+# **The finding is the frequency, not the value.** fwap puts the group
+# minimum at 3.89 kHz where the figure puts it near 5.2 -- **25 % low** --
+# from a phase curve that was only 1.3 % off. Differentiation amplifies
+# a phase residual that is a *distortion* rather than an offset, and
+# figure 8a already showed the shape: zero near 3.3 kHz, -1.8 % at
+# 5-6 kHz, back to -0.8 % by 14 kHz. A tilt like that moves the
+# stationary point. So anyone using fwap's slow flexural curve to
+# predict a waveform will place the Airy phase at the wrong frequency
+# even though the phase velocities look fine.
+#
+# Method notes, since both group curves come from differentiation. The
+# figure-8a minimum is stable at 992-996 m/s for boxcar widths 41-121
+# (21 is undersmoothed and finds a spurious minimum), while the
+# *frequency* of the minimum moves over 5.07-5.47 kHz -- so the value is
+# good to about 0.5 % and the frequency to about +-0.4 kHz. fwap's is
+# stable to 0.1 m/s and 0.1 kHz across grid steps 0.02-0.2 kHz; the slow
+# path shows none of the grid instability figure 6 found at `n=2`.
+# ----------------------------------------------------------------------
+
+#: Late-packet (Airy) arrival at 4 m from figure 9, for the traces above
+#: 2 kHz where it is fully developed (source centre frequency kHz, ms).
+_FIG9_AIRY_ARRIVAL_MS = (
+    (2.0, 4.088),
+    (2.5, 4.167),
+    (3.0, 4.108),
+    (3.5, 4.088),
+    (4.0, 4.059),
+    (4.5, 4.029),
+    (5.0, 4.127),
+    (5.5, 4.019),
+    (6.0, 4.019),
+    (6.5, 4.108),
+    (7.0, 4.088),
+    (7.5, 4.068),
+    (8.0, 4.078),
+    (8.5, 4.059),
+    (9.0, 4.049),
+    (9.5, 3.964),
+    (10.0, 4.049),
+    (10.5, 4.059),
+)
+_FIG9_OFFSET_M = 4.0
+
+#: Minimum of the flexural group curve obtained by differentiating
+#: figure 8a's traced phase curve (m/s, kHz). Value good to ~0.5 %, the
+#: frequency to about +-0.4 kHz.
+_FIG8A_GROUP_MINIMUM = (992.0, 5.2)
+
+
+def test_figure_9_late_packet_is_an_airy_phase():
+    """Tighter than figure 3's, in the rock where fwap works."""
+    fc = np.array([f for f, _ in _FIG9_AIRY_ARRIVAL_MS])
+    arrival = np.array([t for _, t in _FIG9_AIRY_ARRIVAL_MS])
+
+    assert arrival.max() / arrival.min() - 1.0 < 0.06
+    slope = np.polyfit(fc, arrival, 1)[0]
+    assert abs(slope) * (fc.max() - fc.min()) / arrival.mean() < 0.04
+
+
+def test_figure_9_and_figure_8a_agree_on_the_group_minimum():
+    """Time domain against frequency domain, both from the paper.
+
+    The measured Airy arrival implies a group velocity that must match
+    the minimum of the group curve obtained by differentiating figure
+    8a's phase curve. They agree to 1 %, which is also what licenses
+    using the differentiated curve as a reference below.
+    """
+    arrival = np.array([t for _, t in _FIG9_AIRY_ARRIVAL_MS])
+    measured = _FIG9_OFFSET_M * 1.0e3 / arrival.mean()
+    predicted, _ = _FIG8A_GROUP_MINIMUM
+
+    assert measured / predicted == pytest.approx(1.0, abs=0.02)
+
+
+def test_differentiating_the_slow_flexural_curve_moves_the_airy_frequency():
+    """What a 1.3 % phase residual costs in the group domain.
+
+    `flexural_dispersion` follows figure 8a's slow-formation phase curve
+    to 1.29 % rms. Differentiated, its group minimum lands 3 % low in
+    value and about 25 % low in *frequency* -- near 3.9 kHz where the
+    figure puts it near 5.2. The phase residual is a tilt rather than an
+    offset, and a tilt moves the stationary point.
+
+    Asserted on the frequency, because that is the part a user would
+    notice: it places the Airy phase of a synthetic waveform wrongly
+    while the phase velocities still look right.
+    """
+    from fwap import flexural_dispersion
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    grid = np.arange(2.6e3, 14.5e3, 50.0)
+    phase = 1.0 / flexural_dispersion(grid, **_FIG15_VIRGIN, **fluid, a=0.10).slowness
+    ok = np.isfinite(phase)
+    assert ok.sum() > 100, "the slow path should be dense here"
+
+    f = grid[ok]
+    group = 1.0 / np.gradient(f / phase[ok], f)
+    i = int(np.argmin(group))
+    v_min, f_min = group[i], f[i] / 1e3
+    ref_v, ref_f = _FIG8A_GROUP_MINIMUM
+
+    assert v_min / ref_v == pytest.approx(1.0, abs=0.06), "value is close"
+    assert f_min < 0.85 * ref_f, (
+        f"the Airy frequency is the part that moves: {f_min:.2f} vs {ref_f} kHz"
+    )
