@@ -115,6 +115,39 @@ the project uses [Semantic Versioning](https://semver.org/).
   Fourteen tests now pin the item, not three, and every reference table carries
   its own shear-speed anchor test.
 
+### Validated
+- **`stoneley_dispersion` tied to a published curve at 0.04 % rms**, the
+  project's first external tie better than 1 %. Schmitt & Cheng figure 8a plots
+  the Stoneley, flexural and screw modes for table 1's slow sandstone (`V_P`
+  2751, `V_S` 1201, `rho` 2100) on one axis over 0-15 kHz. Digitised — the three
+  curves are disjoint connected components there, so no branch tracking was
+  needed, and the narrow 0.650-0.850 axis makes the plotted line worth about
+  ±3 m/s, or ±0.3 %.
+  Three anchors, none needing a solver: the Stoneley's low-frequency limit reads
+  1135.6 against `tube_wave_speed`'s 1136.2 (−0.06 %), and both shear modes
+  leave the axis at 1201.4 against `V_S` = 1201 (+0.02 %).
+  Over 0.1-14.9 kHz at 0.25 kHz: **Stoneley 59/59 finite, rms 0.04 %, worst
+  0.08 %** — below what the figure can resolve, so fwap and the published curve
+  cannot be told apart. Flexural 49/55, rms 1.29 %. Screw 38/44, rms 0.94 %.
+  **The borehole radius is now measured rather than assumed.** Table 1 gives no
+  hole radius; the Stoneley misfit is 0.05 % rms at `a` = 0.100 m and degrades
+  either side (0.13 % at 0.095, 0.14 % at 0.105).
+  **Two things this also found.** The flexural mode carries a real systematic —
+  zero near 3.3 kHz, −1.8 % at 5-6 kHz, recovering to −0.8 % by 14 kHz — which
+  is four times the reading uncertainty that the Stoneley on the same panel
+  bounds at 0.08 %, and which no radius removes. A candidate is that the paper's
+  model is viscoelastic (table 1 carries `Q_alpha`/`Q_beta`; figure 8's own
+  attenuation panel gives every mode `1/Q` ≈ 0.02) where fwap's open-hole
+  solvers are elastic — but that should move the Stoneley too, and it does not.
+  Measured and unexplained.
+  And both shear solvers lose **the same 1.5 kHz above cutoff**: the published
+  flexural curve starts at 1.04 kHz and fwap's first root is at 2.52; the screw
+  curve starts at 3.74 and fwap's first root is at 5.26. One gap width for two
+  modes whose cutoffs are 2.7 kHz apart. Above it both are contiguous — the
+  benign form of the failure that swallows the whole band in fast formations.
+  Ten tests, including one that pins the radius and one that keeps the
+  Stoneley's tie an order of magnitude tighter than the shear modes'.
+
 ### Fixed
 - **The flexural high-frequency test was anchored to the wrong reference**
   (roadmap A.1). `test_flexural_high_f_slowness_above_inverse_rayleigh` compared

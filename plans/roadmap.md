@@ -46,7 +46,11 @@ to name.
 * **A.1** justified five digitised figures as "the only checks that tie the
   solver to literature rather than to itself", a sentence that had stopped being
   true as the analytic oracles accumulated. Three figures were dropped, then one
-  restored on a second look.
+  restored on a second look. Then the figures were actually digitised, and the
+  re-scope's *own* premise turned out to be the shaky one: it dropped them by
+  comparing a 1e-3 analytic tie against a 5 % overlay budget, and the budget was
+  a choice rather than a limit — a carefully read figure ties the Stoneley at
+  **0.04 %**, and unlike the analytic ties it is external.
 * **A.2** said "a fix means complex-plane root tracking". Measuring instead of
   reading showed the larger half needs no complex machinery at all — and turned
   up something nobody was looking for: in fast formations above ~15 kHz
@@ -75,7 +79,7 @@ training data — one hole of one tool does not change that.
 | ~~**F.2 A waveform fixture CI can use**~~ | *Closed, with one thing it does not mean.* `iodp_u1347a_dsi` — an eight-receiver DSI monopole run, **CC0** on Zenodo — is registered, read by `read_ldeo_waveforms`, and exercised by `stc` at **0.948** median peak coherence. CI *can* use it but does not: the default run stays hermetic and skips it. The blocking claim ("no openly redistributable gather is known to exist") turned out to be false. Kept below. |
 | ~~**F.5 The ODP file's unknowns**~~ | *Closed.* Both answered, and the item was filed on a wrong premise — "not resolvable from the files" meant "nobody had opened the rest of the archive". The hole identity is settled by the archive's own run table (six runs matched by name and depth interval, six for six); the offsets are the LSS **8/10/10/12 ft** set, confirmed by first-break moveout to an intercept of −0.0 µs. Kept below. |
 | **A.2 Fast-formation leakage, `n=1` and `n=2`** | **Measured against the published curves for four rocks, and it is two defects.** Figures 2a and 7a plot this exact quantity for stated formations. Digitised, the flexural branch runs `V_S` → Scholte and crosses `V_R` at **4.43-4.45 kHz in all three fast rocks** — although `V_R` spans 2413 to 3388 m/s. The solver's `(V_R, V_S)` window therefore empties at the same frequency whatever the formation, and holds the true root over **10 %** of the band. *Wrong answers*: overtones labelled as the mode, sawtoothing where a guided mode cannot, and **worse the harder the rock** — +62 % median in the fast sandstone, +72 % in limestone, **+134 % in granite**, which returns nothing at all across the 3-10 kHz band figure 7a resolves. *Missing answers*: at both ends of the band no real-axis root exists. Moving the bracket edge to the Scholte speed recovers **4.4-16.4 kHz at 0.66 % median error** and nothing outside it, so the fix is scoped rather than guessed: a bracket edit for the middle, complex `k_z` for the two ends. Pinned by fourteen tests, not fixed. **`n=2` checked against figure 7b too, and it is the worse of the two**: same mechanism and stiffness ordering, but 65-75 % coverage against `n=1`'s 21-36 %, so a `NaN` filter keeps two to three times as many wrong answers. One fix repairs both. |
-| **A.1 Validation figures** | *Re-scoped from five to three* (five → three → four → three: fig 4 was restored, then the figure itself was seen and turned out **not to be a dispersion figure at all** — it is a dipole shot gather, so it cannot be scored in the overlay schema. It did settle A.2's yes/no question, which is why it was worth fetching). Which figure carries the flexural dispersion curves is now known — **figure 2a of Schmitt & Cheng**, since digitised, which also gives A.1's flexural-Scholte tie its first *external* confirmation (1493 m/s read at 24.9 kHz against 1484 computed). Stoneley, flexural and quadrupole are tied analytically at 1e-8 to 1e-3, against a 5 % overlay budget — so their figures were dropped as the weaker instrument. What still needs the books is the **pseudo-Rayleigh curve**, **cased Stoneley** and **VTI flexural**, which have no external tie of any kind. |
+| **A.1 Validation figures** | *Re-scoped from five to three* (five → three → four → three: fig 4 was restored, then the figure itself was seen and turned out **not to be a dispersion figure at all** — it is a dipole shot gather, so it cannot be scored in the overlay schema. It did settle A.2's yes/no question, which is why it was worth fetching). Which figure carries the flexural dispersion curves is now known — **figure 2a of Schmitt & Cheng**, since digitised, which also gives A.1's flexural-Scholte tie its first *external* confirmation (1493 m/s read at 24.9 kHz against 1484 computed). **The "figures are the weaker instrument" premise is now measurably wrong.** It compared a 1e-3 analytic tie with a *5 % overlay budget* — but the budget was a choice, not a limit of the method. Digitised carefully, figure 8a ties `stoneley_dispersion` to a published slow-formation curve at **0.04 % rms, below what the figure can resolve**, which is the project's first external tie better than 1 %, and it pins the borehole radius as a by-product. The analytic ties are tighter numerically and are not external at all. What still needs the books is the **pseudo-Rayleigh curve**, **cased Stoneley** and **VTI flexural**, which have no external tie of any kind. |
 | **F.4 Two unconfirmed checksums** | Also body-only until this revision, which is the same failure as A.2's. `forge_dsi_las` and `iodp_u1347a_dsi` both carry digests computed from copies that did not come down their canonical URLs, because those hosts were blocked from the sessions that added them. One successful fetch each clears it. It is the only place the fixture registry asserts something it has not verified. |
 | **A.5 residue: delta-matrix reformulation** | Optional and blocked on nothing, which is why it kept falling off the list. A delta-matrix / Abo-Zena form of the elastic stack would remove the cancellation the grid-stability filter exists to work around, and raise the crack-wave ceiling above the ~240 kHz where the propagators stop being representable. |
 | **D. Conda-forge recipe** | Packaging only; unblocked once a PyPI release is live. |
@@ -161,6 +165,15 @@ sentence used to sit seventy lines above without carrying any mark of. The
 analytic ties *are* checks against literature, several of them tighter than a
 traced figure can score. What is true is the split: the analytic ties are done,
 the digitised figures are not.
+
+> *Corrected again by measurement.* "Tighter than a traced figure can score" was
+> itself an assumption, carried over from the 5 % overlay budget. Traced with
+> care, figure 8a scores `stoneley_dispersion` at **0.04 % rms** — below what
+> the figure resolves, and tighter than four of the six analytic ties. It is
+> also the only *external* number in the list: an analytic tie compares fwap to
+> a formula fwap evaluates. The split that actually matters is not
+> tight-vs-loose, it is internal-vs-external. See the figure-8a section under
+> A.2.
 
 **Six analytic ties are described below**, and the two most recent are the ones
 the re-scope below rests on — so they are written out here rather than only in
@@ -656,6 +669,81 @@ limestone and sandstone curves become a single plotted line at exactly
 
 Five more tests pin this, and the reference tables carry their own shear-speed
 anchor test.
+
+### Figure 8a — the slow formation, and the first external tie better than 1 %
+
+Everything above measures a defect. Figure 8a (p. 245) is the other kind of
+check: *"Slow sandstone. Dispersion and attenuation of the Stoneley wave (0),
+the flexural (1) and screw (2) modes excited by a monopole, dipole, and
+quadrupole source respectively."* One panel, three published curves, three fwap
+solvers, on the path this project has always said works — and had never checked
+against anything but itself. Rock: table 1's slow sandstone, `V_P` 2751,
+`V_S` 1201, `rho` 2100.
+
+**A trap in the axis, recorded because a careless read costs 0.5 %.** The y
+labels print as 0.850 / 0.783 / 0.71? / 0.650, and the scan degrades the third
+to something like "0.713". It is **0.71667**: the four tick rows are evenly
+spaced (393.5, 395.0, 396.5 px), and fitting evenly divided values gives a
+residual of ±0.00013 against ±0.0026 for the literal reading — twenty times
+worse and structured. The same package prints 0.667 / 0.783 for an evenly
+divided 0.550-0.900 axis in the panel next to it.
+
+**Three anchors, none of which needs a solver.** The Stoneley's low-frequency
+limit is the tube-wave speed, a one-line formula; both shear modes leave the
+axis at the formation shear speed:
+
+| | read | closed form | |
+|---|---|---|---|
+| Stoneley at f → 0 | 1135.6 | `tube_wave_speed` 1136.2 | **−0.06 %** |
+| flexural onset | 1201.4 | `V_S` 1201 | **+0.02 %** |
+| screw onset | 1201.4 | `V_S` 1201 | **+0.02 %** |
+
+The three curves also resolve as three *disjoint* connected components, so no
+branch tracking was needed — the median ink row per column is the curve. And the
+narrow 0.650-0.850 axis makes this the most precise of the four figures: the
+plotted line is worth about **±3 m/s, or ±0.3 %**.
+
+**The result, over 0.1-14.9 kHz at 0.25 kHz:**
+
+| mode | coverage | rms error | worst |
+|---|---|---|---|
+| **Stoneley** | **59/59** | **0.04 %** | **0.08 %** |
+| flexural | 49/55 | 1.29 % | −1.84 % at 5.2 kHz |
+| screw | 38/44 | 0.94 % | −0.56 % (+3.1 % near cutoff) |
+
+**The Stoneley agreement is below the resolution of the figure.** fwap and the
+published curve cannot be told apart. That is the project's first external tie
+for `stoneley_dispersion` and it sits **60× inside the 5 % overlay budget A.1
+set** — which changes A.1's own accounting, since the Stoneley was listed as
+tied only analytically, to fwap's own asymptote.
+
+**The borehole radius, which every comparison here leans on, is pinned by the
+same curve.** Table 1 gives velocities and densities but no hole radius, so
+`a` = 0.10 m was an assumption. The Stoneley misfit is 0.05 % rms at 0.100 m and
+degrades either side — 0.13 % at 0.095, 0.14 % at 0.105 — so the assumption is
+now a measurement, good to a few millimetres.
+
+**And a small systematic that is not the radius.** The flexural offset is real:
+zero near 3.3 kHz, −1.8 % at 5-6 kHz, recovering to −0.8 % by 14 kHz. It is
+four times the reading uncertainty, and the Stoneley curve *on the same panel,
+read with the same calibration* bounds that uncertainty at 0.08 %. No radius
+removes it either — the best flexural fit is at 0.090 m, where the Stoneley is
+already five times worse, and even there the flexural misfit is ~1 %. One
+candidate: the paper's model is **viscoelastic** where fwap's open-hole solvers
+are elastic — table 1 carries `Q_alpha` and `Q_beta`, and figure 8's own
+attenuation panel gives all three modes `1/Q` ≈ 0.02. But that should move the
+Stoneley too, and it does not. Recorded as measured and unexplained.
+
+**The near-cutoff gap, at one width for both shear modes.** The published
+flexural curve starts at 1.04 kHz and fwap's first root is at 2.52; the screw
+curve starts at 3.74 and fwap's first root is at 5.26. **1.48 and 1.52 kHz** —
+the same gap for two modes whose cutoffs are 2.7 kHz apart, so another quantity
+set by the hole rather than by the mode, alongside the 4.4 kHz bracket-emptying
+frequency in fast formations. Above the gap both solvers are contiguous. This is
+the benign form of the failure that swallows the whole band in fast formations.
+
+Ten more tests, including one that pins the radius and one that keeps the
+Stoneley's tie an order of magnitude tighter than the shear modes'.
 
 #### And figure 7b checks the `n=2` claim this file has been asserting
 

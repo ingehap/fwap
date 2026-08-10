@@ -28,7 +28,7 @@ rather than by planning.
 | ~~2d~~ | ~~The ODP file's offsets and its 950-A/952A header (F.5)~~ | **closed** | — |
 | ~~2c~~ | ~~A waveform fixture CI can fetch (F.2)~~ | **closed** | — |
 | 1b | Leaky root tracking, **n=1 *and* n=2** (A.2) | **two defects, measured against the published curves for three fast rocks**: a bracket anchored to `V_R` instead of Scholte — it empties at 4.43-4.45 kHz whatever the formation, and where it answers it is 62 % fast in sandstone, 72 % in limestone, **134 % in granite** — plus genuine leakiness at **both** ends of the band, not just below cutoff. `n=2` checked against fig 7b and it is the **worse** of the two: 65-75 % coverage against `n=1`'s 21-36 %, so a `NaN` filter keeps more of the wrong answers | a Scholte-edged bracket earns 4.4-16.4 kHz at 0.66 % median error; the two ends need a Riemann-sheet analysis, and the selection rule has to ship with the bracket |
-| 3 | Digitised validation figures (A.1) — **3 of 5, re-scoped** | sourcing | the books, for pseudo-Rayleigh / cased Stoneley / VTI flexural. The fast-formation flexural curves A.2 needed are **done** — Schmitt & Cheng figs 2a and 7a, digitised to ±1 %, cross-checked against each other to 0.4 % |
+| 3 | Digitised validation figures (A.1) — **3 of 5, re-scoped** | sourcing | the books, for pseudo-Rayleigh / cased Stoneley / VTI flexural. Schmitt & Cheng figs 2a, 7 and 8a are **done**. Fig 8a also refutes the re-scope's premise: traced with care it ties `stoneley_dispersion` at **0.04 % rms**, external, tighter than most of the analytic ties — the "5 % overlay budget" was a choice, not a limit |
 | 5 | Confirm two registered checksums (F.4) | one fetch each | egress to `gdr.openei.org` and `zenodo.org` |
 | 7 | Delta-matrix / Abo-Zena stack reformulation (A.5 residue) | modelling, optional | nothing |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
@@ -568,6 +568,14 @@ to the wrong reference with a tolerance wide enough to hide the 9 % gap.
 The residue is real and does need the books: pseudo-Rayleigh's *curve*, cased
 Stoneley, and VTI flexural have no external tie of any kind. But the item is no
 longer blocking the package's headline mode, which is what made it feel urgent.
+
+*Amended once the figures were actually traced.* The open-hole Stoneley,
+flexural and quadrupole modes now do have external ties — Schmitt & Cheng figs
+2a, 7 and 8a. The Stoneley one is at **0.04 % rms in a slow formation**, which
+is tighter than most of the analytic ties this item used to prefer, and it pins
+the paper's borehole radius as a by-product. The three modes above are still
+untied; the difference is that "a digitised figure scores at best 5 %" is no
+longer a reason to expect little from them.
 
 Item 2d is closed, and how it closed is the more useful part. It had been
 filed as sourcing — "the offsets need the SDT tool spec; nothing in the files

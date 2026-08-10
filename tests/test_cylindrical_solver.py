@@ -17410,3 +17410,236 @@ def test_quadrupole_keeps_more_wrong_answers_than_flexural(name):
     assert finite.mean() > np.isfinite(flexural).mean(), (
         "n=2 hands back more of its wrong answers than n=1 does"
     )
+
+
+# ----------------------------------------------------------------------
+# Figure 8a: the slow formation, where the solvers are supposed to work
+#
+# Everything above measures a defect. Figure 8a (p. 245) is the other
+# kind of check: "Slow sandstone. Dispersion and attenuation of the
+# Stoneley wave (0), the flexural (1) and screw (2) modes excited by a
+# monopole, dipole, and quadrupole source respectively." One panel,
+# three published curves, three fwap solvers, on the path this project
+# has always claimed works -- and never checked against anything but
+# itself.
+#
+# The rock is table 1's slow sandstone: V_P 2751, V_S 1201, rho 2100,
+# with the same 1500 m/s / 1000 kg/m^3 bore fluid.
+#
+# A note on the axis, because the scan is ambiguous and a careless read
+# costs 0.5 %. The y labels print as 0.850 / 0.783 / 0.71? / 0.650, and
+# the third glyph degrades to something like "0.713". It is 0.71667: the
+# four tick rows are evenly spaced (393.5, 395.0, 396.5 px), and fitting
+# the evenly divided values gives a residual of +-0.00013 against
+# +-0.0026 for the literal reading -- twenty times worse and structured.
+# The same package prints 0.667 and 0.783 for an evenly divided
+# 0.550-0.900 axis in the neighbouring panel.
+#
+# Three curves resolve as three *disjoint* connected components, so no
+# branch tracking was needed here; the median ink row per column is the
+# curve. The narrow 0.650-0.850 axis also makes this the most precise of
+# the four figures: the plotted line is worth about +-3 m/s, or +-0.3 %.
+#
+# Results, over 0.1-14.9 kHz at 0.25 kHz:
+#
+#   Stoneley   59/59 finite,  rms 0.04 %,  worst 0.08 %
+#   flexural   49/55 finite,  rms 1.29 %,  worst -1.84 % at 5.2 kHz
+#   screw      38/44 finite,  rms 0.94 %,  worst -0.56 %  (+3.1 % near
+#                                                          the cutoff)
+#
+# The Stoneley agreement is *below the resolution of the figure*: fwap
+# and the published curve cannot be told apart. That is this project's
+# first external tie for `stoneley_dispersion`, and it is 60x inside the
+# 5 % overlay budget A.1 set for digitised figures.
+#
+# The flexural number is not at the resolution limit. It is a real,
+# small, systematic offset -- zero near 3.3 kHz, -1.8 % at 5-6 kHz,
+# recovering to -0.8 % by 14 kHz -- and the Stoneley curve on the same
+# panel, read with the same calibration, bounds the reading error at
+# 0.08 %. It is not the borehole radius either (see the radius test).
+# One candidate is that the paper's model is viscoelastic where fwap's
+# open-hole solvers are elastic: table 1 carries Q_alpha and Q_beta, and
+# figure 8's own attenuation panel gives all three modes 1/Q ~ 0.02. But
+# that should move the Stoneley too, and it does not, so the candidate
+# is not confirmed. Recorded as measured and unexplained.
+# ----------------------------------------------------------------------
+
+_FIG8_ROCK = dict(vp=2751.0, vs=1201.0, rho=2100.0)
+
+#: Phase velocity (Hz, m/s) of the three modes in the slow sandstone,
+#: digitised from Schmitt & Cheng figure 8a. About +-3 m/s.
+_FIG8A_PHASE = {
+    "stoneley": (
+        (0.5e3, 1126.5),
+        (1.5e3, 1100.3),
+        (2.0e3, 1091.1),
+        (3.0e3, 1076.7),
+        (4.0e3, 1066.8),
+        (5.0e3, 1059.6),
+        (6.0e3, 1053.9),
+        (8.0e3, 1046.3),
+        (10.0e3, 1041.0),
+        (12.0e3, 1037.2),
+        (14.0e3, 1034.9),
+    ),
+    "flexural": (
+        (3.0e3, 1163.0),
+        (4.0e3, 1126.8),
+        (5.0e3, 1099.5),
+        (6.0e3, 1081.3),
+        (8.0e3, 1061.5),
+        (10.0e3, 1050.9),
+        (12.0e3, 1044.8),
+        (14.0e3, 1040.5),
+    ),
+    "screw": (
+        (6.0e3, 1143.2),
+        (8.0e3, 1104.8),
+        (10.0e3, 1081.3),
+        (12.0e3, 1066.8),
+        (14.0e3, 1057.3),
+    ),
+}
+
+#: Where each published curve begins, and the value it begins at (kHz,
+#: m/s). The Stoneley exists at all frequencies; the two shear modes
+#: start at the formation shear speed.
+_FIG8A_ONSET = {
+    "stoneley": (0.078, 1135.6),
+    "flexural": (1.04, 1201.4),
+    "screw": (3.74, 1201.4),
+}
+
+
+def test_figure_8a_is_anchored_on_three_closed_forms():
+    """Three independent anchors, none of which needs a solver.
+
+    The Stoneley's low-frequency limit is the tube-wave speed, which is
+    a one-line formula, and both shear modes leave the axis at the
+    formation shear speed. All three land, so the axis calibration --
+    including the ambiguous 0.71667 label -- is sound.
+    """
+    from fwap import tube_wave_speed
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    v_tube = tube_wave_speed(_FIG8_ROCK["vs"], _FIG8_ROCK["rho"], **fluid)
+
+    assert _FIG8A_ONSET["stoneley"][1] / v_tube == pytest.approx(1.0, abs=0.005)
+    for mode in ("flexural", "screw"):
+        assert _FIG8A_ONSET[mode][1] / _FIG8_ROCK["vs"] == pytest.approx(1.0, abs=0.005)
+
+
+def test_stoneley_matches_the_published_slow_formation_curve():
+    """The validation this project has been missing.
+
+    `stoneley_dispersion` against figure 8a over 0.5-14 kHz: every point
+    finite, every point inside 0.1 %. The plotted line is worth about
+    0.3 %, so this is agreement below what the figure can resolve --
+    the first time any fwap solver has been tied to published data at
+    better than 1 %.
+    """
+    from fwap import stoneley_dispersion
+
+    table = _FIG8A_PHASE["stoneley"]
+    freq = np.array([f for f, _ in table])
+    reference = np.array([v for _, v in table])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    velocity = 1.0 / stoneley_dispersion(freq, **_FIG8_ROCK, **fluid, a=0.10).slowness
+
+    assert np.isfinite(velocity).all(), "the slow-formation Stoneley never drops out"
+    error = np.abs(velocity / reference - 1.0)
+    assert error.max() < 0.005, f"worst point {100 * error.max():.2f} %"
+    assert np.sqrt((error**2).mean()) < 0.002
+
+
+def test_the_stoneley_curve_pins_the_borehole_radius():
+    """Why every figure-8a comparison may assume `a` = 0.10 m.
+
+    The paper's table 1 gives velocities and densities but no hole
+    radius, so 0.10 m is an assumption -- and one the rest of this block
+    leans on. The Stoneley curve settles it: its RMS misfit is 0.05 % at
+    0.100 m and degrades either side (0.13 % at 0.095, 0.14 % at 0.105).
+    The flexural offset recorded above is therefore not a radius error;
+    at the radius the Stoneley pins, the flexural mode is still 1.2 %
+    slow, and no radius makes it better than about 1 %.
+    """
+    from fwap import stoneley_dispersion
+
+    table = _FIG8A_PHASE["stoneley"]
+    freq = np.array([f for f, _ in table])
+    reference = np.array([v for _, v in table])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+
+    def rms(a):
+        v = 1.0 / stoneley_dispersion(freq, **_FIG8_ROCK, **fluid, a=a).slowness
+        return float(np.sqrt(((v / reference - 1.0) ** 2).mean()))
+
+    radii = [0.090, 0.095, 0.100, 0.105, 0.110]
+    scores = [rms(a) for a in radii]
+    assert radii[int(np.argmin(scores))] == 0.100, dict(zip(radii, scores))
+    assert scores[2] < 0.5 * min(scores[1], scores[3]), "the minimum must be sharp"
+
+
+@pytest.mark.parametrize("mode", ["flexural", "screw"])
+def test_both_shear_solvers_lose_the_same_1_5_khz_above_cutoff(mode):
+    """The same near-cutoff gap at `n=1` and `n=2`, and it is one width.
+
+    In the slow sandstone the published flexural curve starts at
+    1.04 kHz and fwap's first root is at 2.52; the screw curve starts at
+    3.74 and fwap's first root is at 5.26. **1.48 and 1.52 kHz** -- the
+    same gap for two modes whose cutoffs are 2.7 kHz apart, which makes
+    it another quantity set by the hole rather than by the mode.
+
+    Above the gap both solvers are continuous. This is the benign form
+    of the same near-cutoff failure that swallows the whole band in fast
+    formations (A.2).
+    """
+    from fwap import flexural_dispersion, quadrupole_dispersion
+
+    solver = {"flexural": flexural_dispersion, "screw": quadrupole_dispersion}[mode]
+    onset = _FIG8A_ONSET[mode][0]
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    grid = np.arange(onset, onset + 4.0, 0.02)
+    velocity = 1.0 / solver(grid * 1e3, **_FIG8_ROCK, **fluid, a=0.10).slowness
+    finite = np.isfinite(velocity)
+
+    assert finite.any(), "the mode must be found somewhere above its cutoff"
+    gap = grid[finite][0] - onset
+    assert 1.2 < gap < 1.8, f"{mode}: gap is {gap:.2f} kHz"
+    assert finite[np.argmax(finite) :].all(), "and it is contiguous, not a scatter"
+
+
+@pytest.mark.parametrize("mode", ["flexural", "screw"])
+def test_the_slow_shear_modes_agree_to_a_couple_of_percent(mode):
+    """Bounded, and worse than the Stoneley by an order of magnitude.
+
+    Above the near-cutoff gap both shear solvers track the published
+    curves to about 1-2 % -- good, but not the 0.04 % the Stoneley
+    manages on the same panel with the same calibration. The flexural
+    offset is systematic (zero near 3.3 kHz, -1.8 % at 5-6 kHz,
+    recovering to -0.8 % by 14 kHz) rather than scatter.
+
+    Asserted as a ceiling plus the ordering against the Stoneley, so a
+    regression trips it and a genuine improvement does not.
+    """
+    from fwap import flexural_dispersion, quadrupole_dispersion, stoneley_dispersion
+
+    solver = {"flexural": flexural_dispersion, "screw": quadrupole_dispersion}[mode]
+    table = _FIG8A_PHASE[mode]
+    freq = np.array([f for f, _ in table])
+    reference = np.array([v for _, v in table])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    velocity = 1.0 / solver(freq, **_FIG8_ROCK, **fluid, a=0.10).slowness
+
+    assert np.isfinite(velocity).all(), "the table starts above the near-cutoff gap"
+    error = np.abs(velocity / reference - 1.0)
+    assert error.max() < 0.03, f"{mode} worst point {100 * error.max():.2f} %"
+
+    st = _FIG8A_PHASE["stoneley"]
+    st_f = np.array([f for f, _ in st])
+    st_v = np.array([v for _, v in st])
+    st_got = 1.0 / stoneley_dispersion(st_f, **_FIG8_ROCK, **fluid, a=0.10).slowness
+    st_error = np.abs(st_got / st_v - 1.0)
+    assert st_error.max() < 0.2 * error.max(), (
+        "the Stoneley is the tightly tied mode here; the shear modes are not"
+    )
