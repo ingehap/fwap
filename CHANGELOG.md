@@ -314,7 +314,11 @@ the project uses [Semantic Versioning](https://semver.org/).
   **The layered solver is as accurate as the open-hole one**, so figure 12's
   31-53 % overshoot is the fast-formation bracket and not the layered
   machinery — one fix repairs both paths, and rewriting the propagator is ruled
-  out.
+  out. *Qualified by figure 16*: that holds for **phase** velocity and does not
+  survive differentiation — predicting figure 16's Airy arrival from the group
+  minimum is +3.0 % late for the virgin rock against +6.3 % and +8.0 % for the
+  two layered models, about twice the error. The exoneration stands; the phrase
+  describes the plotted curve, not the wave that arrives.
   It also narrows figure 8a's unexplained ~1.3 % slow-flexural offset: it is
   present in all three `n=1` configurations at the same size and shape, open
   hole and layered alike, while the Stoneley on the same rock was 0.04 %. So it
@@ -369,7 +373,46 @@ the project uses [Semantic Versioning](https://semver.org/).
   coverage every time, so the instability is model-specific rather than a
   property of the `n=2` marcher everywhere.
 
-  Sixty-six tests now pin the item, not three, and every reference table carries
+  **Figure 16 checks the slow-formation dipole, and it is the first waveform
+  figure whose solver path was already known good.** Same experiment as figure
+  13 with the rock swapped. Its caption states outright what figures 13 and 14
+  left to inference — "each series is normalized with respect to its own maximum
+  denoted by 1.00" — confirming the figure-14 amplitude reading from the authors'
+  own words.
+  **Twelve drawn arrows calibrate it**: read through the time axis at 5 m, the
+  four virgin arrows give 1198.0 m/s against table 1's V_S = 1201 (-0.25 %) and
+  the eight invaded ones 1083.0 against 1081 (+0.18 %), with no overlap between
+  the families. That confirms the slow invaded-zone row a second time — figure 15
+  anchored it at 1081.2 from a different figure — and owes nothing to fwap.
+  **Invasion is visible here where figure 13 found it invisible.** Panel spreads
+  are 1.63 / 1.55 / 2.21 / 1.42 against the fast sandstone's 1.25 / 1.03 / 1.00 /
+  1.00; where the fast formation goes flat at and above 3 kHz the slow one never
+  drops below 1.42x. Digits and ink agree to 0.018, settling several two-way
+  glyphs (0.754 not 0.734, 0.644 not 0.699).
+  **The mechanism is measured, not just its size.** Splitting each trace at its
+  own arrow, the P-wavetrain-to-shear ratio rises monotonically with thickness at
+  every frequency at or above 3 kHz and with frequency at every thickness —
+  0.03/0.15/0.22 at 3 kHz, 0.10/0.96/1.53 at 6 kHz, 0.21/1.95/2.76 at 7.5 kHz —
+  and at the top end the P wavetrain becomes the largest event in the trace, the
+  series maximum jumping from ~5.0 ms to ~2.35 ms. That is conclusion C as a
+  number.
+  **A like-for-like delay comparison**, which figure 14 could not supply: figures
+  13(a) and 16(a) share source, frequency, offset and thicknesses, so the ratio
+  means something. The 16 cm delay is +1.2 us in the fast rock and +117.3 us in
+  the slow one — 0.06 % against 2.82 % of traveltime, **45x larger**.
+  **And a forward prediction that lands.** The virgin shear packet peaks within
+  0.10 ms of 5.05 ms across a 7.5x change in source frequency — frequency-
+  independent, so it is the Airy phase — giving 989.6 m/s against figure 8a's
+  published group minimum of 992.0: **two independent figures 0.24 % apart**.
+  fwap predicts 5.21 ms against 5.05 measured (+3.0 %), which is figure 9's
+  "3 % low in value" reached from another figure and another domain.
+  Unlike figure 14's fast quadrupole these curves are structurally sound — one
+  contiguous run per model, monotone phase, group velocity never changing sign —
+  so here the defect is accuracy, and A.2's bracket is not implicated. At 1 kHz,
+  though, fwap resolves none of the three models (onsets 2.52 / 3.51 / 2.94 kHz):
+  the panel that measures best is entirely outside coverage.
+
+  Seventy-six tests now pin the item, not three, and every reference table carries
   its own shear-speed anchor test.
 
 ### Validated

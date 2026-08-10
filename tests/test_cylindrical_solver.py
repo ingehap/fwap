@@ -19478,3 +19478,398 @@ def test_the_refused_figure_14_lags_are_refused_for_a_reason():
     assert lags.min() > 100.0, "and far larger than panel (a)'s"
     # panel (a), which is quoted, is nothing like them
     assert _FIG14A_INVASION_LAG_US["16 cm"][0] < 0.2 * lags.min()
+
+
+# ----------------------------------------------------------------------
+# Figure 16: the slow formation, where invasion finally shows up
+#
+# "Dipole source. Invaded zone effects in the presence of a slow
+# sandstone. Iso-offset (z = 5m) of the waveforms obtained in the
+# presence of the only virgin formation (1), and a 8 cm (2) and 16 cm
+# (3) invaded zone. The source center frequency is successively equal to
+# 1 kHz (a), 3 kHz (b), 6 kHz (c), and 7.5 kHz (d). Each series is
+# normalized with respect to its own maximum denoted by 1.00."
+#
+# **That last sentence settles a convention this series had been
+# inferring.** Figures 13 and 14 print the same scale factors without
+# saying what they mean; figure 16's caption states it. The printed
+# number is the trace's peak amplitude relative to the largest trace in
+# its panel. The figure-14 reading was right.
+#
+# This figure is the same experiment as figure 13 with the rock swapped,
+# and it is the one where the invaded zone stops being invisible.
+#
+# **Twelve arrows, and they calibrate the figure.** Each trace carries a
+# drawn arrowhead at a shear arrival -- the virgin formation's on trace
+# 1, the invaded zone's own on traces 2 and 3. Detected as filled blobs
+# and converted through the time axis at 5 m, they give 1198.0 m/s for
+# the four virgin arrows (against table 1's `V_S` = 1201, **-0.25 %**)
+# and 1083.0 m/s for the eight invaded ones (against 1081, **+0.18 %**).
+# Twelve independent detections landing on two distinct published
+# velocities is a calibration check owing nothing to fwap, and it
+# confirms table 1's slow invaded-zone row a second time -- figure 15's
+# dispersion anchor read 1081.2 from a different figure entirely.
+#
+# **The amplitudes, digits and ink agreeing to 0.018**, settle several
+# glyphs that could be read two ways (0.754 not 0.734; 0.644 not 0.699;
+# 0.452 confirmed to 0.002):
+#
+#     f_c        virgin   8 cm    16 cm    spread
+#     1 kHz      0.612    0.754   1.000     1.63x
+#     3 kHz      1.000    0.644   0.672     1.55x
+#     6 kHz      1.000    0.452   0.672     2.21x
+#     7.5 kHz    0.881    0.706   1.000     1.42x
+#
+# Figure 13's fast sandstone, measured the same way, gives 1.25 / 1.03 /
+# 1.00 / 1.00. **Where the fast formation goes flat at and above 3 kHz,
+# the slow one never drops below 1.42x.**
+#
+# **And the mechanism is measurable, not just the size.** Splitting each
+# trace at its own arrow gives the P wavetrain's amplitude against the
+# shear packet's:
+#
+#     P/S        virgin   8 cm    16 cm
+#     1 kHz       0.03    0.07    0.05
+#     3 kHz       0.03    0.15    0.22
+#     6 kHz       0.10    0.96    1.53
+#     7.5 kHz     0.21    1.95    2.76
+#
+# Monotone in thickness at every frequency at or above 3 kHz, and
+# monotone in frequency. At 6 kHz with 16 cm, and at 7.5 kHz with either
+# thickness, **the P wavetrain becomes the largest event in the trace**
+# -- the series maximum jumps from ~5.0 ms to ~2.35 ms. That is the
+# report's conclusion C ("small velocity contrasts can modify the
+# internal dynamics of the waveforms more easily in slow formations,
+# through an increase of the P wavetrain") as a number.
+#
+# **A like-for-like delay comparison, which figure 14 could not offer.**
+# Figures 13(a) and 16(a) are the same source, the same 1 kHz, the same
+# 5 m, the same two thicknesses -- only the rock differs. The 16 cm
+# delay is +1.2 us in the fast sandstone and **+117.3 us** in the slow
+# one, at correlations of 0.981 and 0.879. As a fraction of traveltime
+# that is 0.06 % against 2.82 %: **45 times larger**.
+#
+# **The fwap check, on the one path this series has shown to be good.**
+# Figure 15 tied these exact three models' phase velocity at 1.47-1.48 %
+# rms. So the forward prediction is fair: take the group-velocity
+# minimum, divide 5 m by it, compare with the measured arrival of the
+# shear packet.
+#
+# The virgin packet peaks at 5.01-5.11 ms across all four source
+# frequencies -- frequency-independent, the Airy signature figures 3 and
+# 9 relied on -- giving 989.6 m/s against figure 8a's published group
+# minimum of 992.0 m/s. **Two independent figures, 0.24 % apart.**
+#
+#     model    measured        fwap        error
+#     virgin   5.05 ms (n=4)   5.21 ms     +3.0 %
+#     8 cm     5.56 ms (n=3)   5.91 ms     +6.3 %
+#     16 cm    5.64 ms (n=2)   6.09 ms     +8.0 %
+#
+# The virgin +3.0 % is figure 9's "3 % low in value" arrived at from a
+# different figure and a different domain. **The new result is what
+# happens when a layer is added.** The invaded arrivals drift with
+# source frequency (5.37-5.68 and 5.45-5.84), so against the most
+# charitable end of each measured range the errors are +2.0 %, +4.0 %
+# and +4.3 %. Either way the layered error is about **twice** the
+# open-hole one. The 8 cm / 16 cm difference is inside the measurement
+# spread and is **not** claimed.
+#
+# So figure 15's verdict needs one qualification. "The layered solver is
+# as accurate as the open-hole one" holds for *phase* velocity. It does
+# not survive differentiation: the group velocity that a waveform
+# actually arrives at is twice as wrong on the layered path.
+#
+# Two smaller things. **At 1 kHz fwap returns nothing for any of the
+# three models** (onsets 2.52, 3.51, 2.94 kHz) -- the panel that
+# measures best is entirely outside coverage, the near-cutoff gap of
+# figure 10 now confirmed on the layered path. And unlike figure 14's
+# fast-formation quadrupole, **these curves are structurally sound**: no
+# interior gaps, no negative group velocity, phase monotone throughout.
+# Here the defect is accuracy; there it was the absence of a curve.
+# ----------------------------------------------------------------------
+
+#: Figure 16: printed peak-amplitude scale factors (virgin, 8 cm, 16 cm)
+#: keyed by source centre frequency in kHz. Digits read from the page,
+#: confirmed by measuring the plotted excursions (agreement <= 0.018).
+_FIG16_PEAK_AMPLITUDE = {
+    1.0: (0.612, 0.754, 1.000),
+    3.0: (1.000, 0.644, 0.672),
+    6.0: (1.000, 0.452, 0.672),
+    7.5: (0.881, 0.706, 1.000),
+}
+
+#: Figure 16: P-wavetrain amplitude over shear-packet amplitude, each
+#: trace split at its own drawn arrow. Same keying.
+_FIG16_P_OVER_S = {
+    1.0: (0.03, 0.07, 0.05),
+    3.0: (0.03, 0.15, 0.22),
+    6.0: (0.10, 0.96, 1.53),
+    7.5: (0.21, 1.95, 2.76),
+}
+
+#: Figure 16: shear-speed recovered from each drawn arrow at 5 m (m/s),
+#: as (virgin, 8 cm, 16 cm) per source centre frequency.
+_FIG16_ARROW_VS = {
+    1.0: (1196.6, 1083.1, 1086.3),
+    3.0: (1204.7, 1084.6, 1085.6),
+    6.0: (1188.8, 1078.7, 1083.1),
+    7.5: (1201.8, 1081.2, 1081.2),
+}
+
+#: Figure 16: time of the shear-packet peak (ms) at 5 m, per model, over
+#: the source frequencies where that packet is still the trace maximum.
+_FIG16_AIRY_MS = {
+    "virgin": (5.04, 5.11, 5.05, 5.01),
+    "8 cm": (5.37, 5.62, 5.68),
+    "16 cm": (5.45, 5.84),
+}
+
+#: Figure 16(a): cross-correlation lag against the virgin trace at a
+#: 1 kHz dipole source and 5 m offset (microseconds), and the
+#: correlation. Directly comparable to _FIG13A_INVASION_LAG_US.
+_FIG16A_INVASION_LAG_US = {"8 cm": (46.1, 0.969), "16 cm": (117.3, 0.879)}
+
+_FIG16_OFFSET_M = 5.0
+
+#: Lowest frequency (kHz) at which fwap resolves each figure-16 model.
+_FIG16_ONSET_KHZ = {"virgin": 2.52, "8 cm": 3.51, "16 cm": 2.94}
+
+
+def _fig16_flexural(thickness: float | None, freq: np.ndarray) -> np.ndarray:
+    """Phase velocity (m/s) for figure 16's model, NaN where no root."""
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    if thickness is None:
+        mode = flexural_dispersion(freq, **_FIG15_VIRGIN, **fluid, a=0.10)
+    else:
+        mode = flexural_dispersion_layered(
+            freq,
+            **_FIG15_VIRGIN,
+            **fluid,
+            a=0.10,
+            layers=(BoreholeLayer(**_FIG15_INVADED, thickness=thickness),),
+        )
+    return 1.0 / mode.slowness
+
+
+def _fig16_group_minimum(thickness: float | None) -> tuple[float, float]:
+    """(v_g minimum in m/s, its frequency in Hz) over the longest run.
+
+    The value is grid-converged: 241, 591 and 1181-point grids agree to
+    0.02 m/s, so the coarse grid used here is not a shortcut.
+    """
+    freq = np.linspace(200.0, 12000.0, 241)
+    v = _fig16_flexural(thickness, freq)
+    idx = np.where(np.isfinite(v))[0]
+    seg = max(np.split(idx, np.where(np.diff(idx) > 1)[0] + 1), key=len)
+    ff, vv = freq[seg], v[seg]
+    v_g = 1.0 / np.gradient(ff / vv, ff)
+    i = int(np.argmin(v_g))
+    return float(v_g[i]), float(ff[i])
+
+
+def test_fig16_scale_factors_are_internally_consistent():
+    """The transcription, before anything is built on it.
+
+    Each panel is normalised to its own maximum -- the caption says so
+    in as many words -- so every triple holds exactly one 1.000 and
+    nothing above it.
+    """
+    for f_khz, triple in _FIG16_PEAK_AMPLITUDE.items():
+        assert max(triple) == pytest.approx(1.0), f"{f_khz} kHz: {triple}"
+        assert min(triple) > 0.0, f"{f_khz} kHz: {triple}"
+        assert sum(v == 1.0 for v in triple) == 1, f"{f_khz} kHz: {triple}"
+
+
+def test_the_figure_16_arrows_recover_both_published_shear_speeds():
+    """Twelve arrowheads, two velocities, no solver involved.
+
+    Each trace carries a drawn arrow at a shear arrival: the virgin
+    formation's on trace 1, the invaded zone's own on traces 2 and 3.
+    Read through the time axis at 5 m they return table 1's two slow
+    shear speeds to a quarter of a percent. This is the calibration
+    check for every other number taken off this figure, and it confirms
+    the invaded-zone row a second time -- figure 15 anchored it at
+    1081.2 from an entirely different figure.
+    """
+    virgin = np.array([t[0] for t in _FIG16_ARROW_VS.values()])
+    invaded = np.array([v for t in _FIG16_ARROW_VS.values() for v in t[1:]])
+    assert virgin.size == 4 and invaded.size == 8
+    assert virgin.mean() == pytest.approx(_FIG15_VIRGIN["vs"], rel=0.01)
+    assert invaded.mean() == pytest.approx(_FIG15_INVADED["vs"], rel=0.01)
+    # every single arrow, not just the means
+    assert np.abs(virgin / _FIG15_VIRGIN["vs"] - 1).max() < 0.02
+    assert np.abs(invaded / _FIG15_INVADED["vs"] - 1).max() < 0.02
+    # and the two families do not overlap
+    assert invaded.max() < virgin.min()
+
+
+def test_a_slow_formation_dipole_sees_invasion_where_a_fast_one_cannot():
+    """Figure 16 against figure 13, same source and the rock swapped.
+
+    Figure 13 found a 16 cm invaded zone undetectable in a fast
+    sandstone. Swapping in the slow one and changing nothing else, the
+    same zone moves the arrival by 117 us and reorders the panel
+    amplitudes by a factor of two.
+    """
+
+    def spread(t: tuple[float, float, float]) -> float:
+        return max(t) / min(t)
+
+    for f_khz in (3.0, 6.0, 7.5):
+        fast = spread(_FIG13_PEAK_AMPLITUDE[f_khz])
+        slow = spread(_FIG16_PEAK_AMPLITUDE[f_khz])
+        assert fast < 1.05, f"fast is flat at {f_khz} kHz: {fast}"
+        assert slow > 1.40, f"slow is not: {slow}"
+    assert min(spread(t) for t in _FIG16_PEAK_AMPLITUDE.values()) > 1.4
+
+
+def test_the_1_khz_invasion_delay_is_45x_larger_in_the_slow_formation():
+    """The like-for-like comparison figure 14 could not supply.
+
+    Figures 13(a) and 16(a) share source type, source frequency, offset
+    and both invaded-zone thicknesses. Only the rock differs, so the
+    ratio means something.
+    """
+    fast_us = _FIG13A_INVASION_LAG_US["16 cm"][0]
+    slow_us = _FIG16A_INVASION_LAG_US["16 cm"][0]
+    for name, (lag_us, corr) in _FIG16A_INVASION_LAG_US.items():
+        assert lag_us > 0.0, f"{name}: invasion delays rather than advances"
+        assert corr > 0.85, f"{name}: r = {corr}"
+    assert _FIG16A_INVASION_LAG_US["16 cm"][0] > _FIG16A_INVASION_LAG_US["8 cm"][0]
+
+    fast_frac = fast_us * 1e-3 / (_FIG13_OFFSET_M * 1e3 / _FIG2_ROCK["vs"])
+    slow_frac = slow_us * 1e-3 / (_FIG16_OFFSET_M * 1e3 / _FIG15_VIRGIN["vs"])
+    assert fast_frac < 0.001, f"fast: {fast_frac:.4%} of traveltime"
+    assert slow_frac > 0.02, f"slow: {slow_frac:.4%} of traveltime"
+    assert slow_frac / fast_frac > 30.0
+
+
+def test_invasion_moves_the_slow_formation_energy_into_the_p_wavetrain():
+    """The published mechanism, measured.
+
+    Conclusion C says small velocity contrasts modify the internal
+    dynamics more easily in slow formations "through an increase of the
+    P wavetrain". Splitting each trace at its own arrow, P/S rises with
+    thickness at every frequency at or above 3 kHz and with frequency at
+    every thickness -- and at the top end the P wavetrain overtakes the
+    shear packet outright.
+    """
+    for f_khz in (3.0, 6.0, 7.5):
+        virgin, eight, sixteen = _FIG16_P_OVER_S[f_khz]
+        assert virgin < eight < sixteen, f"{f_khz} kHz: {_FIG16_P_OVER_S[f_khz]}"
+    # monotone in frequency for each model
+    for col in range(3):
+        series = [_FIG16_P_OVER_S[f][col] for f in (3.0, 6.0, 7.5)]
+        assert series == sorted(series), f"column {col}: {series}"
+    # the virgin trace never lets P win; invasion makes it win
+    assert max(t[0] for t in _FIG16_P_OVER_S.values()) < 0.5
+    assert _FIG16_P_OVER_S[6.0][2] > 1.0
+    assert _FIG16_P_OVER_S[7.5][1] > 1.0 and _FIG16_P_OVER_S[7.5][2] > 1.0
+
+
+def test_the_virgin_airy_arrival_is_frequency_independent():
+    """Why the shear-packet peak can be read as the Airy phase.
+
+    An Airy phase arrives at the stationary point of the group-velocity
+    curve, which is a property of the medium, not of the source. The
+    virgin packet peaks within 0.10 ms of 5.05 ms across a 7.5x change
+    in source frequency. The invaded traces drift more, and that wider
+    spread is carried into the tolerance of the fwap comparison below.
+    """
+    virgin = np.array(_FIG16_AIRY_MS["virgin"])
+    assert np.ptp(virgin) / virgin.mean() < 0.025, f"{virgin}"
+    for name in ("8 cm", "16 cm"):
+        arr = np.array(_FIG16_AIRY_MS[name])
+        assert np.ptp(arr) / arr.mean() < 0.08, f"{name}: {arr}"
+        assert arr.min() > virgin.max(), "invasion delays the packet"
+
+
+def test_figure_16_confirms_figure_8a_group_minimum_from_the_time_domain():
+    """Two figures, two domains, one number.
+
+    Figure 8a's published phase curve, differentiated, put the slow
+    flexural group minimum at 992 m/s. Figure 16's virgin waveforms put
+    the arrival at 5.05 ms over 5 m, which is 990 m/s. Neither reading
+    used fwap, and they are 0.24 % apart.
+    """
+    measured = _FIG16_OFFSET_M / (float(np.mean(_FIG16_AIRY_MS["virgin"])) * 1e-3)
+    published = _FIG8A_GROUP_MINIMUM[0]
+    assert measured == pytest.approx(published, rel=0.01), (
+        f"{measured:.1f} m/s from figure 16 against {published} from figure 8a"
+    )
+
+
+def test_the_layered_group_velocity_is_twice_as_wrong_as_the_open_hole_one():
+    """Figure 15's verdict, qualified where it stops holding.
+
+    Figure 15 tied these three models' *phase* velocity at 1.47-1.48 %
+    rms and concluded the layered solver is as accurate as the open-hole
+    one. Differentiate, and that stops being true: predicting figure
+    16's Airy arrival from the group-velocity minimum is ~3 % late for
+    the virgin rock -- figure 9's result, reached from another figure --
+    and about twice that once a layer is present.
+
+    The comparison is made against the *latest* measured arrival in each
+    model, the most charitable end of the range, so the gap is a floor
+    rather than a headline.
+    """
+    errors = {}
+    for name, thickness in (("virgin", None), ("8 cm", 0.08), ("16 cm", 0.16)):
+        v_g, _ = _fig16_group_minimum(thickness)
+        predicted_ms = _FIG16_OFFSET_M / v_g * 1e3
+        latest = max(_FIG16_AIRY_MS[name])
+        errors[name] = predicted_ms / latest - 1.0
+        assert predicted_ms > latest, (
+            f"{name}: fwap predicts {predicted_ms:.2f} ms, measured at most "
+            f"{latest:.2f} ms -- the Airy phase is late, not early"
+        )
+    assert 0.01 < errors["virgin"] < 0.05, errors
+    for name in ("8 cm", "16 cm"):
+        assert errors[name] > 1.7 * errors["virgin"], errors
+
+
+def test_fwap_resolves_nothing_at_figure_16_lowest_source_frequency():
+    """The panel that measures best is the one fwap cannot reach.
+
+    Panel (a) has the compact wavelets, the cleanest correlations and
+    the frequency-independent Airy pick. At 1 kHz the flexural solver
+    returns no root for the virgin rock or for either invaded model --
+    the near-cutoff gap figure 10 proved is a solver limitation rather
+    than physics, now confirmed on the layered path too.
+    """
+    probe = np.array([1000.0])
+    for thickness in (None, 0.08, 0.16):
+        v = _fig16_flexural(thickness, probe)
+        assert not np.any(np.isfinite(v)), f"thickness {thickness}: {v}"
+    freq = np.linspace(200.0, 12000.0, 241)
+    for name, thickness in (("virgin", None), ("8 cm", 0.08), ("16 cm", 0.16)):
+        v = _fig16_flexural(thickness, freq)
+        onset = freq[np.isfinite(v)].min() / 1.0e3
+        assert onset == pytest.approx(_FIG16_ONSET_KHZ[name], abs=0.35)
+        assert onset > 1.0, f"{name} onset {onset} kHz is above the 1 kHz panel"
+
+
+def test_the_slow_flexural_curves_are_structurally_sound():
+    """The contrast with figure 14, stated as an assertion.
+
+    Figure 14's fast-formation quadrupole came back shredded: interior
+    gaps, a sawtooth against the bracket ceiling, and a group velocity
+    that went negative. The same package on the slow formation, open
+    hole and layered alike, returns one contiguous run per model with a
+    monotone phase velocity and a group velocity that never changes
+    sign. Whatever is wrong here is an accuracy problem, and A.2's
+    bracket is not implicated.
+    """
+    freq = np.linspace(200.0, 12000.0, 241)
+    for thickness in (None, 0.08, 0.16):
+        v = _fig16_flexural(thickness, freq)
+        ok = np.isfinite(v)
+        idx = np.where(ok)[0]
+        assert int((np.diff(idx) > 1).sum()) == 0, f"{thickness}: interior gap"
+        vv = v[ok]
+        assert np.all(np.diff(vv) <= 1.0), f"{thickness}: phase not monotone"
+        assert vv.max() <= _FIG15_VIRGIN["vs"] + 1.0
+        ff = freq[ok]
+        dv = np.diff(vv) / np.diff(ff)
+        v_g = vv[:-1] / (1.0 - (ff[:-1] / vv[:-1]) * dv)
+        assert np.all(v_g > 0.0), f"{thickness}: negative group velocity"
