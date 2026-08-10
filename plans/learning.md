@@ -699,6 +699,31 @@ not independent, and the test has to be built to route around that use.
   continuously as a mode approaches its trapping boundary; a discontinuity
   there would indicate a branch error.
 
+### An oracle already in the repository, applied to one mode and not its neighbour
+
+The `n=2` quadrupole check rests on a sentence in its own comment block: *at
+short wavelength the borehole wall looks flat to every azimuthal order*. It was
+written for `n=2`, and `n=1` — the mode the package sells — was left comparing
+against `rayleigh_speed` at 10 %. The flexural mode does not approach the
+Rayleigh speed at all; it settles 9 % below it, at the Scholte speed, which is
+what the `n=0` and `n=2` checks were already using. Applying the same oracle
+gave 1e-3 convergence and cost nothing but noticing.
+
+Two things generalise.
+
+**An oracle's stated scope is usually narrower than its argument's.** The
+justification here quantified over *every* azimuthal order and was implemented
+for one. Worth a pass over each existing oracle asking what its reasoning
+actually covers, versus where it is called.
+
+**A tolerance wide enough to hide a systematic is a tolerance that was tuned to
+pass.** `rel=0.10` against a reference that is wrong by 9 % looks like a
+sensible engineering margin and is in fact the discrepancy plus a sliver. The
+tell is the ratio drifting to a constant rather than to one: a real asymptote
+converges, a wrong reference plateaus. Checking *convergence* rather than
+*proximity* — `np.all(np.diff(error) < 0)` before any bound on the error itself
+— would have caught it without knowing the right answer in advance.
+
 ## Getting signs right
 
 Four sign or branch errors were made in this programme and all four were

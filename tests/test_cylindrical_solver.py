@@ -381,10 +381,21 @@ def test_flexural_low_f_slowness_approaches_inverse_vs():
 
 
 def test_flexural_high_f_slowness_above_inverse_rayleigh():
-    """At high f, the modal flexural slowness must sit above
-    1 / V_R (Rayleigh-asymptote with positive Scholte / fluid-
-    loading offset; substep 1.6.c-d). Tests f = 10 kHz where the
-    slowness should be above 1/V_R but within 10% of it."""
+    """At high f the modal flexural slowness must sit above 1 / V_R.
+
+    Fluid loading slows a surface wave below its vacuum-loaded Rayleigh
+    speed, which is the genuine physical correction the modal solver
+    captures and `flexural_dispersion_physical` does not.
+
+    Only the inequality is asserted. This test used to add
+    ``approx(s_R, rel=0.10)`` as well, on the reading that Rayleigh was
+    the mode's high-frequency asymptote. It is not: the flexural velocity
+    settles at 0.908 V_R and stays there, so that tolerance was absorbing
+    a 9 % reference error rather than bounding the solver -- it was
+    passing on 17 % of its own margin. The asymptote is the *Scholte*
+    speed, and `test_flexural_converges_to_the_plane_scholte_speed` now
+    checks it to 1e-3 (roadmap A.1).
+    """
     res = flexural_dispersion(
         np.array([10000.0]),
         vp=SLOW_VP,
@@ -395,13 +406,7 @@ def test_flexural_high_f_slowness_above_inverse_rayleigh():
         a=SLOW_A,
     )
     assert np.isfinite(res.slowness[0])
-    vR = rayleigh_speed(SLOW_VP, SLOW_VS)
-    s_R = 1.0 / vR
-    # Above 1/V_R: this is the genuine physical correction the
-    # modal solver captures that flexural_dispersion_physical does
-    # not (it uses the vacuum-loaded Rayleigh asymptote exactly).
-    assert res.slowness[0] > s_R
-    assert res.slowness[0] == pytest.approx(s_R, rel=0.10)
+    assert res.slowness[0] > 1.0 / rayleigh_speed(SLOW_VP, SLOW_VS)
 
 
 def test_flexural_dispersion_is_monotonic_above_cutoff():
@@ -13892,6 +13897,90 @@ def test_slow_formation_quadrupole_is_a_usable_curve():
     assert finite.sum() >= 10
     velocity = 1.0 / result.slowness[finite]
     assert np.all(np.diff(velocity) <= 1.0e-9)
+
+
+# ----------------------------------------------------------------------
+# The same high-frequency asymptote, for n=1 (roadmap A.1)
+#
+# "The wall looks flat to every azimuthal order" is the argument the n=2
+# block above rests on, and it was never applied to n=1 -- the mode the
+# package sells, since dipole shear is its headline product. Applying it
+# closes the loosest external tie in the solver: the flexural high-f check
+# was anchored to `rayleigh_speed`, which the mode does *not* approach.
+#
+# Measured, slow formation, a = 0.10 m: flexural velocity over the plane
+# Scholte speed runs 1.0166 -> 1.00025 across 10-400 kHz, monotone. Over
+# the Rayleigh speed it settles at 0.908 -- a fixed 9 % offset, not a
+# limit. That is why the old check needed rel=0.10 and used 8.3 % of it:
+# the tolerance was absorbing the wrong reference, not solver error.
+#
+# Slow formations only, deliberately. In fast ones n=1 is leaky and the
+# real-axis search returns scatter or NaN -- roadmap A.2, and the same
+# failure the n=2 block records.
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("rock", [_QUAD_SLOW, _QUAD_MID], ids=["slow", "mid"])
+def test_flexural_converges_to_the_plane_scholte_speed(rock):
+    """n=1 approaches the same plane-interface limit as n=0 and n=2.
+
+    `scholte_speed` solves a plane fluid/solid interface problem -- no
+    Bessel functions, no borehole radius, no azimuthal order -- so this is
+    an external check rather than the solver agreeing with itself. It is
+    also the tightest tie the flexural mode has: convergence, not
+    proximity, and to 1e-3 rather than the 10 % the Rayleigh comparison
+    could manage.
+    """
+    from fwap import flexural_dispersion, scholte_speed
+
+    reference = scholte_speed(**rock, **_QUAD_FLUID)
+    frequencies = np.array([50.0e3, 100.0e3, 200.0e3, 400.0e3])
+    result = flexural_dispersion(frequencies, **rock, **_QUAD_FLUID, a=0.10)
+    assert np.all(np.isfinite(result.slowness))
+
+    error = np.abs(1.0 / result.slowness / reference - 1.0)
+    assert np.all(np.diff(error) < 0.0)  # converging, not merely close
+    assert error[-1] < 1.0e-3
+
+
+def test_flexural_does_not_converge_to_the_rayleigh_speed():
+    """The negative half, and the reason the old anchor was wrong.
+
+    A vacuum-loaded Rayleigh wave is the wrong limit for a fluid-filled
+    borehole: fluid loading slows the surface wave to the Scholte speed,
+    which here is 9 % below Rayleigh. So the ratio against Rayleigh must
+    *stop* at a constant offset instead of approaching one, and pinning
+    that keeps anyone from re-anchoring to it.
+    """
+    from fwap import flexural_dispersion, rayleigh_speed
+
+    v_rayleigh = rayleigh_speed(_QUAD_SLOW["vp"], _QUAD_SLOW["vs"])
+    frequencies = np.array([100.0e3, 400.0e3])
+    result = flexural_dispersion(frequencies, **_QUAD_SLOW, **_QUAD_FLUID, a=0.10)
+
+    ratio = 1.0 / result.slowness / v_rayleigh
+    assert np.all(ratio < 0.95), "fluid loading must hold it well below Rayleigh"
+    # Flat: the residual change over two octaves is far smaller than the gap.
+    assert abs(ratio[-1] - ratio[0]) < 0.01 * (1.0 - ratio[-1])
+
+
+def test_all_three_azimuthal_orders_share_the_high_frequency_limit():
+    """n=0, n=1 and n=2 must land on the same flat-wall answer.
+
+    Three different modal determinants, one plane-interface limit. A
+    branch error in any single order shows up here as a disagreement,
+    which no per-mode check can see.
+    """
+    from fwap import flexural_dispersion, quadrupole_dispersion, stoneley_dispersion
+
+    high = np.array([400.0e3])
+    kwargs = dict(**_QUAD_SLOW, **_QUAD_FLUID, a=0.10)
+    stoneley = 1.0 / stoneley_dispersion(high, **kwargs).slowness[0]
+    flexural = 1.0 / flexural_dispersion(high, **kwargs).slowness[0]
+    quadrupole = 1.0 / quadrupole_dispersion(high, **kwargs).slowness[0]
+
+    assert flexural == pytest.approx(stoneley, rel=1e-4)
+    assert quadrupole == pytest.approx(stoneley, rel=1e-4)
 
 
 # ---------------------------------------------------------------------------
