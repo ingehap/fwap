@@ -27,7 +27,7 @@ What made this one the right paper:
 files as the reference for the cylindrical solver. A paper the code already
 claims to implement is the strongest possible oracle, because any disagreement
 is unambiguously a defect in one of them — there is no "different model, different
-answer" escape. (The citation was itself wrong in a way that mattered; see §7.)
+answer" escape. (The citation was itself wrong in a way that mattered; see §9.)
 
 **It plots the exact quantity the code returns.** Phase velocity against
 frequency, for named rocks, on labelled axes. Not a derived quantity, not a
@@ -51,7 +51,7 @@ mechanism, whereas one bad curve is a bug report.
 arrows drawn on waveform panels encode velocities that also appear in Table 1;
 group-velocity curves are plotted beside the phase curves they derive from. That
 redundancy is what makes the *digitisation* checkable independently of the code
-(§3), and it is worth weighting heavily when choosing a paper.
+(§5), and it is worth weighting heavily when choosing a paper.
 
 **It is old enough to be independent.** 1988, computed with methods that share no
 code with `fwap`. A modern paper using the same open-source solver would be
@@ -85,12 +85,159 @@ the defect had a roadmap entry, a diagnosis, and a proposed fix, all of which
 were wrong, and it survived because the diagnosis was written by asking the code
 about itself.
 
-The whole method follows from that. An external oracle is the only instrument
-that measures the thing you actually care about.
+The whole method follows from that. It does not mean the internal checks were
+worthless — several found real defects — but there is a class of error none of
+them can reach, and §3 is about where each instrument is blind.
 
 ---
 
-## 3. Digitisation, and why it needs its own quality control
+## 3. Four instruments, and what each one cannot see
+
+`plans/learning.md` is the record of the analytic-oracle programme; this section
+only places those instruments beside published figures, because the interesting
+result is where each is *blind*.
+
+| instrument | catches | structurally blind to |
+|---|---|---|
+| exact solutions of limiting cases | wrong model, wrong asymptote, wrong scaling | the interior of the band |
+| conservation laws | wrong fields for a given mode | **which mode you handed it** |
+| structural invariants | non-physical output, branch hopping | absolute accuracy |
+| published figures | the interior, mode identity, absolute error | what the code cannot represent |
+
+### Exact solutions are strongest as a constraint on the algorithm, not a check on its output
+
+`scholte_speed`, `rayleigh_speed` and the White tube-wave speed are exact
+solutions of limiting cases — a plane interface, a vacuum-loaded half-space, a
+quasi-static long wavelength. They anchor every digitised table in this work
+(§5), and figure 2a's calibration could not have been verified without them: its
+two ends *are* the shear speed and the Scholte speed.
+
+But the sharper use is the one that was missed for a year. `scholte_speed` was
+already in the repository, already validated, and A.2's own diagnosis already
+named Scholte as the flexural mode's high-frequency limit. What nobody drew was
+the next line: **if the branch asymptotes to Scholte, the search window must
+contain Scholte.** It did not — the window stopped at `V_R`, some 30 % above —
+and that single unmade inference is the whole of A.2.
+
+An exact solution that bounds the answer should be used to bound the *domain the
+solver searches*, not merely to test the values it returns. Those are different
+tests, and the second passes while the first is failing: the returned overtone
+lay comfortably inside the window, so every value-level check was green.
+
+### Conservation laws cannot see mode substitution, and this is structural
+
+`plans/learning.md` reached the key result by deriving the leaky-mode energy
+balance in full and then finding that it reproduces `Im(k_z)` **at non-roots as
+well as at roots** — so it constrains the fields but not the eigenvalue — and
+that momentum is the same balance times a constant.
+
+This work supplies the consequence. `flexural_dispersion` was returning a
+*genuine root of the correct determinant*: an ordinary bound trapped mode, just
+not the one asked for. It therefore satisfies every conservation law exactly, for
+the same reason the energy balance holds at non-roots — a conserved quantity
+constrains whatever fields you hand it and says nothing about which solution you
+handed it.
+
+So **"right equation, wrong root" is invisible to every instrument that asks the
+code about itself**, and no tightening of tolerances changes that. It is not a
+gap in the conservation-law programme; it is outside its domain. Recognising this
+is what makes an external reference necessary rather than merely desirable.
+
+### Structural invariants are the cheap middle, and they became the fix
+
+Between exact solutions and full references sit facts that are model-independent
+but are not conservation laws:
+
+- a guided mode's phase velocity never increases with frequency;
+- its group velocity is positive;
+- a thicker slow annulus cannot speed the mode up;
+- the answer at one frequency must not depend on which *other* frequencies were
+  requested in the same call.
+
+These cost nothing, have no tolerance to tune, and did more work here than any
+other class. The old solver violated the first two flagrantly — a sawtooth
+jumping upward by more than 100 m/s, and `v_g` negative on 18 of 48 adjacent
+samples — and those violations are what established the output was not a
+dispersion curve at all, before any published number was consulted.
+
+Then they became the repair. **The corrected marcher is an invariant turned into
+an algorithm**: "walk up in frequency and keep the slowest root no faster than
+the previous one" is monotonicity used as a *selection rule* rather than as a
+test. That is the move worth stealing — an invariant strong enough to detect a
+defect is often strong enough to prevent it.
+
+The fourth invariant priced what the fix did *not* buy. Afterwards `n=1` returns
+the same 10 kHz value across grids of 5 to 161 points and across five different
+grid start points, to **0.000 %**; `n=2` still moves by 1.7 % and 3.2 % and
+vanishes on some grids. Same fix, same window, same selection rule — so the
+`n=2` residual is a root-finding instability rather than the bracket, which is
+why `n=1` results are quotable and `n=2` ones are not yet.
+
+### The empirical result of the hierarchy
+
+A.2 survived an analytic-oracle programme, an energy-balance derivation, a
+Scholte asymptote check, a rigid-pipe cutoff, biorthogonality and Kramers-Kronig
+attempts, and about twelve hundred passing tests. It fell to one digitised
+figure. Not because the oracles were weak — several found real defects — but
+because they were all asking the code about itself, and this defect was a choice
+*between* solutions rather than an error *within* one.
+
+The converse is equally true and less obvious: **the figure work could not have
+run without the oracles.** Every digitised table is anchored on an exact
+solution, figure 15(b)'s calibration was settled by two shear speeds from
+Table 1, and figure 2a's reference is trustworthy only because its two ends are
+independently computable. The pairing to aim for is an external reference
+*anchored* by exact solutions; neither instrument is sufficient alone.
+
+---
+
+## 4. Hypothesis testing: prefer measurements that relocate the defect
+
+The move that did most of the diagnostic work was not measuring, it was choosing
+what to measure. State two explanations, find the observation that must come out
+differently under each, and prefer the one that *moves* the defect over the one
+that merely confirms it.
+
+The decisive example: the layered flexural path was 31–53 % wrong on figure 12's
+fast rock. Two explanations — the propagator chain is broken, or the bracket it
+inherits is. The discriminating measurement was to run **the identical call on a
+slow rock**, figure 15, where the same propagator tracks the published curves at
+**1.47 % rms**. That relocated the defect from the layered code to the bracket in
+a single measurement, ruled out rewriting the propagator, and made a prediction —
+correcting the bracket alone should bring the fast half in without disturbing the
+slow half — which is exactly what happened.
+
+Others that paid, each stated as its discriminating question:
+
+- *Is the sparsity caused by the casing?* Remove the casing: the open hole is
+  just as sparse. Not the layer stack.
+- *Is the 16 cm trace curve 3 or curve 4?* Run-ordering, not rms — see §5.
+- *Is the `n=2` residual a wrong branch or a frequency offset?* Re-score against
+  the reference shifted by 1.1 kHz: 5.84 % → 1.35 %. An offset, and one that
+  belongs to a different defect.
+- *Are the values just above `V_f` real roots or the boundary artefact?* Require
+  a true sign change, a smooth descent toward Scholte, and survival of a grid
+  change. Real.
+- *Is the `n=2` coverage instability universal?* Try a second model: identical
+  coverage every time. Model-specific, which bounds the claim.
+- *Does widening the bracket alone fix A.2?* No — above 16.4 kHz it returns a
+  different wrong branch, 14–39 % high. That answer is why the selection rule
+  shipped *with* the bracket rather than after it.
+- *Is the new noise guard over-firing, or is the determinant really that bad?*
+  Scan it directly: 10–33 sign changes with the layer set identical to the
+  formation. The determinant.
+
+Two disciplines make these worth running. **State what the wrong hypothesis
+predicts before measuring**, or the result gets read as confirming whatever you
+expected. And **check the measurement can discriminate at all**:
+`plans/learning.md` records a Scholte sign check that passed with the sign wrong
+because both signs reduce to Rayleigh, and this work added its own — an rms
+comparison asked to choose between two curves converging to within 0.6–0.8 %,
+below the solver's own error. It chose wrongly, and confidently.
+
+---
+
+## 5. Digitisation, and why it needs its own quality control
 
 The reference values are read off a 1988 scan. If the digitisation is wrong the
 comparison is worthless *and confidently so*, so the reading needs as much
@@ -154,7 +301,7 @@ either way, with assertions that hold for both readings.
 
 ---
 
-## 4. Comparing, without flattering either side
+## 6. Comparing, without flattering either side
 
 **Distinguish "wrong" from "missing", and treat them differently.** A `NaN` is a
 caller-visible refusal; a wrong number is a silent error. Both were present here,
@@ -192,7 +339,7 @@ published attenuation curves have nothing on the `fwap` side to compare against.
 
 ---
 
-## 5. From measurement to fix
+## 7. From measurement to fix
 
 **Pin the defect as a test before fixing it**, phrased so it fails when the
 defect is repaired. Roughly thirty tests changed meaning when A.2 was fixed, and
@@ -237,7 +384,7 @@ conceptual error, grep for the concept, not the symbol.
 
 ---
 
-## 6. Honesty rules this work needed
+## 8. Honesty rules this work needed
 
 The two existing rules in `plans/roadmap.md` (state what was measured; do not let
 a plan outlive its premise) did not prevent these, so:
@@ -265,7 +412,7 @@ document why.
 
 ---
 
-## 7. Failures of this method, all of which happened here
+## 9. Failures of this method, all of which happened here
 
 - **A refusal that was wrong.** Figure 13's delays were refused because of a
   clipped extraction window — narrower than the widest trace's own excursion, so
@@ -291,7 +438,7 @@ document why.
 
 ---
 
-## 8. What it produced
+## 10. What it produced
 
 Fifty-two digitised reference tables and twelve scalar anchors, each with
 provenance, an uncertainty budget and a stated resolution limit, and **90 tests**
@@ -313,9 +460,9 @@ mode it was searching for.
 
 ---
 
-## 9. What is left in this paper
+## 11. What is left in this paper
 
-Recorded here because §6 says to inventory first, and because the next person
+Recorded here because §8 says to inventory first, and because the next person
 should not have to rediscover it.
 
 1. **Figures 20 and 21** — cased-hole dispersion and attenuation: cement
