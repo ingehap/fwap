@@ -888,11 +888,13 @@ def quadrupole_dispersion_layered(
         _validate_flexural_layers_stacked(layers_tuple, a, vs)
 
     from fwap.cylindrical_solver import _modal_determinant_n2_cased
+    from fwap.cylindrical_solver._n1_layered import _slow_cased_velocity_floor
 
     # Multi-layer cased-hole brentq loop on top of
     # ``_modal_determinant_n2_cased`` (G''.c). Mirrors the
     # ``flexural_dispersion_layered`` n>=1 branch.
     slowness = np.full_like(f_arr, np.nan, dtype=float)
+    velocity_floor = _slow_cased_velocity_floor(vs, vp, rho, vf, rho_f, layers_tuple)
     for i, f in enumerate(f_arr):
         omega = 2.0 * np.pi * float(f)
 
@@ -947,6 +949,18 @@ def quadrupole_dispersion_layered(
                 )
                 continue
             kz_root = optimize.brentq(_det, kz_lo, kz_hi, xtol=1.0e-10)
+            if omega / kz_root < velocity_floor:
+                # The expansion loop walked past the mode into the
+                # determinant's far tail; no interface mode of this
+                # geometry is slower than the Scholte speed.
+                logger.debug(
+                    "quadrupole_dispersion_layered: rejected a %.1f m/s root at "
+                    "f=%.1f Hz, below the %.1f m/s Scholte floor",
+                    omega / kz_root,
+                    f,
+                    velocity_floor,
+                )
+                continue
             slowness[i] = kz_root / omega
         except (ValueError, RuntimeError) as exc:
             logger.debug(
@@ -955,9 +969,115 @@ def quadrupole_dispersion_layered(
                 exc,
             )
 
+    attenuation = _fill_slow_cased_leaky_n2(
+        slowness,
+        f_arr,
+        vp=vp,
+        vs=vs,
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
+        layers=layers_tuple,
+    )
+
     return BoreholeMode(
         name="quadrupole",
         azimuthal_order=2,
         freq=f_arr,
         slowness=slowness,
+        attenuation_per_meter=attenuation,
     )
+
+
+def _fill_slow_cased_leaky_n2(
+    slowness: np.ndarray,
+    f_arr: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...],
+) -> np.ndarray | None:
+    r"""
+    n=2 sister of
+    :func:`~fwap.cylindrical_solver._n1_layered._fill_slow_cased_leaky_n1`.
+
+    Roadmap A.9. Fills the frequencies where the bound n=2 layered
+    search found nothing with the leaky cased branch, in place. See the
+    n=1 twin for the physics and
+    :func:`~fwap.cylindrical_solver._leaky._march_leaky_cased_branch`
+    for the shared marcher.
+
+    This is a different window from roadmap A.7's. A.7 is about the
+    FAST-formation cased ``n = 2`` determinant, which is
+    noise-dominated -- about 90 sign changes at 12 kHz where the physics
+    supports a handful, and 430 on a fine grid even with the layer set
+    equal to the formation. The slow-formation leaky window scanned here
+    carries one to six crossings over the whole dipole band, which is a
+    mode spectrum rather than cancellation noise, so A.7 does not block
+    this path.
+
+    Parameters
+    ----------
+    slowness : ndarray, shape (n_f,)
+        Bound-path result, modified in place.
+    f_arr : ndarray, shape (n_f,)
+        Frequency grid (Hz).
+    vp, vs, rho, vf, rho_f, a : float
+        As in :func:`quadrupole_dispersion_layered`.
+    layers : tuple of BoreholeLayer
+        Annular stack, inside-out.
+
+    Returns
+    -------
+    ndarray or None
+        Attenuation (1/m), or ``None`` when the leaky branch
+        contributed nothing.
+    """
+    missing = ~np.isfinite(slowness)
+    if not layers or not missing.any():
+        return None
+    ceiling = min(vf, min(layer.vs for layer in layers))
+    if not ceiling > vs:
+        return None
+
+    from fwap.cylindrical_solver._cased import _modal_determinant_n2_cased_complex
+    from fwap.cylindrical_solver._leaky import (
+        _detect_leaky_branches,
+        _march_leaky_cased_branch,
+    )
+
+    def _det(kz: complex, omega: float) -> complex:
+        _, leaky_p, leaky_s = _detect_leaky_branches(kz, omega, vp, vs, vf)
+        return _modal_determinant_n2_cased_complex(
+            kz,
+            omega,
+            vp=vp,
+            vs=vs,
+            rho=rho,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
+            layers=layers,
+            leaky_p=leaky_p,
+            leaky_s=leaky_s,
+        )
+
+    leaky_slowness, leaky_atten = _march_leaky_cased_branch(
+        _det,
+        f_arr,
+        vs=vs,
+        ceiling=ceiling,
+        exclude=tuple(layer.vs for layer in layers),
+    )
+    fill = missing & np.isfinite(leaky_slowness)
+    if not fill.any():
+        return None
+    slowness[fill] = leaky_slowness[fill]
+    attenuation = np.full(f_arr.size, np.nan, dtype=float)
+    attenuation[fill] = leaky_atten[fill]
+    return attenuation

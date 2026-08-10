@@ -410,6 +410,47 @@ def _flexural_dispersion_fast_formation_layered(
     )
 
 
+def _slow_cased_velocity_floor(
+    vs: float,
+    vp: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    layers: tuple[BoreholeLayer, ...],
+) -> float:
+    """
+    Physical floor on the phase velocity of a bound layered n >= 1 mode.
+
+    The Scholte speed of the borehole fluid against the softest solid in
+    the stack. No interface mode of this geometry runs slower than that,
+    so a converged root below it is the bracket-expansion loop having
+    walked out of the mode and into the determinant's far tail rather
+    than a physical answer.
+
+    Falls back to a small fraction of the fluid velocity if the plane
+    Scholte solve does not converge, so the guard can never itself
+    reject a good root.
+    """
+    from fwap.cylindrical import scholte_speed
+
+    softest_vs = min([vs] + [layer.vs for layer in layers])
+    if softest_vs == vs:
+        soft_vp, soft_rho = vp, rho
+    else:
+        soft = min(layers, key=lambda layer: layer.vs)
+        soft_vp, soft_rho = soft.vp, soft.rho
+    try:
+        floor = float(scholte_speed(soft_vp, softest_vs, soft_rho, vf, rho_f))
+    except (ValueError, RuntimeError):
+        return 0.05 * vf
+    if not np.isfinite(floor) or floor <= 0.0:
+        return 0.05 * vf
+    # A little below the plane-interface value: curvature moves the
+    # borehole mode off it, always upward at finite frequency, but the
+    # guard should not sit exactly on the physics it is protecting.
+    return 0.9 * floor
+
+
 def flexural_dispersion_layered(
     freq: np.ndarray,
     *,
@@ -551,6 +592,7 @@ def flexural_dispersion_layered(
     from fwap.cylindrical_solver import _modal_determinant_n1_cased
 
     slowness = np.full_like(f_arr, np.nan, dtype=float)
+    velocity_floor = _slow_cased_velocity_floor(vs, vp, rho, vf, rho_f, layers_tuple)
     for i, f in enumerate(f_arr):
         omega = 2.0 * np.pi * float(f)
 
@@ -614,6 +656,18 @@ def flexural_dispersion_layered(
                 )
                 continue
             kz_root = optimize.brentq(_det, kz_lo, kz_hi, xtol=1.0e-10)
+            if omega / kz_root < velocity_floor:
+                # The expansion loop walked past the mode into the
+                # determinant's far tail; no interface mode of this
+                # geometry is slower than the Scholte speed.
+                logger.debug(
+                    "flexural_dispersion_layered: rejected a %.1f m/s root at "
+                    "f=%.1f Hz, below the %.1f m/s Scholte floor",
+                    omega / kz_root,
+                    f,
+                    velocity_floor,
+                )
+                continue
             slowness[i] = kz_root / omega
         except (ValueError, RuntimeError) as exc:
             logger.debug(
@@ -622,12 +676,120 @@ def flexural_dispersion_layered(
                 exc,
             )
 
+    attenuation = _fill_slow_cased_leaky_n1(
+        slowness,
+        f_arr,
+        vp=vp,
+        vs=vs,
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
+        layers=layers_tuple,
+    )
+
     return BoreholeMode(
         name="flexural",
         azimuthal_order=1,
         freq=f_arr,
         slowness=slowness,
+        attenuation_per_meter=attenuation,
     )
+
+
+def _fill_slow_cased_leaky_n1(
+    slowness: np.ndarray,
+    f_arr: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...],
+) -> np.ndarray | None:
+    r"""
+    Fill the frequencies where the bound n=1 layered search found
+    nothing with the leaky cased branch, in place.
+
+    Roadmap A.9. A stiff annulus raises the composite bending stiffness
+    until the dipole mode outruns a slow formation's shear speed; the
+    mode then radiates into the formation and the real-valued
+    determinant, which only describes fields evanescent everywhere
+    outside the fluid, has no root for it. This runs the complex-``k_z``
+    marcher over ``(V_S, min(V_f, min layer V_S))`` for exactly those
+    frequencies.
+
+    Parameters
+    ----------
+    slowness : ndarray, shape (n_f,)
+        Bound-path result, modified in place at the frequencies the
+        leaky branch resolves.
+    f_arr : ndarray, shape (n_f,)
+        Frequency grid (Hz).
+    vp, vs, rho, vf, rho_f, a : float
+        As in :func:`flexural_dispersion_layered`.
+    layers : tuple of BoreholeLayer
+        Annular stack, inside-out.
+
+    Returns
+    -------
+    ndarray or None
+        Attenuation (1/m) aligned with ``f_arr``, ``NaN`` at the
+        frequencies the bound path already covered (a bound mode has
+        no attenuation) and at those neither path resolved. ``None``
+        when the leaky branch contributed nothing, so a purely bound
+        curve still reports ``attenuation_per_meter is None``.
+
+    See Also
+    --------
+    ~fwap.cylindrical_solver._leaky._march_leaky_cased_branch :
+        The shared marcher, and the n=2 sister's entry point.
+    """
+    missing = ~np.isfinite(slowness)
+    if not layers or not missing.any():
+        return None
+    ceiling = min(vf, min(layer.vs for layer in layers))
+    if not ceiling > vs:
+        return None
+
+    from fwap.cylindrical_solver import _modal_determinant_n1_cased_complex
+    from fwap.cylindrical_solver._leaky import (
+        _detect_leaky_branches,
+        _march_leaky_cased_branch,
+    )
+
+    def _det(kz: complex, omega: float) -> complex:
+        _, leaky_p, leaky_s = _detect_leaky_branches(kz, omega, vp, vs, vf)
+        return _modal_determinant_n1_cased_complex(
+            kz,
+            omega,
+            vp=vp,
+            vs=vs,
+            rho=rho,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
+            layers=layers,
+            leaky_p=leaky_p,
+            leaky_s=leaky_s,
+        )
+
+    leaky_slowness, leaky_atten = _march_leaky_cased_branch(
+        _det,
+        f_arr,
+        vs=vs,
+        ceiling=ceiling,
+        exclude=tuple(layer.vs for layer in layers),
+    )
+    fill = missing & np.isfinite(leaky_slowness)
+    if not fill.any():
+        return None
+    slowness[fill] = leaky_slowness[fill]
+    attenuation = np.full(f_arr.size, np.nan, dtype=float)
+    attenuation[fill] = leaky_atten[fill]
+    return attenuation
 
 
 # =====================================================================

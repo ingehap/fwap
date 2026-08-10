@@ -435,6 +435,19 @@ document why.
   correcting this paper's citation across nine files fixed the authorship, title
   and venue and left the page range wrong — p. 246 is figure 9, with sixteen
   figures after it.
+- **A "correction" that was the defect.** Building A.9 turned up a docstring
+  claiming ``_k_or_hankel``'s leaky branch reduces to ``K_n`` in the bound
+  limit. It does not -- verified, factors of 2 to 3e3 -- so the obvious move was
+  to make it true. The replacement matched ``K_n`` exactly at a bound
+  ``alpha``, was a pure outgoing travelling wave at a radiating one, and passed
+  every existing test. It was also wrong: it broke the property callers actually
+  use, that the two returned Bessel orders belong to ONE solution at the SAME
+  ``alpha`` the caller uses elsewhere in the formula, and it destroyed
+  ``pseudo_rayleigh_dispersion``, whose fluid energy balance the original branch
+  satisfies to 1e-7. *A false statement in a docstring is evidence about the
+  docstring, not about the code. Before correcting an implementation to match
+  its description, find the invariant the implementation is actually holding --
+  and if the test suite does not state it, that absence is the finding.*
 - **A causal claim that did not survive its own test.** A.8 was recorded as
   "almost certainly also A.7's cause", on the reasonable argument that a
   propagator built from a non-solution has no reason to produce a clean
@@ -483,6 +496,55 @@ digitisation and no tolerance to argue about. That is what found A.8, and A.8
 turned out to be the larger of the two — it moved every `n >= 1` tie in the table
 above by an order of magnitude, and closed four defects that had been recorded as
 separate solver limitations.
+
+---
+
+## 10b. Dimensionless groups: the instrument this project has not used
+
+Everything above compares *dimensional* outputs against *dimensional* published
+curves. The determinant itself does not care: strip the units and it is a
+function of a handful of ratios --
+
+    ka = omega a / V_f                  frequency, in borehole radii per fluid wavelength
+    c / V_f, V_S / V_f, V_P / V_S       the velocity ratios
+    rho_f / rho, rho_layer / rho        the density ratios
+    h / a                               each layer's thickness, in radii
+    n                                   azimuthal order
+
+-- times an overall scale. Three things follow, and the third is the one that
+would have saved work here.
+
+**Regime boundaries become inequalities rather than fixtures.** The A.9 window
+is literally ``1 < c/V_S < min(V_f, V_S_layer)/V_S``, and whether it is
+non-empty is one inequality between two ratios. Stated that way, "the cased
+dipole mode leaves the bound regime when the annulus stiffens" stops being an
+observation about a steel fixture and becomes a surface. The A.9 gap was found
+exactly this way: tabulating ``c/V_S`` against ``V_S_layer/V_S`` showed the
+accepted root sitting at ``c/V_S = ceiling/V_S`` to four figures across a whole
+band of stiffnesses -- the window ceiling, not a mode -- which is invisible when
+the same numbers are read as m/s.
+
+**The scale is the problem, and it is separable.** The cased determinant spans
+about a hundred orders of magnitude across its window, which is what forced the
+``max_roots`` noise guard, the singular-value stand-in in the appendix work, and
+A.7's whole diagnosis. Most of that is the overall scale, not the physics: it is
+Bessel magnitudes at the reference radius and stress units in the rows.
+Equilibrating rows and columns before taking the determinant -- a
+non-dimensionalisation, done numerically -- is the standard remedy and has not
+been tried.
+
+**But it will not fix A.7, and the dimensionless form says why.** The
+propagator's catastrophic cancellation is governed by ``|s_layer| h``, the
+layer's thickness in radial wavelengths: the chain multiplies
+``exp(+s h)`` against ``exp(-s h)`` and the difference of two large numbers is
+lost. That group is already dimensionless, and no rescaling changes it --
+which is the argument for the delta-matrix reformulation being the only route,
+stated in one line instead of by experiment.
+
+The natural next step is to make the fixtures a grid in ``(V_S_layer/V_S, h/a,
+ka)`` rather than a list of named rocks, and report coverage as a surface. That
+turns "where does this solver work" from a collection of anecdotes into a
+measured property, and it is how the A.9 gap should be bounded properly.
 
 ---
 

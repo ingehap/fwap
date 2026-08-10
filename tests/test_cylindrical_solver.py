@@ -859,6 +859,77 @@ def test_k_or_hankel_leaky_branch_returns_finite_complex():
     assert np.isfinite(K1_h.imag)
 
 
+@pytest.mark.parametrize(
+    ("label", "alpha"),
+    [
+        ("bound", complex(18.0, 0.0)),
+        ("radiating", complex(0.0, 22.0)),
+        ("leaky", complex(2.68, 22.35)),
+    ],
+)
+@pytest.mark.parametrize("n", [0, 1, 2])
+def test_k_or_hankel_leaky_pair_are_consecutive_orders_of_one_solution(label, alpha, n):
+    """The contract callers actually depend on, and it was untested.
+
+    ``_k_or_hankel`` returns a pair, and every matrix builder forms a
+    radial derivative from it with
+    ``d/dx K_n(x) = -K_{n+1}(x) + (n/x) K_n(x)``. That identity holds
+    only if the two slots are consecutive orders of the SAME solution,
+    evaluated at the SAME ``alpha`` the caller uses elsewhere in the
+    formula. The leaky branch satisfies it to ~1e-10 at bound,
+    radiating and genuinely complex ``alpha`` alike.
+
+    The property is worth pinning because it is not implied by the
+    obvious ones. The docstring used to claim the leaky branch reduces
+    to ``K_n`` at real positive ``alpha``; it does not (they differ by
+    factors of 2 to 3e3, since it is ``K_n`` on the next sheet), and an
+    attempt to "restore" that by negating ``alpha`` in the leaky branch
+    passes every finiteness and asymptotic check while failing this one
+    with a residual of order 1.
+    """
+    from fwap.cylindrical_solver import _k_or_hankel
+
+    r, h = 0.12, 1.0e-6
+
+    def a_n(radius: float) -> complex:
+        return _k_or_hankel(n, alpha, radius, leaky=True)[0]
+
+    numeric = (a_n(r + h) - a_n(r - h)) / (2.0 * h)
+    value, value_next = _k_or_hankel(n, alpha, r, leaky=True)
+    x = alpha * r
+    analytic = alpha * (-value_next + (n / x) * value)
+    assert abs(numeric - analytic) / abs(analytic) < 1.0e-7, (
+        f"{label} alpha, n={n}: the returned pair is not two consecutive "
+        f"orders of one solution"
+    )
+
+
+def test_k_or_hankel_leaky_branch_is_outgoing_at_a_leaky_alpha():
+    """The radiation condition the leaky branch is there to impose.
+
+    With the ``e^{-i omega t}`` convention an outgoing wave is
+    ``e^{+i k_r r}``, so at a leaky ``alpha`` the field's unwrapped
+    phase must climb at ``+Im(alpha)`` rad/m. Plain ``K_n(alpha r)`` --
+    the bound branch, i.e. what a missing leaky flag would give -- runs
+    the other way.
+    """
+    from scipy import special
+
+    from fwap.cylindrical_solver import _k_or_hankel
+
+    alpha = complex(2.68, 22.35)
+    radii = np.linspace(0.15, 0.60, 400)
+
+    leaky = np.array([_k_or_hankel(1, alpha, float(r), leaky=True)[0] for r in radii])
+    bound = np.array([complex(special.kv(1, alpha * r)) for r in radii])
+
+    slope_leaky = np.polyfit(radii, np.unwrap(np.angle(leaky)), 1)[0]
+    slope_bound = np.polyfit(radii, np.unwrap(np.angle(bound)), 1)[0]
+
+    assert slope_leaky == pytest.approx(+alpha.imag, rel=0.05)
+    assert slope_bound == pytest.approx(-alpha.imag, rel=0.05)
+
+
 # ---------------------------------------------------------------------
 # Complex evaluator handles the leaky regime without exceptions
 # ---------------------------------------------------------------------
@@ -13008,9 +13079,16 @@ def test_quadrupole_dispersion_layered_N2_runs_smoke():
 
 def test_quadrupole_dispersion_layered_N2_returns_borehole_mode():
     """``BoreholeMode`` return-type contract on the multi-layer
-    quadrupole dispatch (G''.d). ``attenuation_per_meter is None``
-    confirms slow-formation bound-mode path (no leaky fast-formation
-    cased-hole quadrupole shipped here)."""
+    quadrupole dispatch (G''.d).
+
+    The cased fixture's screw mode is faster than its slow formation's
+    shear speed, so roadmap A.9's leaky branch answers here and the
+    result carries a real ``attenuation_per_meter``. This test used to
+    assert that field was ``None``; that held only while the cased
+    slow-formation path returned nothing at all. The bound-mode
+    ``None`` contract is checked on the invaded-zone fixture below,
+    where the mode really is bound.
+    """
     from fwap.cylindrical_solver import quadrupole_dispersion_layered
 
     g = _typical_g_pp_d_cased_geometry()
@@ -13028,7 +13106,26 @@ def test_quadrupole_dispersion_layered_N2_returns_borehole_mode():
     from fwap.cylindrical_solver import BoreholeMode
 
     assert isinstance(res, BoreholeMode)
-    assert res.attenuation_per_meter is None
+    # Leaky branch: finite, positive attenuation wherever it answered.
+    assert res.attenuation_per_meter is not None
+    found = np.isfinite(res.slowness)
+    assert found.any()
+    assert np.all(res.attenuation_per_meter[found] > 0.0)
+
+    # The bound path still reports no attenuation at all.
+    bound = _bound_invaded_geometry()
+    res_bound = quadrupole_dispersion_layered(
+        np.linspace(6000.0, 12000.0, 4),
+        vp=bound["vp"],
+        vs=bound["vs"],
+        rho=bound["rho"],
+        vf=bound["vf"],
+        rho_f=bound["rho_f"],
+        a=bound["a"],
+        layers=(bound["inner"], bound["outer"]),
+    )
+    assert np.isfinite(res_bound.slowness).all()
+    assert res_bound.attenuation_per_meter is None
 
 
 def test_quadrupole_dispersion_layered_N2_layer_permutation_changes_slowness():
@@ -13969,56 +14066,185 @@ def _a2_coverage(**kwargs) -> float:
     return float(np.isfinite(res.slowness).mean())
 
 
-def test_cased_slow_formation_dipole_is_leaky_not_bound():
-    """A slow formation behind steel casing has no BOUND dipole mode.
+def test_cased_slow_formation_dipole_is_leaky_and_the_leaky_branch_finds_it():
+    """A slow formation behind steel casing has a LEAKY dipole mode.
 
-    This test used to assert full coverage of the band, which was the
+    This test has been through three states, and the history is the
+    point. It began asserting full coverage of the band, which was the
     A.8 defect speaking: the azimuthal-only SV column produced a
-    spurious bound root that *rose* with frequency (199, 445, 755 m/s
-    at 6, 9, 12 kHz) -- backwards for a flexural mode, and far below
-    every wave speed in the problem.
+    spurious *bound* root that rose with frequency (199, 445, 755 m/s
+    at 6, 9, 12 kHz) -- backwards for a flexural mode, and below every
+    wave speed in the problem. Correcting the column removed it and
+    left the band empty, because a steel casing raises the composite
+    bending stiffness until the dipole mode outruns the formation shear
+    speed and radiates into it, and the real-valued determinant only
+    describes fields evanescent everywhere outside the fluid.
 
-    With the SV column corrected the real-valued determinant has no
-    sign change anywhere in the bound window, because the mode is not
-    bound: a steel casing raises the composite bending stiffness until
-    the dipole mode outruns the formation shear speed and radiates
-    into it. The mode is still there -- ``Im(det)`` of the complex
-    cased determinant with the leaky formation branch crosses zero at
-    830 m/s (3 kHz) and 877 m/s (6 kHz), just above ``V_S = 800`` --
-    but reaching it needs a leaky search, which
-    ``flexural_dispersion_layered`` only runs for fast formations.
-
-    The bound path is exercised instead by
-    :func:`_bound_invaded_geometry`, whose annulus is soft enough to
-    keep the mode below every shear speed in the stack; the
-    fast-formation cased stack is covered by the test below.
+    Roadmap A.9 added the search that does describe it: complex ``k_z``,
+    outgoing formation S branch, seeded from a real-axis scan of
+    ``Im(det)`` over ``(V_S, min(V_f, min layer V_S))``. The mode comes
+    back as a proper leaky branch -- descending phase velocity, positive
+    attenuation, both monotone -- and the attenuation is what says it is
+    leaky rather than bound.
     """
-    coverage = _a2_coverage(**_A2_SLOW, **_A2_BOREHOLE, layers=(_A2_CASING, _A2_CEMENT))
-    assert coverage == 0.0
+    freq = _A2_FREQ
+    res = flexural_dispersion_layered(
+        freq, **_A2_SLOW, **_A2_BOREHOLE, layers=(_A2_CASING, _A2_CEMENT)
+    )
+    found = np.isfinite(res.slowness)
+    assert found.mean() > 0.7, f"coverage {found.mean():.2f}"
 
-    # The mode is leaky, not absent: Im(det) of the complex cased
-    # determinant crosses zero just above the formation shear speed.
-    from fwap.cylindrical_solver._cased import _modal_determinant_n1_cased_complex
+    velocity = 1.0 / res.slowness[found]
+    attenuation = res.attenuation_per_meter[found]
 
+    # Every answer is above the formation shear speed -- that is what
+    # makes it leaky -- and below the annulus ceiling.
+    assert np.all(velocity > _A2_SLOW["vs"])
+    assert np.all(velocity < min(_A2_BOREHOLE["vf"], _A2_CEMENT.vs))
+    # A guided mode's phase velocity falls with frequency, and this one
+    # asymptotes to the formation shear speed from above.
+    assert _descends(velocity)
+    assert velocity[-1] / _A2_SLOW["vs"] < 1.02
+    # Leakage: positive, and weakening as the mode binds more tightly.
+    assert np.all(attenuation > 0.0)
+    assert _descends(attenuation)
+
+    # The real-valued determinant still has no root for it: this is a
+    # genuinely different formulation answering, not the old one
+    # recovering.
     omega = 2.0 * np.pi * 6000.0
-    v_grid = np.linspace(810.0, 1000.0, 200)
-    im_det = np.array(
+    grid = np.linspace(_A2_SLOW["vs"] * 1.001, _A2_SLOW["vs"] * 0.999 + 500.0, 400)
+    real_det = np.array(
         [
-            _modal_determinant_n1_cased_complex(
-                complex(omega / v, 0.0),
+            _modal_determinant_n1_cased(
+                omega / v,
                 omega,
                 **_A2_SLOW,
                 **_A2_BOREHOLE,
                 layers=(_A2_CASING, _A2_CEMENT),
-                leaky_p=True,
-                leaky_s=True,
-            ).imag
-            for v in v_grid
+            )
+            for v in grid
         ]
     )
-    crossings = np.where(np.diff(np.sign(im_det)) != 0)[0]
-    assert crossings.size == 1
-    assert 860.0 < v_grid[crossings[0]] < 890.0
+    finite = np.isfinite(real_det)
+    assert int((np.diff(np.sign(real_det[finite])) != 0).sum()) == 0
+
+
+def test_the_cased_leaky_branch_joins_the_bound_one_across_the_shear_speed():
+    """The oracle A.9 has instead of a published curve.
+
+    Schmitt & Cheng plot no cased-hole dispersion, so the leaky branch
+    cannot be tied to a figure. What it can be tied to is the bound
+    solver it takes over from: stiffen the annulus and the dipole mode
+    climbs toward the formation shear speed, crosses it, and continues.
+    On the bound side the ordinary layered path owns the answer; on the
+    leaky side the complex marcher does.
+
+    The sharp end of the test is the overlap. Where the mode is still
+    bound, the *complex* determinant -- the one the leaky search
+    refines, with its branch flags coming from
+    :func:`_detect_leaky_branches` -- has a root at exactly the phase
+    velocity the real-valued determinant's brentq found, with zero
+    imaginary part. That is an agreement between two formulations to
+    floating point, not a smoothness eyeball.
+
+    Note the marcher itself cannot be run there: it seeds from sign
+    changes of ``Im(det)``, and in the bound regime the determinant at
+    real ``k_z`` is real, so there is nothing to seed off. That is why
+    the production window floor is the formation shear speed and the
+    bound path keeps everything below it.
+    """
+    from fwap.cylindrical_solver import _modal_determinant_n1_cased_complex
+    from fwap.cylindrical_solver._leaky import (
+        _detect_leaky_branches,
+        _track_complex_root,
+    )
+
+    formation = dict(vp=2200.0, vs=800.0, rho=2200.0)
+    borehole = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+    freq = np.array([6000.0])
+    omega = 2.0 * np.pi * float(freq[0])
+
+    last_bound = None
+    for vs_layer in (830.0, 870.0, 950.0):
+        layers = (
+            BoreholeLayer(vp=2.2 * vs_layer, vs=vs_layer, rho=2000.0, thickness=0.04),
+        )
+        bound = flexural_dispersion_layered(
+            freq, **formation, **borehole, layers=layers
+        )
+        assert np.isfinite(bound.slowness[0])
+        assert bound.attenuation_per_meter is None, "still a bound mode"
+
+        def _det(kz, omega_step, layers=layers):
+            _, leaky_p, leaky_s = _detect_leaky_branches(
+                kz, omega_step, formation["vp"], formation["vs"], borehole["vf"]
+            )
+            return _modal_determinant_n1_cased_complex(
+                kz,
+                omega_step,
+                **formation,
+                **borehole,
+                layers=layers,
+                leaky_p=leaky_p,
+                leaky_s=leaky_s,
+            )
+
+        kz_root = _track_complex_root(
+            lambda kz: _det(kz, omega),
+            complex(bound.slowness[0] * omega * 1.001, 0.0),
+        )
+        assert kz_root is not None, f"layer Vs={vs_layer}"
+        assert kz_root.real / omega == pytest.approx(bound.slowness[0], rel=1.0e-9)
+        # Bound means no leakage, and the complex root says so itself.
+        assert abs(kz_root.imag) < 1.0e-9 * kz_root.real
+        last_bound = 1.0 / bound.slowness[0]
+
+    # The bound side climbs toward the shear speed as the annulus
+    # stiffens, and stops just under it.
+    assert last_bound is not None
+    assert 0.97 < last_bound / formation["vs"] < 1.0
+
+    # Past the crossing the bound path has nothing and the leaky one
+    # continues, from just above the shear speed -- no jump across the
+    # boundary.
+    first_leaky = None
+    for vs_layer in (1400.0, 1800.0, 3140.0):
+        layers = (
+            BoreholeLayer(vp=2.2 * vs_layer, vs=vs_layer, rho=2000.0, thickness=0.04),
+        )
+        res = flexural_dispersion_layered(freq, **formation, **borehole, layers=layers)
+        assert np.isfinite(res.slowness[0])
+        assert res.attenuation_per_meter is not None
+        velocity = 1.0 / res.slowness[0]
+        assert formation["vs"] < velocity < 1.15 * formation["vs"]
+        assert res.attenuation_per_meter[0] > 0.0
+        if first_leaky is None:
+            first_leaky = velocity
+    assert first_leaky is not None
+    assert first_leaky > last_bound
+
+
+def test_the_cased_leaky_branch_is_grid_independent():
+    """The answer at a frequency must not depend on the grid it came in.
+
+    The leaky marcher seeds itself from a scan and then continues, so a
+    different grid means a different seed frequency and a different
+    number of continuation steps. Grids of 9 to 65 points over the same
+    band agree at 8 kHz to 6e-13 m/s.
+    """
+    layers = (_A2_CASING, _A2_CEMENT)
+    values = []
+    for n_points in (9, 17, 33, 65):
+        grid = np.linspace(4000.0, 12000.0, n_points)
+        res = flexural_dispersion_layered(
+            grid, **_A2_SLOW, **_A2_BOREHOLE, layers=layers
+        )
+        index = int(np.argmin(np.abs(grid - 8000.0)))
+        assert np.isfinite(res.slowness[index])
+        values.append(1.0 / res.slowness[index])
+    spread = float(np.ptp(values))
+    assert spread / float(np.mean(values)) < 1.0e-12, f"spread {spread:.3e} m/s"
 
 
 def test_cased_flexural_fast_formation_covers_a_contiguous_middle_band():

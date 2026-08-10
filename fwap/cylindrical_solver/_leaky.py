@@ -769,6 +769,240 @@ def _march_complex_dispersion_validated(
 
 
 # ---------------------------------------------------------------------
+# A.9 -- slow-formation cased-hole leaky branch (n >= 1)
+# ---------------------------------------------------------------------
+#
+# Roadmap A.9. Behind a stiff annulus -- steel casing, or any layer
+# much faster in shear than the rock -- the n >= 1 borehole modes of a
+# SLOW formation are faster than that formation's shear speed. The
+# formation S branch is then radiating rather than evanescent, the mode
+# leaks energy into the rock, and the real-valued bound-regime
+# determinant has no root for it at all: it is not that the solver
+# misses the mode, it is that the mode is not in the space that
+# determinant describes.
+#
+# The window is bounded below by the formation shear speed (below it
+# the mode is bound and the ordinary layered path owns it) and above by
+# ``min(V_f, min layer V_S)``: past ``V_f`` the fluid column turns
+# oscillatory, which is the fast-formation regime with its own marcher,
+# and past a layer's shear speed that layer's radial wavenumber turns
+# over and the propagator conditioning degrades.
+#
+# Structurally this is the pseudo-Rayleigh problem one azimuthal order
+# up and with a layer stack in the way, so it reuses that machinery
+# wholesale: ``_detect_leaky_branches`` for the flags,
+# ``_track_complex_root`` for the refinement, and
+# ``_march_complex_dispersion_validated`` for the continuation. What is
+# new is the seeding. The pseudo-Rayleigh driver enumerates its roots
+# from a closed-form cutoff estimate; there is no such estimate here,
+# so the seed comes from a real-``k_z`` scan of ``Im(det)``, taking the
+# SLOWEST crossing as the fundamental and marching up in frequency --
+# the same selection rule roadmap A.2 established for the
+# fast-formation branch, for the same reason.
+#
+# Two artefacts have to be excluded by name, both already known from
+# A.2: the window edges, where a radial wavenumber vanishes, and each
+# layer's own shear speed, where the layer's radial wavenumber vanishes
+# and the determinant has a sign change that is not a mode.
+
+
+#: Real-axis scan resolution when seeding the leaky cased branch. The
+#: window is a few hundred m/s wide and carries up to about six
+#: crossings at the top of the band, so this is ~2 m/s resolution.
+_LEAKY_CASED_SCAN_POINTS = 192
+
+#: Fractional margin held off both ends of the scan window.
+_LEAKY_CASED_EDGE_EPS = 5.0e-4
+
+#: Relative tolerance for calling a candidate degenerate with one of
+#: the ``exclude`` velocities, and the width of the dead band held off
+#: the window ceiling.
+#:
+#: Larger than ``_FAST_FLEXURAL_DEGENERACY_TOL`` (1e-5) on purpose, and
+#: the reason is a dimensionless one. The ceiling of this window IS a
+#: layer shear speed whenever the softest layer is slower than the
+#: fluid, so the ``exclude`` velocity and the scan edge coincide. With a
+#: tolerance tighter than the edge margin, a root pinned at
+#: ``ceiling (1 - eps)`` -- the layer's vanishing radial wavenumber, not
+#: a mode -- slips between the two and is accepted. Measured on an
+#: annulus-stiffness sweep it captured the whole answer over
+#: ``1.31 <= V_S_layer / V_S <= 1.50``, returning ``c / V_S = ceiling /
+#: V_S`` to four figures. The tolerance must therefore exceed
+#: ``_LEAKY_CASED_EDGE_EPS``.
+_LEAKY_CASED_DEGENERACY_TOL = 2.0e-3
+
+#: A seed is only accepted if the determinant at the refined root is
+#: this much smaller than 0.2 % away from it. Guards against the
+#: complex tracker settling somewhere that is not a root.
+_LEAKY_CASED_SHARPNESS = 1.0e-6
+
+#: Consecutive rejected steps the marcher walks past before giving up.
+_LEAKY_CASED_MAX_INVALID = 2
+
+#: Slack on the monotone-descent rule, as a fraction of the previous
+#: step's phase velocity. The branch descends, so a candidate faster
+#: than the last one by more than this is a different branch.
+_LEAKY_CASED_STEP_UP = 5.0e-3
+
+
+def _march_leaky_cased_branch(
+    det_fn,
+    freq: np.ndarray,
+    *,
+    vs: float,
+    ceiling: float,
+    exclude: tuple[float, ...] = (),
+) -> tuple[np.ndarray, np.ndarray]:
+    r"""
+    Follow the fundamental leaky cased-hole branch of a slow formation.
+
+    Shared by the ``n = 1`` and ``n = 2`` layered drivers so the two
+    cannot drift apart, in the same way
+    :func:`~fwap.cylindrical_solver._n1_isotropic._march_fast_flexural_branch`
+    is shared by their bound siblings.
+
+    Parameters
+    ----------
+    det_fn : callable
+        ``det_fn(kz: complex, omega: float) -> complex``. The caller is
+        responsible for setting the formation's leaky flags, normally
+        from :func:`_detect_leaky_branches`, so the same callable is
+        valid on both sides of the shear-speed crossing.
+    freq : ndarray, shape (n,)
+        Frequencies in Hz, any order.
+    vs : float
+        Formation shear velocity (m/s); the window floor.
+    ceiling : float
+        Window ceiling (m/s), normally ``min(V_f, min layer V_S)``.
+    exclude : tuple of float, optional
+        Phase velocities at which the determinant is degenerate rather
+        than modal -- each layer's shear speed. See
+        :func:`~fwap.cylindrical_solver._n1_isotropic._march_fast_flexural_branch`
+        for why these have to be named.
+
+    Returns
+    -------
+    (ndarray, ndarray)
+        Phase slowness (s/m) from ``Re(k_z)`` and attenuation (1/m)
+        from ``Im(k_z)``, both aligned with ``freq`` and ``NaN`` where
+        the branch was not found.
+
+    Notes
+    -----
+    The returned ``k_z`` is genuinely complex: this mode radiates into
+    the formation, so unlike the fast-formation bound branch it has a
+    real attenuation rather than a numerically-zero one. ``Im(k_z)``
+    runs about 6 % of ``Re(k_z)`` where the branch first appears and
+    falls below 0.5 % at the top of the dipole band, so the leakage is
+    weak but not negligible.
+    """
+    f_arr = np.asarray(freq, dtype=float)
+    slowness = np.full(f_arr.size, np.nan, dtype=float)
+    attenuation = np.full(f_arr.size, np.nan, dtype=float)
+    if f_arr.size == 0 or not ceiling > vs:
+        return slowness, attenuation
+
+    lo = vs * (1.0 + _LEAKY_CASED_EDGE_EPS)
+    hi = ceiling * (1.0 - _LEAKY_CASED_EDGE_EPS)
+
+    def _degenerate(v: float) -> bool:
+        return any(
+            abs(v / e - 1.0) < _LEAKY_CASED_DEGENERACY_TOL for e in exclude if e > 0.0
+        )
+
+    def _valid(kz: complex, omega: float, ceiling_v: float) -> bool:
+        if not (np.isfinite(kz.real) and np.isfinite(kz.imag)):
+            return False
+        if kz.real <= 0.0 or kz.imag < 0.0:
+            # Im(k_z) < 0 is a wave growing along the borehole.
+            return False
+        v = omega / kz.real
+        # The dead band at the top keeps the window ceiling -- which is
+        # itself a branch point -- out of the accepted set.
+        if not (lo * 0.98 < v < hi * (1.0 - _LEAKY_CASED_DEGENERACY_TOL)):
+            return False
+        if v > ceiling_v:
+            return False
+        if _degenerate(v):
+            return False
+        try:
+            at = abs(det_fn(kz, omega))
+            off = abs(det_fn(kz * 1.002, omega))
+        except (ValueError, ArithmeticError, OverflowError):
+            return False
+        if not (np.isfinite(at) and np.isfinite(off)) or off == 0.0:
+            return False
+        return at < _LEAKY_CASED_SHARPNESS * off
+
+    def _refine(kz_guess: complex, omega: float, ceiling_v: float) -> complex | None:
+        root = _track_complex_root(lambda k: det_fn(k, omega), kz_guess)
+        if root is None or not _valid(root, omega, ceiling_v):
+            return None
+        return root
+
+    def _scan(omega: float, ceiling_v: float) -> complex | None:
+        """Refine the slowest real-axis ``Im(det)`` crossing in the window.
+
+        Walks from the slow end (largest ``k_z``) so the first crossing
+        accepted is the fundamental, which is the same selection rule
+        the fast-formation marcher uses and for the same reason.
+        """
+        grid = np.linspace(omega / hi, omega / lo, _LEAKY_CASED_SCAN_POINTS)
+        try:
+            vals = [det_fn(complex(k, 0.0), omega).imag for k in grid]
+        except (ValueError, ArithmeticError, OverflowError):
+            return None
+        for j in range(grid.size - 1, 0, -1):
+            a_val, b_val = vals[j], vals[j - 1]
+            if not (np.isfinite(a_val) and np.isfinite(b_val)):
+                continue
+            if a_val == 0.0 or np.sign(a_val) == np.sign(b_val):
+                continue
+            mid = complex(0.5 * (grid[j] + grid[j - 1]), 0.0)
+            root = _refine(mid, omega, ceiling_v)
+            if root is not None:
+                return root
+        return None
+
+    kz_prev: complex | None = None
+    omega_prev: float | None = None
+    misses = 0
+    for i in np.argsort(f_arr):
+        omega = 2.0 * np.pi * float(f_arr[i])
+        ceiling_v = (
+            np.inf
+            if (kz_prev is None or omega_prev is None)
+            else (omega_prev / kz_prev.real) * (1.0 + _LEAKY_CASED_STEP_UP)
+        )
+        root: complex | None = None
+        if kz_prev is not None and omega_prev is not None:
+            root = _refine(kz_prev * (omega / omega_prev), omega, ceiling_v)
+        if root is None:
+            root = _scan(omega, ceiling_v)
+
+        if root is None:
+            logger.debug(
+                "leaky cased marcher: no root at f=%.1f Hz in (%.1f, %.1f) m/s",
+                omega / (2.0 * np.pi),
+                lo,
+                hi,
+            )
+            if kz_prev is not None:
+                misses += 1
+                if misses > _LEAKY_CASED_MAX_INVALID:
+                    break
+            continue
+
+        misses = 0
+        slowness[i] = root.real / omega
+        attenuation[i] = root.imag
+        kz_prev = root
+        omega_prev = omega
+
+    return slowness, attenuation
+
+
+# ---------------------------------------------------------------------
 # L4 -- Public n=0 leaky API: pseudo-Rayleigh dispersion.
 # ---------------------------------------------------------------------
 #

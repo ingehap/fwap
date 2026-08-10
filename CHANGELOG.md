@@ -7,6 +7,59 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **Slow-formation cased holes get their `n >= 1` modes back, as leaky ones**
+  (roadmap A.9). Fixing A.8 removed a spurious bound root behind stiff annuli and
+  left `flexural_dispersion_layered` / `quadrupole_dispersion_layered` returning
+  all-`NaN` for slow formations behind casing. The mode was never bound there: a
+  steel casing raises the composite bending stiffness until the dipole outruns
+  the formation shear speed, so it radiates into the rock and the real-valued
+  determinant — which only describes fields evanescent everywhere outside the
+  fluid — has no root for it.
+
+  Both layered drivers now fall back to a complex-`k_z` search at exactly the
+  frequencies the bound path could not answer, over
+  `(V_S, min(V_f, min layer V_S))`, with the formation's leaky flags coming from
+  `_detect_leaky_branches` and the root refined by `_track_complex_root`. The
+  marcher (`_march_leaky_cased_branch`) is shared between `n = 1` and `n = 2` so
+  the two cannot drift, seeds from the slowest real-axis `Im(det)` crossing, and
+  enforces the same monotone-descent rule A.2 established. Results carry a real
+  `attenuation_per_meter`; a purely bound curve still reports `None`.
+
+  For the standard steel + cement stack on a slow sandstone the dipole branch
+  runs 989.5 → 810.4 m/s over 3.5–12 kHz with attenuation 2.51 → 0.35 /m, and the
+  screw branch 948.3 → 817.3 m/s over 6–15 kHz. Both descend monotonically toward
+  the formation shear speed from above, as a guided mode must, and
+  `Im(k_z)/Re(k_z)` falls from 11 % to 0.4 % across the band.
+
+  There is no published cased-hole dispersion curve in Schmitt & Cheng, so this is
+  validated against internal oracles rather than a figure: the complex determinant
+  reproduces the bound solver's root to 1e-9 relative with zero imaginary part
+  wherever the mode is still bound (two formulations, same answer); the branch is
+  continuous across the shear-speed crossing as the annulus stiffens; the
+  determinant vanishes at every returned root to 1e-12–1e-14 relative; and grids
+  of 9 to 65 points agree at 8 kHz to 6e-13 m/s. **A.7 does not block this** —
+  its noise is the fast-formation `n = 2` window, whereas this slow-formation
+  window carries one to six crossings, a mode spectrum rather than cancellation.
+
+  Also fixed, in the bound layered loop this sits next to: the bracket-expansion
+  step could walk past the mode into the determinant's far tail and return
+  physically impossible phase velocities (26.8 m/s at 16 kHz on the cased screw
+  fixture). Converged roots below the Scholte speed of the borehole fluid against
+  the softest solid in the stack are now rejected.
+
+- **The leaky Bessel branch's docstring described a different function**
+  (roadmap A.10). `_k_or_hankel(leaky=True)` claimed to reduce to `K_n` at a bound
+  `alpha`; it does not — expanding the Hankel form gives
+  `(pi/2) i^{n+1} H_n^{(2)}(i z) = (-1)^{n+1} K_n(z e^{i pi})`, the next sheet, so
+  the two differ by factors of 2 to 3e3 there. The *implementation* is correct and
+  unchanged: it returns two consecutive orders of one solution, which is the
+  property every caller depends on when it forms radial derivatives from the pair,
+  and it is outgoing at a leaky `alpha` (phase slope `+Im(alpha)`, against
+  `-Im(alpha)` for plain `K_n`). Neither property was tested; both are now, along
+  with a note that an attempt to "restore" the false claim by negating `alpha`
+  passes every finiteness and asymptotic check while breaking order consistency
+  with a residual of order 1.
+
 - **The SV column of every `n >= 1` cylindrical determinant is now a solution of
   the elastodynamic equations** (roadmap A.8). fwap represented the SV field as a
   vector potential with only an azimuthal component. The cylindrical vector
