@@ -134,7 +134,36 @@ the project uses [Semantic Versioning](https://semver.org/).
   all eight only across 3.5-5.0 kHz, which is also where they cross. No
   per-model curve was traced there and none is tabulated.
 
-  Seventeen tests now pin the item, not three, and every reference table carries
+  **Figure 15 then exonerates the layered code.** It is figure 12's slow
+  counterpart — same four models, same solver calls, table 1's slow sandstone
+  2751/1201/2100 and its invaded zone 2338/1081/2000 — and it separates two
+  explanations figure 12 alone could not. Its group curves are *dashed*, so they
+  fragment under connected-component labelling and leave the four solid phase
+  curves readable; calibration is the best of the six figures (16 x-ticks
+  residual to 0.019 kHz, 4 y-ticks to 0.00024).
+  Two anchors, both to 0.02 %: the virgin curves leave the axis at 1200.7
+  against `V_S` = 1201, the invaded-only curve at 1081.2 against 1081 — which
+  also confirms table 1's slow invaded-zone row.
+  Coverage / rms / median against the published curves: virgin *(open hole)*
+  91 % / 1.43 % / −1.34 %; **8 cm invaded *(layered)* 84 % / 1.47 % / −1.22 %**;
+  **16 cm invaded *(layered)* 92 % / 1.48 % / −1.49 %**; invaded only *(open
+  hole)* 67 % / 1.01 % / −0.07 %.
+  **The layered solver is as accurate as the open-hole one**, so figure 12's
+  31-53 % overshoot is the fast-formation bracket and not the layered
+  machinery — one fix repairs both paths, and rewriting the propagator is ruled
+  out.
+  It also narrows figure 8a's unexplained ~1.3 % slow-flexural offset: it is
+  present in all three `n=1` configurations at the same size and shape, open
+  hole and layered alike, while the Stoneley on the same rock was 0.04 %. So it
+  is `n=1`-specific and geometry-independent.
+  Two limits: the invaded-only curve could not be followed past about 4 kHz (a
+  dashed group segment crosses it) and is used only for its anchor; and the
+  near-cutoff gap is **not** the single width figure 8a suggested — 1.44 kHz
+  virgin, 2.44 with an 8 cm zone, 1.19 with a 16 cm zone, 0.92 for the invaded
+  rock alone. That claim covered two modes in one homogeneous rock and does not
+  extend to layered models; corrected at its site.
+
+  Twenty-two tests now pin the item, not three, and every reference table carries
   its own shear-speed anchor test.
 
 ### Validated

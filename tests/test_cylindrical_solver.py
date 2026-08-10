@@ -17807,3 +17807,181 @@ def test_the_layered_flexural_solver_sits_far_above_the_published_band():
 
     error = velocity[finite] / (0.5 * (lo + hi))[finite] - 1.0
     assert error.min() > 0.25, f"smallest overshoot {100 * error.min():.0f} %"
+
+
+# ----------------------------------------------------------------------
+# Figure 15: the same layered code in a slow formation, and it works
+#
+# Figure 12 put `flexural_dispersion_layered` against a *fast* rock and
+# it returned overtones 31-53 % high. Figure 15 (p. 255) is the slow
+# counterpart -- same four models, same solver, table 1's slow sandstone
+# 2751 / 1201 / 2100 and its invaded zone 2338 / 1081 / 2000 -- and it
+# separates two explanations that figure 12 alone could not.
+#
+# The panel reads cleanly: the group curves are *dashed*, so they
+# fragment under connected-component labelling and leave the four solid
+# phase curves behind. Axis calibration is the best of the six figures
+# (16 x-ticks residual to 0.019 kHz, 4 y-ticks to 0.00024 = 0.36 m/s),
+# and the 0.550-0.850 window makes the plotted line worth about
+# +-4 m/s.
+#
+# Two anchors, both to 0.02 %: the virgin curves leave the axis at
+# 1200.7 against V_S = 1201, and the invaded-only curve at 1081.2
+# against 1081.
+#
+# The result, over each curve's plotted band at 0.25 kHz:
+#
+#   model                        coverage   rms     median
+#   1 virgin only  (open hole)     91 %    1.43 %   -1.34 %
+#   2  8 cm invaded  (layered)     84 %    1.47 %   -1.22 %
+#   3 16 cm invaded  (layered)     92 %    1.48 %   -1.49 %
+#   4 invaded only (open hole)     67 %    1.01 %   -0.07 %
+#
+# **The layered solver is as accurate as the open-hole one.** So the
+# defect figure 12 found is the fast-formation bracket (A.2), not the
+# layered machinery -- one fix repairs the layered path too.
+#
+# It also narrows figure 8a's unexplained ~1.3 % slow-flexural offset.
+# It is here in all three `n=1` configurations at the same size and the
+# same shape (best near 3 kHz, worst about -2 % at 5-6 kHz, recovering
+# by 14 kHz), open hole and layered alike, while the Stoneley on the
+# same rock was 0.04 %. Not the layered code, not the bracket, not the
+# radius, not the reading: an `n=1`-specific, geometry-independent
+# offset.
+#
+# Two limits worth stating. The invaded-only curve could not be followed
+# past about 4 kHz -- a dashed group segment crosses it there -- so it
+# is tabulated only through its anchor. And the near-cutoff gap is *not*
+# the single width figure 8a suggested: 1.44 kHz (virgin), 2.44 (8 cm),
+# 1.19 (16 cm), 0.92 (invaded only). That claim covered two modes in one
+# homogeneous rock and does not extend to layered models.
+# ----------------------------------------------------------------------
+
+_FIG15_VIRGIN = dict(vp=2751.0, vs=1201.0, rho=2100.0)
+_FIG15_INVADED = dict(vp=2338.0, vs=1081.0, rho=2000.0)
+
+#: Flexural phase velocity (Hz, m/s) from figure 15a, above each curve's
+#: near-cutoff gap. About +-4 m/s.
+_FIG15A_PHASE = {
+    "virgin": (
+        (3.0e3, 1167.0),
+        (4.0e3, 1128.6),
+        (5.0e3, 1101.3),
+        (6.0e3, 1083.5),
+        (8.0e3, 1063.0),
+        (10.0e3, 1053.5),
+        (12.0e3, 1046.8),
+        (14.0e3, 1042.3),
+    ),
+    "invaded_8cm": (
+        (4.0e3, 1065.8),
+        (5.0e3, 1021.5),
+        (6.0e3, 992.5),
+        (8.0e3, 961.0),
+        (10.0e3, 946.2),
+        (12.0e3, 939.6),
+        (14.0e3, 935.2),
+    ),
+    "invaded_16cm": (
+        (3.0e3, 1080.6),
+        (4.0e3, 1018.0),
+        (5.0e3, 985.0),
+        (6.0e3, 970.1),
+        (8.0e3, 952.5),
+        (10.0e3, 946.2),
+        (12.0e3, 939.6),
+        (14.0e3, 935.2),
+    ),
+}
+
+#: Thickness of the invaded zone each figure-15a curve was computed for.
+_FIG15A_THICKNESS = {"virgin": None, "invaded_8cm": 0.08, "invaded_16cm": 0.16}
+
+
+def test_figure_15a_onsets_anchor_on_both_shear_speeds():
+    """Two closed-form anchors for the slow invaded-zone panel.
+
+    The three curves with virgin rock at depth leave the axis at the
+    virgin shear speed; the invaded-only curve leaves at the invaded
+    shear speed. Both land to 0.02 %, which also confirms table 1's
+    slow invaded-zone row (`2338 / 1081 / 2000`).
+    """
+    assert 1200.7 / _FIG15_VIRGIN["vs"] == pytest.approx(1.0, abs=0.005)
+    assert 1081.2 / _FIG15_INVADED["vs"] == pytest.approx(1.0, abs=0.005)
+    assert _FIG15_INVADED["vs"] < _FIG15_VIRGIN["vs"] < 1500.0, "both are slow"
+
+
+@pytest.mark.parametrize("model", sorted(_FIG15A_PHASE))
+def test_the_layered_solver_tracks_the_published_slow_curves(model):
+    """The result that exonerates the layered code.
+
+    On a slow formation `flexural_dispersion_layered` follows the
+    published invaded-zone curves to 1.5 % RMS -- indistinguishable from
+    what the open-hole solver manages on the same rock. Figure 12's
+    31-53 % overshoot is therefore the fast-formation bracket, not the
+    layered machinery, and the A.2 fix repairs both paths.
+    """
+    from fwap import BoreholeLayer, flexural_dispersion, flexural_dispersion_layered
+
+    table = _FIG15A_PHASE[model]
+    freq = np.array([f for f, _ in table])
+    reference = np.array([v for _, v in table])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    thickness = _FIG15A_THICKNESS[model]
+
+    if thickness is None:
+        got = flexural_dispersion(freq, **_FIG15_VIRGIN, **fluid, a=0.10)
+    else:
+        got = flexural_dispersion_layered(
+            freq,
+            **_FIG15_VIRGIN,
+            **fluid,
+            a=0.10,
+            layers=(BoreholeLayer(**_FIG15_INVADED, thickness=thickness),),
+        )
+    velocity = 1.0 / got.slowness
+
+    assert np.isfinite(velocity).all(), "the tables start above the near-cutoff gap"
+    error = velocity / reference - 1.0
+    assert np.sqrt((error**2).mean()) < 0.03, f"{model} rms {100 * error.std():.2f} %"
+    assert np.abs(error).max() < 0.04
+
+
+def test_the_layered_defect_is_the_fast_bracket_not_the_layer_code():
+    """State the separation as a test, because it is the conclusion.
+
+    The identical call is bracket-interior nonsense on the fast rock of
+    figure 12 and accurate on the slow rock of figure 15. Anything that
+    "fixes" the layered propagator without touching the bracket would
+    break the slow half while leaving the fast half wrong.
+    """
+    from fwap import BoreholeLayer, flexural_dispersion_layered
+    from fwap.cylindrical import rayleigh_speed
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+
+    def layered(rock, invaded, freq):
+        return (
+            1.0
+            / flexural_dispersion_layered(
+                freq,
+                **rock,
+                **fluid,
+                a=0.10,
+                layers=(BoreholeLayer(**invaded, thickness=0.16),),
+            ).slowness
+        )
+
+    slow_freq = np.array([f for f, _ in _FIG15A_PHASE["invaded_16cm"]])
+    slow_ref = np.array([v for _, v in _FIG15A_PHASE["invaded_16cm"]])
+    slow = layered(_FIG15_VIRGIN, _FIG15_INVADED, slow_freq)
+    assert np.abs(slow / slow_ref - 1.0).max() < 0.04, "slow: tracks the figure"
+
+    fast_freq = np.array([f for f, _, _ in _FIG12A_PHASE_BAND])
+    fast_ref = 0.5 * np.array([a + b for _, a, b in _FIG12A_PHASE_BAND])
+    fast = layered(_FIG12_VIRGIN, _FIG12_INVADED, fast_freq)
+    finite = np.isfinite(fast)
+    assert (fast[finite] / fast_ref[finite] - 1.0).min() > 0.25, "fast: far above it"
+    assert np.all(
+        fast[finite] > rayleigh_speed(*[_FIG12_VIRGIN[k] for k in ("vp", "vs")])
+    )
