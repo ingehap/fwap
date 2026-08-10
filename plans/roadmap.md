@@ -30,37 +30,48 @@ modes, quadrupole, layered / cased-hole and VTI; and a machine-learning layer
 that was not contemplated when the file was written now sits alongside the
 package.
 
-**The headline for this revision is that real data arrived, found a defect, and
-the defect is fixed.** For most of this project's life the binding constraint
-was that every quantitative claim was measured against the same forward model
-that generated its data. A real Schlumberger sonic log now sits in the registry,
-and scoring the package against the vendor's own picks split cleanly in two:
-shear to **0.12 %** median, and compressional on only 62 % of depths. That
-second number was mode confusion rather than imprecision, and closing it (F.1)
-took compressional to **95 %**. No synthetic could have found it, because the
-synthetics are produced by the forward model the picker is scored against.
+**The headline for this revision is that four items closed without anyone
+building what they asked for, because the claim blocking each one was wrong.**
+That is not a run of luck; it is a pattern this file now has enough instances of
+to name.
 
-The package can now do all of that through its own API: `read_dlis_waveforms`
-(F.3) reads the per-receiver waveforms and recovers the acquisition geometry
-from the file itself.
+* **F.2** asked for an openly redistributable full-waveform sonic gather, and
+  two docstrings recorded that none was known to exist. A **CC0** eight-receiver
+  Schlumberger DSI run had been in a public archive the whole time. It is now
+  registered as `iodp_u1347a_dsi`, read by `read_ldeo_waveforms`, and `stc`
+  returns **0.948** median peak coherence on it.
+* **F.5** asked for two facts "not resolvable from the files". Both were
+  resolvable — one from a run table inside the archive nobody had opened, the
+  other from first-break moveout on the waveforms themselves.
+* **A.1** justified five digitised figures as "the only checks that tie the
+  solver to literature rather than to itself", a sentence that had stopped being
+  true as the analytic oracles accumulated. Three figures were dropped, then one
+  restored on a second look.
+* **A.2** said "a fix means complex-plane root tracking". Measuring instead of
+  reading showed the larger half needs no complex machinery at all — and turned
+  up something nobody was looking for: in fast formations above ~15 kHz
+  `flexural_dispersion` returns a flexural **overtone** labelled as the mode.
+  Not a missing answer, a wrong one.
 
-**And a second real log has arrived, which changes the top of this table.** ODP
-Leg 157 Hole 952A — LDEO-BRG, SDT tool, logged 1994 — is in hand: 1123 depths
-of 4-receiver monopole waveforms, as a **1.55 MB** binary archive *and* a
-**10.96 MB** original DLIS. Both are small enough to be the CI fixture F.2 has
-been blocked on for its entire life, where the FORGE data failed only on size.
-It has already earned its keep by breaking an assumption: it declares **zero
-AXIS objects**, which forced the vendor-parameter fallback in
-`read_dlis_waveforms` and partly overturned the reasoning that shipped with it.
+The common shape: **a negative claim about the outside world, or about what a
+file contains, written down once as a fact and never re-tested.** Stated flatly
+in prose or in a docstring it forecloses the re-check that would overturn it.
+F.2 sat blocked for the project's entire life behind one such sentence.
 
-So the binding constraint has moved. It is no longer "no file exists" or "the
-file is too big" — it is licence and provenance work on a file already here.
+What has genuinely been *built* rather than re-measured, in the same span: a
+learned microannulus inverse at **2.5 %** held-out and its benchmark harness
+(G.2, G.6), a reader for the LDEO waveform format, and an analytic tie for the
+flexural mode at **1e-3**.
+
+Real data now bounds the processing chain. It does not bound `sonic_ml`, whose
+numbers are still measured against the forward model that generated their
+training data — one hole of one tool does not change that.
 
 | Open item | Why it matters |
 |-----------|----------------|
 | ~~**F.2 A waveform fixture CI can use**~~ | *Closed, with one thing it does not mean.* `iodp_u1347a_dsi` — an eight-receiver DSI monopole run, **CC0** on Zenodo — is registered, read by `read_ldeo_waveforms`, and exercised by `stc` at **0.948** median peak coherence. CI *can* use it but does not: the default run stays hermetic and skips it. The blocking claim ("no openly redistributable gather is known to exist") turned out to be false. Kept below. |
 | ~~**F.5 The ODP file's unknowns**~~ | *Closed.* Both answered, and the item was filed on a wrong premise — "not resolvable from the files" meant "nobody had opened the rest of the archive". The hole identity is settled by the archive's own run table (six runs matched by name and depth interval, six for six); the offsets are the LSS **8/10/10/12 ft** set, confirmed by first-break moveout to an intercept of −0.0 µs. Kept below. |
-| **A.2 Fast-formation leakage, `n=1` and `n=2`** | **Measured; it is two defects, and the worse one is a wrong answer rather than a missing one.** Above ~15 kHz `flexural_dispersion` returns a flexural *overtone* labelled as the mode — the search window is `(V_R, V_S)` and the fundamental has left it, because `V_R` is not this mode's limit; the Scholte speed is, 30 % lower. Widening the window roughly doubles coverage but needs a mode-identification rule, so it is pinned rather than fixed. The below-cutoff half is still the leaky problem and still needs complex-plane tracking. **Also was missing from this table for several revisions** while being discussed at length below and tracked in `roadmap_1.md`. A reader skimming here would have concluded it was closed. In a fast formation the flexural root leaves the real `k_z` axis; widening the real bracket provably cannot recover it. Affects the quadrupole identically, so one fix repairs two solvers, and it is why both Scholte ties are scoped to slow formations. Needs complex-plane root tracking. |
+| **A.2 Fast-formation leakage, `n=1` and `n=2`** | **Measured, and it is two defects.** *Wrong answers*: above ~15 kHz `flexural_dispersion` returns a flexural **overtone** labelled as the mode, because the search window is `(V_R, V_S)` and the fundamental has left it — `V_R` is not this mode's limit, the Scholte speed is, 30 % lower. Over 10-30 kHz the returned curve sawtooths: descends, `NaN`s, **jumps back up**. *Missing answers*: below the cutoff the root genuinely leaves the real axis. The first needs a mode-identification rule and **no complex machinery** — widening the window roughly doubles coverage; the second still needs complex-plane tracking. Pinned by three tests, not fixed: every naive selection rule tried fails. Affects `n=2` identically, so one fix repairs two solvers, and it is why both Scholte ties are scoped to slow formations. |
 | **A.1 Validation figures** | *Re-scoped from five figures to four* (three, then Schmitt 1988 fig 4 restored for its fast-formation curve — A.2 needs it and the new flexural tie does not cover it). Stoneley, flexural and quadrupole are now tied analytically at 1e-8 to 1e-3, against a 5 % overlay budget — so their figures were dropped as the weaker instrument. What still needs the books is the **pseudo-Rayleigh curve**, **cased Stoneley** and **VTI flexural**, which have no external tie of any kind. |
 | **F.4 Two unconfirmed checksums** | Also body-only until this revision, which is the same failure as A.2's. `forge_dsi_las` and `iodp_u1347a_dsi` both carry digests computed from copies that did not come down their canonical URLs, because those hosts were blocked from the sessions that added them. One successful fetch each clears it. It is the only place the fixture registry asserts something it has not verified. |
 | **A.5 residue: delta-matrix reformulation** | Optional and blocked on nothing, which is why it kept falling off the list. A delta-matrix / Abo-Zena form of the elastic stack would remove the cancellation the grid-stability filter exists to work around, and raise the crack-wave ceiling above the ~240 kHz where the propagators stop being representable. |
@@ -369,6 +380,16 @@ sign change below the cutoff in any of the three sub-windows (below the slowest
 layer shear, between that and the formation Rayleigh speed, or between that and
 the formation shear), and the middle window is in any case singular for the
 propagator-matrix formulation. A fix means complex-plane root tracking.
+
+> **Superseded in part — read the section above first.** The paragraph as
+> written is true only *below the cutoff*, and it was applied to the whole
+> item. Above the cutoff there is no leakiness involved: the search window is
+> anchored to `V_R`, which is not this mode's limit, and widening it to the
+> Scholte speed recovers a monotone branch running to within 3.6 % of Scholte.
+> "Widening the real bracket cannot recover it" is a statement about the
+> below-cutoff band, and it does not generalise. Nor does "a fix means
+> complex-plane root tracking": that is the fix for one of the two defects,
+> and not the one that returns wrong answers.
 
 *Correction.* An earlier version of this paragraph continued "which is the same
 machinery item G.2 needs, so the two should be planned together rather than as
