@@ -18444,3 +18444,135 @@ def test_the_phenomenological_model_is_not_the_modal_solver():
     assert error.max() < -0.05, "it is slow everywhere on this band"
     assert error.min() < -0.25, "and badly so near the cutoff"
     assert error[-1] > error[0], "the two converge as the mode approaches V_f"
+
+
+# ----------------------------------------------------------------------
+# Figure 6: the quadrupole gathers, and a cutoff that is 32 % too high
+#
+# "Quadrupole source, fast sandstone. Shot point obtained with a 1.5 kHz
+# (a) and a 6 kHz (b) source center frequency." Fourteen traces at
+# r = 2.40-5.00 m in 0.20 m steps, in the rock of figure 5a.
+#
+# **What this figure could not be used for, stated first.** The gather
+# does not survive digitisation well enough to measure a moveout. Each
+# trace is normalised to its own peak, the wavetrains overlap their
+# neighbours' bands, and the authors drew two dashed guide lines through
+# every trace. Reconstructing the 14 waveforms and running `fwap.stc`
+# over them gives coherence scattered between 0.4 and 0.88 with no
+# stable slowness peak, so no velocity is quoted from it. (For contrast,
+# `stc` on the real IODP U1347A gather returns 0.948 median coherence.)
+#
+# **What it does give is immune to all of that**: zero crossings survive
+# amplitude clipping, so the *frequency* of the ringing wavetrain is
+# solid. Twelve of the fourteen traces agree closely -- median
+# **7.19 kHz**, the consistent group spanning 7.00-7.38 -- for a source
+# whose centre frequency is **6.0 kHz**.
+#
+# The received ring sitting *above* the source frequency is the
+# signature of a mode with a cutoff: source energy below cutoff cannot
+# propagate in the mode, so the wavetrain is pushed up to where the
+# excitation switches on. Figure 5a puts the screw cutoff at 6.29 kHz
+# and figure 5c's excitation is zero below about 6.3 kHz, peaking near
+# 9 -- a 6 kHz source folded against that lands at about 7.2. It also
+# explains panel (a): at 1.5 kHz, far below cutoff, there is no ring at
+# all, only a short wavelet.
+#
+# **And the finding.** `quadrupole_dispersion`'s first root for this
+# rock is at **8.29 kHz** -- 32 % above the published 6.29 kHz cutoff --
+# and it returns NaN at every single-frequency call from 6.5 to 8.4 kHz.
+# So the solver returns nothing at the frequency where the paper's own
+# synthetic waveforms show the screw mode ringing hardest. The `n=2`
+# defect is not only that the values above cutoff are overtones: the
+# onset of the mode is misplaced, and a 2 kHz band where the mode
+# demonstrably exists and is strongly excited is empty.
+# ----------------------------------------------------------------------
+
+#: Dominant frequency of the ringing wavetrain in figure 6(b) (kHz),
+#: from the twelve traces whose spectra agree. Source centre frequency
+#: 6.0 kHz.
+_FIG6B_RING_KHZ = 7.19
+_FIG6B_RING_RANGE_KHZ = (7.00, 7.38)
+_FIG6_SOURCE_KHZ = (1.5, 6.0)
+
+#: Screw-mode cutoff read off figure 5a (kHz).
+_FIG5A_SCREW_CUTOFF_KHZ = 6.29
+
+
+def test_the_figure_6_ring_sits_above_the_cutoff_and_the_source():
+    """What the ringing frequency identifies.
+
+    A guided mode cannot carry energy below its cutoff, so a source
+    centred under the cutoff is received *above* it. Figure 6(b) puts
+    the ring at 7.19 kHz for a 6.0 kHz source and a 6.29 kHz cutoff --
+    above both, and inside the band where figure 5c says the excitation
+    has switched on.
+    """
+    lo, hi = _FIG6B_RING_RANGE_KHZ
+    assert lo <= _FIG6B_RING_KHZ <= hi
+    assert _FIG6B_RING_KHZ > _FIG6_SOURCE_KHZ[1], "pushed above the source"
+    assert _FIG6B_RING_KHZ > _FIG5A_SCREW_CUTOFF_KHZ, "and above the cutoff"
+    # figure 5a's own curve must start at or below the observed ring
+    assert _FIG5A_SCREW_CUTOFF_KHZ < _FIG5A_SCREW_PHASE[0][0] / 1e3 + 0.3
+
+
+def test_the_quadrupole_cutoff_is_far_above_the_published_one():
+    """The figure-6 finding: the mode's onset is misplaced, not just its
+    values.
+
+    `quadrupole_dispersion` finds no root for this rock below about
+    8.3 kHz, against a published cutoff of 6.29 kHz -- 32 % high -- and
+    returns NaN at every frequency across the band where figure 6(b)
+    shows the screw mode ringing hardest.
+    """
+    from fwap import quadrupole_dispersion
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    grid = np.arange(4.0e3, 12.0e3, 10.0)
+    velocity = 1.0 / quadrupole_dispersion(grid, **_FIG2_ROCK, **fluid, a=0.10).slowness
+    finite = np.isfinite(velocity)
+    assert finite.any(), "the solver must find the mode somewhere"
+
+    first = grid[finite][0] / 1e3
+    assert first > 1.2 * _FIG5A_SCREW_CUTOFF_KHZ, f"first root {first:.2f} kHz"
+    assert first > _FIG6B_RING_KHZ, "and above the frequency the waveforms ring at"
+
+    # Nothing at all across the observed ring band.
+    band = np.arange(6.5e3, 8.2e3, 100.0)
+    got = 1.0 / quadrupole_dispersion(band, **_FIG2_ROCK, **fluid, a=0.10).slowness
+    assert not np.isfinite(got).any(), "the ring band comes back empty"
+
+
+def test_quadrupole_dispersion_is_not_reproducible_across_equal_grids():
+    """The sharpest caveat in this file, and it applies to every coverage
+    number in it -- including the ones measured here.
+
+    `np.arange(6.0, 20.01, 0.2) * 1e3` and
+    `np.arange(6.0e3, 20.01e3, 200.0)` are the same 71 frequencies to
+    within **1.5e-11 Hz** -- last-bit floating-point rounding, a relative
+    difference of 8e-16. Handed to `quadrupole_dispersion` they return
+    **different coverage**, and disagree about whether individual
+    frequencies converge at all.
+
+    The cause is the continuation marcher: it walks from high to low
+    frequency, so missing a root at one step changes everything
+    downstream. The consequence is that coverage is a property of how
+    the caller happened to build the array, not only of the rock and the
+    band, and two callers writing the same sweep two ways get different
+    NaNs.
+    """
+    from fwap import quadrupole_dispersion
+
+    a = np.arange(6.0, 20.01, 0.2) * 1e3
+    b = np.arange(6.0e3, 20.01e3, 200.0)
+    assert a.size == b.size
+    assert not np.array_equal(a, b), "the grids must differ, if only in the last bit"
+    assert np.abs(a - b).max() < 1.0e-9, "and only in the last bit"
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    va = 1.0 / quadrupole_dispersion(a, **_FIG2_ROCK, **fluid, a=0.10).slowness
+    vb = 1.0 / quadrupole_dispersion(b, **_FIG2_ROCK, **fluid, a=0.10).slowness
+
+    assert np.isfinite(va).sum() != np.isfinite(vb).sum(), (
+        "if this ever passes, the marcher has been made grid-stable -- good news, "
+        "and the coverage numbers in this file can then be trusted as rock properties"
+    )

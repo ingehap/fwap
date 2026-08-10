@@ -134,6 +134,34 @@ the project uses [Semantic Versioning](https://semver.org/).
   all eight only across 3.5-5.0 kHz, which is also where they cross. No
   per-model curve was traced there and none is tabulated.
 
+  **Figure 6 shows the `n=2` cutoff itself is 32 % too high, and that coverage
+  is not reproducible.** It plots quadrupole shot gathers at 1.5 kHz and 6 kHz
+  source centre frequencies, 14 traces at r = 2.40-5.00 m.
+  The gather does not survive digitisation well enough to measure a moveout —
+  self-normalised traces, overlapping bands, two dashed guide lines drawn
+  through every trace; `fwap.stc` over the reconstruction gives 0.4-0.88
+  coherence with no stable peak, so **no velocity is quoted from it**.
+  What is solid is the ringing *frequency*, since zero crossings survive
+  amplitude clipping: median **7.19 kHz** (7.00-7.38 across twelve traces) for a
+  **6.0 kHz** source. A received ring above the source frequency is the
+  signature of a mode with a cutoff, and it matches figure 5a's 6.29 kHz cutoff
+  with figure 5c's excitation switching on at ~6.3 kHz.
+  **`quadrupole_dispersion`'s first root for this rock is at 8.29 kHz** — 32 %
+  above the published cutoff — and it returns `NaN` at every single-frequency
+  call from 6.5 to 8.4 kHz. The solver is empty at the frequency where the
+  paper's own waveforms ring hardest, so the `n=2` defect includes a misplaced
+  onset, not just overtones above it.
+  **And a reproducibility problem qualifying every coverage number in this
+  entry.** `np.arange(6.0, 20.01, 0.2) * 1e3` and
+  `np.arange(6.0e3, 20.01e3, 200.0)` are the same 71 frequencies to within
+  1.5e-11 Hz (relative 8e-16), and give **47 and 42 converged points**
+  respectively, disagreeing at four of five probe frequencies. The continuation
+  marcher walks high to low, so a missed root at one step changes everything
+  downstream. Coverage is therefore a property of how the caller built the
+  array, not only of the rock and band. Every coverage figure here was measured
+  on a stated grid and is reproducible on it; a test pins the instability and is
+  phrased to start failing if the marcher is ever made grid-stable.
+
   **Figure 1a supplies the pseudo-Rayleigh tie A.1 said did not exist.** It
   plots the Stoneley and the first two pseudo-Rayleigh modes for the fast
   sandstone — three modes, three fwap entry points:
@@ -232,7 +260,7 @@ the project uses [Semantic Versioning](https://semver.org/).
   rock alone. That claim covered two modes in one homogeneous rock and does not
   extend to layered models; corrected at its site.
 
-  Thirty-three tests now pin the item, not three, and every reference table carries
+  Thirty-six tests now pin the item, not three, and every reference table carries
   its own shear-speed anchor test.
 
 ### Validated
