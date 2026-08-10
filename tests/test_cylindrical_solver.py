@@ -17985,3 +17985,137 @@ def test_the_layered_defect_is_the_fast_bracket_not_the_layer_code():
     assert np.all(
         fast[finite] > rayleigh_speed(*[_FIG12_VIRGIN[k] for k in ("vp", "vs")])
     )
+
+
+# ----------------------------------------------------------------------
+# Figure 3: the same defect in the time domain, and a cross-figure check
+#
+# Figure 3 (p. 240) is not a dispersion plot: "Dipole source, fast
+# sandstone. Source center frequency effects. The offset is equal to
+# 5 m. The source center frequency varies from .5 kHz to 10.5 kHz by
+# steps of .5 kHz from the top to the bottom." Twenty-one synthetic
+# waveforms in the rock of figure 2a.
+#
+# Digitised by locating the 21 baselines (155.5 px apart, uniform) and
+# timing each trace's largest late excursion. The time axis is fitted to
+# the seven label decimal points: 303.4 px per ms, residual +-0.010 ms,
+# and any constant offset between a decimal point and its tick is
+# bounded at about 10 px = 0.03 ms.
+#
+# **What the traces show.** Every trace from 3.0 kHz up carries a large
+# late packet at 4.35 +- 0.07 ms. Its arrival drifts by only -4.4 %
+# while the source centre frequency changes by 250 % (3.0 -> 10.5 kHz),
+# which is the signature of an **Airy phase** -- energy piling up at the
+# stationary point of the group-velocity curve, whose arrival is set by
+# the medium and not by the source.
+#
+# That converts to an apparent group velocity of **1150 m/s** (range
+# 1124-1181), against the **1109.7 m/s** minimum of the group curve
+# digitised from figure 2a at 5.24 kHz. Agreement to **+3.7 %**, with
+# the measurement slightly fast -- expected, since the largest half
+# cycle of an attenuating Airy packet precedes the envelope centre.
+#
+# So two figures of the same paper, one in frequency and one in time,
+# agree on the group-velocity minimum to under 4 %. Nothing in fwap can
+# produce either.
+#
+# **And the defect restated as a traveltime.** Over 3.0-10.5 kHz
+# `flexural_dispersion` answers at 3 of 16 frequencies, at 2414-2597
+# m/s. A packet at that speed covers 5 m in 1.92-2.07 ms. The published
+# waveforms put the dipole energy at 4.35 ms -- so fwap's fast-formation
+# answer implies a wave arriving **2.2x too early**.
+#
+# Not used: the printed scaling factors down the left edge, which would
+# give the excitation curve. At this scan quality the glyphs are not
+# reliably legible ("0.0014" and "0.0019" cannot be told apart), and a
+# misread would put a false number in the repository.
+# ----------------------------------------------------------------------
+
+#: Airy-phase arrival at 5 m (source centre frequency kHz, ms), read
+#: from figure 3. About +-0.03 ms absolute, +-0.01 ms relative.
+_FIG3_AIRY_ARRIVAL_MS = (
+    (3.0, 4.449),
+    (3.5, 4.400),
+    (4.0, 4.370),
+    (4.5, 4.449),
+    (5.0, 4.430),
+    (5.5, 4.410),
+    (6.0, 4.311),
+    (6.5, 4.390),
+    (7.0, 4.291),
+    (7.5, 4.281),
+    (8.0, 4.360),
+    (8.5, 4.351),
+    (9.0, 4.341),
+    (9.5, 4.252),
+    (10.0, 4.242),
+    (10.5, 4.232),
+)
+
+#: Minimum of the flexural group-velocity curve of figure 2a (m/s, kHz).
+_FIG2A_GROUP_MINIMUM = (1109.7, 5.24)
+
+#: Source-receiver offset of figure 3 (m).
+_FIG3_OFFSET_M = 5.0
+
+
+def test_figure_3_late_packet_is_an_airy_phase():
+    """Establish what the late arrival is before using it.
+
+    An Airy phase sits at a stationary point of the group-velocity
+    curve, so its arrival is a property of the formation rather than of
+    the source. Across a 3.5x change in source centre frequency the
+    measured arrival moves by under 5 %, which is what identifies it --
+    and what licenses reading a single group velocity off it.
+    """
+    fc = np.array([f for f, _ in _FIG3_AIRY_ARRIVAL_MS])
+    arrival = np.array([t for _, t in _FIG3_AIRY_ARRIVAL_MS])
+
+    assert fc.min() == 3.0 and fc.max() == 10.5
+    assert arrival.max() / arrival.min() - 1.0 < 0.06, "an Airy phase barely moves"
+    slope = np.polyfit(fc, arrival, 1)[0]
+    assert abs(slope) * (fc.max() - fc.min()) / arrival.mean() < 0.06
+
+
+def test_figure_3_confirms_figure_2a_group_minimum_in_the_time_domain():
+    """Two figures, two domains, one number.
+
+    The Airy arrival implies a group velocity that must match the
+    minimum of figure 2a's group curve -- a frequency-domain reading of
+    a different figure on a different page. They agree to under 4 %.
+
+    Asserted loosely on purpose: a scan measured to about 1 % against a
+    traced curve good to about 2 %, so 5 % is the honest tolerance and a
+    real disagreement would be far larger.
+    """
+    arrival = np.array([t for _, t in _FIG3_AIRY_ARRIVAL_MS])
+    measured = _FIG3_OFFSET_M * 1.0e3 / arrival.mean()
+    predicted, freq = _FIG2A_GROUP_MINIMUM
+
+    assert measured / predicted == pytest.approx(1.0, abs=0.05)
+    assert measured > predicted, "the largest half cycle precedes the envelope"
+    assert 3.0 < freq < 10.5, "the stationary point is inside the band figure 3 spans"
+
+
+def test_the_fast_flexural_answer_implies_a_wave_arriving_twice_too_early():
+    """A.2 restated as a traveltime, which is how a user would meet it.
+
+    Over the band figure 3 covers, `flexural_dispersion` answers at a
+    handful of frequencies with 2414-2597 m/s. Propagated over the
+    figure's own 5 m offset that is 1.9-2.1 ms, against 4.35 ms of
+    published waveform -- the returned mode would arrive before half the
+    true traveltime had elapsed.
+    """
+    from fwap import flexural_dispersion
+
+    freq = np.array([f for f, _ in _FIG3_AIRY_ARRIVAL_MS]) * 1.0e3
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    velocity = 1.0 / flexural_dispersion(freq, **_FIG2_ROCK, **fluid, a=0.10).slowness
+    finite = np.isfinite(velocity)
+    assert finite.any(), "if coverage vanished entirely, retune the grid"
+
+    implied_ms = _FIG3_OFFSET_M * 1.0e3 / velocity[finite]
+    observed = np.array([t for _, t in _FIG3_AIRY_ARRIVAL_MS]).mean()
+    assert implied_ms.max() < 0.5 * observed, (
+        f"implied {implied_ms.max():.2f} ms vs observed {observed:.2f} ms"
+    )

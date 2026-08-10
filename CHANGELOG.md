@@ -134,6 +134,26 @@ the project uses [Semantic Versioning](https://semver.org/).
   all eight only across 3.5-5.0 kHz, which is also where they cross. No
   per-model curve was traced there and none is tabulated.
 
+  **Figure 3 restates the defect as a traveltime, and cross-checks two
+  figures against each other.** It plots 21 synthetic dipole waveforms at a 5 m
+  offset in the rock of figure 2a, source centre frequency 0.5 to 10.5 kHz.
+  Digitised from the 21 baselines (155.5 px apart, uniform) with the time axis
+  fitted to the seven label decimal points — 303.4 px per ms, residual
+  ±0.010 ms.
+  Every trace from 3.0 kHz up carries a large late packet at **4.35 ± 0.07 ms**
+  whose arrival drifts by only −4.4 % while the source centre frequency changes
+  by 250 %. That is an **Airy phase**, pinned to the stationary point of the
+  group-velocity curve, and it implies an apparent group velocity of
+  **1150 m/s** against the **1109.7 m/s** minimum of the group curve digitised
+  from figure 2a — **agreement to +3.7 %** between a time-domain and a
+  frequency-domain reading of two different figures.
+  Over the same band `flexural_dispersion` answers at 3 of 16 frequencies, at
+  2414-2597 m/s, which over the figure's own 5 m offset is 1.92-2.07 ms against
+  4.35 ms of published waveform: **2.2× too early**.
+  Not used: the printed scaling factors, which would give the excitation curve.
+  At this scan quality the glyphs are not reliably legible ("0.0014" and
+  "0.0019" cannot be told apart).
+
   **Figure 15 then exonerates the layered code.** It is figure 12's slow
   counterpart — same four models, same solver calls, table 1's slow sandstone
   2751/1201/2100 and its invaded zone 2338/1081/2000 — and it separates two
@@ -163,7 +183,7 @@ the project uses [Semantic Versioning](https://semver.org/).
   rock alone. That claim covered two modes in one homogeneous rock and does not
   extend to layered models; corrected at its site.
 
-  Twenty-two tests now pin the item, not three, and every reference table carries
+  Twenty-five tests now pin the item, not three, and every reference table carries
   its own shear-speed anchor test.
 
 ### Validated
