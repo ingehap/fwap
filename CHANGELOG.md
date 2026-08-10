@@ -134,6 +134,22 @@ the project uses [Semantic Versioning](https://semver.org/).
   all eight only across 3.5-5.0 kHz, which is also where they cross. No
   per-model curve was traced there and none is tabulated.
 
+  **Figure 11 finds the screw mode where the solver is silent — and one gap the
+  solver is right to have.** The slow-formation quadrupole gather at a 6 kHz
+  source rings at **4.68 kHz**, above the 3.74 kHz published cutoff: envelope
+  moveout 1166 m/s at r^2 = 0.982, `fwap.stc` phase **1139.6 m/s** against
+  figure 8a's traced screw curve at 1179 (**−3.3 %**) — while
+  `quadrupole_dispersion` returns `NaN`, its first root for this rock being
+  5.25 kHz.
+  At a 1 kHz source the packet sits at 1.83 kHz, below any trapped screw mode;
+  figure 8a draws no curve there either, so the solver's silence is **correct**
+  and the arrival is a leaky or head-wave contribution.
+  **This also reframes the figure-6 result.** The near-cutoff gap is
+  1.48 / 1.51 / 2.00 kHz for flexural-slow, screw-slow and screw-fast — a
+  **1.5-2.0 kHz absolute onset delay** across two modes and two formations. As
+  percentages the same offsets read 142 %, 40 % and 32 %, which describes the
+  cutoff frequencies rather than the solver. Corrected at the figure-6 site.
+
   **Figure 10 closes the processing chain on published waveforms.** The
   slow-formation dipole shot gather (14 traces, r = 2.40-5.00 m) digitises
   cleanly — an envelope-peak moveout fit has r^2 = 0.995 — and yields two
@@ -291,7 +307,7 @@ the project uses [Semantic Versioning](https://semver.org/).
   rock alone. That claim covered two modes in one homogeneous rock and does not
   extend to layered models; corrected at its site.
 
-  Forty-three tests now pin the item, not three, and every reference table carries
+  Forty-six tests now pin the item, not three, and every reference table carries
   its own shear-speed anchor test.
 
 ### Validated

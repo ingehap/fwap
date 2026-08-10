@@ -18845,3 +18845,130 @@ def test_the_near_cutoff_gap_is_a_solver_limitation_not_an_absence():
     assert ok.any()
     assert grid[ok][0] / 1e3 > 2.0, "and stays silent well above the packet"
     assert coherence > 0.9 and phase > 1000.0, "while the waveforms show the mode"
+
+
+# ----------------------------------------------------------------------
+# Figure 11: the screw mode where fwap is silent, and one case where
+# silence is right
+#
+# "Quadrupole source, slow sandstone. Shot point obtained with a 1 kHz
+# (a) and a 6 kHz (b) source center frequency." Fourteen traces at
+# r = 2.40-5.00 m, in the rock of figure 8a.
+#
+# **Panel (b) is the finding.** A 6 kHz source produces a ringing
+# wavetrain whose energy sits at 4.68 kHz -- above the 3.74 kHz screw
+# cutoff figure 8a gives, below the source. Envelope moveout is
+# 1166 m/s with r^2 = 0.982, and `fwap.stc` puts the phase velocity at
+# 1139.6 m/s against figure 8a's traced screw curve at 1179 -- **-3.3 %**.
+# `quadrupole_dispersion` returns **NaN** there, because its first root
+# for this rock is at 5.25 kHz. The mode demonstrably propagates,
+# coherently, at a velocity the published curve predicts, in a band the
+# solver reports as empty.
+#
+# **Panel (a) is the balancing case, and it matters.** At a 1 kHz source
+# the packet sits at 1.83 kHz, and `quadrupole_dispersion` is silent
+# there too -- but so is the paper: figure 8a draws no screw curve below
+# 3.74 kHz. There is no trapped mode at 1.83 kHz, so the arrival is a
+# leaky or head-wave contribution a modal solver is not meant to
+# produce, and the NaN is **correct**. Not every gap is a defect, and
+# this file should not leave the impression that it is.
+#
+# **The unification.** Figure 6 reported the fast screw cutoff as "32 %
+# too high" and figure 8a reported a "1.5 kHz near-cutoff gap". Those
+# are the same phenomenon, and the percentage was the misleading way to
+# quote it:
+#
+#   case             published   fwap    gap
+#   flexural, slow    1.04 kHz   2.52   1.48 kHz  (+142 %)
+#   screw,    slow    3.74       5.25   1.51      ( +40 %)
+#   screw,    fast    6.29       8.29   2.00      ( +32 %)
+#
+# The onset is late by **1.5-2.0 kHz in absolute terms** across two
+# modes and two formations. The percentages differ only because the
+# cutoffs differ.
+# ----------------------------------------------------------------------
+
+#: Figure 11 read as (source kHz, packet dominant kHz, group m/s from
+#: envelope moveout, phase m/s from `fwap.stc`, moveout r^2).
+_FIG11_PANELS = ((1.0, 1.83, 1580.4, 1286.2, 0.878), (6.0, 4.68, 1166.5, 1139.6, 0.982))
+
+#: Figure 8a's traced screw phase velocity at figure 11(b)'s dominant
+#: frequency (kHz, m/s).
+_FIG8A_SCREW_AT_4P68 = (4.68, 1179.0)
+
+#: Published onset and fwap's first root for three homogeneous cases
+#: (label, published kHz, fwap kHz).
+_NEAR_CUTOFF_GAPS = (
+    ("flexural slow", 1.04, 2.52),
+    ("screw slow", 3.74, 5.25),
+    ("screw fast", 6.29, 8.29),
+)
+
+
+def test_figure_11b_shows_the_screw_mode_where_the_solver_is_silent():
+    """The mode propagates at 4.68 kHz; `quadrupole_dispersion` has no
+    root there.
+
+    Envelope moveout r^2 = 0.982 and `stc` lands within 3.3 % of figure
+    8a's traced screw curve, so this is the screw mode and not something
+    else. The solver's first root for this rock is at 5.25 kHz.
+    """
+    from fwap import quadrupole_dispersion
+
+    source, dominant, group, phase, r2 = _FIG11_PANELS[1]
+    freq, published = _FIG8A_SCREW_AT_4P68
+    assert dominant == pytest.approx(freq, abs=0.01)
+    assert r2 > 0.95, "the moveout is a clean straight line"
+    assert phase / published == pytest.approx(1.0, abs=0.05)
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    v = (
+        1.0
+        / quadrupole_dispersion(
+            np.array([dominant * 1e3]), **_FIG15_VIRGIN, **fluid, a=0.10
+        ).slowness[0]
+    )
+    assert not np.isfinite(v), "and the solver returns nothing at that frequency"
+
+
+def test_figure_11a_is_a_gap_the_solver_is_right_to_have():
+    """Not every NaN is a defect.
+
+    At a 1 kHz source the packet sits at 1.83 kHz, below the 3.74 kHz
+    screw cutoff. `quadrupole_dispersion` is silent -- and so is the
+    paper, which draws no screw curve there. The arrival is a leaky or
+    head-wave contribution a modal solver is not meant to produce.
+    """
+    from fwap import quadrupole_dispersion
+
+    _, dominant, group, phase, r2 = _FIG11_PANELS[0]
+    published_cutoff = _NEAR_CUTOFF_GAPS[1][1]
+    assert dominant < published_cutoff, "below any trapped screw mode"
+    assert r2 < 0.95, "and the moveout is correspondingly less clean"
+    assert group > _FIG15_VIRGIN["vs"], "faster than the shear speed, so not the mode"
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    v = (
+        1.0
+        / quadrupole_dispersion(
+            np.array([dominant * 1e3]), **_FIG15_VIRGIN, **fluid, a=0.10
+        ).slowness[0]
+    )
+    assert not np.isfinite(v), "silence here is the right answer"
+
+
+def test_the_near_cutoff_gap_is_an_absolute_offset_not_a_percentage():
+    """Ties figure 6's "cutoff 32 % too high" to figure 8a's "1.5 kHz
+    gap" -- they are one phenomenon.
+
+    Across flexural and screw, slow and fast, the onset is late by
+    1.5-2.0 kHz. Quoted as percentages the same offsets read 32 %, 40 %
+    and 142 %, which says more about the cutoff frequencies than about
+    the solver.
+    """
+    gaps = np.array([fw - pub for _, pub, fw in _NEAR_CUTOFF_GAPS])
+    pcts = np.array([100.0 * (fw / pub - 1.0) for _, pub, fw in _NEAR_CUTOFF_GAPS])
+
+    assert gaps.min() > 1.3 and gaps.max() < 2.2, "tight in absolute terms"
+    assert gaps.max() / gaps.min() < 1.6
+    assert pcts.max() / pcts.min() > 4.0, "and wildly spread as percentages"
