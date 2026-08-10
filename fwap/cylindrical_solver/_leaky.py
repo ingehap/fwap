@@ -1243,8 +1243,8 @@ def pseudo_rayleigh_dispersion(
     ----------
     * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
       Boreholes.* CRC Press, sect. 4.4 and fig 4.5.
-    * Schmitt, D. P. (1988). Shear-wave logging in elastic
-      formations. *J. Acoust. Soc. Am.* 84(6), 2230-2244.
+    * Schmitt, D. P. (1988). Shear wave logging in elastic
+      formations. *J. Acoust. Soc. Am.* 84(6), 2215-2229.
     * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
       Acoustic Methods.* Elsevier, sect. 3.2.
     """

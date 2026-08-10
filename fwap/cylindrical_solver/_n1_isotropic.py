@@ -8,6 +8,8 @@ there for the field ansatz, sign conventions, and references.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 from scipy import optimize, special
 
@@ -138,8 +140,8 @@ from fwap.cylindrical_solver._dataclasses import BoreholeMode
 #   Boreholes*, ch. 4. CRC Press. The four-potential cylindrical
 #   decomposition with explicit n=1 forms; the boundary-condition
 #   table this block implements.
-# * Schmitt, D. P. (1988). Shear-wave logging in elastic
-#   formations. *J. Acoust. Soc. Am.* 84(6), 2230-2244 (the
+# * Schmitt, D. P. (1988). Shear wave logging in elastic
+#   formations. *J. Acoust. Soc. Am.* 84(6), 2215-2229 (the
 #   isotropic n=1 dispersion curves the validation tests target).
 # * Aki, K., & Richards, P. G. (2002). *Quantitative Seismology*,
 #   2nd ed., sect. 7.2. Vector-potential Helmholtz decomposition
@@ -1764,8 +1766,8 @@ from fwap.cylindrical_solver._dataclasses import BoreholeMode
 #
 # References
 # ----------
-# * Schmitt, D. P. (1988). Shear-wave logging in elastic
-#   formations. *J. Acoust. Soc. Am.* 84(6), 2230-2244. Eqs.
+# * Schmitt, D. P. (1988). Shear wave logging in elastic
+#   formations. *J. Acoust. Soc. Am.* 84(6), 2215-2229. Eqs.
 #   24-26 give the high-frequency reduction of the dipole modal
 #   determinant to the Rayleigh secular equation.
 # * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
@@ -2077,8 +2079,8 @@ def _modal_determinant_n1(
 
     References
     ----------
-    * Schmitt, D. P. (1988). Shear-wave logging in elastic
-      formations. *J. Acoust. Soc. Am.* 84(6), 2230-2244
+    * Schmitt, D. P. (1988). Shear wave logging in elastic
+      formations. *J. Acoust. Soc. Am.* 84(6), 2215-2229
       (the n=1 dipole modal determinant).
     * Kurkjian, A. L., & Chang, S.-K. (1986). Acoustic multipole
       sources in fluid-filled boreholes. *Geophysics* 51(1),
@@ -2281,6 +2283,41 @@ def _modal_determinant_n1_complex(
 # ---------------------------------------------------------------------
 
 
+#: Scan density for re-acquiring the fast-formation flexural branch
+#: across ``(V_f, V_S)``. Results are unchanged down to 32 points on
+#: every published reference checked; 96 leaves a wide margin.
+_FAST_FLEXURAL_SCAN_POINTS = 96
+
+#: How far below the previous accepted phase velocity the cheap
+#: continuation bracket reaches. The branch falls steeply just past the
+#: ``V_R`` crossing (25 % per 2 kHz for figure 2a's sandstone).
+_FAST_FLEXURAL_STEP_DOWN = 0.75
+
+#: Slack above the previous accepted phase velocity, absorbing
+#: root-finder jitter without admitting a faster branch.
+_FAST_FLEXURAL_STEP_UP = 5.0e-4
+
+#: More sign changes than this in one window means a **cased**
+#: determinant is being evaluated where it is dominated by numerical
+#: noise, not that the borehole supports that many modes. The cased
+#: ``n = 2`` determinant produces ~90 crossings at 12 kHz on figure 14's
+#: model where physics expects a handful; the old narrow bracket hid
+#: that by only looking at a sliver of the window. Applied to the
+#: propagator-chain paths only -- the open-hole 4x4 is well conditioned
+#: and a limit there throws away good answers.
+_FAST_FLEXURAL_MAX_CASED_ROOTS = 8
+
+#: Relative tolerance for treating a root as one of the ``exclude``
+#: degeneracies rather than a mode. The artefact sits exactly on the
+#: excluded speed, so this only has to clear root-finder noise.
+_FAST_FLEXURAL_DEGENERACY_TOL = 1.0e-5
+
+#: Consecutive misses after the branch has been acquired before the
+#: marcher stops. The fundamental leaves through ``V_f`` once and does
+#: not return, so continuing to scan only costs time.
+_FAST_FLEXURAL_MAX_MISSES = 2
+
+
 def _flexural_kz_bracket(
     omega: float,
     vp: float,
@@ -2316,6 +2353,166 @@ def _flexural_kz_bracket(
     return kz_lo, kz_hi
 
 
+def _march_fast_flexural_branch(
+    im_det: Callable[[float, float], float],
+    freq: np.ndarray,
+    *,
+    vs: float,
+    vf: float,
+    exclude: tuple[float, ...] = (),
+    max_roots: int | None = None,
+) -> np.ndarray:
+    """
+    Follow the fundamental fast-formation n=1 branch and return its
+    phase slowness (s/m), NaN where the branch is not a real-``k_z``
+    root.
+
+    Shared by the open-hole and cased-hole fast-formation drivers so
+    the two cannot drift apart; ``im_det(k_z, omega)`` supplies the
+    imaginary part of whichever modal determinant applies.
+
+    Parameters
+    ----------
+    im_det : callable
+        ``im_det(k_z, omega) -> float``; the root condition is
+        ``im_det = 0`` along the real ``k_z`` axis.
+    freq : ndarray, shape (n,)
+        Frequencies in Hz, any order.
+    vs, vf : float
+        Formation shear and borehole-fluid velocities (m/s). The
+        search runs over phase velocity in ``(vf, vs)``.
+    exclude : tuple of float, optional
+        Phase velocities (m/s) at which the determinant is degenerate
+        rather than modal, to be rejected if the scan lands on them.
+        Layered callers pass each layer's shear speed: there the layer's
+        radial wavenumber vanishes and the determinant has a sign change
+        that is not a mode. This is the same class of artefact as the
+        ``F = 0`` point at ``V_f``, which the ``eps`` margins exclude by
+        construction; a layer's speed sits in the middle of the window
+        and has to be named. At ``n = 2`` the whole returned curve was
+        otherwise pinned to it.
+    max_roots : int or None, optional
+        If more than this many sign changes appear in one window, treat
+        the determinant as numerically unusable at that frequency and
+        report nothing rather than pick one. Only the cased
+        (propagator-chain) determinants need this -- the open-hole 4x4
+        is well behaved, and imposing a limit there discards good
+        answers. See ``_FAST_FLEXURAL_MAX_CASED_ROOTS``.
+
+    Returns
+    -------
+    ndarray, shape (n,)
+        Phase slowness in s/m, aligned with ``freq``.
+
+    Notes
+    -----
+    See :func:`_flexural_dispersion_fast_formation` for why the window
+    is ``(V_f, V_S)`` rather than ``(V_R, V_S)``, and why the slowest
+    root that is no faster than the previous one is the fundamental.
+    """
+    f_arr = np.asarray(freq, dtype=float)
+    slowness = np.full(f_arr.size, np.nan, dtype=float)
+    if f_arr.size == 0:
+        return slowness
+    eps = 1.0e-4
+
+    def _root_in(kz_lo: float, kz_hi: float, omega: float) -> float | None:
+        try:
+            d_lo = im_det(kz_lo, omega)
+            d_hi = im_det(kz_hi, omega)
+            if not (np.isfinite(d_lo) and np.isfinite(d_hi)):
+                return None
+            if np.sign(d_lo) == np.sign(d_hi):
+                return None
+            return float(
+                optimize.brentq(im_det, kz_lo, kz_hi, args=(omega,), xtol=1.0e-10)
+            )
+        except (ValueError, RuntimeError):
+            return None
+
+    def _scan(omega: float) -> list[float]:
+        kz_lo = omega / vs * (1.0 + eps)
+        kz_hi = omega / vf * (1.0 - eps)
+        if not kz_hi > kz_lo:
+            return []
+        grid = np.linspace(kz_lo, kz_hi, _FAST_FLEXURAL_SCAN_POINTS)
+        vals = [im_det(k, omega) for k in grid]
+        out: list[float] = []
+        for j in range(grid.size - 1):
+            lo, hi = vals[j], vals[j + 1]
+            if not (np.isfinite(lo) and np.isfinite(hi)):
+                continue
+            if lo == 0.0 or np.sign(lo) == np.sign(hi):
+                continue
+            root = _root_in(grid[j], grid[j + 1], omega)
+            if root is not None:
+                out.append(omega / root)
+        if max_roots is not None and len(out) > max_roots:
+            logger.debug(
+                "fast-formation n=1 marcher: %d sign changes at f=%.1f Hz; "
+                "treating the determinant as numerically unusable here",
+                len(out),
+                omega / (2.0 * np.pi),
+            )
+            return []
+        return sorted(out)
+
+    def _is_degenerate(v: float) -> bool:
+        return any(
+            abs(v / e - 1.0) < _FAST_FLEXURAL_DEGENERACY_TOL for e in exclude if e > 0.0
+        )
+
+    velocity_prev: float | None = None
+    misses = 0
+    for i in np.argsort(f_arr):
+        f = float(f_arr[i])
+        omega = 2.0 * np.pi * f
+        velocity: float | None = None
+
+        if velocity_prev is not None:
+            kz_lo = max(
+                omega / (velocity_prev * (1.0 + _FAST_FLEXURAL_STEP_UP)),
+                omega / vs * (1.0 + eps),
+            )
+            kz_hi = min(
+                omega / (velocity_prev * _FAST_FLEXURAL_STEP_DOWN),
+                omega / vf * (1.0 - eps),
+            )
+            if kz_hi > kz_lo:
+                root = _root_in(kz_lo, kz_hi, omega)
+                if root is not None and not _is_degenerate(omega / root):
+                    velocity = omega / root
+
+        if velocity is None:
+            ceiling = (
+                np.inf
+                if velocity_prev is None
+                else velocity_prev * (1.0 + _FAST_FLEXURAL_STEP_UP)
+            )
+            for candidate in _scan(omega):
+                if candidate <= ceiling and not _is_degenerate(candidate):
+                    velocity = candidate
+                    break
+
+        if velocity is None:
+            logger.debug(
+                "fast-formation n=1 marcher: no Im(det) sign change at "
+                "f=%.1f Hz; outside the (V_f, V_S) bound-regime band",
+                f,
+            )
+            if velocity_prev is not None:
+                misses += 1
+                if misses >= _FAST_FLEXURAL_MAX_MISSES:
+                    break
+            continue
+
+        misses = 0
+        slowness[i] = 1.0 / velocity
+        velocity_prev = velocity
+
+    return slowness
+
+
 def _flexural_dispersion_fast_formation(
     freq: np.ndarray,
     *,
@@ -2344,13 +2541,51 @@ def _flexural_dispersion_fast_formation(
     suppressed by ~10 orders of magnitude relative to the
     imaginary part), so the root condition reduces to
     ``Im(det) = 0`` and :func:`scipy.optimize.brentq` along the
-    real ``k_z`` axis is the natural tool. Bracket: ``k_z`` in
-    ``(omega/V_S * (1 + eps), omega/V_R * (1 - eps))`` -- strictly
-    inside the leaky-F regime to keep ``F^2 < 0`` and to avoid the
-    numerical degeneracy at ``k_z = omega/V_S`` (where ``s = 0``).
-    """
-    from fwap.cylindrical import rayleigh_speed
+    real ``k_z`` axis is the natural tool.
 
+    Notes
+    -----
+    **Bracket.** Phase velocity is searched over ``(V_f, V_S)``, not
+    ``(V_R, V_S)``. ``V_R`` is not a limit of this mode: the flexural
+    branch descends from ``V_S`` at low frequency toward the *Scholte*
+    speed, crossing ``V_R`` partway through the band (4.45 kHz for the
+    fast sandstone of Schmitt & Cheng figure 2a). A ``(V_R, V_S)``
+    window therefore loses the fundamental over most of the band while
+    still containing higher trapped modes, and returns one of those
+    instead -- silently, since they are ordinary bound roots. That was
+    roadmap defect A.2.
+
+    ``V_f`` is the physical floor here: below it ``F^2 > 0``, the fluid
+    field stops being oscillatory in ``r``, and the branch flags used
+    below (``leaky_p=False, leaky_s=False``) no longer describe the
+    field. The determinant also has a spurious sign change pinned at
+    ``k_z = omega/V_f`` itself, which the ``eps`` margins exclude.
+
+    **Selection.** Widening the bracket alone is not enough: it admits
+    the trapped modes as well, and picking the wrong one merely swaps
+    a 65 %-high answer for a 14-39 %-high one. The marcher therefore
+    walks *upward* in frequency and keeps the **slowest** root that is
+    no faster than the previously accepted one, which is the
+    fundamental -- flexural phase velocity descends monotonically with
+    frequency, while the trapped modes enter near ``V_S`` from above.
+
+    **What stays unreachable, and returns NaN rather than a guess.**
+    Two bands have no real-``k_z`` root at all, so no bracket recovers
+    them and a complex-``k_z`` continuation would be needed:
+
+    * below the ``V_R`` crossing (~4.4 kHz for figure 2a's rock), where
+      the mode is leaky -- a 20 000-point scan of ``(2000, V_S)`` at
+      2.5, 3.0 and 4.0 kHz finds no sign change;
+    * above the ``V_f`` crossing (~17.9 kHz for the same rock), where
+      the fundamental has descended past ``V_f`` toward Scholte and
+      left this regime.
+
+    Against the published curves the recovered band lands at
+    **0.78 % / 1.03 % / 0.87 % median error** for figure 2a's
+    sandstone and figure 7a's limestone and granite -- at the
+    digitisation floor of those figures (about +-1 %). Granite had
+    **no** correct sample before this change.
+    """
     f_arr = np.asarray(freq, dtype=float)
     n_f = f_arr.size
     slowness = np.full(n_f, np.nan, dtype=float)
@@ -2361,9 +2596,6 @@ def _flexural_dispersion_fast_formation(
             freq=f_arr,
             slowness=slowness,
         )
-
-    vR = rayleigh_speed(vp, vs)
-    eps = 1.0e-4
 
     def _im_det(kz: float, _omega: float) -> float:
         return _modal_determinant_n1_complex(
@@ -2379,78 +2611,7 @@ def _flexural_dispersion_fast_formation(
             leaky_s=False,
         ).imag
 
-    def _find_root_in_bracket(
-        kz_lo: float,
-        kz_hi: float,
-        omega: float,
-    ) -> float | None:
-        """brentq on Im(det) within the given bracket; returns
-        ``None`` if the bracket has no sign change or evaluation
-        fails."""
-        try:
-            d_lo = _im_det(kz_lo, omega)
-            d_hi = _im_det(kz_hi, omega)
-            if not (np.isfinite(d_lo) and np.isfinite(d_hi)):
-                return None
-            if np.sign(d_lo) == np.sign(d_hi):
-                return None
-            return float(
-                optimize.brentq(
-                    _im_det,
-                    kz_lo,
-                    kz_hi,
-                    args=(omega,),
-                    xtol=1.0e-10,
-                )
-            )
-        except (ValueError, RuntimeError):
-            return None
-
-    # Walk high to low frequency. At each step, try a narrow
-    # bracket centred on the previous step's slowness first; if
-    # that fails, fall back to the wide ``(1/V_S, 1/V_R)`` bracket.
-    # This continuation strategy keeps the marcher on the same
-    # physical branch even when the determinant has multiple
-    # competing roots in the wide bracket.
-    order_desc = np.argsort(-f_arr)
-    f_desc = f_arr[order_desc]
-    slowness_desc = np.full(f_desc.size, np.nan, dtype=float)
-    slowness_prev: float | None = None
-
-    for i, f in enumerate(f_desc):
-        omega = 2.0 * np.pi * float(f)
-        kz_root: float | None = None
-
-        # Continuation bracket: previous slowness +- 2 % (a wide
-        # neighbourhood since fast-flexural slowness is nearly flat
-        # vs frequency, ~ V_R asymptote).
-        if slowness_prev is not None:
-            kz_centre = slowness_prev * omega
-            kz_lo = max(kz_centre * 0.98, omega / vs * (1.0 + eps))
-            kz_hi = min(kz_centre * 1.02, omega / vR * (1.0 - eps))
-            if kz_hi > kz_lo:
-                kz_root = _find_root_in_bracket(kz_lo, kz_hi, omega)
-
-        # Fall back to the wide bracket if continuation fails.
-        if kz_root is None:
-            kz_lo = omega / vs * (1.0 + eps)
-            kz_hi = omega / vR * (1.0 - eps)
-            if kz_hi > kz_lo:
-                kz_root = _find_root_in_bracket(kz_lo, kz_hi, omega)
-
-        if kz_root is None:
-            logger.debug(
-                "_flexural_dispersion_fast_formation: no Im(det) "
-                "sign change at f=%.1f Hz; mode likely outside "
-                "supported band",
-                f,
-            )
-            continue
-
-        slowness_desc[i] = kz_root / omega
-        slowness_prev = slowness_desc[i]
-
-    slowness[order_desc] = slowness_desc
+    slowness = _march_fast_flexural_branch(_im_det, f_arr, vs=vs, vf=vf)
 
     return BoreholeMode(
         name="flexural",
@@ -2555,8 +2716,8 @@ def flexural_dispersion(
 
     References
     ----------
-    * Schmitt, D. P. (1988). Shear-wave logging in elastic
-      formations. *J. Acoust. Soc. Am.* 84(6), 2230-2244.
+    * Schmitt, D. P. (1988). Shear wave logging in elastic
+      formations. *J. Acoust. Soc. Am.* 84(6), 2215-2229.
     * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
       Boreholes.* CRC Press, Ch. 4.
     """

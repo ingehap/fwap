@@ -394,7 +394,6 @@ def _quadrupole_dispersion_fast_formation(
     to the determinant), so the returned
     ``BoreholeMode.attenuation_per_meter`` is ``None``.
     """
-    from fwap.cylindrical import rayleigh_speed
 
     f_arr = np.asarray(freq, dtype=float)
     n_f = f_arr.size
@@ -406,9 +405,6 @@ def _quadrupole_dispersion_fast_formation(
             freq=f_arr,
             slowness=slowness,
         )
-
-    vR = rayleigh_speed(vp, vs)
-    eps = 1.0e-4
 
     def _im_det(kz: float, _omega: float) -> float:
         return _modal_determinant_n2_complex(
@@ -424,68 +420,11 @@ def _quadrupole_dispersion_fast_formation(
             leaky_s=False,
         ).imag
 
-    def _find_root_in_bracket(
-        kz_lo: float,
-        kz_hi: float,
-        omega: float,
-    ) -> float | None:
-        try:
-            d_lo = _im_det(kz_lo, omega)
-            d_hi = _im_det(kz_hi, omega)
-            if not (np.isfinite(d_lo) and np.isfinite(d_hi)):
-                return None
-            if np.sign(d_lo) == np.sign(d_hi):
-                return None
-            return float(
-                optimize.brentq(
-                    _im_det,
-                    kz_lo,
-                    kz_hi,
-                    args=(omega,),
-                    xtol=1.0e-10,
-                )
-            )
-        except (ValueError, RuntimeError):
-            return None
+    from fwap.cylindrical_solver._n1_isotropic import (
+        _march_fast_flexural_branch,
+    )
 
-    # Walk high to low frequency with continuation: narrow
-    # bracket centred on the previous step's slowness first;
-    # fall back to the wide ``(1/V_S, 1/V_R)`` bracket if the
-    # narrow one fails. Mirrors the n=1 fast-formation strategy.
-    order_desc = np.argsort(-f_arr)
-    f_desc = f_arr[order_desc]
-    slowness_desc = np.full(f_desc.size, np.nan, dtype=float)
-    slowness_prev: float | None = None
-
-    for i, f in enumerate(f_desc):
-        omega = 2.0 * np.pi * float(f)
-        kz_root: float | None = None
-
-        if slowness_prev is not None:
-            kz_centre = slowness_prev * omega
-            kz_lo = max(kz_centre * 0.98, omega / vs * (1.0 + eps))
-            kz_hi = min(kz_centre * 1.02, omega / vR * (1.0 - eps))
-            if kz_hi > kz_lo:
-                kz_root = _find_root_in_bracket(kz_lo, kz_hi, omega)
-
-        if kz_root is None:
-            kz_lo = omega / vs * (1.0 + eps)
-            kz_hi = omega / vR * (1.0 - eps)
-            if kz_hi > kz_lo:
-                kz_root = _find_root_in_bracket(kz_lo, kz_hi, omega)
-
-        if kz_root is None:
-            logger.debug(
-                "_quadrupole_dispersion_fast_formation: no Im(det) "
-                "sign change at f=%.1f Hz",
-                f,
-            )
-            continue
-
-        slowness_desc[i] = kz_root / omega
-        slowness_prev = slowness_desc[i]
-
-    slowness[order_desc] = slowness_desc
+    slowness = _march_fast_flexural_branch(_im_det, f_arr, vs=vs, vf=vf)
 
     return BoreholeMode(
         name="quadrupole",
@@ -707,7 +646,6 @@ def _quadrupole_dispersion_fast_formation_layered(
     returned ``BoreholeMode.attenuation_per_meter`` is therefore
     ``None``.
     """
-    from fwap.cylindrical import rayleigh_speed
     from fwap.cylindrical_solver import _modal_determinant_n2_cased_complex
 
     f_arr = np.asarray(freq, dtype=float)
@@ -720,9 +658,6 @@ def _quadrupole_dispersion_fast_formation_layered(
             freq=f_arr,
             slowness=slowness,
         )
-
-    vR = rayleigh_speed(vp, vs)
-    eps = 1.0e-4
 
     def _im_det(kz: float, _omega: float) -> float:
         return _modal_determinant_n2_cased_complex(
@@ -739,64 +674,19 @@ def _quadrupole_dispersion_fast_formation_layered(
             leaky_s=False,
         ).imag
 
-    def _find_root_in_bracket(
-        kz_lo: float,
-        kz_hi: float,
-        omega: float,
-    ) -> float | None:
-        try:
-            d_lo = _im_det(kz_lo, omega)
-            d_hi = _im_det(kz_hi, omega)
-            if not (np.isfinite(d_lo) and np.isfinite(d_hi)):
-                return None
-            if np.sign(d_lo) == np.sign(d_hi):
-                return None
-            return float(
-                optimize.brentq(
-                    _im_det,
-                    kz_lo,
-                    kz_hi,
-                    args=(omega,),
-                    xtol=1.0e-10,
-                )
-            )
-        except (ValueError, RuntimeError):
-            return None
+    from fwap.cylindrical_solver._n1_isotropic import (
+        _FAST_FLEXURAL_MAX_CASED_ROOTS,
+        _march_fast_flexural_branch,
+    )
 
-    order_desc = np.argsort(-f_arr)
-    f_desc = f_arr[order_desc]
-    slowness_desc = np.full(f_desc.size, np.nan, dtype=float)
-    slowness_prev: float | None = None
-
-    for i, f in enumerate(f_desc):
-        omega = 2.0 * np.pi * float(f)
-        kz_root: float | None = None
-
-        if slowness_prev is not None:
-            kz_centre = slowness_prev * omega
-            kz_lo = max(kz_centre * 0.98, omega / vs * (1.0 + eps))
-            kz_hi = min(kz_centre * 1.02, omega / vR * (1.0 - eps))
-            if kz_hi > kz_lo:
-                kz_root = _find_root_in_bracket(kz_lo, kz_hi, omega)
-
-        if kz_root is None:
-            kz_lo = omega / vs * (1.0 + eps)
-            kz_hi = omega / vR * (1.0 - eps)
-            if kz_hi > kz_lo:
-                kz_root = _find_root_in_bracket(kz_lo, kz_hi, omega)
-
-        if kz_root is None:
-            logger.debug(
-                "_quadrupole_dispersion_fast_formation_layered: no "
-                "Im(det) sign change at f=%.1f Hz",
-                f,
-            )
-            continue
-
-        slowness_desc[i] = kz_root / omega
-        slowness_prev = slowness_desc[i]
-
-    slowness[order_desc] = slowness_desc
+    slowness = _march_fast_flexural_branch(
+        _im_det,
+        f_arr,
+        vs=vs,
+        vf=vf,
+        exclude=tuple(layer.vs for layer in layers),
+        max_roots=_FAST_FLEXURAL_MAX_CASED_ROOTS,
+    )
 
     return BoreholeMode(
         name="quadrupole",
@@ -903,6 +793,28 @@ def quadrupole_dispersion_layered(
         contains a non-positive entry, any layer is malformed,
         or any layer fails the slow-formation constraint
         ``layer.vs >= vs`` (multi-layer only).
+
+    Notes
+    -----
+    The ``layer.vs >= vs`` constraint applies to the **multi-layer**
+    path only, exactly as in :func:`flexural_dispersion_layered`.
+    A single layer softer in shear than a slow formation -- an
+    invaded zone, which is slower than the rock it replaces -- is
+    accepted.
+
+    Until this was corrected the check ran for every layer count,
+    which made the whole invaded-zone family unrepresentable at
+    ``n = 2`` while the identical model was accepted at ``n = 1``.
+    The single-layer allowance is not a guess: Schmitt & Cheng
+    figure 15(b) plots the screw mode for this exact configuration,
+    and against the digitised curves this path returns **0.58 % rms**
+    for an 8 cm invaded zone -- better than the same solver's
+    1.29 % on the virgin rock of the same figure. See
+    ``tests/test_cylindrical_solver.py`` (figure 15b / A.6).
+
+    The correction does not touch the mode's onset, which remains
+    late by the near-cutoff margin recorded for the slow screw mode
+    (fwap 5.6 kHz against a published 3.4 kHz for the 8 cm model).
     """
     layers_tuple = tuple(layers)
     _validate_borehole_layers(layers_tuple)
@@ -949,11 +861,15 @@ def quadrupole_dispersion_layered(
             a=a,
             layers=layers_tuple,
         )
-    # Slow-formation per-layer constraint enforced upstream; reuse
-    # the n=1 helper since the constraint ``layer.vs >= vs`` is
-    # the same at n=2 (Sinha-Norris-Chang-style soft-formation
-    # bound-mode regime).
-    _validate_flexural_layers_stacked(layers_tuple, a, vs)
+    if len(layers_tuple) >= 2:
+        # Multi-layer path requires the per-layer slow-formation
+        # constraint ``layer.vs >= vs``; reuse the n=1 helper, since
+        # the constraint is the same at n=2 (Sinha-Norris-Chang-style
+        # soft-formation bound-mode regime). The single-layer path
+        # deliberately does *not* enforce it, mirroring
+        # ``flexural_dispersion_layered``: see the note in the
+        # docstring for the measurement that settled this.
+        _validate_flexural_layers_stacked(layers_tuple, a, vs)
 
     from fwap.cylindrical_solver import _modal_determinant_n2_cased
 

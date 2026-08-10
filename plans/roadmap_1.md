@@ -27,10 +27,12 @@ rather than by planning.
 | ~~6~~ | ~~The debond inverse in `sonic_ml.bench` (G.6)~~ | **closed** | — |
 | ~~2d~~ | ~~The ODP file's offsets and its 950-A/952A header (F.5)~~ | **closed** | — |
 | ~~2c~~ | ~~A waveform fixture CI can fetch (F.2)~~ | **closed** | — |
-| 1b | Leaky root tracking, **n=1 *and* n=2** (A.2) | **two defects, measured**: a bracket anchored to `V_R` instead of Scholte (no complex machinery needed, but needs a mode-identification rule), and genuine below-cutoff leakiness | the second half needs a Riemann-sheet analysis; the first needs only care |
-| 3 | Digitised validation figures (A.1) — **4 of 5, re-scoped** | sourcing | the books, for pseudo-Rayleigh / cased Stoneley / VTI flexural, plus Schmitt 1988 fig 4's *fast* curve, which A.2 needs |
+| ~~1b~~ | ~~Leaky root tracking, **n=1 *and* n=2** (A.2)~~ | *fixed for three of the four fast-formation paths*: the window was `(V_R, V_S)` and **`V_R` is not a limit of these modes** — the branch descends toward Scholte and crosses it partway through the band. Corrected to `(V_f, V_S)` **plus** a selection rule (walk up in frequency, keep the slowest root no faster than the last); widening alone swaps a 65 %-high answer for a 14-39 %-high one, exactly as predicted here | open-hole `n=1` **0.78 / 1.03 / 0.87 % median** on figs 2a and 7a — the digitisation floor — from 2-of-115 right and granite with none; fig 7a's merged band **+124 %/+69 % → +0.7 %/−1.7 %** and the stiffness ordering gone; fig 12a's layered band **+30-55 % → −3.8 to −2.5 %**; coverage contiguous and monotone, `v_g` never negative, and fig 3's Airy arrival — a figure that played no part in the fix — predicted to **+8 %** where the old bracket implied 2.2× too early. Both band ends stay NaN by design (leaky below the `V_R` crossing, out of regime above the `V_f` one) and need complex `k_z`. The **layered `n=2`** path is not fixed but silenced — see the new A.7 |
+| 3 | Digitised validation figures (A.1) — **3 of 5, re-scoped** | sourcing | the books, for **cased Stoneley / VTI flexural** — pseudo-Rayleigh is tied by fig 1a at ~1 % on both branches. Schmitt & Cheng figs 2a, 7 and 8a are **done**. Fig 8a also refutes the re-scope's premise: traced with care it ties `stoneley_dispersion` at **0.04 % rms**, external, tighter than most of the analytic ties — the "5 % overlay budget" was a choice, not a limit |
 | 5 | Confirm two registered checksums (F.4) | one fetch each | egress to `gdr.openei.org` and `zenodo.org` |
-| 7 | Delta-matrix / Abo-Zena stack reformulation (A.5 residue) | modelling, optional | nothing |
+| ~~6b~~ | ~~**A.6 `n=2` layered path refuses every invaded zone**~~ | *fixed*: it was an implementation/docstring mismatch — the `Raises` section already said "(multi-layer only)" and `flexural_dispersion_layered` enforced it that way; `n=2` enforced it for every layer count. Single-layer guard removed, multi-layer guard kept | validated against fig 15(b), the panel the fig-15 work skipped: **0.58 % rms** for the 8 cm invaded zone, better than the same solver's virgin control (1.29 %). Fig 17 goes from 2 of 12 computable waveforms to 6 |
+| 1c | **A.7 cased `n=2` determinant is noise-dominated** | *new, exposed by fixing A.2 — the narrow bracket was hiding it*: ~90 sign changes at 12 kHz over the corrected window where physics supports a handful, and 10-33 even with the layer set identical to the formation (physically the open hole, where the un-cased 4×4 gives one clean root). Near-duplicate pairs straddling the true value = catastrophic cancellation in the propagator chain | the marcher declines to choose, so the path returns NaN rather than a noise root. `n=1` cased is unaffected. Blocked on item 7 below, which stops being optional |
+| 7 | Delta-matrix / Abo-Zena stack reformulation (A.5 residue) | modelling — **no longer optional**: it is what unblocks A.7, since removing the cancellation is exactly what a delta-matrix form is for | nothing |
 | 4 | Conda-forge recipe (D) | packaging | a PyPI release |
 
 **The shape has changed since the last revision, and mostly by closing.** G.2
@@ -520,10 +522,16 @@ model that produced its own input.
 remaining rows are not comparable:
 
 * **1b (A.2, leaky root tracking at `n=1` and `n=2`)** is the only one that is
-  *modelling*. It needs a Riemann-sheet analysis, not a download; it is the last
-  physics gap in the solver; and one fix repairs two modes. It is also the
-  reason both Scholte ties added for A.1 are scoped to slow formations, so it
-  now bounds the validation work as well as the solver.
+  *modelling*. It is the last physics gap in the solver, and one fix repairs two
+  modes. It no longer needs a Riemann-sheet analysis for the *whole* band:
+  measured against the digitised figure 2a, a Scholte-edged bracket covers
+  4.4-16.4 kHz to 0.66 %, and the sheet analysis is needed only for the two
+  intervals either side. What it still needs, and what stops the bracket from
+  shipping alone, is a rule for picking the fundamental out of the widened
+  window. It is also the reason both Scholte ties added for A.1 are scoped to
+  slow formations, so it bounds the validation work as well as the solver —
+  though the fast-formation half of that tie now has published confirmation
+  from the same figure.
 * **3 (A.1, validation figures)** needs a book, for three figures rather than
   five. It ties the solver to published literature rather than to itself, which
   is the same class of argument F.2 just won for the processing.
@@ -562,6 +570,21 @@ to the wrong reference with a tolerance wide enough to hide the 9 % gap.
 The residue is real and does need the books: pseudo-Rayleigh's *curve*, cased
 Stoneley, and VTI flexural have no external tie of any kind. But the item is no
 longer blocking the package's headline mode, which is what made it feel urgent.
+
+*Amended once the figures were actually traced.* The open-hole Stoneley,
+flexural and quadrupole modes now do have external ties — Schmitt & Cheng figs
+2a, 7 and 8a. The Stoneley one is at **0.04 % rms in a slow formation**, which
+is tighter than most of the analytic ties this item used to prefer, and it pins
+the paper's borehole radius as a by-product. The three modes above are still
+untied; the difference is that "a digitised figure scores at best 5 %" is no
+longer a reason to expect little from them.
+
+*Amended again.* **Pseudo-Rayleigh is off that list.** Figure 1a plots the
+Stoneley and the first two pseudo-Rayleigh modes for the fast sandstone, and
+`trapped_pseudo_rayleigh_dispersion` follows both branches at **1.01 % and
+0.80 % rms** — one to one-and-a-half plotted line widths — with the `branch`
+index landing on the modes the API says it should. The residue is **cased
+Stoneley and VTI flexural**, two items rather than three.
 
 Item 2d is closed, and how it closed is the more useful part. It had been
 filed as sourcing — "the offsets need the SDT tool spec; nothing in the files

@@ -368,8 +368,8 @@ Risk concentrated in:
 
 ## References
 
-- Schmitt, D. P. (1988). Shear-wave logging in elastic
-  formations. *J. Acoust. Soc. Am.* 84(6), 2230-2244 (n=1
+- Schmitt, D. P. (1988). Shear wave logging in elastic
+  formations. *J. Acoust. Soc. Am.* 84(6), 2215-2229 (n=1
   modal determinant).
 - Schmitt, D. P., & Bouchon, M. (1985). Full-wave acoustic
   logging: synthetic microseismograms and frequency-wavenumber

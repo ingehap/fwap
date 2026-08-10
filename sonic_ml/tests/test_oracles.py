@@ -46,7 +46,24 @@ def test_flexural_hf_is_rayleigh_and_faster_than_shear():
 
 
 def test_solver_flexural_asymptotes_bracket_oracles():
-    # The modal flexural mode sits between the LF (1/vs) and HF (1/V_R) limits.
+    """The flexural mode starts at ``1/vs`` and descends **past** ``1/V_R``.
+
+    This test used to assert that the mode stays between ``1/vs`` and
+    ``1/V_R``. It does not: ``V_R`` is not the high-frequency limit of
+    the flexural mode, the fluid-loaded (Scholte) speed is, and for this
+    rock Scholte is 1470 m/s against a Rayleigh speed of 2116 -- 30 %
+    apart, not the "few percent" the oracle's docstring used to claim.
+
+    The old assertion passed only because ``flexural_dispersion`` had the
+    same wrong bound built into its search window (fwap roadmap A.2), so
+    it could not return anything below ``V_R`` to violate it. With that
+    fixed the mode descends to 1508 m/s here, and 86 of its 93 resolved
+    samples are below ``V_R``.
+
+    ``flexural_hf_slowness`` is unchanged -- it returns the Rayleigh
+    slowness, which is what it says it does. What was wrong was using it
+    as a bound the mode has to respect.
+    """
     from fwap import flexural_dispersion
 
     vp, vs, rho = 4000.0, 2300.0, 2400.0
@@ -54,8 +71,18 @@ def test_solver_flexural_asymptotes_bracket_oracles():
     freq = np.linspace(1000.0, 12000.0, 128)
     res = flexural_dispersion(freq, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a)
     s = res.slowness[np.isfinite(res.slowness)]
+    assert s.size > 10
+
     lf = oracles.flexural_lf_slowness(vs)
     hf = oracles.flexural_hf_slowness(vp, vs)
-    # Finite modal slownesses lie within (just outside numerically) the band.
+
+    # Low-frequency end: the formation shear speed, as before.
     assert s.min() >= lf - 5e-6
-    assert s.max() <= hf + 5e-6
+    # High-frequency end: bounded by the fluid speed, which is where this
+    # solver's bound-mode regime ends, not by the Rayleigh slowness.
+    assert s.max() <= 1.0 / vf + 5e-6
+    # And the branch is seen to pass below V_R, which is the correction.
+    assert s.max() > hf, "the mode must descend past the Rayleigh slowness"
+    assert np.all(np.diff(1.0 / s) <= 1.0e-3 * (1.0 / s[:-1])), (
+        "phase velocity descends monotonically"
+    )

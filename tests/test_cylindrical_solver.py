@@ -450,23 +450,23 @@ def test_flexural_dispatches_to_fast_formation_path_when_vs_gt_vf():
     the complex-determinant fast-formation path when ``V_S > V_f``,
     instead of returning NaN throughout. At least some frequencies
     in a sensible band must yield finite slowness in the
-    ``(V_R, V_S)`` window. The previous "all NaN" contract is
-    deliberately broken."""
-    from fwap.cylindrical import rayleigh_speed
+    ``(V_f, V_S)`` window. The previous "all NaN" contract is
+    deliberately broken.
 
+    The window used to be written ``(V_R, V_S)`` here. It is not:
+    ``V_R`` is not a bound of this mode, and asserting it was part of
+    what kept roadmap A.2 invisible. The mode descends past ``V_R``
+    toward Scholte, so the only floor is ``V_f``."""
     vp, vs, rho = 5500.0, 3100.0, 2500.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
-    vR = rayleigh_speed(vp, vs)
     f = np.linspace(20000.0, 80000.0, 30)
     res = flexural_dispersion(f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a)
     finite = np.isfinite(res.slowness)
     assert finite.any(), "fast-formation path must populate at least one frequency"
     velocity = 1.0 / res.slowness[finite]
-    # Strictly between V_R and V_S (the leaky-F regime window).
-    assert (velocity > vR * 0.99).all(), (
-        f"velocity must stay near or above V_R ({vR:.0f}); got {velocity}"
-    )
+    assert (velocity > vf).all(), f"velocity must stay above V_f ({vf}); got {velocity}"
     assert (velocity < vs).all(), f"velocity must stay below V_S ({vs}); got {velocity}"
+    assert _descends(velocity), "the branch descends monotonically"
     # Bound mode -> attenuation_per_meter is None.
     assert res.attenuation_per_meter is None
 
@@ -1843,8 +1843,11 @@ def test_flexural_fast_formation_velocities_are_real_kz():
             leaky_p=False,
             leaky_s=False,
         )
-        # Off-root sample: shift kz by 1 % toward V_R.
-        kz_off = kz_root * 1.005
+        # Off-root sample: shift k_z 0.5 % toward V_S. It used to shift
+        # the other way, which now lands below V_f -- outside the regime
+        # these branch flags describe, where Im(det) is identically zero
+        # and the comparison is vacuous.
+        kz_off = kz_root * 0.995
         det_off = _modal_determinant_n1_complex(
             kz_off,
             omega,
@@ -1984,35 +1987,25 @@ def test_quadrupole_finite_above_cutoff_in_slow_formation():
 
 
 def test_quadrupole_dispatches_to_fast_formation_path_when_vs_gt_vf():
-    """Plan item E: ``quadrupole_dispersion`` now auto-dispatches to
-    the complex-determinant fast-formation path when ``V_S > V_f``
-    instead of returning NaN throughout. At least some frequencies
-    in a sensible band must yield finite slowness in the
-    ``(V_R, V_S)`` velocity window. Direct sister of the n=1
-    fast-formation dispatch test."""
-    from fwap.cylindrical import rayleigh_speed
+    """Plan item E: ``quadrupole_dispersion`` auto-dispatches to the
+    complex-determinant fast-formation path when ``V_S > V_f`` instead
+    of returning NaN throughout.
+
+    The window is ``(V_f, V_S)``, not ``(V_R, V_S)`` -- see the n=1
+    sister test. ``V_R`` is not a bound of the screw mode either.
+    """
     from fwap.cylindrical_solver import quadrupole_dispersion
 
     vp, vs, rho = 5500.0, 3100.0, 2500.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
-    vR = rayleigh_speed(vp, vs)
     f = np.linspace(40000.0, 100000.0, 30)
-    res = quadrupole_dispersion(
-        f,
-        vp=vp,
-        vs=vs,
-        rho=rho,
-        vf=vf,
-        rho_f=rho_f,
-        a=a,
-    )
+    res = quadrupole_dispersion(f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a)
     finite = np.isfinite(res.slowness)
     assert finite.any(), "fast-formation path must populate at least one frequency"
     velocity = 1.0 / res.slowness[finite]
-    assert (velocity > vR * 0.99).all(), (
-        f"velocity must stay near or above V_R ({vR:.0f}); got {velocity}"
-    )
+    assert (velocity > vf).all(), f"velocity must stay above V_f; got {velocity}"
     assert (velocity < vs).all(), f"velocity must stay below V_S ({vs}); got {velocity}"
+    assert _descends(velocity), "the branch descends monotonically"
     # Bound mode -> attenuation_per_meter is None.
     assert res.attenuation_per_meter is None
 
@@ -2315,29 +2308,26 @@ def test_quadrupole_fast_formation_im_det_relative_zero():
 
 
 def test_quadrupole_fast_formation_velocities_in_bound_window():
-    """All fast-formation finite outputs must have phase velocity
-    strictly between V_R and V_S -- the bound-mode window for the
-    n=2 leaky-F regime. Mirrors the n=1 sister test."""
-    from fwap.cylindrical import rayleigh_speed
+    """All fast-formation finite outputs have phase velocity strictly
+    between ``V_f`` and ``V_S`` -- the bound-mode window for the n=2
+    leaky-F regime. Mirrors the n=1 sister test.
+
+    The bound used to be written ``V_R``; that was the A.2 assumption,
+    and the screw mode descends past it toward Scholte.
+    """
     from fwap.cylindrical_solver import quadrupole_dispersion
 
     vp, vs, rho = 5500.0, 3100.0, 2500.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
-    vR = rayleigh_speed(vp, vs)
     f = np.linspace(40000.0, 100000.0, 50)
-    res = quadrupole_dispersion(
-        f,
-        vp=vp,
-        vs=vs,
-        rho=rho,
-        vf=vf,
-        rho_f=rho_f,
-        a=a,
-    )
+    res = quadrupole_dispersion(f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a)
     finite = np.isfinite(res.slowness)
-    assert finite.sum() >= 5
+    # Only a few samples survive: this rock's screw branch crosses V_f
+    # early in the band, and past that it leaves the regime these branch
+    # flags describe. NaN there is the honest answer.
+    assert finite.sum() >= 3
     velocity = 1.0 / res.slowness[finite]
-    assert (velocity > vR * 0.99).all()
+    assert (velocity > vf).all()
     assert (velocity < vs).all()
 
 
@@ -11852,30 +11842,36 @@ def test_quadrupole_dispersion_layered_returns_borehole_mode_for_unlayered():
     np.testing.assert_array_equal(res.freq, f)
 
 
-def test_quadrupole_dispersion_layered_rejects_softer_layer():
-    """The per-layer slow-formation constraint
-    ``layer.vs >= vs`` is enforced via the G'.0
-    ``_validate_flexural_layers_stacked`` helper (the constraint
-    is the same at n=1 and n=2). A softer layer triggers
-    ``ValueError`` with the offending index."""
+def test_quadrupole_dispersion_layered_rejects_softer_layer_multi_only():
+    """The per-layer slow-formation constraint ``layer.vs >= vs``
+    applies to the **multi-layer** path only, via the G'.0
+    ``_validate_flexural_layers_stacked`` helper -- the same rule, and
+    the same layer-count condition, as ``flexural_dispersion_layered``.
+
+    This test used to assert that a *single* softer layer was rejected.
+    That was the behaviour of the code but not of its docstring, which
+    has always said "(multi-layer only)", and it made every invaded zone
+    unrepresentable at n=2 while the identical model was accepted at
+    n=1. Corrected against Schmitt & Cheng figure 15(b); see the A.6
+    block later in this file."""
     from fwap.cylindrical_solver import quadrupole_dispersion_layered
 
-    soft_layer = BoreholeLayer(
-        vp=1500.0,
-        vs=600.0,
-        rho=1700.0,
-        thickness=0.05,
-    )  # vs = 600 < formation vs = 800 -> reject
+    soft = BoreholeLayer(vp=1500.0, vs=600.0, rho=1700.0, thickness=0.05)
+    base = dict(vp=2200.0, vs=800.0, rho=2200.0, vf=1500.0, rho_f=1000.0, a=0.1)
+
+    # one soft layer: accepted (an invaded zone is exactly this case)
+    res = quadrupole_dispersion_layered(np.array([10000.0]), **base, layers=(soft,))
+    assert res.slowness.shape == (1,)
+
+    # two: the multi-layer guard still fires, with the offending index
     with pytest.raises(ValueError, match=r"layer\.vs"):
         quadrupole_dispersion_layered(
             np.array([10000.0]),
-            vp=2200.0,
-            vs=800.0,
-            rho=2200.0,
-            vf=1500.0,
-            rho_f=1000.0,
-            a=0.1,
-            layers=(soft_layer,),
+            **base,
+            layers=(
+                soft,
+                BoreholeLayer(vp=1500.0, vs=650.0, rho=1700.0, thickness=0.05),
+            ),
         )
 
 
@@ -13225,14 +13221,38 @@ def test_modal_determinant_n2_cased_complex_layer_eq_formation_im_det_sign_match
     assert changes_unl.size >= 1
 
 
-def test_quadrupole_dispersion_layered_fast_formation_layer_eq_formation_finite_in_bound_regime():
-    """Public-API end-to-end: with ``layer = formation`` in fast
-    formation, the cased dispatch returns at least one finite
-    slowness in the bound regime ``(1/V_S, 1/V_R)``. Soft
-    correctness oracle that doesn't depend on brentq's exact
-    multi-root pick."""
+def test_quadrupole_dispersion_layered_fast_formation_layer_eq_formation_is_silent():
+    """The cased `n=2` determinant is unusable even when the layer is
+    the formation -- which is how general the conditioning problem is.
+
+    This used to be a "soft correctness oracle that doesn't depend on
+    brentq's exact multi-root pick": with ``layer = formation`` the
+    cased dispatch had to return at least one finite slowness in the
+    bound regime. The premise no longer holds, because there is no
+    defensible multi-root pick.
+
+    Scanned across the corrected ``(V_f, V_S)`` window this
+    configuration -- a 1 cm layer identical to the half-space, i.e.
+    physically the open hole -- gives **10 sign changes at 10 kHz and
+    33 at 14 kHz**, where the open-hole determinant gives one clean
+    root. They arrive as near-duplicate pairs straddling the true value
+    (2084.0 and 2085.0 against the open hole's 2084.9), which is the
+    signature of catastrophic cancellation in the propagator chain, not
+    a mode spectrum.
+
+    So the marcher declines to choose and the path is silent here. That
+    is a deliberate trade: NaN instead of a number drawn from noise. The
+    open-hole call on the same rock is unaffected and returns the
+    branch.
+
+    If this test starts failing because finite values come back, the
+    cased determinant has been reconditioned -- the delta-matrix
+    reformulation kept as roadmap A.5 residue is the intended route --
+    and the comparison should be written for real.
+    """
     from fwap.cylindrical_solver import (
         BoreholeMode,
+        quadrupole_dispersion,
         quadrupole_dispersion_layered,
     )
 
@@ -13251,12 +13271,20 @@ def test_quadrupole_dispersion_layered_fast_formation_layer_eq_formation_finite_
     )
     assert isinstance(res, BoreholeMode)
     assert res.attenuation_per_meter is None  # bound mode
-    finite = np.isfinite(res.slowness)
-    assert finite.any()
-    # Bound regime: V in (V_R, V_S) where V_R ~= 0.92 V_S.
-    sl = res.slowness[finite]
-    assert np.all(sl > 1.0 / g["vs"] * 0.99)
-    assert np.all(sl < 1.0 / (g["vs"] * 0.85))
+    assert not np.any(np.isfinite(res.slowness)), (
+        "the cased n=2 determinant is noise-dominated here; returning a "
+        "root from it would be a lottery"
+    )
+
+    # the open hole on the same rock is unaffected
+    open_hole = quadrupole_dispersion(
+        f, vp=g["vp"], vs=g["vs"], rho=g["rho"], vf=g["vf"], rho_f=g["rho_f"], a=g["a"]
+    )
+    finite = np.isfinite(open_hole.slowness)
+    assert finite.all(), "the open-hole path still resolves the branch"
+    velocity = 1.0 / open_hole.slowness[finite]
+    assert np.all(velocity < g["vs"])
+    assert np.all(velocity > g["vf"])
 
 
 def test_quadrupole_dispersion_layered_fast_formation_N2_runs_smoke():
@@ -13508,8 +13536,9 @@ def test_flexural_dispersion_layered_fast_formation_layer_eq_formation_matches_u
 def test_flexural_dispersion_layered_fast_formation_N2_runs_smoke():
     """Multi-layer fast-formation smoke (casing + cement behind a
     fast limestone): the brentq-on-Im(det) path runs to completion
-    at N=2 and lands inside the ``(V_R, V_S)`` bound window where
-    it converges."""
+    at N=2 and lands inside the ``(V_f, V_S)`` bound window where
+    it converges. The window was written ``(V_R, V_S)`` before A.2 was
+    fixed; ``V_R`` is not a bound of this mode."""
     g = _typical_fast_formation_cased_n1_geometry()
     f = np.linspace(4000.0, 16000.0, 7)
     res = flexural_dispersion_layered(
@@ -13528,11 +13557,13 @@ def test_flexural_dispersion_layered_fast_formation_N2_runs_smoke():
     np.testing.assert_array_equal(res.freq, f)
     finite = np.isfinite(res.slowness)
     assert finite.any(), "expected at least one bound-regime root"
-    # Bound regime: phase velocity between the formation Rayleigh
-    # speed (~0.92 V_S) and V_S itself.
+    # Bound regime: phase velocity between V_f and V_S. The upper
+    # slowness bound used to be 1/(0.90 V_S), i.e. "not far below the
+    # Rayleigh speed" -- which is the A.2 assumption, not a property of
+    # the mode. The branch descends toward Scholte and passes V_R.
     sl = res.slowness[finite]
     assert np.all(sl > 1.0 / g["vs"] * 0.99)
-    assert np.all(sl < 1.0 / (g["vs"] * 0.90))
+    assert np.all(sl < 1.0 / g["vf"])
 
 
 def test_flexural_dispersion_layered_fast_formation_does_not_break_slow_formation():
@@ -13626,38 +13657,50 @@ def test_cased_flexural_slow_formation_covers_the_whole_band():
     assert coverage == 1.0
 
 
-def test_cased_flexural_fast_formation_is_sparse_and_high_frequency_only():
-    """A fast formation converges on well under half the band, high-f only."""
+def test_cased_flexural_fast_formation_covers_a_contiguous_middle_band():
+    """After the A.2 fix the coverage is a contiguous band, not a tail.
+
+    This test used to assert the *defect*: converged points only at the
+    top of the band, because the ``(V_R, V_S)`` window kept whatever
+    trapped mode happened to be inside it. With the window corrected to
+    ``(V_f, V_S)`` and the fundamental selected, coverage is the band
+    between the two crossings -- the mode is leaky below the ``V_R``
+    crossing and has passed ``V_f`` above it, and both ends return NaN
+    rather than a wrong branch.
+    """
     res = flexural_dispersion_layered(
         _A2_FREQ, **_A2_FAST, **_A2_BOREHOLE, layers=(_A2_CASING, _A2_CEMENT)
     )
     finite = np.isfinite(res.slowness)
-    assert 0.2 < finite.mean() < 0.6
-    # every converged point is in the upper part of the band -- the mode is
-    # lost going *down* in frequency, not scattered at random
-    assert _A2_FREQ[finite].min() > 4000.0
-    assert finite[-1]
+    assert finite.any()
+    idx = np.where(finite)[0]
+    assert np.array_equal(idx, np.arange(idx[0], idx[-1] + 1)), (
+        "coverage must be one contiguous band, not scattered"
+    )
+    velocity = 1.0 / res.slowness[finite]
+    assert np.all(np.diff(velocity) <= 0.0), "and monotonically descending"
 
 
-def test_the_sparsity_is_not_caused_by_the_casing():
-    """The open hole is just as sparse, which relocates the problem.
+def test_the_open_hole_and_cased_paths_agree_after_the_fix():
+    """The open hole used to be just as sparse, which is what relocated
+    A.2 from the layer stack to the fast-formation bracket.
 
-    If the layer stack were responsible, removing it would restore the low
-    frequencies. It does not: the identical formation in an *open* hole
-    fails over the same lower part of the band. Whatever fixes this lives
-    in the fast-formation flexural treatment, not in layered bracketing.
+    Both paths now share one marcher, so the point is stronger than
+    before: they cover the same band and neither is the sparse tail the
+    defect produced.
     """
     cased = flexural_dispersion_layered(
         _A2_FREQ, **_A2_FAST, **_A2_BOREHOLE, layers=(_A2_CASING, _A2_CEMENT)
     )
     open_hole = flexural_dispersion(_A2_FREQ, **_A2_FAST, **_A2_BOREHOLE)
 
-    open_finite = np.isfinite(open_hole.slowness)
-    assert open_finite.mean() < 0.6
-    # both lose the low end; the open hole is no better off
-    assert _A2_FREQ[open_finite].min() > 4000.0
-    assert not np.isfinite(cased.slowness[0])
-    assert not np.isfinite(open_hole.slowness[0])
+    for res in (cased, open_hole):
+        finite = np.isfinite(res.slowness)
+        assert finite.any()
+        idx = np.where(finite)[0]
+        assert np.array_equal(idx, np.arange(idx[0], idx[-1] + 1))
+        velocity = 1.0 / res.slowness[finite]
+        assert np.all(np.diff(velocity) <= 0.0)
 
 
 def test_converged_fast_formation_points_sit_below_the_shear_velocity():
@@ -13674,7 +13717,13 @@ def test_converged_fast_formation_points_sit_below_the_shear_velocity():
     velocity = 1.0 / res.slowness[finite]
     v_rayleigh = rayleigh_speed(_A2_FAST["vp"], _A2_FAST["vs"])
     assert np.all(velocity < _A2_FAST["vs"])
-    assert np.all(velocity > v_rayleigh)
+    # It used to be asserted that the branch stays above V_R. It does not,
+    # and that assumption is what A.2 turned out to be: the mode descends
+    # through V_R toward Scholte. The real floor is V_f.
+    assert np.all(velocity > _A2_BOREHOLE["vf"])
+    assert velocity.min() < v_rayleigh, (
+        "the branch must be seen to pass below V_R, or the fix is inactive"
+    )
     # and it is dispersive downward with frequency, not a flat artefact
     assert velocity[-1] < velocity[0]
 
@@ -13861,30 +13910,29 @@ def test_quadrupole_and_stoneley_share_the_high_frequency_limit():
     assert 1.0 / quad.slowness[0] == pytest.approx(1.0 / stoneley.slowness[0], rel=1e-4)
 
 
-def test_fast_formation_quadrupole_is_not_a_usable_curve():
-    """In a fast formation the returned values are not a guided mode.
+def test_fast_formation_quadrupole_is_now_a_usable_curve():
+    """In a fast formation the returned values are a guided mode again.
 
-    They are finite -- which is the hazard, since a caller filtering on
-    NaN keeps them -- but non-monotone, scattered between the Rayleigh and
-    shear speeds. A guided mode's phase velocity decreases with frequency;
-    this does not.
-
-    Pinned so that a future fix to the leaky-mode search shows up here as
-    a failure rather than passing unnoticed.
+    They used to be finite -- the hazard, since a caller filtering on
+    NaN keeps them -- but non-monotone, scattered between the Rayleigh
+    and shear speeds as successive overtones crossed the old window.
+    With the window corrected to ``(V_f, V_S)`` and the fundamental
+    selected, phase velocity descends monotonically, and every value
+    sits below ``V_R`` where the old bracket could not reach.
     """
     from fwap import quadrupole_dispersion
 
     frequencies = np.array([10.0e3, 15.0e3, 20.0e3, 30.0e3, 60.0e3, 100.0e3])
     result = quadrupole_dispersion(frequencies, **_QUAD_FAST, **_QUAD_FLUID, a=0.10)
     finite = np.isfinite(result.slowness)
-    assert finite.sum() >= 4  # finite, so NaN-filtering does not catch it
+    assert finite.sum() >= 4
 
     velocity = 1.0 / result.slowness[finite]
-    assert not np.all(np.diff(velocity) <= 0.0)  # not a dispersion curve
+    assert _descends(velocity), f"not monotone: {velocity}"
 
     v_rayleigh = rayleigh_speed(_QUAD_FAST["vp"], _QUAD_FAST["vs"])
-    assert np.all(velocity > 0.99 * v_rayleigh)
-    assert np.all(velocity < 1.10 * _QUAD_FAST["vs"])
+    assert np.all(velocity < v_rayleigh)
+    assert np.all(velocity > _QUAD_FLUID["vf"])
 
 
 def test_slow_formation_quadrupole_is_a_usable_curve():
@@ -16865,6 +16913,20 @@ def test_microannulus_stable_root_filter_drops_grid_dependent_roots():
 # rocks. See roadmap A.2.
 # ----------------------------------------------------------------------
 
+#: The fast-formation marcher accepts a root up to
+#: ``_FAST_FLEXURAL_STEP_UP`` (5e-4) above the previous one, absorbing
+#: brentq jitter without admitting a faster branch. Monotonicity is
+#: therefore asserted to that tolerance, not to exact equality.
+_MARCHER_STEP_UP_SLACK = 1.0e-3
+
+
+def _descends(velocity: np.ndarray) -> bool:
+    """True if ``velocity`` never rises by more than the marcher's slack."""
+    if velocity.size < 2:
+        return True
+    return bool(np.all(np.diff(velocity) <= velocity[:-1] * _MARCHER_STEP_UP_SLACK))
+
+
 _A2_ROCK = dict(vp=4000.0, vs=2300.0, rho=2500.0)
 _A2_FLUID = dict(vf=1500.0, rho_f=1000.0)
 
@@ -16885,19 +16947,16 @@ def test_fast_flexural_bracket_excludes_the_modes_own_asymptote():
     assert (v_rayleigh - v_scholte) / v_rayleigh > 0.25
 
 
-def test_fast_flexural_returns_an_overtone_above_the_crossing():
-    """The defect A.2 was filed under is two defects, and this is the
-    second: a wrong answer, not a missing one.
+def test_fast_flexural_returns_the_fundamental_above_the_crossing():
+    """A.2 fixed, at the single frequency that named the defect.
 
-    At 19.5 kHz the determinant has roots at ~1853 and ~2269 m/s. The
-    fundamental is 1853 -- it continues from 2138 m/s at 14.5 kHz, inside
-    the band where the current bracket works and only one root exists.
-    The solver returns ~2269, which is the first overtone, because that is
-    what its `(V_R, V_S)` window happens to contain.
-
-    Asserted loosely on purpose: what is pinned is that the returned value
-    sits far *above* the fundamental, not the exact overtone value, so a
-    fix shows up here as a failure rather than passing unnoticed.
+    This test used to assert the wrong answer: at 19.5 kHz the
+    determinant has roots near 1853 and 2269 m/s, the fundamental is
+    1853, and the solver returned ~2269 because that is what its
+    ``(V_R, V_S)`` window happened to contain. With the window
+    corrected to ``(V_f, V_S)`` and the fundamental selected, the call
+    returns **1853 m/s** -- the value the old test named as the one
+    being missed.
     """
     from fwap import flexural_dispersion
 
@@ -16905,29 +16964,25 @@ def test_fast_flexural_returns_an_overtone_above_the_crossing():
     velocity = 1.0 / result.slowness[0]
 
     assert np.isfinite(velocity)
-    assert velocity > 2200.0, "still returning a root from the V_R..V_S window"
-    # The fundamental is near 1853 m/s; being 20 % above it is the defect.
-    assert velocity / 1853.0 > 1.15
+    assert velocity == pytest.approx(1853.0, rel=0.01)
+    v_rayleigh = rayleigh_speed(_A2_ROCK["vp"], _A2_ROCK["vs"])
+    assert velocity < v_rayleigh, (
+        "the fundamental is below V_R here, which the old bracket could "
+        "not represent at all"
+    )
 
 
-def test_fast_flexural_returns_a_sawtooth_not_a_dispersion_curve():
-    """The clearest statement of the defect, and the one a caller would
-    notice: what comes back is stitched from several modes.
+def test_fast_flexural_returns_a_curve_not_a_sawtooth():
+    """The clearest statement of A.2, now inverted into its fix.
 
-    Over 10-30 kHz the returned velocity descends 2295 -> 2162, goes NaN
-    for four steps, **jumps back up** to 2283, descends to 2145, goes NaN
-    again, and jumps to 2275. Each overtone enters the `(V_R, V_S)` window
-    near V_S, crosses it, drops out below V_R, and the next one takes
-    over.
+    Over 10-30 kHz the returned velocity used to descend, go NaN, jump
+    **back up** by more than 100 m/s, descend again, and repeat -- each
+    overtone entering the ``(V_R, V_S)`` window near ``V_S``, crossing
+    it, and dropping out below ``V_R``. A guided mode's phase velocity
+    never increases with frequency, so what came back was not a curve.
 
-    A guided mode's phase velocity decreases with frequency. It never
-    jumps up. So this is not a sparse curve with gaps -- it is not a
-    curve. The NaN gaps are the least of it: a caller who interpolates
-    across them gets a plausible-looking result assembled from different
-    modes.
-
-    This is the same failure the `n=2` block above records, with the
-    mechanism now identified for `n=1`.
+    It is now one branch: contiguous coverage, monotone descent, no
+    upward step anywhere.
     """
     from fwap import flexural_dispersion
 
@@ -16936,9 +16991,3597 @@ def test_fast_flexural_returns_a_sawtooth_not_a_dispersion_curve():
     velocity = 1.0 / result.slowness
     finite = np.isfinite(velocity)
 
-    assert finite[:5].all(), "below the crossing the mode is found"
-    assert not finite.all(), "the window empties between overtones"
-
+    assert finite.any(), "the mode is found over part of this band"
+    idx = np.where(finite)[0]
+    assert np.array_equal(idx, np.arange(idx[0], idx[-1] + 1)), (
+        "coverage is one contiguous run, not stitched from several modes"
+    )
     steps = np.diff(velocity[finite])
-    assert (steps > 0.0).any(), "a guided mode never speeds up with frequency"
-    assert steps.max() > 100.0, "the jump is a mode change, not numerical noise"
+    assert np.all(steps <= 0.0), f"phase velocity never increases; got {steps}"
+
+
+# ----------------------------------------------------------------------
+# A.2, checked against a published curve
+#
+# Everything above is internal reasoning: the bracket is anchored to the
+# wrong speed, so the roots it returns are overtones. That argument stands
+# on fwap's own determinant. Schmitt & Cheng figure 2a plots the
+# same quantity for a stated rock, so it can be checked from outside.
+#
+# Provenance. Schmitt, D. P., & Cheng, C. H., "Shear Wave Logging In
+# (Multilayered) Elastic Formations: An Overview", MIT Earth Resources
+# Laboratory, pp. 213-268 -- *not* the single-author JASA article this
+# repository cites elsewhere. Figure 2a is on p. 239 of the bound volume.
+# "Dipole source. Dispersion (a), attenuation (b), and excitation
+# (c) of the flexural mode (1) and the first trapped mode (2) in the
+# presence of a fast sandstone. The velocities are normalized with respect
+# to the bore fluid velocity." Rock from the paper's table 1 (fast
+# sandstone): V_P 4878, V_S 2601, rho 2160; bore fluid 1500 m/s, 1000
+# kg/m^3; hole radius 0.10 m.
+#
+# Digitisation. The page was rendered at 600 dpi, the plot frame located
+# from the axis rules, and the phase branch of curve 1 followed column by
+# column. The 26 x-axis ticks land on integer kHz to within 0.06 kHz and
+# the 1.400 / 1.000 y-ticks read 1.3978 / 0.9981, so axis calibration
+# contributes about +-3 m/s. The plotted curve is 9-12 px thick, which
+# dominates: the table below is good to roughly +-20 m/s, or +-1 %.
+#
+# Two things the figure settles that fwap could not settle by itself:
+#
+#   * the low-frequency plateau is the formation shear speed (2593 read,
+#     2601 exact) -- as expected, and confirmation the digitisation is
+#     sound;
+#   * the high-frequency end is the Scholte speed (1493 at 24.9 kHz and
+#     still descending, against 1484 exact) -- which is A.1's claim,
+#     until now resting only on fwap's own convergence.
+#
+# And the number this block exists for: the branch crosses V_R at
+# 4.45 kHz and V_f at 17.9 kHz. The solver's `(V_R, V_S)` window
+# therefore holds the true root over 10 % of the plotted band and no
+# root-finder tolerance can recover the rest.
+# ----------------------------------------------------------------------
+
+_FIG2_ROCK = dict(vp=4878.0, vs=2601.0, rho=2160.0)
+_FIG2_FLUID = dict(vf=1500.0, rho_f=1000.0)
+
+#: Phase velocity (Hz, m/s) of the flexural mode, digitised from
+#: Schmitt & Cheng figure 2a. Uncertainty about +-20 m/s.
+_FIG2A_FLEXURAL_PHASE = (
+    (2.5e3, 2593.3),
+    (3.0e3, 2595.5),
+    (4.0e3, 2534.2),
+    (5.0e3, 2175.4),
+    (6.0e3, 1889.3),
+    (8.0e3, 1663.8),
+    (10.0e3, 1579.0),
+    (12.5e3, 1535.8),
+    (15.0e3, 1517.7),
+    (17.5e3, 1504.0),
+    (20.0e3, 1495.0),
+    (22.5e3, 1495.0),
+    (24.5e3, 1492.7),
+)
+
+
+def test_figure_2a_reference_table_is_anchored_at_both_ends():
+    """Check the digitisation before trusting it to judge the solver.
+
+    Both ends of the published curve are values that can be computed
+    independently, so they are the two places a mis-read axis would show
+    up. The low-frequency plateau must be the formation shear speed and
+    the high-frequency end must be approaching the Scholte speed from
+    above -- and the two are 1117 m/s apart, so neither is a weak test.
+    """
+    from fwap import scholte_speed
+
+    freq = np.array([f for f, _ in _FIG2A_FLEXURAL_PHASE])
+    velocity = np.array([v for _, v in _FIG2A_FLEXURAL_PHASE])
+    v_scholte = scholte_speed(**_FIG2_ROCK, **_FIG2_FLUID)
+
+    assert velocity[0] / _FIG2_ROCK["vs"] == pytest.approx(1.0, abs=0.01)
+    assert velocity[-1] / v_scholte == pytest.approx(1.0, abs=0.015)
+    assert velocity[-1] > v_scholte, "the curve is still descending at 24.5 kHz"
+    # Monotone to within the +-20 m/s tracing uncertainty: the 2.5 -> 3.0 kHz
+    # pair rises 2.2 m/s, which is the flat plateau read twice, not an ascent.
+    assert np.diff(velocity).max() < 20.0, "phase velocity does not increase here"
+    assert freq[0] < 3.0e3 < freq[-1]
+
+
+def test_fast_flexural_matches_the_published_curve():
+    """The published check of A.2, now the published check of its fix.
+
+    On the paper's own rock the solver used to answer at 5 of the 13
+    tabulated frequencies, every one between ``V_R`` and ``V_S`` and
+    every one 62-73 % faster than the figure. It now answers over
+    5.0-15.0 kHz -- the band between the ``V_R`` and ``V_f`` crossings --
+    at **0.78 % median error**, which is the digitisation floor of the
+    figure (about +-1 %).
+
+    Outside that band it returns NaN rather than a guess: below the
+    ``V_R`` crossing the mode is leaky and has no real-``k_z`` root at
+    all, and above the ``V_f`` crossing it has left this regime.
+    """
+    from fwap import flexural_dispersion
+
+    freq = np.array([f for f, _ in _FIG2A_FLEXURAL_PHASE])
+    reference = np.array([v for _, v in _FIG2A_FLEXURAL_PHASE])
+    velocity = (
+        1.0 / flexural_dispersion(freq, **_FIG2_ROCK, **_FIG2_FLUID, a=0.10).slowness
+    )
+    finite = np.isfinite(velocity)
+
+    assert finite.sum() >= 6, f"expected the middle band; got {finite.sum()}"
+    assert np.all(velocity[finite] < _FIG2_ROCK["vs"])
+    assert np.all(velocity[finite] > _FIG2_FLUID["vf"])
+
+    error = np.abs((velocity[finite] - reference[finite]) / reference[finite])
+    assert np.median(error) < 0.015, f"median {np.median(error):.2%}"
+    assert error.max() < 0.03, f"worst {error.max():.2%}"
+
+    # and the answers are where the old bracket could not reach
+    v_rayleigh = rayleigh_speed(_FIG2_ROCK["vp"], _FIG2_ROCK["vs"])
+    assert np.all(velocity[finite] < v_rayleigh)
+
+
+# ----------------------------------------------------------------------
+# A.2, generalised: figure 7a puts three fast formations on one axis
+#
+# Figure 2a settles the fast sandstone. Figure 7a of the same report
+# (p. 244) plots the flexural mode for **granite (1), limestone (2) and
+# the fast sandstone (3)** together, 0-15 kHz, so the defect can be
+# measured against formation stiffness rather than at one rock.
+#
+# Digitised the same way, at 600 dpi, with the axes least-squares fitted
+# to the tick marks rather than to the frame rules: 15 x-ticks residual
+# to 0.018 kHz, 4 y-ticks residual to 0.0004 normalised (0.5 m/s). Axis
+# calibration is negligible here; the line thickness still dominates.
+#
+# Three results, and the second is the one worth having.
+#
+#   1. All three plateaus land on the formation shear speed: 3749.6,
+#      2768.7, 2597.7 against 3750, 2771, 2601. Three anchors, not one.
+#
+#   2. All three cross V_R at **4.43-4.45 kHz** -- although V_R spans
+#      2413 to 3388 m/s and V_S spans 2601 to 3750. The frequency at
+#      which the solver's bracket stops containing the mode is set by
+#      the hole and the fluid, not by the rock. Figure 2a gave 4.45 kHz
+#      for the sandstone independently, so that is four consistent
+#      readings. Note this is *not* because the curves are self-similar
+#      in v/V_S -- at 5 kHz they read 0.690, 0.818, 0.838 -- so two
+#      things vary and happen to cancel. Measured, not explained.
+#
+#   3. The error grows with stiffness: median +62 % (sandstone), +72 %
+#      (limestone), +134 % (granite), because the (V_R, V_S) window
+#      rides further above the true curve the faster the rock. The
+#      defect is worst exactly where dipole logging most needs it.
+#
+# Resolution limit, stated because the tables below stop where it bites:
+# limestone and sandstone become one plotted line at 5.75 kHz, and
+# granite joins them at 10.25 kHz. Past those points a column trace
+# reports the band centre, not a curve. Tabulated only where resolved.
+# ----------------------------------------------------------------------
+
+_FIG7_ROCKS = {
+    "granite": dict(vp=5881.0, vs=3750.0, rho=2160.0),
+    "limestone": dict(vp=5081.0, vs=2771.0, rho=2160.0),
+}
+
+#: Phase velocity (Hz, m/s) of the flexural mode, digitised from
+#: Schmitt & Cheng figure 7a, over the band where each curve is a
+#: separate line. Uncertainty about +-20 m/s.
+_FIG7A_FLEXURAL_PHASE = {
+    "granite": (
+        (3.0e3, 3752.9),
+        (3.5e3, 3752.9),
+        (4.0e3, 3723.2),
+        (4.25e3, 3616.1),
+        (4.5e3, 3309.3),
+        (4.75e3, 2857.8),
+        (5.0e3, 2588.4),
+        (5.5e3, 2234.7),
+        (6.0e3, 2043.8),
+        (7.0e3, 1843.3),
+        (8.0e3, 1739.1),
+        (9.0e3, 1672.3),
+        (10.0e3, 1618.6),
+    ),
+    "limestone": (
+        (2.5e3, 2766.2),
+        (3.0e3, 2750.3),
+        (3.5e3, 2762.2),
+        (4.0e3, 2719.6),
+        (4.25e3, 2638.7),
+        (4.5e3, 2531.2),
+        (4.75e3, 2394.4),
+        (5.0e3, 2266.9),
+        (5.5e3, 2052.2),
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_FIG7_ROCKS))
+def test_figure_7a_tables_start_at_the_formation_shear_speed(name):
+    """Anchor each figure-7a table before it judges anything.
+
+    Two independently computable values bracket every one of these
+    curves -- the shear speed it leaves and the Scholte speed it heads
+    for -- and the low-frequency end is the one the table reaches. Three
+    rocks spanning 2601-3750 m/s all hitting their own V_S is a much
+    stronger check on the digitisation than one rock doing it.
+    """
+    rock = _FIG7_ROCKS[name]
+    table = _FIG7A_FLEXURAL_PHASE[name]
+    velocity = np.array([v for _, v in table])
+
+    assert velocity[0] / rock["vs"] == pytest.approx(1.0, abs=0.01)
+    assert np.diff(velocity).max() < 20.0, "phase velocity does not increase"
+    assert velocity[-1] < 0.75 * rock["vs"], "the table must cover the plunge"
+
+
+@pytest.mark.parametrize("name", sorted(_FIG7_ROCKS))
+def test_the_bracket_empties_near_4_4_khz_whatever_the_formation(name):
+    """The sharpest statement of A.2's first defect.
+
+    `_flexural_dispersion_fast_formation` searches phase velocity in
+    `(V_R, V_S)`. Figure 7a shows all three formations leaving that
+    window between 4.43 and 4.45 kHz, though V_R spans 2413 to 3388 m/s.
+    So the bracket does not fail at a rock-dependent frequency that a
+    caller could reason about -- it fails at the same place for every
+    fast formation, because what sets it is the hole and the fluid.
+    """
+    from fwap.cylindrical import rayleigh_speed
+
+    rock = _FIG7_ROCKS[name]
+    table = _FIG7A_FLEXURAL_PHASE[name]
+    freq = np.array([f for f, _ in table])
+    velocity = np.array([v for _, v in table])
+    v_rayleigh = rayleigh_speed(rock["vp"], rock["vs"])
+
+    assert velocity[0] > v_rayleigh > velocity[-1], "the table must span V_R"
+    crossing = np.interp(-v_rayleigh, -velocity, freq)
+    assert 4.3e3 < crossing < 4.6e3, f"{name} leaves the bracket at {crossing:.0f} Hz"
+
+
+@pytest.mark.parametrize("name", sorted(_FIG7_ROCKS))
+def test_the_solver_now_answers_over_the_band_figure_7a_resolves(name):
+    """Where the figure is most informative, the solver used to say
+    nothing -- and for granite, nothing at all.
+
+    Over the tabulated band `flexural_dispersion` returned NaN at every
+    frequency above the 4.45 kHz crossing for both rocks, and at **all
+    13** for granite. It now answers over most of each band, at the
+    digitisation floor: 1.03 % median for limestone, 0.87 % for granite.
+    """
+    from fwap import flexural_dispersion
+
+    rock = _FIG7_ROCKS[name]
+    table = _FIG7A_FLEXURAL_PHASE[name]
+    freq = np.array([f for f, _ in table])
+    reference = np.array([v for _, v in table])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    velocity = 1.0 / flexural_dispersion(freq, **rock, **fluid, a=0.10).slowness
+    finite = np.isfinite(velocity)
+
+    assert finite.any(), f"{name}: still empty"
+    assert finite[freq > 4.6e3].any(), "answers survive above the crossing now"
+    error = np.abs((velocity[finite] - reference[finite]) / reference[finite])
+    assert np.median(error) < 0.02, f"{name}: median {np.median(error):.2%}"
+    if name == "granite":
+        assert finite.sum() >= 8, "granite was empty across the whole band"
+
+
+#: Centre of the single line the three figure-7a curves have collapsed
+#: into by 11 kHz (Hz, m/s). Not a per-rock reading -- the band is about
+#: 30 m/s wide there, so treat these as +-2 %.
+_FIG7A_MERGED_BAND = (
+    (11.0e3, 1581.0),
+    (11.5e3, 1577.0),
+    (12.0e3, 1569.0),
+    (12.5e3, 1565.0),
+    (13.0e3, 1557.0),
+)
+
+
+def test_fast_flexural_error_no_longer_grows_with_formation_stiffness():
+    """The reason figure 7a was worth digitising as well as figure 2a,
+    and the sharpest single measure of the fix.
+
+    At 11-13 kHz all three published curves have converged to one line
+    near 1570 m/s. The solver used to read about 2700 m/s in limestone
+    and 3650 in granite -- **+69 % and +124 %** -- because the
+    ``(V_R, V_S)`` window rides further above the true curve the faster
+    the rock. So the defect was worst exactly where dipole logging most
+    needs the answer.
+
+    All three rocks now land on the merged line within the +-2 % reading
+    uncertainty of that band, and the stiffness ordering is gone:
+    granite is now the *closest*, not the worst.
+    """
+    from fwap import flexural_dispersion
+
+    freq = np.array([f for f, _ in _FIG7A_MERGED_BAND])
+    reference = np.array([v for _, v in _FIG7A_MERGED_BAND])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+
+    error = {}
+    for name, rock in _FIG7_ROCKS.items():
+        velocity = 1.0 / flexural_dispersion(freq, **rock, **fluid, a=0.10).slowness
+        assert np.isfinite(velocity).all(), f"{name}: expected full coverage here"
+        error[name] = np.abs((velocity - reference) / reference)
+
+    for name, err in error.items():
+        assert err.max() < 0.03, f"{name}: worst {err.max():.2%}"
+    assert error["granite"].max() < 0.02
+
+
+def test_the_two_figures_agree_where_both_resolve_the_same_rock():
+    """A check on the digitisation that owes nothing to fwap.
+
+    The fast sandstone is plotted twice in the same report, on different
+    pages, with different axis ranges -- figure 2a spans 0.600-1.800
+    over 0-25 kHz, figure 7a spans 0.500-2.600 over 0-15 kHz. Two
+    independent calibrations of the same physical curve.
+
+    Below 5.75 kHz, where figure 7a still draws the sandstone as its own
+    line, the two reads agree to better than 0.5 %. Above it the
+    sandstone and limestone curves become one line in figure 7a, which
+    is why nothing from that region is tabulated.
+    """
+    fig2 = {f: v for f, v in _FIG2A_FLEXURAL_PHASE if f <= 5.5e3}
+    assert fig2, "figure 2a must sample the band figure 7a resolves"
+
+    # Figure 7a, fast sandstone, read at figure 2a's own frequencies.
+    fig7_sandstone = {3.0e3: 2589.5, 4.0e3: 2535.1, 5.0e3: 2179.3}
+    for freq, v7 in fig7_sandstone.items():
+        v2 = fig2[freq]
+        assert v7 / v2 == pytest.approx(1.0, abs=0.005), (
+            f"the two figures disagree at {freq / 1e3:.0f} kHz: {v2} vs {v7}"
+        )
+
+
+# ----------------------------------------------------------------------
+# A.2 at n = 2: figure 7b, the claim this file has been asserting
+#
+# The roadmap has said "affects n=2 identically, so one fix repairs two
+# solvers" since the item was re-diagnosed, on the strength of a
+# non-monotone scatter between V_R and V_S. Figure 7b plots the screw
+# (quadrupole) mode for the same three formations over 4-20 kHz, so the
+# claim can be checked rather than asserted.
+#
+# It holds, with one difference that makes n=2 the more dangerous of the
+# two. Measured over each rock's plotted band at 0.2 kHz:
+#
+#   rock       coverage   within 5 %   the rest
+#   granite      75 %      1 point     +5 % to +136 %, median +102 %
+#   limestone    66 %      none        +11 % to +66 %, median  +57 %
+#   sandstone    65 %      none        +13 % to +56 %, median  +46 %
+#
+# Every finite value again lies strictly inside (V_R, V_S) -- in fact
+# the returned values sweep that window end to end (3389-3750,
+# 2565-2771, 2413-2601). Same stiffness ordering as n=1.
+#
+# The difference: coverage is **65-75 % here against 21-36 % at n=1**.
+# A caller who filters on NaN therefore keeps two to three times as many
+# wrong answers from the quadrupole solver as from the flexural one.
+#
+# And the bracket empties at a mode-specific, rock-independent
+# frequency: 7.53 / 7.61 / 7.69 kHz here, against 4.45 / 4.43 / 4.43 kHz
+# for the flexural mode, while V_R spans 2413 to 3388 m/s in both.
+# ----------------------------------------------------------------------
+
+#: Screw (quadrupole) phase velocity (Hz, m/s) from figure 7b, over the
+#: band where each curve is a separate line. Uncertainty about +-20 m/s.
+_FIG7B_SCREW_PHASE = {
+    "granite": (
+        (6.9e3, 3771.5),
+        (7.0e3, 3751.7),
+        (7.5e3, 3417.1),
+        (8.0e3, 2896.5),
+        (9.0e3, 2342.4),
+        (10.0e3, 2068.0),
+        (12.0e3, 1829.2),
+        (14.0e3, 1718.1),
+    ),
+    "limestone": (
+        (6.6e3, 2774.6),
+        (7.0e3, 2727.1),
+        (7.5e3, 2607.9),
+        (8.0e3, 2440.5),
+        (9.0e3, 2148.0),
+        (9.5e3, 2037.8),
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_FIG7B_SCREW_PHASE))
+def test_the_quadrupole_bracket_empties_near_7_6_khz(name):
+    """The `n=2` half of A.2, checked instead of asserted.
+
+    Same shape as the flexural result and the same rock-independence:
+    all three formations leave `(V_R, V_S)` between 7.53 and 7.69 kHz.
+    The emptying frequency is a property of the mode and the hole, not
+    of the formation -- 4.4 kHz at `n=1`, 7.6 kHz at `n=2`.
+    """
+    from fwap.cylindrical import rayleigh_speed
+
+    rock = _FIG7_ROCKS[name]
+    table = _FIG7B_SCREW_PHASE[name]
+    freq = np.array([f for f, _ in table])
+    velocity = np.array([v for _, v in table])
+    v_rayleigh = rayleigh_speed(rock["vp"], rock["vs"])
+
+    assert velocity[0] / rock["vs"] == pytest.approx(1.0, abs=0.01)
+    assert np.diff(velocity).max() < 20.0
+    assert velocity[0] > v_rayleigh > velocity[-1], "the table must span V_R"
+    crossing = np.interp(-v_rayleigh, -velocity, freq)
+    assert 7.4e3 < crossing < 7.8e3, f"{name} leaves the bracket at {crossing:.0f} Hz"
+
+
+@pytest.mark.parametrize("name", sorted(_FIG7B_SCREW_PHASE))
+def test_the_quadrupole_branch_is_corrected_but_still_arrives_late(name):
+    """What the A.2 fix does and does not buy at `n=2`, open hole.
+
+    `quadrupole_dispersion` used to hand back 65-75 % coverage of
+    overtones from the `(V_R, V_S)` window, tens of percent fast, which
+    made a `NaN` filter a *worse* guard at `n=2` than at `n=1`. The
+    branch is now the fundamental and descends monotonically below
+    `V_R`.
+
+    The residual is rock-dependent and is not the bracket: granite
+    lands on the published screw curve at about 1.6 % median, while
+    limestone carries a near-cutoff frequency offset -- the separate
+    onset defect figures 6 and 11 measured at 1.5-2.0 kHz, which this
+    fix does not touch.
+    """
+    from fwap import quadrupole_dispersion
+
+    rock = _FIG7_ROCKS[name]
+    table = _FIG7B_SCREW_PHASE[name]
+    ref_f = np.array([f for f, _ in table])
+    ref_v = np.array([v for _, v in table])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+
+    grid = np.arange(7.9e3, ref_f[-1] + 1.0, 100.0)
+    screw = 1.0 / quadrupole_dispersion(grid, **rock, **fluid, a=0.10).slowness
+    finite = np.isfinite(screw)
+    assert finite.sum() >= 3
+
+    assert np.all(screw[finite] < rock["vs"])
+    assert np.all(screw[finite] > fluid["vf"])
+    assert _descends(screw[finite]), "one descending branch"
+
+    error = np.abs(screw[finite] / np.interp(grid[finite], ref_f, ref_v) - 1.0)
+    ceiling = {"granite": 0.04, "limestone": 0.14}[name]
+    assert np.median(error) < ceiling, f"{name}: median {100 * np.median(error):.1f} %"
+
+
+# ----------------------------------------------------------------------
+# Figure 8a: the slow formation, where the solvers are supposed to work
+#
+# Everything above measures a defect. Figure 8a (p. 245) is the other
+# kind of check: "Slow sandstone. Dispersion and attenuation of the
+# Stoneley wave (0), the flexural (1) and screw (2) modes excited by a
+# monopole, dipole, and quadrupole source respectively." One panel,
+# three published curves, three fwap solvers, on the path this project
+# has always claimed works -- and never checked against anything but
+# itself.
+#
+# The rock is table 1's slow sandstone: V_P 2751, V_S 1201, rho 2100,
+# with the same 1500 m/s / 1000 kg/m^3 bore fluid.
+#
+# A note on the axis, because the scan is ambiguous and a careless read
+# costs 0.5 %. The y labels print as 0.850 / 0.783 / 0.71? / 0.650, and
+# the third glyph degrades to something like "0.713". It is 0.71667: the
+# four tick rows are evenly spaced (393.5, 395.0, 396.5 px), and fitting
+# the evenly divided values gives a residual of +-0.00013 against
+# +-0.0026 for the literal reading -- twenty times worse and structured.
+# The same package prints 0.667 and 0.783 for an evenly divided
+# 0.550-0.900 axis in the neighbouring panel.
+#
+# Three curves resolve as three *disjoint* connected components, so no
+# branch tracking was needed here; the median ink row per column is the
+# curve. The narrow 0.650-0.850 axis also makes this the most precise of
+# the four figures: the plotted line is worth about +-3 m/s, or +-0.3 %.
+#
+# Results, over 0.1-14.9 kHz at 0.25 kHz:
+#
+#   Stoneley   59/59 finite,  rms 0.04 %,  worst 0.08 %
+#   flexural   49/55 finite,  rms 1.29 %,  worst -1.84 % at 5.2 kHz
+#   screw      38/44 finite,  rms 0.94 %,  worst -0.56 %  (+3.1 % near
+#                                                          the cutoff)
+#
+# The Stoneley agreement is *below the resolution of the figure*: fwap
+# and the published curve cannot be told apart. That is this project's
+# first external tie for `stoneley_dispersion`, and it is 60x inside the
+# 5 % overlay budget A.1 set for digitised figures.
+#
+# The flexural number is not at the resolution limit. It is a real,
+# small, systematic offset -- zero near 3.3 kHz, -1.8 % at 5-6 kHz,
+# recovering to -0.8 % by 14 kHz -- and the Stoneley curve on the same
+# panel, read with the same calibration, bounds the reading error at
+# 0.08 %. It is not the borehole radius either (see the radius test).
+# One candidate is that the paper's model is viscoelastic where fwap's
+# open-hole solvers are elastic: table 1 carries Q_alpha and Q_beta, and
+# figure 8's own attenuation panel gives all three modes 1/Q ~ 0.02. But
+# that should move the Stoneley too, and it does not, so the candidate
+# is not confirmed. Recorded as measured and unexplained.
+# ----------------------------------------------------------------------
+
+_FIG8_ROCK = dict(vp=2751.0, vs=1201.0, rho=2100.0)
+
+#: Phase velocity (Hz, m/s) of the three modes in the slow sandstone,
+#: digitised from Schmitt & Cheng figure 8a. About +-3 m/s.
+_FIG8A_PHASE = {
+    "stoneley": (
+        (0.5e3, 1126.5),
+        (1.5e3, 1100.3),
+        (2.0e3, 1091.1),
+        (3.0e3, 1076.7),
+        (4.0e3, 1066.8),
+        (5.0e3, 1059.6),
+        (6.0e3, 1053.9),
+        (8.0e3, 1046.3),
+        (10.0e3, 1041.0),
+        (12.0e3, 1037.2),
+        (14.0e3, 1034.9),
+    ),
+    "flexural": (
+        (3.0e3, 1163.0),
+        (4.0e3, 1126.8),
+        (5.0e3, 1099.5),
+        (6.0e3, 1081.3),
+        (8.0e3, 1061.5),
+        (10.0e3, 1050.9),
+        (12.0e3, 1044.8),
+        (14.0e3, 1040.5),
+    ),
+    "screw": (
+        (6.0e3, 1143.2),
+        (8.0e3, 1104.8),
+        (10.0e3, 1081.3),
+        (12.0e3, 1066.8),
+        (14.0e3, 1057.3),
+    ),
+}
+
+#: Where each published curve begins, and the value it begins at (kHz,
+#: m/s). The Stoneley exists at all frequencies; the two shear modes
+#: start at the formation shear speed.
+_FIG8A_ONSET = {
+    "stoneley": (0.078, 1135.6),
+    "flexural": (1.04, 1201.4),
+    "screw": (3.74, 1201.4),
+}
+
+
+def test_figure_8a_is_anchored_on_three_closed_forms():
+    """Three independent anchors, none of which needs a solver.
+
+    The Stoneley's low-frequency limit is the tube-wave speed, which is
+    a one-line formula, and both shear modes leave the axis at the
+    formation shear speed. All three land, so the axis calibration --
+    including the ambiguous 0.71667 label -- is sound.
+    """
+    from fwap import tube_wave_speed
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    v_tube = tube_wave_speed(_FIG8_ROCK["vs"], _FIG8_ROCK["rho"], **fluid)
+
+    assert _FIG8A_ONSET["stoneley"][1] / v_tube == pytest.approx(1.0, abs=0.005)
+    for mode in ("flexural", "screw"):
+        assert _FIG8A_ONSET[mode][1] / _FIG8_ROCK["vs"] == pytest.approx(1.0, abs=0.005)
+
+
+def test_stoneley_matches_the_published_slow_formation_curve():
+    """The validation this project has been missing.
+
+    `stoneley_dispersion` against figure 8a over 0.5-14 kHz: every point
+    finite, every point inside 0.1 %. The plotted line is worth about
+    0.3 %, so this is agreement below what the figure can resolve --
+    the first time any fwap solver has been tied to published data at
+    better than 1 %.
+    """
+    from fwap import stoneley_dispersion
+
+    table = _FIG8A_PHASE["stoneley"]
+    freq = np.array([f for f, _ in table])
+    reference = np.array([v for _, v in table])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    velocity = 1.0 / stoneley_dispersion(freq, **_FIG8_ROCK, **fluid, a=0.10).slowness
+
+    assert np.isfinite(velocity).all(), "the slow-formation Stoneley never drops out"
+    error = np.abs(velocity / reference - 1.0)
+    assert error.max() < 0.005, f"worst point {100 * error.max():.2f} %"
+    assert np.sqrt((error**2).mean()) < 0.002
+
+
+def test_the_stoneley_curve_pins_the_borehole_radius():
+    """Why every figure-8a comparison may assume `a` = 0.10 m.
+
+    The paper's table 1 gives velocities and densities but no hole
+    radius, so 0.10 m is an assumption -- and one the rest of this block
+    leans on. The Stoneley curve settles it: its RMS misfit is 0.05 % at
+    0.100 m and degrades either side (0.13 % at 0.095, 0.14 % at 0.105).
+    The flexural offset recorded above is therefore not a radius error;
+    at the radius the Stoneley pins, the flexural mode is still 1.2 %
+    slow, and no radius makes it better than about 1 %.
+    """
+    from fwap import stoneley_dispersion
+
+    table = _FIG8A_PHASE["stoneley"]
+    freq = np.array([f for f, _ in table])
+    reference = np.array([v for _, v in table])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+
+    def rms(a):
+        v = 1.0 / stoneley_dispersion(freq, **_FIG8_ROCK, **fluid, a=a).slowness
+        return float(np.sqrt(((v / reference - 1.0) ** 2).mean()))
+
+    radii = [0.090, 0.095, 0.100, 0.105, 0.110]
+    scores = [rms(a) for a in radii]
+    assert radii[int(np.argmin(scores))] == 0.100, dict(zip(radii, scores))
+    assert scores[2] < 0.5 * min(scores[1], scores[3]), "the minimum must be sharp"
+
+
+@pytest.mark.parametrize("mode", ["flexural", "screw"])
+def test_both_shear_solvers_lose_the_same_1_5_khz_above_cutoff(mode):
+    """The same near-cutoff gap at `n=1` and `n=2`, and it is one width.
+
+    In the slow sandstone the published flexural curve starts at
+    1.04 kHz and fwap's first root is at 2.52; the screw curve starts at
+    3.74 and fwap's first root is at 5.26. **1.48 and 1.52 kHz** -- the
+    same gap for two modes whose cutoffs are 2.7 kHz apart, which makes
+    it another quantity set by the hole rather than by the mode.
+
+    Above the gap both solvers are continuous. This is the benign form
+    of the same near-cutoff failure that swallows the whole band in fast
+    formations (A.2).
+    """
+    from fwap import flexural_dispersion, quadrupole_dispersion
+
+    solver = {"flexural": flexural_dispersion, "screw": quadrupole_dispersion}[mode]
+    onset = _FIG8A_ONSET[mode][0]
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    grid = np.arange(onset, onset + 4.0, 0.02)
+    velocity = 1.0 / solver(grid * 1e3, **_FIG8_ROCK, **fluid, a=0.10).slowness
+    finite = np.isfinite(velocity)
+
+    assert finite.any(), "the mode must be found somewhere above its cutoff"
+    gap = grid[finite][0] - onset
+    assert 1.2 < gap < 1.8, f"{mode}: gap is {gap:.2f} kHz"
+    assert finite[np.argmax(finite) :].all(), "and it is contiguous, not a scatter"
+
+
+@pytest.mark.parametrize("mode", ["flexural", "screw"])
+def test_the_slow_shear_modes_agree_to_a_couple_of_percent(mode):
+    """Bounded, and worse than the Stoneley by an order of magnitude.
+
+    Above the near-cutoff gap both shear solvers track the published
+    curves to about 1-2 % -- good, but not the 0.04 % the Stoneley
+    manages on the same panel with the same calibration. The flexural
+    offset is systematic (zero near 3.3 kHz, -1.8 % at 5-6 kHz,
+    recovering to -0.8 % by 14 kHz) rather than scatter.
+
+    Asserted as a ceiling plus the ordering against the Stoneley, so a
+    regression trips it and a genuine improvement does not.
+    """
+    from fwap import flexural_dispersion, quadrupole_dispersion, stoneley_dispersion
+
+    solver = {"flexural": flexural_dispersion, "screw": quadrupole_dispersion}[mode]
+    table = _FIG8A_PHASE[mode]
+    freq = np.array([f for f, _ in table])
+    reference = np.array([v for _, v in table])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    velocity = 1.0 / solver(freq, **_FIG8_ROCK, **fluid, a=0.10).slowness
+
+    assert np.isfinite(velocity).all(), "the table starts above the near-cutoff gap"
+    error = np.abs(velocity / reference - 1.0)
+    assert error.max() < 0.03, f"{mode} worst point {100 * error.max():.2f} %"
+
+    st = _FIG8A_PHASE["stoneley"]
+    st_f = np.array([f for f, _ in st])
+    st_v = np.array([v for _, v in st])
+    st_got = 1.0 / stoneley_dispersion(st_f, **_FIG8_ROCK, **fluid, a=0.10).slowness
+    st_error = np.abs(st_got / st_v - 1.0)
+    assert st_error.max() < 0.2 * error.max(), (
+        "the Stoneley is the tightly tied mode here; the shear modes are not"
+    )
+
+
+# ----------------------------------------------------------------------
+# Figure 12: the invaded zone, and why coverage is the wrong health metric
+#
+# Figure 12 (p. 249) is the first published check of the *layered*
+# solvers: "Invaded zone effects with a fast sandstone. Dispersion and
+# attenuation of the flexural (a) and screw (b) modes in the presence
+# of: (1) a 16 cm thick invaded zone; (2) a 8 cm thick invaded zone;
+# (3) the only virgin formation; (4) the only invaded zone."
+#
+# Table 1's two fast rows: virgin 4878 / 2601 / 2160, invaded zone
+# 4390 / 2341 / 2360 -- slower and denser than the rock it replaces.
+#
+# **What this panel can and cannot be read for.** Eight curves are drawn
+# (four phase, four group) in a 1.2-wide normalised window, and the
+# column-line count runs 1 at 2.0 kHz, 4 at 2.5, 8 only across
+# 3.5-5.0 kHz, then 3 from 6 kHz up. The plunge region where the models
+# separate is exactly where they also cross, so no per-model curve was
+# traced there and none is tabulated. What *is* readable is the two
+# plateaus at the low-frequency end and the merged phase band above
+# 6 kHz, and both are recorded below.
+#
+# The plateaus are worth having on their own: they confirm table 1's
+# invaded-zone row, which every comparison here depends on and which
+# this repository transcribed from a scan.
+#
+#   upper plateau (1.80-2.05 kHz)  1.7357 +- 0.0016  vs 2601/1500  +0.10 %
+#   lower plateau (2.20-2.60 kHz)  1.5630 +- 0.0015  vs 2341/1500  +0.15 %
+#
+# **The finding.** Every one of the eight fwap runs -- two modes x four
+# models -- returns values strictly inside its own (V_R, V_S) window and
+# sawtooths, with upward jumps of +121 to +185 m/s where a guided mode's
+# phase velocity can only fall. So the layered path inherits A.2 whole.
+#
+# What is new is the coverage:
+#
+#                        flexural   screw
+#   1: 16 cm invaded        73 %     74 %
+#   2:  8 cm invaded        38 %     77 %
+#   3: virgin only           9 %     50 %
+#   4: invaded only         10 %     35 %
+#
+# **Adding an altered zone raises coverage four- to eightfold while the
+# answers stay wrong.** Against figure 12a's merged phase band the
+# layered flexural solver reads +31 % at 6 kHz rising to +53 % by
+# 9.8 kHz. So on the layered path coverage is not a weak health signal,
+# it is an inverted one: the configuration that returns the most answers
+# is the one furthest from having any.
+# ----------------------------------------------------------------------
+
+_FIG12_VIRGIN = dict(vp=4878.0, vs=2601.0, rho=2160.0)
+_FIG12_INVADED = dict(vp=4390.0, vs=2341.0, rho=2360.0)
+
+#: The plateau each family of curves leaves, read from figure 12a
+#: (normalised velocity, +-0.002).
+_FIG12A_PLATEAU = {"virgin": 1.7357, "invaded": 1.5630}
+
+#: Figure 12a's merged phase band above 6 kHz (Hz, low m/s, high m/s).
+#: Four phase curves are drawn as two lines here; the pair bounds them.
+_FIG12A_PHASE_BAND = (
+    (6.0e3, 1838.7, 1905.1),
+    (7.0e3, 1711.9, 1760.2),
+    (8.0e3, 1643.9, 1683.2),
+    (9.0e3, 1598.6, 1628.8),
+    (9.8e3, 1576.0, 1606.2),
+)
+
+
+def test_figure_12a_plateaus_confirm_table_1s_invaded_zone_row():
+    """Check the transcribed rock before trusting the comparison.
+
+    `4390 / 2341 / 2360` for the invaded zone came off a scanned table,
+    and every layered comparison here rests on it. Figure 12a's own
+    plateaus settle it: the curves with virgin rock at depth leave the
+    axis at the virgin shear speed and the invaded-only curve leaves at
+    the invaded shear speed, both to about 0.1 %.
+    """
+    assert _FIG12A_PLATEAU["virgin"] / (_FIG12_VIRGIN["vs"] / 1500.0) == pytest.approx(
+        1.0, abs=0.005
+    )
+    assert _FIG12A_PLATEAU["invaded"] / (
+        _FIG12_INVADED["vs"] / 1500.0
+    ) == pytest.approx(1.0, abs=0.005)
+    assert _FIG12_INVADED["vs"] < _FIG12_VIRGIN["vs"], "invasion slows the rock"
+    assert _FIG12_INVADED["rho"] > _FIG12_VIRGIN["rho"], "and makes it denser"
+
+
+def test_the_altered_zone_no_longer_inverts_the_coverage_signal():
+    """The figure-12 finding, and the fix that removes it.
+
+    Sparseness had been read as A.2's symptom throughout this project.
+    On the layered path it was the opposite signal: a 16 cm invaded zone
+    took `flexural_dispersion`'s coverage from 9 % to 73 % over
+    2-10 kHz, and every extra answer was an overtone from the
+    `(V_R, V_S)` window -- so a caller checking coverage to decide
+    whether to trust an altered-zone curve was reading the metric
+    backwards.
+
+    Both paths now return one monotone branch, so coverage means what a
+    caller would assume it means.
+    """
+    from fwap import BoreholeLayer, flexural_dispersion, flexural_dispersion_layered
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    freq = np.arange(2.0e3, 10.001e3, 200.0)
+
+    plain = 1.0 / flexural_dispersion(freq, **_FIG12_VIRGIN, **fluid, a=0.10).slowness
+    layered = (
+        1.0
+        / flexural_dispersion_layered(
+            freq,
+            **_FIG12_VIRGIN,
+            **fluid,
+            a=0.10,
+            layers=(BoreholeLayer(**_FIG12_INVADED, thickness=0.16),),
+        ).slowness
+    )
+
+    for arr in (plain, layered):
+        finite = np.isfinite(arr)
+        assert finite.any()
+        assert np.all(np.diff(arr[finite]) <= 0.0), (
+            "a guided mode never speeds up with frequency"
+        )
+        assert np.all(arr[finite] <= _FIG12_VIRGIN["vs"])
+        assert np.all(arr[finite] > fluid["vf"])
+
+
+def test_the_layered_flexural_solver_now_lands_in_the_published_band():
+    """How wrong the extra answers were, against the figure -- and how
+    close they are now.
+
+    Four phase curves are drawn as two lines above 6 kHz, so the pair
+    bounds the truth to a few percent. The solver used to sit 30-55 %
+    above that band and rising with frequency; it now lands within
+    about 4 % of its midline at every sampled frequency, and slightly
+    *below* rather than above.
+    """
+    from fwap import BoreholeLayer, flexural_dispersion_layered
+
+    freq = np.array([f for f, _, _ in _FIG12A_PHASE_BAND])
+    lo = np.array([a for _, a, _ in _FIG12A_PHASE_BAND])
+    hi = np.array([b for _, _, b in _FIG12A_PHASE_BAND])
+    assert np.all(hi / lo < 1.05), "the two lines must bracket tightly to be useful"
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    velocity = (
+        1.0
+        / flexural_dispersion_layered(
+            freq,
+            **_FIG12_VIRGIN,
+            **fluid,
+            a=0.10,
+            layers=(BoreholeLayer(**_FIG12_INVADED, thickness=0.16),),
+        ).slowness
+    )
+    finite = np.isfinite(velocity)
+    assert finite.sum() >= 3
+
+    error = np.abs(velocity[finite] / (0.5 * (lo + hi))[finite] - 1.0)
+    assert error.max() < 0.06, f"worst {100 * error.max():.1f} %"
+
+
+# ----------------------------------------------------------------------
+# Figure 15: the same layered code in a slow formation, and it works
+#
+# Figure 12 put `flexural_dispersion_layered` against a *fast* rock and
+# it returned overtones 31-53 % high. Figure 15 (p. 255) is the slow
+# counterpart -- same four models, same solver, table 1's slow sandstone
+# 2751 / 1201 / 2100 and its invaded zone 2338 / 1081 / 2000 -- and it
+# separates two explanations that figure 12 alone could not.
+#
+# The panel reads cleanly: the group curves are *dashed*, so they
+# fragment under connected-component labelling and leave the four solid
+# phase curves behind. Axis calibration is the best of the six figures
+# (16 x-ticks residual to 0.019 kHz, 4 y-ticks to 0.00024 = 0.36 m/s),
+# and the 0.550-0.850 window makes the plotted line worth about
+# +-4 m/s.
+#
+# Two anchors, both to 0.02 %: the virgin curves leave the axis at
+# 1200.7 against V_S = 1201, and the invaded-only curve at 1081.2
+# against 1081.
+#
+# The result, over each curve's plotted band at 0.25 kHz:
+#
+#   model                        coverage   rms     median
+#   1 virgin only  (open hole)     91 %    1.43 %   -1.34 %
+#   2  8 cm invaded  (layered)     84 %    1.47 %   -1.22 %
+#   3 16 cm invaded  (layered)     92 %    1.48 %   -1.49 %
+#   4 invaded only (open hole)     67 %    1.01 %   -0.07 %
+#
+# **The layered solver is as accurate as the open-hole one.** So the
+# defect figure 12 found is the fast-formation bracket (A.2), not the
+# layered machinery -- one fix repairs the layered path too.
+#
+# It also narrows figure 8a's unexplained ~1.3 % slow-flexural offset.
+# It is here in all three `n=1` configurations at the same size and the
+# same shape (best near 3 kHz, worst about -2 % at 5-6 kHz, recovering
+# by 14 kHz), open hole and layered alike, while the Stoneley on the
+# same rock was 0.04 %. Not the layered code, not the bracket, not the
+# radius, not the reading: an `n=1`-specific, geometry-independent
+# offset.
+#
+# Two limits worth stating. The invaded-only curve could not be followed
+# past about 4 kHz -- a dashed group segment crosses it there -- so it
+# is tabulated only through its anchor. And the near-cutoff gap is *not*
+# the single width figure 8a suggested: 1.44 kHz (virgin), 2.44 (8 cm),
+# 1.19 (16 cm), 0.92 (invaded only). That claim covered two modes in one
+# homogeneous rock and does not extend to layered models.
+# ----------------------------------------------------------------------
+
+_FIG15_VIRGIN = dict(vp=2751.0, vs=1201.0, rho=2100.0)
+_FIG15_INVADED = dict(vp=2338.0, vs=1081.0, rho=2000.0)
+
+#: Flexural phase velocity (Hz, m/s) from figure 15a, above each curve's
+#: near-cutoff gap. About +-4 m/s.
+_FIG15A_PHASE = {
+    "virgin": (
+        (3.0e3, 1167.0),
+        (4.0e3, 1128.6),
+        (5.0e3, 1101.3),
+        (6.0e3, 1083.5),
+        (8.0e3, 1063.0),
+        (10.0e3, 1053.5),
+        (12.0e3, 1046.8),
+        (14.0e3, 1042.3),
+    ),
+    "invaded_8cm": (
+        (4.0e3, 1065.8),
+        (5.0e3, 1021.5),
+        (6.0e3, 992.5),
+        (8.0e3, 961.0),
+        (10.0e3, 946.2),
+        (12.0e3, 939.6),
+        (14.0e3, 935.2),
+    ),
+    "invaded_16cm": (
+        (3.0e3, 1080.6),
+        (4.0e3, 1018.0),
+        (5.0e3, 985.0),
+        (6.0e3, 970.1),
+        (8.0e3, 952.5),
+        (10.0e3, 946.2),
+        (12.0e3, 939.6),
+        (14.0e3, 935.2),
+    ),
+}
+
+#: Thickness of the invaded zone each figure-15a curve was computed for.
+_FIG15A_THICKNESS = {"virgin": None, "invaded_8cm": 0.08, "invaded_16cm": 0.16}
+
+
+def test_figure_15a_onsets_anchor_on_both_shear_speeds():
+    """Two closed-form anchors for the slow invaded-zone panel.
+
+    The three curves with virgin rock at depth leave the axis at the
+    virgin shear speed; the invaded-only curve leaves at the invaded
+    shear speed. Both land to 0.02 %, which also confirms table 1's
+    slow invaded-zone row (`2338 / 1081 / 2000`).
+    """
+    assert 1200.7 / _FIG15_VIRGIN["vs"] == pytest.approx(1.0, abs=0.005)
+    assert 1081.2 / _FIG15_INVADED["vs"] == pytest.approx(1.0, abs=0.005)
+    assert _FIG15_INVADED["vs"] < _FIG15_VIRGIN["vs"] < 1500.0, "both are slow"
+
+
+@pytest.mark.parametrize("model", sorted(_FIG15A_PHASE))
+def test_the_layered_solver_tracks_the_published_slow_curves(model):
+    """The result that exonerates the layered code.
+
+    On a slow formation `flexural_dispersion_layered` follows the
+    published invaded-zone curves to 1.5 % RMS -- indistinguishable from
+    what the open-hole solver manages on the same rock. Figure 12's
+    31-53 % overshoot is therefore the fast-formation bracket, not the
+    layered machinery, and the A.2 fix repairs both paths.
+    """
+    from fwap import BoreholeLayer, flexural_dispersion, flexural_dispersion_layered
+
+    table = _FIG15A_PHASE[model]
+    freq = np.array([f for f, _ in table])
+    reference = np.array([v for _, v in table])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    thickness = _FIG15A_THICKNESS[model]
+
+    if thickness is None:
+        got = flexural_dispersion(freq, **_FIG15_VIRGIN, **fluid, a=0.10)
+    else:
+        got = flexural_dispersion_layered(
+            freq,
+            **_FIG15_VIRGIN,
+            **fluid,
+            a=0.10,
+            layers=(BoreholeLayer(**_FIG15_INVADED, thickness=thickness),),
+        )
+    velocity = 1.0 / got.slowness
+
+    assert np.isfinite(velocity).all(), "the tables start above the near-cutoff gap"
+    error = velocity / reference - 1.0
+    assert np.sqrt((error**2).mean()) < 0.03, f"{model} rms {100 * error.std():.2f} %"
+    assert np.abs(error).max() < 0.04
+
+
+def test_the_layered_path_now_tracks_both_the_fast_and_slow_figures():
+    """State the separation as a test, because it was the conclusion --
+    and it is what made the fix safe to attempt.
+
+    The identical call was bracket-interior nonsense on the fast rock of
+    figure 12 and accurate on the slow rock of figure 15. That located
+    the defect in the bracket rather than the propagator, and said that
+    anything "fixing" the layered propagator would break the slow half
+    while leaving the fast half wrong. Correcting the bracket alone
+    brings the fast half in without disturbing the slow half, which is
+    the prediction that diagnosis made.
+    """
+    from fwap import BoreholeLayer, flexural_dispersion_layered
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+
+    def layered(rock, invaded, freq):
+        return (
+            1.0
+            / flexural_dispersion_layered(
+                freq,
+                **rock,
+                **fluid,
+                a=0.10,
+                layers=(BoreholeLayer(**invaded, thickness=0.16),),
+            ).slowness
+        )
+
+    slow_freq = np.array([f for f, _ in _FIG15A_PHASE["invaded_16cm"]])
+    slow_ref = np.array([v for _, v in _FIG15A_PHASE["invaded_16cm"]])
+    slow = layered(_FIG15_VIRGIN, _FIG15_INVADED, slow_freq)
+    assert np.abs(slow / slow_ref - 1.0).max() < 0.04, "slow: still tracks the figure"
+
+    fast_freq = np.array([f for f, _, _ in _FIG12A_PHASE_BAND])
+    fast_ref = 0.5 * np.array([a + b for _, a, b in _FIG12A_PHASE_BAND])
+    fast = layered(_FIG12_VIRGIN, _FIG12_INVADED, fast_freq)
+    finite = np.isfinite(fast)
+    assert np.abs(fast[finite] / fast_ref[finite] - 1.0).max() < 0.06, "fast: now too"
+
+
+# ----------------------------------------------------------------------
+# Figure 3: the same defect in the time domain, and a cross-figure check
+#
+# Figure 3 (p. 240) is not a dispersion plot: "Dipole source, fast
+# sandstone. Source center frequency effects. The offset is equal to
+# 5 m. The source center frequency varies from .5 kHz to 10.5 kHz by
+# steps of .5 kHz from the top to the bottom." Twenty-one synthetic
+# waveforms in the rock of figure 2a.
+#
+# Digitised by locating the 21 baselines (155.5 px apart, uniform) and
+# timing each trace's largest late excursion. The time axis is fitted to
+# the seven label decimal points: 303.4 px per ms, residual +-0.010 ms,
+# and any constant offset between a decimal point and its tick is
+# bounded at about 10 px = 0.03 ms.
+#
+# **What the traces show.** Every trace from 3.0 kHz up carries a large
+# late packet at 4.35 +- 0.07 ms. Its arrival drifts by only -4.4 %
+# while the source centre frequency changes by 250 % (3.0 -> 10.5 kHz),
+# which is the signature of an **Airy phase** -- energy piling up at the
+# stationary point of the group-velocity curve, whose arrival is set by
+# the medium and not by the source.
+#
+# That converts to an apparent group velocity of **1150 m/s** (range
+# 1124-1181), against the **1109.7 m/s** minimum of the group curve
+# digitised from figure 2a at 5.24 kHz. Agreement to **+3.7 %**, with
+# the measurement slightly fast -- expected, since the largest half
+# cycle of an attenuating Airy packet precedes the envelope centre.
+#
+# So two figures of the same paper, one in frequency and one in time,
+# agree on the group-velocity minimum to under 4 %. Nothing in fwap can
+# produce either.
+#
+# **And the defect restated as a traveltime.** Over 3.0-10.5 kHz
+# `flexural_dispersion` answers at 3 of 16 frequencies, at 2414-2597
+# m/s. A packet at that speed covers 5 m in 1.92-2.07 ms. The published
+# waveforms put the dipole energy at 4.35 ms -- so fwap's fast-formation
+# answer implies a wave arriving **2.2x too early**.
+#
+# Not used: the printed scaling factors down the left edge, which would
+# give the excitation curve. At this scan quality the glyphs are not
+# reliably legible ("0.0014" and "0.0019" cannot be told apart), and a
+# misread would put a false number in the repository.
+# ----------------------------------------------------------------------
+
+#: Airy-phase arrival at 5 m (source centre frequency kHz, ms), read
+#: from figure 3. About +-0.03 ms absolute, +-0.01 ms relative.
+_FIG3_AIRY_ARRIVAL_MS = (
+    (3.0, 4.449),
+    (3.5, 4.400),
+    (4.0, 4.370),
+    (4.5, 4.449),
+    (5.0, 4.430),
+    (5.5, 4.410),
+    (6.0, 4.311),
+    (6.5, 4.390),
+    (7.0, 4.291),
+    (7.5, 4.281),
+    (8.0, 4.360),
+    (8.5, 4.351),
+    (9.0, 4.341),
+    (9.5, 4.252),
+    (10.0, 4.242),
+    (10.5, 4.232),
+)
+
+#: Minimum of the flexural group-velocity curve of figure 2a (m/s, kHz).
+_FIG2A_GROUP_MINIMUM = (1109.7, 5.24)
+
+#: Source-receiver offset of figure 3 (m).
+_FIG3_OFFSET_M = 5.0
+
+
+def test_figure_3_late_packet_is_an_airy_phase():
+    """Establish what the late arrival is before using it.
+
+    An Airy phase sits at a stationary point of the group-velocity
+    curve, so its arrival is a property of the formation rather than of
+    the source. Across a 3.5x change in source centre frequency the
+    measured arrival moves by under 5 %, which is what identifies it --
+    and what licenses reading a single group velocity off it.
+    """
+    fc = np.array([f for f, _ in _FIG3_AIRY_ARRIVAL_MS])
+    arrival = np.array([t for _, t in _FIG3_AIRY_ARRIVAL_MS])
+
+    assert fc.min() == 3.0 and fc.max() == 10.5
+    assert arrival.max() / arrival.min() - 1.0 < 0.06, "an Airy phase barely moves"
+    slope = np.polyfit(fc, arrival, 1)[0]
+    assert abs(slope) * (fc.max() - fc.min()) / arrival.mean() < 0.06
+
+
+def test_figure_3_confirms_figure_2a_group_minimum_in_the_time_domain():
+    """Two figures, two domains, one number.
+
+    The Airy arrival implies a group velocity that must match the
+    minimum of figure 2a's group curve -- a frequency-domain reading of
+    a different figure on a different page. They agree to under 4 %.
+
+    Asserted loosely on purpose: a scan measured to about 1 % against a
+    traced curve good to about 2 %, so 5 % is the honest tolerance and a
+    real disagreement would be far larger.
+    """
+    arrival = np.array([t for _, t in _FIG3_AIRY_ARRIVAL_MS])
+    measured = _FIG3_OFFSET_M * 1.0e3 / arrival.mean()
+    predicted, freq = _FIG2A_GROUP_MINIMUM
+
+    assert measured / predicted == pytest.approx(1.0, abs=0.05)
+    assert measured > predicted, "the largest half cycle precedes the envelope"
+    assert 3.0 < freq < 10.5, "the stationary point is inside the band figure 3 spans"
+
+
+def test_the_fast_flexural_answer_now_predicts_the_figure_3_arrival():
+    """The time-domain check of A.2, and the fix's strongest evidence:
+    figure 3 played no part in designing it.
+
+    The old bracket implied a wave arriving at 1.9-2.1 ms over the
+    figure's own 5 m offset against an observed Airy packet at
+    4.35 ms -- **2.2x too early**. Differentiating the corrected phase
+    branch gives a group-velocity minimum of about 1064 m/s, putting
+    the arrival at 4.70 ms: **+8 %**, and in the same direction as the
+    slow-formation tilt that figures 9 and 16 measure independently.
+
+    The group velocity is also never negative now. On the old sawtooth
+    it was negative on 18 of 48 adjacent samples, which is what made
+    the Airy phase unreadable from the output at all.
+    """
+    from fwap import flexural_dispersion
+
+    freq = np.linspace(1.0e3, 25.0e3, 481)
+    velocity = (
+        1.0 / flexural_dispersion(freq, **_FIG2_ROCK, **_FIG2_FLUID, a=0.10).slowness
+    )
+    finite = np.isfinite(velocity)
+    assert finite.sum() > 100, "if coverage collapsed, retune the grid"
+
+    ff, vv = freq[finite], velocity[finite]
+    v_group = 1.0 / np.gradient(ff / vv, ff)
+    assert np.all(v_group > 0.0), "group velocity must not go negative"
+
+    observed = np.array([t for _, t in _FIG3_AIRY_ARRIVAL_MS]).mean()
+    predicted = _FIG3_OFFSET_M * 1.0e3 / v_group.min()
+    assert 0.9 < predicted / observed < 1.2, (
+        f"predicted {predicted:.2f} ms vs observed {observed:.2f} ms"
+    )
+
+
+# ----------------------------------------------------------------------
+# Figure 5a: the screw mode's own figure, and a bound on the method
+#
+# Figure 7b measured `n=2` across three rocks, but its curves merge and
+# it only resolves the fast sandstone below about 10 kHz. Figure 5a
+# (p. 242) is the screw mode's own panel -- "Quadrupole source.
+# Dispersion (a) ... of the screw mode (1) and the first trapped mode
+# (2) in the presence of a fast sandstone" -- on figure 2a's axes,
+# 0-25 kHz, with only two modes on it. It is the direct `n=2`
+# counterpart of figure 2a.
+#
+# Traced in two overlapping passes: a wide window through the plunge,
+# then a narrow one with a small slope cap for the flat tail, because
+# mode 2's group curve crosses mode 1's phase near 18 kHz and a single
+# pass follows the steeper branch down. Monotone to +0.002 normalised
+# over the whole span, which is inside the line width.
+#
+#   cutoff value            1.7385   vs V_S/V_f 1.7340   +0.26 %
+#   at 24.87 kHz            1522.6   vs Scholte  1484.4  +2.57 %
+#   crosses V_R             7.58 kHz     (figure 7b gave 7.69)
+#   crosses V_f             never, inside the plotted band
+#
+# Two things worth keeping. The screw mode approaches Scholte **more
+# slowly** than the flexural one: still +2.6 % at 25 kHz where the
+# flexural mode was +0.6 %, and it never drops below the fluid velocity
+# at all, where the flexural mode crossed it at 17.9 kHz.
+#
+# And the cross-figure agreement is a bound on the digitisation method
+# itself, obtained without reference to fwap. Nine frequencies from 7 to
+# 12 kHz, read off two different pages with different axis ranges, agree
+# to **+0.4 % to +1.8 %**, with figure 7b systematically about 1 % high.
+# That is looser than the 0.4 % figures 2a and 7a managed for the
+# flexural mode, and it is the honest error bar for readings taken off
+# the crowded three-rock panels.
+#
+# **fwap over 6.4-25 kHz**: 72 % coverage, every value inside
+# `(V_R, V_S)` and sweeping it end to end (2413-2598), **not one point
+# within 5 %**, errors +15 % to +67 % with median +53 %, and upward
+# jumps of +102 m/s. The screw mode is never returned for this rock.
+# ----------------------------------------------------------------------
+
+#: Screw-mode phase velocity (Hz, m/s), digitised from figure 5a.
+#: About +-20 m/s.
+_FIG5A_SCREW_PHASE = (
+    (6.5e3, 2597.5),
+    (7.0e3, 2530.8),
+    (8.0e3, 2300.8),
+    (9.0e3, 2071.9),
+    (10.0e3, 1913.9),
+    (12.0e3, 1743.6),
+    (14.0e3, 1654.8),
+    (16.0e3, 1605.2),
+    (18.0e3, 1573.9),
+    (20.0e3, 1551.6),
+    (22.0e3, 1538.2),
+    (24.5e3, 1524.8),
+)
+
+#: Where figure 5a's screw curve leaves the axis (kHz, m/s).
+_FIG5A_SCREW_ONSET = (6.29, 2607.8)
+
+#: The same rock's screw mode read off figure 7b (Hz, m/s), for the
+#: cross-figure comparison.
+_FIG7B_SANDSTONE_SCREW = ((7.0e3, 2552.8), (8.0e3, 2329.6), (9.0e3, 2088.6))
+
+
+def test_figure_5a_screw_curve_is_anchored_at_both_ends():
+    """The `n=2` counterpart of figure 2a's end-anchor test.
+
+    The screw mode leaves the axis at the formation shear speed and
+    heads for the Scholte speed, so both ends are computable
+    independently. It gets there more slowly than the flexural mode --
+    still 2.6 % above Scholte at 25 kHz, and never below the fluid
+    velocity -- which is why the tolerance at the top end is looser.
+    """
+    from fwap import scholte_speed
+
+    velocity = np.array([v for _, v in _FIG5A_SCREW_PHASE])
+    v_scholte = scholte_speed(**_FIG2_ROCK, **_FIG2_FLUID)
+
+    assert _FIG5A_SCREW_ONSET[1] / _FIG2_ROCK["vs"] == pytest.approx(1.0, abs=0.01)
+    assert np.diff(velocity).max() < 20.0, "phase velocity does not increase"
+    assert 1.0 < velocity[-1] / v_scholte < 1.05, "descending toward Scholte"
+    assert velocity[-1] > 1500.0, "the screw mode stays above the fluid velocity"
+
+
+def test_the_two_screw_readings_agree_across_figures():
+    """A bound on the digitisation method that owes nothing to fwap.
+
+    The same rock's screw mode is drawn twice -- figure 5a on a 0-25 kHz
+    axis with two curves, figure 7b on a 4-20 kHz axis with six. The two
+    reads agree to under 2 %, with figure 7b high, which is the expected
+    direction for a reading taken off the more crowded panel.
+
+    This is the loosest of the three cross-figure checks in this file,
+    and it is the one to quote when asking how much a number traced off
+    a busy panel can be trusted.
+    """
+    fig5 = dict(_FIG5A_SCREW_PHASE)
+    for freq, v7 in _FIG7B_SANDSTONE_SCREW:
+        v5 = fig5[freq]
+        assert v7 / v5 == pytest.approx(1.0, abs=0.02), (
+            f"{freq / 1e3:.0f} kHz: 5a {v5}, 7b {v7}"
+        )
+        assert v7 > v5, "the crowded panel reads high"
+
+
+def test_quadrupole_now_returns_the_screw_mode_in_this_fast_rock():
+    """The `n=2` half of A.2 against the screw mode's own figure.
+
+    Over 6.4-25 kHz the solver used to answer at nearly three quarters
+    of the band, every value inside `(V_R, V_S)` and sweeping that
+    window edge to edge, with **not one within 5 %** of the published
+    curve. It now tracks the published screw branch: monotone, below
+    `V_R`, and within a few percent once the separate near-cutoff onset
+    delay is allowed for.
+    """
+    from fwap import quadrupole_dispersion
+
+    freq = np.array([f for f, _ in _FIG5A_SCREW_PHASE])
+    reference = np.array([v for _, v in _FIG5A_SCREW_PHASE])
+    velocity = (
+        1.0 / quadrupole_dispersion(freq, **_FIG2_ROCK, **_FIG2_FLUID, a=0.10).slowness
+    )
+    finite = np.isfinite(velocity)
+
+    assert finite.sum() >= 8
+    v_rayleigh = rayleigh_speed(_FIG2_ROCK["vp"], _FIG2_ROCK["vs"])
+    assert np.all(velocity[finite] < v_rayleigh)
+    assert np.all(velocity[finite] > _FIG2_FLUID["vf"])
+    assert _descends(velocity[finite])
+
+    # The residual here is the near-cutoff onset delay, not the branch:
+    # shifted by ~1.1 kHz the same curve matches to 1.35 %.
+    error = np.abs(velocity[finite] / reference[finite] - 1.0)
+    assert error.min() < 0.05, f"closest point {100 * error.min():.1f} %"
+    assert np.median(error) < 0.08, f"median {100 * np.median(error):.1f} %"
+
+
+# ----------------------------------------------------------------------
+# Figure 1a: the pseudo-Rayleigh curve A.1 said had no external tie
+#
+# "Monopole source. Dispersion (a) and attenuation (b) of the Stoneley
+# wave (1) and the first two pseudo-Rayleigh modes ((2) and (3)) in the
+# presence of a fast sandstone." Three modes, three fwap entry points,
+# on figure 2a's axes.
+#
+# A.1 lists the pseudo-Rayleigh curve among three items with "no
+# external tie of any kind". Figure 1a supplies one, for both branches,
+# and validates the `branch` index while it is at it.
+#
+# A trap, caught by overlaying the traces back onto the scan: in this
+# panel **the group curve is drawn above the phase curve** for the
+# Stoneley, and the labels say so. That is correct physics here -- the
+# Stoneley phase velocity rises with frequency in a fast formation, so
+# the group velocity exceeds it -- but it is the opposite of every other
+# panel in this report. Comparing `stoneley_dispersion` against the
+# upper curve gives a spurious -2.5 % systematic; against the right one
+# it is -0.8 %.
+#
+# Resolution: 1 px = 1.41 m/s here, so a plotted line is about 12.7 m/s
+# -- 0.87 % at the Stoneley, 0.5-0.7 % at the pseudo-Rayleigh modes.
+#
+#   curve            fwap entry point                     coverage  rms
+#   Stoneley phase   stoneley_dispersion                    36/36   0.90 %
+#   pseudo-Rayl. 1   trapped_pseudo_rayleigh(branch=0)       97 %   1.01 %
+#   pseudo-Rayl. 2   trapped_pseudo_rayleigh(branch=1)       96 %   0.80 %
+#
+# All three sit at one to one-and-a-half plotted line widths, so this is
+# a pass at what the figure can resolve. There is a consistent small
+# negative bias -- fwap reads low on all three -- that the figure cannot
+# resolve into a real offset, and it is not claimed as one.
+#
+# Anchors: the Stoneley extrapolates to 1398.3 m/s against
+# `tube_wave_speed`'s 1396.3 (+0.14 %), and both pseudo-Rayleigh modes
+# cut on at the formation shear speed.
+#
+# **Separately, the phenomenological model is not the modal solver.**
+# `fwap.synthetic.pseudo_rayleigh_dispersion` places the guided arrival
+# in synthetic wavetrains from a closed form whose cutoff scale is
+# `vs / (2 pi a)` = 4140 Hz, against a true cutoff of 7.71 kHz -- 1.9x
+# too low. Measured against this figure it is **37 % slow near cutoff**,
+# easing to 6 % by 25 kHz. Its docstring says "phenomenological"; this
+# pins how much that word is carrying.
+# ----------------------------------------------------------------------
+
+#: Phase velocity (Hz, m/s) of the three monopole modes, digitised from
+#: figure 1a. About +-13 m/s, one plotted line width.
+_FIG1A_PHASE = {
+    "stoneley": (
+        (1.0e3, 1412.7),
+        (2.0e3, 1416.7),
+        (3.0e3, 1425.2),
+        (5.0e3, 1442.1),
+        (8.0e3, 1459.1),
+        (10.0e3, 1463.6),
+        (12.0e3, 1473.9),
+        (14.0e3, 1480.3),
+        (16.0e3, 1482.4),
+        (18.0e3, 1486.8),
+    ),
+    "pr1": (
+        (8.0e3, 2607.9),
+        (9.0e3, 2552.8),
+        (10.0e3, 2425.2),
+        (12.0e3, 2090.0),
+        (14.0e3, 1888.0),
+        (16.0e3, 1777.7),
+        (18.0e3, 1712.7),
+        (20.0e3, 1668.9),
+        (22.0e3, 1641.4),
+        (24.0e3, 1624.4),
+    ),
+    "pr2": (
+        (14.0e3, 2607.9),
+        (16.0e3, 2548.6),
+        (18.0e3, 2468.0),
+        (20.0e3, 2333.1),
+        (22.0e3, 2155.7),
+        (24.0e3, 2022.9),
+    ),
+}
+
+#: Where each pseudo-Rayleigh mode cuts on in figure 1a (kHz, m/s), and
+#: the Stoneley's low-frequency limit.
+_FIG1A_CUTOFF = {"pr1": (7.71, 2614.3), "pr2": (12.89, 2629.1)}
+_FIG1A_STONELEY_LIMIT = 1398.3
+
+
+def test_figure_1a_is_anchored_on_the_tube_wave_and_the_shear_speed():
+    """Three closed-form anchors, none needing a modal solve."""
+    from fwap import tube_wave_speed
+
+    v_tube = tube_wave_speed(_FIG2_ROCK["vs"], _FIG2_ROCK["rho"], **_FIG2_FLUID)
+    assert _FIG1A_STONELEY_LIMIT / v_tube == pytest.approx(1.0, abs=0.005)
+    for mode in ("pr1", "pr2"):
+        _, v_cut = _FIG1A_CUTOFF[mode]
+        assert v_cut / _FIG2_ROCK["vs"] == pytest.approx(1.0, abs=0.015)
+    # Both pseudo-Rayleigh modes descend toward the fluid velocity, not Scholte.
+    for mode in ("pr1", "pr2"):
+        tail = _FIG1A_PHASE[mode][-1][1]
+        assert 1500.0 < tail < _FIG2_ROCK["vs"]
+
+
+@pytest.mark.parametrize("branch,mode", [(0, "pr1"), (1, "pr2")])
+def test_trapped_pseudo_rayleigh_matches_the_published_curve(branch, mode):
+    """The tie A.1 said did not exist, and a check on the branch index.
+
+    `trapped_pseudo_rayleigh_dispersion` follows both published
+    pseudo-Rayleigh curves to about 1 % -- one to one-and-a-half plotted
+    line widths at this figure's resolution. That `branch=0` lands on
+    the first mode and `branch=1` on the second is itself part of the
+    result: the index means what the API says it means.
+    """
+    from fwap import trapped_pseudo_rayleigh_dispersion
+
+    table = _FIG1A_PHASE[mode]
+    freq = np.array([f for f, _ in table])
+    reference = np.array([v for _, v in table])
+    got = trapped_pseudo_rayleigh_dispersion(
+        freq, **_FIG2_ROCK, **_FIG2_FLUID, a=0.10, branch=branch
+    )
+    velocity = 1.0 / got.slowness
+
+    assert np.isfinite(velocity).all(), "the table starts above the cutoff"
+    error = velocity / reference - 1.0
+    assert np.sqrt((error**2).mean()) < 0.02, f"rms {100 * error.std():.2f} %"
+    assert np.abs(error).max() < 0.03
+
+    # The branches are distinct and ordered: branch 1 is the faster mode.
+    other = (
+        1.0
+        / trapped_pseudo_rayleigh_dispersion(
+            freq, **_FIG2_ROCK, **_FIG2_FLUID, a=0.10, branch=1 - branch
+        ).slowness
+    )
+    overlap = np.isfinite(other)
+    if overlap.any():
+        assert not np.allclose(velocity[overlap], other[overlap], rtol=0.02)
+
+
+def test_stoneley_in_a_fast_formation_agrees_to_one_line_width():
+    """The fast-formation half of the Stoneley check.
+
+    Figure 8a tied `stoneley_dispersion` at 0.04 % rms in a slow
+    formation. This is the same solver in a fast one, over the band
+    where figure 1a still draws phase and group as separate lines: 0.9 %
+    rms, which is one plotted line width here, with fwap consistently on
+    the low side.
+    """
+    from fwap import stoneley_dispersion
+
+    table = _FIG1A_PHASE["stoneley"]
+    freq = np.array([f for f, _ in table])
+    reference = np.array([v for _, v in table])
+    velocity = (
+        1.0 / stoneley_dispersion(freq, **_FIG2_ROCK, **_FIG2_FLUID, a=0.10).slowness
+    )
+
+    assert np.isfinite(velocity).all()
+    error = velocity / reference - 1.0
+    assert np.abs(error).max() < 0.02, f"worst {100 * np.abs(error).max():.2f} %"
+    assert np.all(velocity < 1500.0), "the Stoneley never exceeds the fluid velocity"
+
+
+def test_the_phenomenological_model_is_not_the_modal_solver():
+    """Pin how much work the word "phenomenological" is doing.
+
+    `fwap.synthetic.pseudo_rayleigh_dispersion` places the guided
+    arrival in synthetic wavetrains. Its cutoff scale is
+    `vs / (2 pi a)` = 4140 Hz against a true cutoff of 7.71 kHz, so near
+    cutoff it is far too slow -- 37 % against this figure, easing to 6 %
+    by 25 kHz. The modal solver in the same package is within 1 %.
+    """
+    from fwap import pseudo_rayleigh_dispersion
+
+    table = _FIG1A_PHASE["pr1"]
+    freq = np.array([f for f, _ in table])
+    reference = np.array([v for _, v in table])
+    model = 1.0 / np.asarray(
+        pseudo_rayleigh_dispersion(_FIG2_ROCK["vs"], 1500.0, 0.10)(freq)
+    )
+
+    error = model / reference - 1.0
+    assert error.max() < -0.05, "it is slow everywhere on this band"
+    assert error.min() < -0.25, "and badly so near the cutoff"
+    assert error[-1] > error[0], "the two converge as the mode approaches V_f"
+
+
+# ----------------------------------------------------------------------
+# Figure 6: the quadrupole gathers, and a cutoff that is 32 % too high
+#
+# "Quadrupole source, fast sandstone. Shot point obtained with a 1.5 kHz
+# (a) and a 6 kHz (b) source center frequency." Fourteen traces at
+# r = 2.40-5.00 m in 0.20 m steps, in the rock of figure 5a.
+#
+# **What this figure could not be used for, stated first.** The gather
+# does not survive digitisation well enough to measure a moveout. Each
+# trace is normalised to its own peak, the wavetrains overlap their
+# neighbours' bands, and the authors drew two dashed guide lines through
+# every trace. Reconstructing the 14 waveforms and running `fwap.stc`
+# over them gives coherence scattered between 0.4 and 0.88 with no
+# stable slowness peak, so no velocity is quoted from it. (For contrast,
+# `stc` on the real IODP U1347A gather returns 0.948 median coherence.)
+#
+# **What it does give is immune to all of that**: zero crossings survive
+# amplitude clipping, so the *frequency* of the ringing wavetrain is
+# solid. Twelve of the fourteen traces agree closely -- median
+# **7.19 kHz**, the consistent group spanning 7.00-7.38 -- for a source
+# whose centre frequency is **6.0 kHz**.
+#
+# The received ring sitting *above* the source frequency is the
+# signature of a mode with a cutoff: source energy below cutoff cannot
+# propagate in the mode, so the wavetrain is pushed up to where the
+# excitation switches on. Figure 5a puts the screw cutoff at 6.29 kHz
+# and figure 5c's excitation is zero below about 6.3 kHz, peaking near
+# 9 -- a 6 kHz source folded against that lands at about 7.2. It also
+# explains panel (a): at 1.5 kHz, far below cutoff, there is no ring at
+# all, only a short wavelet.
+#
+# **And the finding.** `quadrupole_dispersion`'s first root for this
+# rock is at **8.29 kHz** -- 32 % above the published 6.29 kHz cutoff --
+# and it returns NaN at every single-frequency call from 6.5 to 8.4 kHz.
+# So the solver returns nothing at the frequency where the paper's own
+# synthetic waveforms show the screw mode ringing hardest. The `n=2`
+# defect is not only that the values above cutoff are overtones: the
+# onset of the mode is misplaced, and a 2 kHz band where the mode
+# demonstrably exists and is strongly excited is empty.
+# ----------------------------------------------------------------------
+
+#: Dominant frequency of the ringing wavetrain in figure 6(b) (kHz),
+#: from the twelve traces whose spectra agree. Source centre frequency
+#: 6.0 kHz.
+_FIG6B_RING_KHZ = 7.19
+_FIG6B_RING_RANGE_KHZ = (7.00, 7.38)
+_FIG6_SOURCE_KHZ = (1.5, 6.0)
+
+#: Screw-mode cutoff read off figure 5a (kHz).
+_FIG5A_SCREW_CUTOFF_KHZ = 6.29
+
+
+def test_the_figure_6_ring_sits_above_the_cutoff_and_the_source():
+    """What the ringing frequency identifies.
+
+    A guided mode cannot carry energy below its cutoff, so a source
+    centred under the cutoff is received *above* it. Figure 6(b) puts
+    the ring at 7.19 kHz for a 6.0 kHz source and a 6.29 kHz cutoff --
+    above both, and inside the band where figure 5c says the excitation
+    has switched on.
+    """
+    lo, hi = _FIG6B_RING_RANGE_KHZ
+    assert lo <= _FIG6B_RING_KHZ <= hi
+    assert _FIG6B_RING_KHZ > _FIG6_SOURCE_KHZ[1], "pushed above the source"
+    assert _FIG6B_RING_KHZ > _FIG5A_SCREW_CUTOFF_KHZ, "and above the cutoff"
+    # figure 5a's own curve must start at or below the observed ring
+    assert _FIG5A_SCREW_CUTOFF_KHZ < _FIG5A_SCREW_PHASE[0][0] / 1e3 + 0.3
+
+
+def test_the_quadrupole_cutoff_is_far_above_the_published_one():
+    """The figure-6 finding: the mode's onset is misplaced, not just its
+    values.
+
+    `quadrupole_dispersion` finds no root for this rock below about
+    8.3 kHz, against a published cutoff of 6.29 kHz -- 32 % high -- and
+    returns NaN at every frequency across the band where figure 6(b)
+    shows the screw mode ringing hardest.
+    """
+    from fwap import quadrupole_dispersion
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    grid = np.arange(4.0e3, 12.0e3, 10.0)
+    velocity = 1.0 / quadrupole_dispersion(grid, **_FIG2_ROCK, **fluid, a=0.10).slowness
+    finite = np.isfinite(velocity)
+    assert finite.any(), "the solver must find the mode somewhere"
+
+    first = grid[finite][0] / 1e3
+    assert first > 1.2 * _FIG5A_SCREW_CUTOFF_KHZ, f"first root {first:.2f} kHz"
+    assert first > _FIG6B_RING_KHZ, "and above the frequency the waveforms ring at"
+
+    # Nothing at all across the observed ring band.
+    band = np.arange(6.5e3, 8.2e3, 100.0)
+    got = 1.0 / quadrupole_dispersion(band, **_FIG2_ROCK, **fluid, a=0.10).slowness
+    assert not np.isfinite(got).any(), "the ring band comes back empty"
+
+
+def test_quadrupole_dispersion_is_not_reproducible_across_equal_grids():
+    """The sharpest caveat in this file, and it applies to every coverage
+    number in it -- including the ones measured here.
+
+    `np.arange(6.0, 20.01, 0.2) * 1e3` and
+    `np.arange(6.0e3, 20.01e3, 200.0)` are the same 71 frequencies to
+    within **1.5e-11 Hz** -- last-bit floating-point rounding, a relative
+    difference of 8e-16. Handed to `quadrupole_dispersion` they return
+    **different coverage**, and disagree about whether individual
+    frequencies converge at all.
+
+    The cause is the continuation marcher: it walks from high to low
+    frequency, so missing a root at one step changes everything
+    downstream. The consequence is that coverage is a property of how
+    the caller happened to build the array, not only of the rock and the
+    band, and two callers writing the same sweep two ways get different
+    NaNs.
+    """
+    from fwap import quadrupole_dispersion
+
+    a = np.arange(6.0, 20.01, 0.2) * 1e3
+    b = np.arange(6.0e3, 20.01e3, 200.0)
+    assert a.size == b.size
+    assert not np.array_equal(a, b), "the grids must differ, if only in the last bit"
+    assert np.abs(a - b).max() < 1.0e-9, "and only in the last bit"
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    va = 1.0 / quadrupole_dispersion(a, **_FIG2_ROCK, **fluid, a=0.10).slowness
+    vb = 1.0 / quadrupole_dispersion(b, **_FIG2_ROCK, **fluid, a=0.10).slowness
+
+    assert np.isfinite(va).sum() != np.isfinite(vb).sum(), (
+        "if this ever passes, the marcher has been made grid-stable -- good news, "
+        "and the coverage numbers in this file can then be trusted as rock properties"
+    )
+
+
+# ----------------------------------------------------------------------
+# Figure 9: the slow-formation waveforms, and what differentiation costs
+#
+# "Dipole source, slow sandstone. Source center frequency effects. The
+# offset is equal to 4 m. The source center frequency varies from .5 kHz
+# to 10.5 kHz by steps of .5 kHz." Figure 3's counterpart in the rock of
+# figure 8a -- and this time in the regime where fwap works, so it is a
+# prediction test rather than a defect measurement.
+#
+# Digitised from the 21 baselines (155.5 px apart) with the time axis
+# fitted to the seven label decimal points: 304.9 px per ms, residual
+# +-0.011 ms.
+#
+# Every trace from 2.0 kHz up carries a compact late packet at
+# **4.068 +- 0.045 ms**, drifting only **-1.8 %** while the source centre
+# frequency changes fivefold. That is an Airy phase, and a tighter one
+# than figure 3's -4.4 %. At the figure's own 4 m offset it implies a
+# group velocity of **983 m/s** (960-1009).
+#
+# Three ways to that number, two of them from the paper:
+#
+#   figure 9, measured in the time domain      983 m/s
+#   figure 8a phase curve, differentiated      992 +- 4 m/s at 5.1-5.5 kHz
+#   fwap phase output, differentiated          960.4 m/s at 3.89 kHz
+#
+# The two readings of the paper agree to **0.9 %** -- a time-domain
+# figure against a frequency-domain one, which also validates the
+# differentiation. fwap is **3.2 % low** on the value.
+#
+# **The finding is the frequency, not the value.** fwap puts the group
+# minimum at 3.89 kHz where the figure puts it near 5.2 -- **25 % low** --
+# from a phase curve that was only 1.3 % off. Differentiation amplifies
+# a phase residual that is a *distortion* rather than an offset, and
+# figure 8a already showed the shape: zero near 3.3 kHz, -1.8 % at
+# 5-6 kHz, back to -0.8 % by 14 kHz. A tilt like that moves the
+# stationary point. So anyone using fwap's slow flexural curve to
+# predict a waveform will place the Airy phase at the wrong frequency
+# even though the phase velocities look fine.
+#
+# Method notes, since both group curves come from differentiation. The
+# figure-8a minimum is stable at 992-996 m/s for boxcar widths 41-121
+# (21 is undersmoothed and finds a spurious minimum), while the
+# *frequency* of the minimum moves over 5.07-5.47 kHz -- so the value is
+# good to about 0.5 % and the frequency to about +-0.4 kHz. fwap's is
+# stable to 0.1 m/s and 0.1 kHz across grid steps 0.02-0.2 kHz; the slow
+# path shows none of the grid instability figure 6 found at `n=2`.
+# ----------------------------------------------------------------------
+
+#: Late-packet (Airy) arrival at 4 m from figure 9, for the traces above
+#: 2 kHz where it is fully developed (source centre frequency kHz, ms).
+_FIG9_AIRY_ARRIVAL_MS = (
+    (2.0, 4.088),
+    (2.5, 4.167),
+    (3.0, 4.108),
+    (3.5, 4.088),
+    (4.0, 4.059),
+    (4.5, 4.029),
+    (5.0, 4.127),
+    (5.5, 4.019),
+    (6.0, 4.019),
+    (6.5, 4.108),
+    (7.0, 4.088),
+    (7.5, 4.068),
+    (8.0, 4.078),
+    (8.5, 4.059),
+    (9.0, 4.049),
+    (9.5, 3.964),
+    (10.0, 4.049),
+    (10.5, 4.059),
+)
+_FIG9_OFFSET_M = 4.0
+
+#: Minimum of the flexural group curve obtained by differentiating
+#: figure 8a's traced phase curve (m/s, kHz). Value good to ~0.5 %, the
+#: frequency to about +-0.4 kHz.
+_FIG8A_GROUP_MINIMUM = (992.0, 5.2)
+
+
+def test_figure_9_late_packet_is_an_airy_phase():
+    """Tighter than figure 3's, in the rock where fwap works."""
+    fc = np.array([f for f, _ in _FIG9_AIRY_ARRIVAL_MS])
+    arrival = np.array([t for _, t in _FIG9_AIRY_ARRIVAL_MS])
+
+    assert arrival.max() / arrival.min() - 1.0 < 0.06
+    slope = np.polyfit(fc, arrival, 1)[0]
+    assert abs(slope) * (fc.max() - fc.min()) / arrival.mean() < 0.04
+
+
+def test_figure_9_and_figure_8a_agree_on_the_group_minimum():
+    """Time domain against frequency domain, both from the paper.
+
+    The measured Airy arrival implies a group velocity that must match
+    the minimum of the group curve obtained by differentiating figure
+    8a's phase curve. They agree to 1 %, which is also what licenses
+    using the differentiated curve as a reference below.
+    """
+    arrival = np.array([t for _, t in _FIG9_AIRY_ARRIVAL_MS])
+    measured = _FIG9_OFFSET_M * 1.0e3 / arrival.mean()
+    predicted, _ = _FIG8A_GROUP_MINIMUM
+
+    assert measured / predicted == pytest.approx(1.0, abs=0.02)
+
+
+def test_differentiating_the_slow_flexural_curve_moves_the_airy_frequency():
+    """What a 1.3 % phase residual costs in the group domain.
+
+    `flexural_dispersion` follows figure 8a's slow-formation phase curve
+    to 1.29 % rms. Differentiated, its group minimum lands 3 % low in
+    value and about 25 % low in *frequency* -- near 3.9 kHz where the
+    figure puts it near 5.2. The phase residual is a tilt rather than an
+    offset, and a tilt moves the stationary point.
+
+    Asserted on the frequency, because that is the part a user would
+    notice: it places the Airy phase of a synthetic waveform wrongly
+    while the phase velocities still look right.
+    """
+    from fwap import flexural_dispersion
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    grid = np.arange(2.6e3, 14.5e3, 50.0)
+    phase = 1.0 / flexural_dispersion(grid, **_FIG15_VIRGIN, **fluid, a=0.10).slowness
+    ok = np.isfinite(phase)
+    assert ok.sum() > 100, "the slow path should be dense here"
+
+    f = grid[ok]
+    group = 1.0 / np.gradient(f / phase[ok], f)
+    i = int(np.argmin(group))
+    v_min, f_min = group[i], f[i] / 1e3
+    ref_v, ref_f = _FIG8A_GROUP_MINIMUM
+
+    assert v_min / ref_v == pytest.approx(1.0, abs=0.06), "value is close"
+    assert f_min < 0.85 * ref_f, (
+        f"the Airy frequency is the part that moves: {f_min:.2f} vs {ref_f} kHz"
+    )
+
+
+# ----------------------------------------------------------------------
+# Figure 10: the processing chain closed on published waveforms
+#
+# "Dipole source, slow sandstone. Shot point obtained with a 1 kHz (a)
+# and a 3 kHz (b) source center frequency." Fourteen traces at
+# r = 2.40-5.00 m, in the rock of figures 8a and 9.
+#
+# Unlike figure 6 this gather does digitise: the packets are compact and
+# the moveout is strong, so after cropping past the scale-factor
+# brackets a straight-line fit to the envelope peaks has r^2 = 0.995.
+# Two velocities come out of it, and keeping them apart is the point:
+#
+#   envelope (packet) moveout  ->  GROUP velocity
+#   fwap.stc coherent align    ->  PHASE velocity
+#
+#   panel      dominant f   group (moveout)   phase (stc)   coherence
+#   (a) 1 kHz    0.86 kHz      1009 m/s        1205 m/s       0.960
+#   (b) 3 kHz    2.77 kHz      1037 m/s        1156 m/s       0.717
+#
+# **The chain closes.** In panel (a) the packet is at 0.86 kHz, where
+# the flexural mode is at its low-frequency limit and its phase velocity
+# is the formation shear speed: `stc` returns 1205 against V_S = 1201,
+# **+0.3 %**. In panel (b), at 2.77 kHz, `stc` returns 1156 against
+# figure 8a's traced phase curve at 1172 (**-1.3 %**) and fwap's own
+# solver at 1187 (**-2.6 %**). Published synthetic waveforms, through
+# this package's processing, land on this package's forward model.
+#
+# The group numbers are consistent too: 1009 and 1037 m/s sit just above
+# the 992 m/s group minimum that figure 8a's differentiated curve and
+# figure 9's Airy phase both give, which is right, because neither
+# packet is at the 5.2 kHz where that minimum sits.
+#
+# **And panel (a) settles what the near-cutoff gap is.** fwap's slow
+# flexural solver finds no root below about 2.5 kHz. At 0.86 kHz it
+# returns NaN -- yet the paper's own waveforms show a coherent arrival
+# there, `stc` picking it at 0.960 and putting it at the shear speed.
+# The gap is a solver limitation, not a physical absence, and this is
+# the waveform evidence for it.
+# ----------------------------------------------------------------------
+
+#: Figure 10 read as (source kHz, packet dominant kHz, group m/s from
+#: envelope moveout, phase m/s from `fwap.stc`, stc peak coherence).
+_FIG10_PANELS = (
+    (1.0, 0.86, 1009.2, 1204.8, 0.960),
+    (3.0, 2.77, 1036.8, 1156.1, 0.717),
+)
+
+#: Figure 8a's traced flexural phase velocity at figure 10(b)'s dominant
+#: frequency (kHz, m/s).
+_FIG8A_PHASE_AT_2P77 = (2.77, 1171.6)
+
+
+def test_figure_10_separates_group_from_phase():
+    """The two velocities a shot gather carries, and they must differ.
+
+    An envelope moveout is a group velocity; a coherent alignment across
+    the array is a phase velocity. On a strongly dispersive mode the two
+    are far apart, and reading either as the other is a 15-20 % error.
+    """
+    for _, _, group, phase, _ in _FIG10_PANELS:
+        assert phase > group, "phase exceeds group on this branch"
+        assert phase / group > 1.10, "and by a margin no reading error explains"
+
+
+def test_stc_on_the_published_waveforms_lands_on_the_shear_speed():
+    """Panel (a): the low-frequency limit, straight off the waveforms.
+
+    At 0.86 kHz the slow-formation flexural mode is at its
+    low-frequency limit, where the phase velocity is the formation shear
+    speed. `fwap.stc` on the digitised gather returns 1205 m/s at 0.960
+    coherence against V_S = 1201.
+    """
+    source, dominant, _, phase, coherence = _FIG10_PANELS[0]
+    assert dominant < 1.0, "the packet sits at the low-frequency end"
+    assert coherence > 0.9, "and it is a coherent arrival, not a guess"
+    assert phase / _FIG15_VIRGIN["vs"] == pytest.approx(1.0, abs=0.01)
+
+
+def test_stc_on_the_published_waveforms_matches_the_published_curve():
+    """Panel (b): the processing half checked against the modelling half.
+
+    At 2.77 kHz `stc` gives 1156 m/s, figure 8a's traced phase curve
+    gives 1172, and `flexural_dispersion` gives 1187. Waveforms from the
+    paper, through this package's processing, land within 3 % of this
+    package's forward model -- the first time the two halves have been
+    checked against each other on anything external.
+    """
+    from fwap import flexural_dispersion
+
+    _, dominant, _, phase, _ = _FIG10_PANELS[1]
+    freq, published = _FIG8A_PHASE_AT_2P77
+    assert dominant == pytest.approx(freq, abs=0.01)
+    assert phase / published == pytest.approx(1.0, abs=0.03)
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    solver = (
+        1.0
+        / flexural_dispersion(
+            np.array([dominant * 1e3]), **_FIG15_VIRGIN, **fluid, a=0.10
+        ).slowness[0]
+    )
+    assert np.isfinite(solver), "the solver answers at this frequency"
+    assert phase / solver == pytest.approx(1.0, abs=0.04)
+
+
+def test_the_near_cutoff_gap_is_a_solver_limitation_not_an_absence():
+    """Panel (a) is the waveform evidence.
+
+    `flexural_dispersion` finds no root for this rock below about
+    2.5 kHz. Figure 10(a) shows a coherent arrival at 0.86 kHz --
+    `fwap.stc` picks it at 0.960 and puts it at the shear speed -- so
+    the mode is there and propagating where the solver is silent.
+    """
+    from fwap import flexural_dispersion
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    _, dominant, _, phase, coherence = _FIG10_PANELS[0]
+    v = (
+        1.0
+        / flexural_dispersion(
+            np.array([dominant * 1e3]), **_FIG15_VIRGIN, **fluid, a=0.10
+        ).slowness[0]
+    )
+    assert not np.isfinite(v), "the solver is silent at the packet's frequency"
+
+    grid = np.arange(0.5e3, 4.0e3, 20.0)
+    got = 1.0 / flexural_dispersion(grid, **_FIG15_VIRGIN, **fluid, a=0.10).slowness
+    ok = np.isfinite(got)
+    assert ok.any()
+    assert grid[ok][0] / 1e3 > 2.0, "and stays silent well above the packet"
+    assert coherence > 0.9 and phase > 1000.0, "while the waveforms show the mode"
+
+
+# ----------------------------------------------------------------------
+# Figure 11: the screw mode where fwap is silent, and one case where
+# silence is right
+#
+# "Quadrupole source, slow sandstone. Shot point obtained with a 1 kHz
+# (a) and a 6 kHz (b) source center frequency." Fourteen traces at
+# r = 2.40-5.00 m, in the rock of figure 8a.
+#
+# **Panel (b) is the finding.** A 6 kHz source produces a ringing
+# wavetrain whose energy sits at 4.68 kHz -- above the 3.74 kHz screw
+# cutoff figure 8a gives, below the source. Envelope moveout is
+# 1166 m/s with r^2 = 0.982, and `fwap.stc` puts the phase velocity at
+# 1139.6 m/s against figure 8a's traced screw curve at 1179 -- **-3.3 %**.
+# `quadrupole_dispersion` returns **NaN** there, because its first root
+# for this rock is at 5.25 kHz. The mode demonstrably propagates,
+# coherently, at a velocity the published curve predicts, in a band the
+# solver reports as empty.
+#
+# **Panel (a) is the balancing case, and it matters.** At a 1 kHz source
+# the packet sits at 1.83 kHz, and `quadrupole_dispersion` is silent
+# there too -- but so is the paper: figure 8a draws no screw curve below
+# 3.74 kHz. There is no trapped mode at 1.83 kHz, so the arrival is a
+# leaky or head-wave contribution a modal solver is not meant to
+# produce, and the NaN is **correct**. Not every gap is a defect, and
+# this file should not leave the impression that it is.
+#
+# **The unification.** Figure 6 reported the fast screw cutoff as "32 %
+# too high" and figure 8a reported a "1.5 kHz near-cutoff gap". Those
+# are the same phenomenon, and the percentage was the misleading way to
+# quote it:
+#
+#   case             published   fwap    gap
+#   flexural, slow    1.04 kHz   2.52   1.48 kHz  (+142 %)
+#   screw,    slow    3.74       5.25   1.51      ( +40 %)
+#   screw,    fast    6.29       8.29   2.00      ( +32 %)
+#
+# The onset is late by **1.5-2.0 kHz in absolute terms** across two
+# modes and two formations. The percentages differ only because the
+# cutoffs differ.
+# ----------------------------------------------------------------------
+
+#: Figure 11 read as (source kHz, packet dominant kHz, group m/s from
+#: envelope moveout, phase m/s from `fwap.stc`, moveout r^2).
+_FIG11_PANELS = ((1.0, 1.83, 1580.4, 1286.2, 0.878), (6.0, 4.68, 1166.5, 1139.6, 0.982))
+
+#: Figure 8a's traced screw phase velocity at figure 11(b)'s dominant
+#: frequency (kHz, m/s).
+_FIG8A_SCREW_AT_4P68 = (4.68, 1179.0)
+
+#: Published onset and fwap's first root for three homogeneous cases
+#: (label, published kHz, fwap kHz).
+_NEAR_CUTOFF_GAPS = (
+    ("flexural slow", 1.04, 2.52),
+    ("screw slow", 3.74, 5.25),
+    ("screw fast", 6.29, 8.29),
+)
+
+
+def test_figure_11b_shows_the_screw_mode_where_the_solver_is_silent():
+    """The mode propagates at 4.68 kHz; `quadrupole_dispersion` has no
+    root there.
+
+    Envelope moveout r^2 = 0.982 and `stc` lands within 3.3 % of figure
+    8a's traced screw curve, so this is the screw mode and not something
+    else. The solver's first root for this rock is at 5.25 kHz.
+    """
+    from fwap import quadrupole_dispersion
+
+    source, dominant, group, phase, r2 = _FIG11_PANELS[1]
+    freq, published = _FIG8A_SCREW_AT_4P68
+    assert dominant == pytest.approx(freq, abs=0.01)
+    assert r2 > 0.95, "the moveout is a clean straight line"
+    assert phase / published == pytest.approx(1.0, abs=0.05)
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    v = (
+        1.0
+        / quadrupole_dispersion(
+            np.array([dominant * 1e3]), **_FIG15_VIRGIN, **fluid, a=0.10
+        ).slowness[0]
+    )
+    assert not np.isfinite(v), "and the solver returns nothing at that frequency"
+
+
+def test_figure_11a_is_a_gap_the_solver_is_right_to_have():
+    """Not every NaN is a defect.
+
+    At a 1 kHz source the packet sits at 1.83 kHz, below the 3.74 kHz
+    screw cutoff. `quadrupole_dispersion` is silent -- and so is the
+    paper, which draws no screw curve there. The arrival is a leaky or
+    head-wave contribution a modal solver is not meant to produce.
+    """
+    from fwap import quadrupole_dispersion
+
+    _, dominant, group, phase, r2 = _FIG11_PANELS[0]
+    published_cutoff = _NEAR_CUTOFF_GAPS[1][1]
+    assert dominant < published_cutoff, "below any trapped screw mode"
+    assert r2 < 0.95, "and the moveout is correspondingly less clean"
+    assert group > _FIG15_VIRGIN["vs"], "faster than the shear speed, so not the mode"
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    v = (
+        1.0
+        / quadrupole_dispersion(
+            np.array([dominant * 1e3]), **_FIG15_VIRGIN, **fluid, a=0.10
+        ).slowness[0]
+    )
+    assert not np.isfinite(v), "silence here is the right answer"
+
+
+def test_the_near_cutoff_gap_is_an_absolute_offset_not_a_percentage():
+    """Ties figure 6's "cutoff 32 % too high" to figure 8a's "1.5 kHz
+    gap" -- they are one phenomenon.
+
+    Across flexural and screw, slow and fast, the onset is late by
+    1.5-2.0 kHz. Quoted as percentages the same offsets read 32 %, 40 %
+    and 142 %, which says more about the cutoff frequencies than about
+    the solver.
+    """
+    gaps = np.array([fw - pub for _, pub, fw in _NEAR_CUTOFF_GAPS])
+    pcts = np.array([100.0 * (fw / pub - 1.0) for _, pub, fw in _NEAR_CUTOFF_GAPS])
+
+    assert gaps.min() > 1.3 and gaps.max() < 2.2, "tight in absolute terms"
+    assert gaps.max() / gaps.min() < 1.6
+    assert pcts.max() / pcts.min() > 4.0, "and wildly spread as percentages"
+
+
+# ----------------------------------------------------------------------
+# Figure 13: how little a dipole sees invasion at 1 kHz
+#
+# "Dipole source. Invaded zone effects in the presence of a fast
+# sandstone. Iso-offset (z = 5m) of the waveforms obtained in the
+# presence of the only virgin formation (1), and a 8 cm (2) and 16 cm
+# (3) invaded zone. The source center frequency is successively equal to
+# 1 kHz (a), 3 kHz (b), 6 kHz (c), and 7.5 kHz (d)."
+#
+# Panel (a) extracts cleanly, and the answer is a number worth having:
+# cross-correlated against the virgin trace, the 8 cm model lags by
+# **+0.1 us** and the 16 cm model by **+1.2 us**, at correlations of
+# 0.992 and 0.981. Over a ~2 ms traveltime at 5 m that is **0.06 %**.
+#
+# A 16 cm invaded zone is undetectable at 1 kHz, which is the
+# time-domain form of what figure 12 shows in the frequency domain: all
+# three models share a plotted plateau at V_S below about 2 kHz, and
+# figure 12's own reading put that plateau at 1.7357 for the whole
+# group. Figure 13(a) says how far apart they actually are there.
+#
+# **Corrected while working figure 14.** This block used to say "only
+# panel (a) is measurable" and that no extraction cleared r = 0.8 in
+# panels (b)-(d). That was an artefact of my own extraction, not of the
+# figure: the half-window was narrower than the widest trace's own
+# excursion, so the virgin trace in panel (b) was clipped to 68 %
+# coverage and the correlation was computed against a truncated
+# reference. Widened, **panel (b) measures**: at 3 kHz the 8 cm model
+# lags by **+54.6 us** and the 16 cm model by **+99.0 us**, at
+# correlations of 0.930 and 0.848, invariant to +-0.01 us across 36
+# combinations of crop start, crop end and half-window.
+#
+# So the growth figure 12 predicts above 2 kHz **is** measured here, and
+# it is steep: the 16 cm delay goes from 1.2 us at 1 kHz to 99.0 us at
+# 3 kHz, a factor of **79** for a 3x change in source frequency.
+#
+# Panels (c) and (d) are still refused, now for a positive reason. Their
+# traces overlap so the components merge -- coverage sticks at 0.76-0.78
+# whatever the window -- and panel (d)'s best-fit lags are +264 and
+# +319 us regardless of window choice, the constant-lag signature of a
+# cross-correlation hopping cycles rather than measuring a delay.
+# ----------------------------------------------------------------------
+
+#: Figure 13(a): cross-correlation lag against the virgin trace at a
+#: 1 kHz source and 5 m offset (microseconds), and the correlation.
+_FIG13A_INVASION_LAG_US = {"8 cm": (0.1, 0.992), "16 cm": (1.2, 0.981)}
+
+#: Figure 13(b): the same at 3 kHz. Recovered after the extraction
+#: half-window was widened; see the correction note above.
+_FIG13B_INVASION_LAG_US = {"8 cm": (54.6, 0.930), "16 cm": (99.0, 0.848)}
+_FIG13_OFFSET_M = 5.0
+
+
+def test_invasion_is_undetectable_at_1_khz():
+    """The size of the invaded-zone effect where a dipole tool works.
+
+    Both invaded models reproduce the virgin waveform at 5 m to within
+    about a microsecond, correlating above 0.98. Whatever the layered
+    solver gets wrong on this rock, the *invasion* part of the answer is
+    negligible at 1 kHz -- which is consistent with figure 12, where all
+    three models share a plateau below about 2 kHz.
+    """
+    for name, (lag_us, corr) in _FIG13A_INVASION_LAG_US.items():
+        assert abs(lag_us) < 5.0, f"{name}: {lag_us} us"
+        assert corr > 0.97, f"{name}: r = {corr}"
+    # thicker invasion delays more, and both delay rather than advance
+    assert _FIG13A_INVASION_LAG_US["16 cm"][0] > _FIG13A_INVASION_LAG_US["8 cm"][0]
+    assert min(v for v, _ in _FIG13A_INVASION_LAG_US.values()) >= 0.0
+
+
+def test_the_dipole_invasion_delay_grows_steeply_between_1_and_3_khz():
+    """Figure 13(b), recovered after the extraction was fixed.
+
+    Figure 12 shows the three models' dispersion curves separating above
+    about 2 kHz. Figure 13(b) is that separation in the time domain: at
+    3 kHz the 16 cm model lags the virgin waveform by 99 us against
+    1.2 us at 1 kHz. Both panels correlate above 0.84, and both lag
+    rather than lead.
+    """
+    for name, (lag_us, corr) in _FIG13B_INVASION_LAG_US.items():
+        assert lag_us > 0.0, f"{name}: {lag_us} us"
+        assert corr > 0.84, f"{name}: r = {corr}"
+    assert _FIG13B_INVASION_LAG_US["16 cm"][0] > _FIG13B_INVASION_LAG_US["8 cm"][0]
+    # and every 3 kHz delay exceeds every 1 kHz one
+    assert min(v for v, _ in _FIG13B_INVASION_LAG_US.values()) > max(
+        v for v, _ in _FIG13A_INVASION_LAG_US.values()
+    )
+    travel_ms = _FIG13_OFFSET_M * 1.0e3 / _FIG2_ROCK["vs"]
+    frac = _FIG13B_INVASION_LAG_US["16 cm"][0] * 1e-3 / travel_ms
+    assert 0.01 < frac < 0.10, f"{frac:.3%} of the traveltime"
+
+
+def test_the_1_khz_invasion_lag_is_a_negligible_fraction_of_traveltime():
+    """Put the microseconds in context.
+
+    The flexural arrival at 5 m in this rock is around 2 ms at 1 kHz --
+    the mode is near its `V_S` limit there. A 1.2 us shift is under a
+    tenth of a percent of that, well below anything a slowness log
+    resolves.
+    """
+    travel_ms = _FIG13_OFFSET_M * 1.0e3 / _FIG2_ROCK["vs"]
+    worst = max(abs(v) for v, _ in _FIG13A_INVASION_LAG_US.values())
+    assert worst * 1e-3 / travel_ms < 0.001, "under 0.1 % of the traveltime"
+
+
+# ----------------------------------------------------------------------
+# Figure 14: the quadrupole invaded zone, where the effect is amplitude
+#
+# "Quadrupole source. Invaded zone effects in the presence of a fast
+# sandstone. Iso-offset (z = 5m) of the waveforms obtained in the
+# presence of the only virgin formation (1), and a 8 cm (2) and 16 cm
+# (3) invaded zone. The source center frequency is successively equal to
+# 1.5 kHz (a), 3 kHz (b), 6 kHz (c), and 7.5 kHz (d)."
+#
+# I expected this figure to hit the ringing-wavetrain wall that stopped
+# figures 6 and 13(b)-(d). That was half wrong. Panel (a) is not a
+# wavetrain -- it is a compact three-to-four-cycle wavelet that extracts
+# cleanly across the full band. The first pass called it unmeasurable
+# only because the extraction half-window was narrower than the 16 cm
+# trace's own excursion, clipping it to 60 % coverage; the overlay check
+# caught that.
+#
+# Widened, panel (a) gives the quadrupole's invasion delay: the 8 cm
+# model lags the virgin waveform by +9.2 us at r = 0.924, the 16 cm model
+# by +36.7 us at r = 0.795. Both are invariant -- across 36 combinations
+# of crop start (+-110 px), crop end (+-180 px) and half-window
+# (+-15 px), the spread in each is **zero**. The 16 cm correlation sits
+# at the 0.8 bar because the waveform changes shape (invasion adds
+# cycles), not because the measurement wobbles.
+#
+# Against figure 13's dipole at 1 kHz (+0.1 and +1.2 us), the
+# quadrupole's 16 cm delay is **30x the dipole's** -- 1.9 % of the 5 m
+# traveltime against 0.06 %.
+#
+# Panels (b)-(d) are refused, and for a positive reason rather than a
+# threshold: their best-fit 8 cm lags are +237.7, +238.9 and +235.1 us at
+# 3, 6 and 7.5 kHz -- constant to +-2 us across a 2.5x change in source
+# frequency, with *negative* zero-lag correlations. A physical invasion
+# delay does not do that; a cycle-hopping cross-correlation does.
+#
+# Also legible is the printed peak-amplitude scale factor on all twelve
+# traces, and that is where the rest of this figure's content is. The
+# report says so on p. 228 -- "the variations of the peak amplitude as a
+# function of the invaded zone thickness are more pronounced with low
+# source center frequencies than previously (Figure 14a, b relative to
+# 1.5 kHz and 3 kHz)" -- and it names the mechanism: "due to a higher
+# frequency location of the useful starting energy of the screw mode".
+#
+# Digits transcribed, then checked independently by measuring the ink:
+# the plotted peak excursions reproduce the printed numbers to within
+# 0.027 in the worst panel and under 0.01 typically, the residual being
+# the finite line width, which inflates a small trace relative to a
+# large one. Both readings agree that panel (c) is genuinely
+# non-monotone in thickness.
+#
+# The dipole/quadrupole contrast, both measured the same way:
+#
+#     f_c        dipole (fig 13)   quadrupole (fig 14)
+#     low          1.25x             2.90x   (1 vs 1.5 kHz)
+#     3 kHz        1.03x             1.68x
+#     6 kHz        1.00x             1.30x
+#     7.5 kHz      1.00x             1.65x
+#
+# The dipole is flat to 3 % at every frequency at or above 3 kHz; the
+# quadrupole never drops below 1.29x. The published claim holds.
+#
+# **fwap cannot be checked against the substance of this figure, and the
+# reason is worth stating exactly.** Peak amplitude at a fixed offset is
+# excitation times propagation, and `BoreholeMode` carries neither for
+# this model: there is no excitation field on it at all, and
+# `attenuation_per_meter` comes back `None` from both the plain and the
+# layered quadrupole path. The figure's main effect is outside the API
+# surface -- a *correct* dispersion solver would not reproduce it
+# either. That is a scope limit, not a defect.
+#
+# The dispersion the figure implies, fwap mostly does not return. Of the
+# twelve (model, source frequency) pairs plotted, the quadrupole solver
+# produces a phase velocity for **three**: the virgin formation gives no
+# root at any of 1.5, 3, 6 or 7.5 kHz, its onset sitting at 8.4 kHz. The
+# A.2 bracket is again the whole story -- all 194 converged samples
+# across the three runs lie strictly inside `(V_R, V_S)`, none outside.
+#
+# And the one dispersion claim in the figure-14 paragraph -- "the
+# increase of the group velocity of the Airy phase" at 6 and 7.5 kHz --
+# does not come out inaccurate here, it comes out with the wrong sign.
+# The overtone sawtooth ramps at roughly 0.5 (m/s)/Hz, steep enough that
+# `v_g = 1 / (d(f s)/df)` goes **negative** on 18 of 48 adjacent virgin
+# pairs. No guided mode has a negative group velocity, so the Airy phase
+# cannot be read off this output at all.
+#
+# Coverage inverts with invasion thickness, as in figure 12: virgin 49
+# of 141 samples (first root 8.40 kHz), 8 cm 63 (4.10 kHz), 16 cm 82
+# (3.40 kHz). The three-medium problem converges further, and lower,
+# than the one-medium problem contained in it.
+#
+# Unlike figure 6's slow-formation model, these counts were stable
+# across bit-identical grids built two ways and across repeat calls, so
+# the grid sensitivity recorded there is model-specific, not universal.
+# The tests below still assert bands rather than exact counts.
+# ----------------------------------------------------------------------
+
+#: Figure 14: printed peak-amplitude scale factors (virgin, 8 cm, 16 cm)
+#: keyed by source centre frequency in kHz. Read off the page and
+#: confirmed by measuring the plotted excursions (agreement <= 0.027).
+_FIG14_PEAK_AMPLITUDE = {
+    1.5: (0.345, 0.587, 1.000),
+    3.0: (0.597, 0.847, 1.000),
+    6.0: (0.838, 0.772, 1.000),
+    7.5: (0.607, 0.804, 1.000),
+}
+
+#: Figure 13, the dipole counterpart, measured from the plotted
+#: excursions by the same routine. Digits were read for 1 and 3 kHz and
+#: agree; 6 and 7.5 kHz are excursion measurements only.
+_FIG13_PEAK_AMPLITUDE = {
+    1.0: (0.799, 0.907, 1.000),
+    3.0: (1.000, 0.996, 0.975),
+    6.0: (0.998, 0.998, 1.000),
+    7.5: (1.000, 0.998, 1.000),
+}
+
+#: Figure 14(a): cross-correlation lag against the virgin trace at a
+#: 1.5 kHz quadrupole source and 5 m offset (microseconds), and the
+#: correlation. Invariant across 36 crop/window choices.
+_FIG14A_INVASION_LAG_US = {"8 cm": (9.7, 0.924), "16 cm": (36.5, 0.797)}
+
+#: Figure 14(b)-(d): the best-fit 8 cm lags, refused. Constant across a
+#: 2.5x change in source frequency, which a real delay would not be.
+_FIG14_REFUSED_LAG_US = {3.0: 237.7, 6.0: 238.9, 7.5: 235.1}
+
+#: The four source centre frequencies of figure 14 (kHz).
+_FIG14_SOURCE_KHZ = (1.5, 3.0, 6.0, 7.5)
+
+#: Receiver offset of every figure-14 panel (m).
+_FIG14_OFFSET_M = 5.0
+
+#: Lowest frequency (kHz) at which fwap's plain quadrupole solver
+#: returns a root for the figure-14 virgin fast sandstone.
+_FIG14_VIRGIN_ONSET_KHZ = 8.4
+
+
+def _fig14_quadrupole(thickness: float | None, freq: np.ndarray) -> np.ndarray:
+    """Phase velocity (m/s) for figure 14's model, NaN where no root."""
+    from fwap.cylindrical_solver import (
+        quadrupole_dispersion,
+        quadrupole_dispersion_layered,
+    )
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    if thickness is None:
+        mode = quadrupole_dispersion(freq, **_FIG12_VIRGIN, **fluid, a=0.10)
+    else:
+        mode = quadrupole_dispersion_layered(
+            freq,
+            **_FIG12_VIRGIN,
+            **fluid,
+            a=0.10,
+            layers=(BoreholeLayer(**_FIG12_INVADED, thickness=thickness),),
+        )
+    return 1.0 / mode.slowness
+
+
+def test_fig14_scale_factors_are_internally_consistent():
+    """The transcription, before it is used for anything.
+
+    Each panel is normalised to its own maximum, so every triple must
+    contain exactly one 1.000 and nothing above it. Panel (c) is the odd
+    one out and that is not a mis-read: two independent readings of the
+    page -- the printed digits and the plotted ink -- both put the 8 cm
+    trace *below* the virgin one there.
+    """
+    for f_khz, triple in _FIG14_PEAK_AMPLITUDE.items():
+        assert max(triple) == pytest.approx(1.0), f"{f_khz} kHz: {triple}"
+        assert min(triple) > 0.0, f"{f_khz} kHz: {triple}"
+        assert sum(v == 1.0 for v in triple) == 1, f"{f_khz} kHz: {triple}"
+    virgin, eight, _ = _FIG14_PEAK_AMPLITUDE[6.0]
+    assert eight < virgin, "panel (c) is non-monotone in invasion thickness"
+    for f_khz in (1.5, 3.0, 7.5):
+        a, b, c = _FIG14_PEAK_AMPLITUDE[f_khz]
+        assert a < b < c, f"{f_khz} kHz rises with thickness: {(a, b, c)}"
+
+
+def test_the_quadrupole_sees_invasion_far_more_strongly_than_the_dipole():
+    """The published comparison, measured.
+
+    "The variations of the peak amplitude as a function of the invaded
+    zone thickness are more pronounced with low source center
+    frequencies than previously" -- previously being the dipole of
+    figure 13. At the lowest source frequency each figure plots, the
+    quadrupole's spread is 2.90x against the dipole's 1.25x.
+    """
+
+    def spread(triple: tuple[float, float, float]) -> float:
+        return max(triple) / min(triple)
+
+    quad_low = spread(_FIG14_PEAK_AMPLITUDE[1.5])
+    dip_low = spread(_FIG13_PEAK_AMPLITUDE[1.0])
+    assert quad_low == pytest.approx(2.90, abs=0.05)
+    assert dip_low == pytest.approx(1.25, abs=0.05)
+    assert quad_low > 2.0 * dip_low, f"{quad_low} vs {dip_low}"
+    # and at the one frequency both figures share
+    assert spread(_FIG14_PEAK_AMPLITUDE[3.0]) > 1.6
+    assert spread(_FIG13_PEAK_AMPLITUDE[3.0]) < 1.05
+
+
+def test_the_dipole_goes_flat_above_3_khz_and_the_quadrupole_never_does():
+    """Where each source stops resolving a shallow altered zone.
+
+    The report's own words for figure 13(c, d) are that "the peak
+    amplitude still varies little from one case to another". Measured,
+    "little" is under 1 %. The quadrupole's smallest spread over the
+    same band is 1.29x.
+    """
+    for f_khz in (6.0, 7.5):
+        triple = _FIG13_PEAK_AMPLITUDE[f_khz]
+        assert max(triple) / min(triple) < 1.01, f"dipole {f_khz} kHz: {triple}"
+    worst = min(
+        max(t) / min(t) for f_khz, t in _FIG14_PEAK_AMPLITUDE.items() if f_khz >= 3.0
+    )
+    assert worst > 1.25, f"quadrupole stays sensitive: {worst}"
+
+
+def test_fwap_still_returns_no_screw_root_at_figure_14_source_frequencies():
+    """Twelve plotted wavetrains, and the A.2 fix does not reach them.
+
+    Figure 14 plots three models at four source centre frequencies. The
+    virgin fast sandstone -- the reference every panel is normalised
+    against -- still returns no root at any of the four: the corrected
+    window moves the onset down but not below 6 kHz, and the figure's
+    sources sit at or under it.
+
+    This is the near-cutoff onset gap, not the bracket. Fixing A.2 was
+    never going to move it, and the count here is a reminder of that.
+    """
+    freq = 1.0e3 * np.array(_FIG14_SOURCE_KHZ)
+    virgin = _fig14_quadrupole(None, freq)
+    assert not np.any(np.isfinite(virgin)), f"expected no roots, got {virgin}"
+
+    found = sum(
+        int(np.isfinite(_fig14_quadrupole(th, freq)).sum()) for th in (0.08, 0.16)
+    )
+    assert found <= 6, f"{found} of 12 plotted pairs resolved"
+
+
+def test_the_figure_14_screw_onset_sits_above_the_whole_figure():
+    """Quantify the gap between the published band and fwap's."""
+    freq = np.linspace(1000.0, 15000.0, 141)
+    virgin = _fig14_quadrupole(None, freq)
+    ok = np.isfinite(virgin)
+    assert ok.any(), "the solver resolves the mode somewhere"
+    onset_khz = freq[ok].min() / 1.0e3
+    assert onset_khz == pytest.approx(_FIG14_VIRGIN_ONSET_KHZ, abs=0.6)
+    assert onset_khz > max(_FIG14_SOURCE_KHZ), (
+        f"onset {onset_khz} kHz is above every source frequency in the figure"
+    )
+
+
+def test_figure_14_open_hole_samples_now_descend_below_the_rayleigh_speed():
+    """A.2 on the figure's own models, and the one path it does not fix.
+
+    Not one converged sample of the virgin, 8 cm or 16 cm run used to
+    escape `(V_R, V_S)`: the bracket was not a bias on these curves, it
+    was their entire support. The open-hole run now descends below
+    `V_R`, which is only representable because the window was widened.
+
+    The two **layered** runs are a different story, recorded in the next
+    test: the cased `n=2` determinant is too ill-conditioned to
+    root-find over the widened window, so the corrected code answers
+    almost nowhere rather than returning the sawtooth it used to.
+    """
+    freq = np.linspace(1000.0, 15000.0, 141)
+    v_r = rayleigh_speed(_FIG12_VIRGIN["vp"], _FIG12_VIRGIN["vs"])
+
+    virgin = _fig14_quadrupole(None, freq)
+    good = virgin[np.isfinite(virgin)]
+    assert good.size >= 5, f"open hole resolved only {good.size}"
+    assert np.all(good < _FIG12_VIRGIN["vs"])
+    assert _descends(good), "one descending branch"
+    assert good.min() < v_r, "the branch passes below V_R"
+
+    for thickness in (0.08, 0.16):
+        v = _fig14_quadrupole(thickness, freq)
+        layered = v[np.isfinite(v)]
+        assert np.all(layered < _FIG12_VIRGIN["vs"])
+        assert np.all(layered > 1500.0)
+
+
+def test_the_screw_group_velocity_is_no_longer_negative():
+    """The Airy phase figure 14(c, d) is about can be read off this now.
+
+    The overtone substitution used to walk the root up to `V_S`, lose
+    it, and re-acquire a higher branch; the ramps were steep enough that
+    `v_g = 1 / (d(f s)/df)` came out negative across a large minority of
+    adjacent samples. A guided mode never has negative group velocity,
+    so that was not a small error in the Airy velocity -- it was the
+    absence of a usable group-velocity curve.
+
+    With one monotone branch, `v_g` is positive everywhere.
+    """
+    freq = np.linspace(1000.0, 15000.0, 141)
+    v = _fig14_quadrupole(None, freq)
+    ok = np.isfinite(v)
+    f_ok, v_ok = freq[ok], v[ok]
+    assert v_ok.size >= 5
+    dv_df = np.diff(v_ok) / np.diff(f_ok)
+    v_g = v_ok[:-1] / (1.0 - (f_ok[:-1] / v_ok[:-1]) * dv_df)
+    assert np.all(v_g > 0.0), f"{int((v_g < 0).sum())} of {v_g.size} pairs negative"
+    assert v_ok.max() < _FIG12_VIRGIN["vs"], "no run up to the V_S ceiling"
+
+
+def test_the_cased_n2_determinant_is_too_noisy_to_root_find():
+    """The limit of the A.2 fix, stated rather than papered over.
+
+    Figure 12's inverted coverage signal reproduced at `n = 2`: adding a
+    layer made the problem strictly harder and the solver converged on
+    strictly *more* of the band, because coverage was tracking the
+    bracket rather than the physics.
+
+    Widening the window removed the overtones and exposed why: scanned
+    across the full `(V_f, V_S)` window the **cased** `n = 2`
+    determinant has of order ninety sign changes at 12 kHz on this
+    model, where the physics supports a handful. That is numerical
+    noise from the propagator chain, not a mode spectrum, and the old
+    narrow bracket hid it by only ever looking at a sliver.
+
+    So the marcher refuses to pick one: past
+    `_FAST_FLEXURAL_MAX_CASED_ROOTS` crossings it reports nothing. The
+    layered `n = 2` path is therefore **quiet, not fixed** -- the
+    bracket was only one of its problems, and the remaining one is
+    conditioning, which is what the delta-matrix reformulation kept as
+    an open item (A.5 residue) is for.
+
+    The open-hole `n = 2` path shares none of this: its determinant is a
+    single 4x4 and it tracks the published screw curve.
+    """
+    freq = np.linspace(1000.0, 15000.0, 141)
+    counts = []
+    for thickness in (None, 0.08, 0.16):
+        v = _fig14_quadrupole(thickness, freq)
+        counts.append(int(np.isfinite(v).sum()))
+
+    # the inversion is gone: layering no longer buys spurious coverage
+    assert counts[0] > counts[1], f"coverage {counts}"
+    assert counts[0] > counts[2], f"coverage {counts}"
+    # and the layered path is near-silent rather than confidently wrong
+    assert max(counts[1], counts[2]) < 10, f"coverage {counts}"
+
+
+def test_the_figure_14_model_returns_no_attenuation_at_all():
+    """Why the figure's main result is out of scope, not merely wrong.
+
+    Peak amplitude at a fixed 5 m offset is excitation times
+    propagation. `BoreholeMode` has no excitation field, and for this
+    model `attenuation_per_meter` is `None` on every path. Neither
+    factor is available, so figure 14's amplitudes are not something a
+    fixed A.2 would deliver.
+    """
+    from fwap.cylindrical_solver import (
+        quadrupole_dispersion,
+        quadrupole_dispersion_layered,
+    )
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    freq = 1.0e3 * np.array(_FIG14_SOURCE_KHZ)
+    plain = quadrupole_dispersion(freq, **_FIG12_VIRGIN, **fluid, a=0.10)
+    layered = quadrupole_dispersion_layered(
+        freq,
+        **_FIG12_VIRGIN,
+        **fluid,
+        a=0.10,
+        layers=(BoreholeLayer(**_FIG12_INVADED, thickness=0.16),),
+    )
+    assert plain.attenuation_per_meter is None
+    assert layered.attenuation_per_meter is None
+    assert not hasattr(plain, "excitation")
+
+
+def test_the_quadrupole_invasion_delay_at_1p5_khz():
+    """Figure 14(a): the quadrupole's own invasion delay.
+
+    Both models delay rather than advance, thicker delays more, and at
+    5 m the 16 cm figure is a couple of percent of the traveltime.
+    """
+    for name, (lag_us, corr) in _FIG14A_INVASION_LAG_US.items():
+        assert lag_us > 0.0, f"{name}: invasion delays rather than advances"
+        assert corr > 0.75, f"{name}: r = {corr}"
+    quad = _FIG14A_INVASION_LAG_US["16 cm"][0]
+    assert quad > _FIG14A_INVASION_LAG_US["8 cm"][0]
+    travel_ms = _FIG14_OFFSET_M * 1.0e3 / _FIG12_VIRGIN["vs"]
+    assert 0.005 < quad * 1e-3 / travel_ms < 0.05, "a couple of percent"
+
+
+def test_the_invasion_delay_is_a_steep_function_of_source_frequency():
+    """Why figure 14's delay must not be read as a dipole/quadrupole gap.
+
+    It is tempting to set figure 14(a)'s 36.5 us against figure 13(a)'s
+    1.2 us and call the quadrupole thirty times more delay-sensitive.
+    The two panels are at *different* source frequencies -- 1.5 against
+    1 kHz -- and figure 13's own panels show how steeply that matters:
+    the dipole's 16 cm delay goes 1.2 -> 99.0 us between 1 and 3 kHz, a
+    factor of 79 for a factor of 3 in frequency. The quadrupole's
+    1.5 kHz value lands between those two, about where interpolating the
+    dipole would put it.
+
+    No source frequency is shared between the two figures where both are
+    measurable, so **the figures do not support a like-for-like delay
+    comparison** -- only the peak-amplitude one, which the report itself
+    makes. This test exists to keep that distinction from eroding.
+    """
+    dip_1k = _FIG13A_INVASION_LAG_US["16 cm"][0]
+    dip_3k = _FIG13B_INVASION_LAG_US["16 cm"][0]
+    quad_1p5k = _FIG14A_INVASION_LAG_US["16 cm"][0]
+    assert dip_3k / dip_1k > 50.0, f"{dip_1k} -> {dip_3k} us"
+    assert dip_1k < quad_1p5k < dip_3k, (
+        "the quadrupole's 1.5 kHz delay is bracketed by the dipole's own "
+        f"1 and 3 kHz values: {dip_1k} < {quad_1p5k} < {dip_3k}"
+    )
+
+
+def test_the_refused_figure_14_lags_are_refused_for_a_reason():
+    """Why panels (b)-(d) are not quoted.
+
+    Their best-fit 8 cm lags are the same number at 3, 6 and 7.5 kHz.
+    A delay caused by a 8 cm layer would change with the wavelength
+    probing it; a cross-correlation hopping cycles in a ringing
+    wavetrain would not. The spread across a 2.5x change in source
+    frequency is the evidence, and it is recorded so the refusal can be
+    checked rather than taken on trust.
+    """
+    lags = np.array(list(_FIG14_REFUSED_LAG_US.values()))
+    assert np.ptp(lags) < 5.0, f"constant to a few us: {lags}"
+    assert lags.min() > 100.0, "and far larger than panel (a)'s"
+    # panel (a), which is quoted, is nothing like them
+    assert _FIG14A_INVASION_LAG_US["16 cm"][0] < 0.2 * lags.min()
+
+
+# ----------------------------------------------------------------------
+# Figure 16: the slow formation, where invasion finally shows up
+#
+# "Dipole source. Invaded zone effects in the presence of a slow
+# sandstone. Iso-offset (z = 5m) of the waveforms obtained in the
+# presence of the only virgin formation (1), and a 8 cm (2) and 16 cm
+# (3) invaded zone. The source center frequency is successively equal to
+# 1 kHz (a), 3 kHz (b), 6 kHz (c), and 7.5 kHz (d). Each series is
+# normalized with respect to its own maximum denoted by 1.00."
+#
+# **That last sentence settles a convention this series had been
+# inferring.** Figures 13 and 14 print the same scale factors without
+# saying what they mean; figure 16's caption states it. The printed
+# number is the trace's peak amplitude relative to the largest trace in
+# its panel. The figure-14 reading was right.
+#
+# This figure is the same experiment as figure 13 with the rock swapped,
+# and it is the one where the invaded zone stops being invisible.
+#
+# **Twelve arrows, and they calibrate the figure.** Each trace carries a
+# drawn arrowhead at a shear arrival -- the virgin formation's on trace
+# 1, the invaded zone's own on traces 2 and 3. Detected as filled blobs
+# and converted through the time axis at 5 m, they give 1198.0 m/s for
+# the four virgin arrows (against table 1's `V_S` = 1201, **-0.25 %**)
+# and 1083.0 m/s for the eight invaded ones (against 1081, **+0.18 %**).
+# Twelve independent detections landing on two distinct published
+# velocities is a calibration check owing nothing to fwap, and it
+# confirms table 1's slow invaded-zone row a second time -- figure 15's
+# dispersion anchor read 1081.2 from a different figure entirely.
+#
+# **The amplitudes, digits and ink agreeing to 0.018**, settle several
+# glyphs that could be read two ways (0.754 not 0.734; 0.644 not 0.699;
+# 0.452 confirmed to 0.002):
+#
+#     f_c        virgin   8 cm    16 cm    spread
+#     1 kHz      0.612    0.754   1.000     1.63x
+#     3 kHz      1.000    0.644   0.672     1.55x
+#     6 kHz      1.000    0.452   0.672     2.21x
+#     7.5 kHz    0.881    0.706   1.000     1.42x
+#
+# Figure 13's fast sandstone, measured the same way, gives 1.25 / 1.03 /
+# 1.00 / 1.00. **Where the fast formation goes flat at and above 3 kHz,
+# the slow one never drops below 1.42x.**
+#
+# **And the mechanism is measurable, not just the size.** Splitting each
+# trace at its own arrow gives the P wavetrain's amplitude against the
+# shear packet's:
+#
+#     P/S        virgin   8 cm    16 cm
+#     1 kHz       0.03    0.07    0.05
+#     3 kHz       0.03    0.15    0.22
+#     6 kHz       0.10    0.96    1.53
+#     7.5 kHz     0.21    1.95    2.76
+#
+# Monotone in thickness at every frequency at or above 3 kHz, and
+# monotone in frequency. At 6 kHz with 16 cm, and at 7.5 kHz with either
+# thickness, **the P wavetrain becomes the largest event in the trace**
+# -- the series maximum jumps from ~5.0 ms to ~2.35 ms. That is the
+# report's conclusion C ("small velocity contrasts can modify the
+# internal dynamics of the waveforms more easily in slow formations,
+# through an increase of the P wavetrain") as a number.
+#
+# **A like-for-like delay comparison, which figure 14 could not offer.**
+# Figures 13(a) and 16(a) are the same source, the same 1 kHz, the same
+# 5 m, the same two thicknesses -- only the rock differs. The 16 cm
+# delay is +1.2 us in the fast sandstone and **+117.3 us** in the slow
+# one, at correlations of 0.981 and 0.879. As a fraction of traveltime
+# that is 0.06 % against 2.82 %: **45 times larger**.
+#
+# **The fwap check, on the one path this series has shown to be good.**
+# Figure 15 tied these exact three models' phase velocity at 1.47-1.48 %
+# rms. So the forward prediction is fair: take the group-velocity
+# minimum, divide 5 m by it, compare with the measured arrival of the
+# shear packet.
+#
+# The virgin packet peaks at 5.01-5.11 ms across all four source
+# frequencies -- frequency-independent, the Airy signature figures 3 and
+# 9 relied on -- giving 989.6 m/s against figure 8a's published group
+# minimum of 992.0 m/s. **Two independent figures, 0.24 % apart.**
+#
+#     model    measured        fwap        error
+#     virgin   5.05 ms (n=4)   5.21 ms     +3.0 %
+#     8 cm     5.56 ms (n=3)   5.91 ms     +6.3 %
+#     16 cm    5.64 ms (n=2)   6.09 ms     +8.0 %
+#
+# The virgin +3.0 % is figure 9's "3 % low in value" arrived at from a
+# different figure and a different domain. **The new result is what
+# happens when a layer is added.** The invaded arrivals drift with
+# source frequency (5.37-5.68 and 5.45-5.84), so against the most
+# charitable end of each measured range the errors are +2.0 %, +4.0 %
+# and +4.3 %. Either way the layered error is about **twice** the
+# open-hole one. The 8 cm / 16 cm difference is inside the measurement
+# spread and is **not** claimed.
+#
+# So figure 15's verdict needs one qualification. "The layered solver is
+# as accurate as the open-hole one" holds for *phase* velocity. It does
+# not survive differentiation: the group velocity that a waveform
+# actually arrives at is twice as wrong on the layered path.
+#
+# Two smaller things. **At 1 kHz fwap returns nothing for any of the
+# three models** (onsets 2.52, 3.51, 2.94 kHz) -- the panel that
+# measures best is entirely outside coverage, the near-cutoff gap of
+# figure 10 now confirmed on the layered path. And unlike figure 14's
+# fast-formation quadrupole, **these curves are structurally sound**: no
+# interior gaps, no negative group velocity, phase monotone throughout.
+# Here the defect is accuracy; there it was the absence of a curve.
+# ----------------------------------------------------------------------
+
+#: Figure 16: printed peak-amplitude scale factors (virgin, 8 cm, 16 cm)
+#: keyed by source centre frequency in kHz. Digits read from the page,
+#: confirmed by measuring the plotted excursions (agreement <= 0.018).
+_FIG16_PEAK_AMPLITUDE = {
+    1.0: (0.612, 0.754, 1.000),
+    3.0: (1.000, 0.644, 0.672),
+    6.0: (1.000, 0.452, 0.672),
+    7.5: (0.881, 0.706, 1.000),
+}
+
+#: Figure 16: P-wavetrain amplitude over shear-packet amplitude, each
+#: trace split at its own drawn arrow. Same keying.
+_FIG16_P_OVER_S = {
+    1.0: (0.03, 0.07, 0.05),
+    3.0: (0.03, 0.15, 0.22),
+    6.0: (0.10, 0.96, 1.53),
+    7.5: (0.21, 1.95, 2.76),
+}
+
+#: Figure 16: shear-speed recovered from each drawn arrow at 5 m (m/s),
+#: as (virgin, 8 cm, 16 cm) per source centre frequency.
+_FIG16_ARROW_VS = {
+    1.0: (1196.6, 1083.1, 1086.3),
+    3.0: (1204.7, 1084.6, 1085.6),
+    6.0: (1188.8, 1078.7, 1083.1),
+    7.5: (1201.8, 1081.2, 1081.2),
+}
+
+#: Figure 16: time of the shear-packet peak (ms) at 5 m, per model, over
+#: the source frequencies where that packet is still the trace maximum.
+_FIG16_AIRY_MS = {
+    "virgin": (5.04, 5.11, 5.05, 5.01),
+    "8 cm": (5.37, 5.62, 5.68),
+    "16 cm": (5.45, 5.84),
+}
+
+#: Figure 16(a): cross-correlation lag against the virgin trace at a
+#: 1 kHz dipole source and 5 m offset (microseconds), and the
+#: correlation. Directly comparable to _FIG13A_INVASION_LAG_US.
+_FIG16A_INVASION_LAG_US = {"8 cm": (46.1, 0.969), "16 cm": (117.3, 0.879)}
+
+_FIG16_OFFSET_M = 5.0
+
+#: Lowest frequency (kHz) at which fwap resolves each figure-16 model.
+_FIG16_ONSET_KHZ = {"virgin": 2.52, "8 cm": 3.51, "16 cm": 2.94}
+
+
+def _fig16_flexural(thickness: float | None, freq: np.ndarray) -> np.ndarray:
+    """Phase velocity (m/s) for figure 16's model, NaN where no root."""
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    if thickness is None:
+        mode = flexural_dispersion(freq, **_FIG15_VIRGIN, **fluid, a=0.10)
+    else:
+        mode = flexural_dispersion_layered(
+            freq,
+            **_FIG15_VIRGIN,
+            **fluid,
+            a=0.10,
+            layers=(BoreholeLayer(**_FIG15_INVADED, thickness=thickness),),
+        )
+    return 1.0 / mode.slowness
+
+
+def _fig16_group_minimum(thickness: float | None) -> tuple[float, float]:
+    """(v_g minimum in m/s, its frequency in Hz) over the longest run.
+
+    The value is grid-converged: 241, 591 and 1181-point grids agree to
+    0.02 m/s, so the coarse grid used here is not a shortcut.
+    """
+    freq = np.linspace(200.0, 12000.0, 241)
+    v = _fig16_flexural(thickness, freq)
+    idx = np.where(np.isfinite(v))[0]
+    seg = max(np.split(idx, np.where(np.diff(idx) > 1)[0] + 1), key=len)
+    ff, vv = freq[seg], v[seg]
+    v_g = 1.0 / np.gradient(ff / vv, ff)
+    i = int(np.argmin(v_g))
+    return float(v_g[i]), float(ff[i])
+
+
+def test_fig16_scale_factors_are_internally_consistent():
+    """The transcription, before anything is built on it.
+
+    Each panel is normalised to its own maximum -- the caption says so
+    in as many words -- so every triple holds exactly one 1.000 and
+    nothing above it.
+    """
+    for f_khz, triple in _FIG16_PEAK_AMPLITUDE.items():
+        assert max(triple) == pytest.approx(1.0), f"{f_khz} kHz: {triple}"
+        assert min(triple) > 0.0, f"{f_khz} kHz: {triple}"
+        assert sum(v == 1.0 for v in triple) == 1, f"{f_khz} kHz: {triple}"
+
+
+def test_the_figure_16_arrows_recover_both_published_shear_speeds():
+    """Twelve arrowheads, two velocities, no solver involved.
+
+    Each trace carries a drawn arrow at a shear arrival: the virgin
+    formation's on trace 1, the invaded zone's own on traces 2 and 3.
+    Read through the time axis at 5 m they return table 1's two slow
+    shear speeds to a quarter of a percent. This is the calibration
+    check for every other number taken off this figure, and it confirms
+    the invaded-zone row a second time -- figure 15 anchored it at
+    1081.2 from an entirely different figure.
+    """
+    virgin = np.array([t[0] for t in _FIG16_ARROW_VS.values()])
+    invaded = np.array([v for t in _FIG16_ARROW_VS.values() for v in t[1:]])
+    assert virgin.size == 4 and invaded.size == 8
+    assert virgin.mean() == pytest.approx(_FIG15_VIRGIN["vs"], rel=0.01)
+    assert invaded.mean() == pytest.approx(_FIG15_INVADED["vs"], rel=0.01)
+    # every single arrow, not just the means
+    assert np.abs(virgin / _FIG15_VIRGIN["vs"] - 1).max() < 0.02
+    assert np.abs(invaded / _FIG15_INVADED["vs"] - 1).max() < 0.02
+    # and the two families do not overlap
+    assert invaded.max() < virgin.min()
+
+
+def test_a_slow_formation_dipole_sees_invasion_where_a_fast_one_cannot():
+    """Figure 16 against figure 13, same source and the rock swapped.
+
+    Figure 13 found a 16 cm invaded zone undetectable in a fast
+    sandstone. Swapping in the slow one and changing nothing else, the
+    same zone moves the arrival by 117 us and reorders the panel
+    amplitudes by a factor of two.
+    """
+
+    def spread(t: tuple[float, float, float]) -> float:
+        return max(t) / min(t)
+
+    for f_khz in (3.0, 6.0, 7.5):
+        fast = spread(_FIG13_PEAK_AMPLITUDE[f_khz])
+        slow = spread(_FIG16_PEAK_AMPLITUDE[f_khz])
+        assert fast < 1.05, f"fast is flat at {f_khz} kHz: {fast}"
+        assert slow > 1.40, f"slow is not: {slow}"
+    assert min(spread(t) for t in _FIG16_PEAK_AMPLITUDE.values()) > 1.4
+
+
+def test_the_1_khz_invasion_delay_is_45x_larger_in_the_slow_formation():
+    """The like-for-like comparison figure 14 could not supply.
+
+    Figures 13(a) and 16(a) share source type, source frequency, offset
+    and both invaded-zone thicknesses. Only the rock differs, so the
+    ratio means something.
+    """
+    fast_us = _FIG13A_INVASION_LAG_US["16 cm"][0]
+    slow_us = _FIG16A_INVASION_LAG_US["16 cm"][0]
+    for name, (lag_us, corr) in _FIG16A_INVASION_LAG_US.items():
+        assert lag_us > 0.0, f"{name}: invasion delays rather than advances"
+        assert corr > 0.85, f"{name}: r = {corr}"
+    assert _FIG16A_INVASION_LAG_US["16 cm"][0] > _FIG16A_INVASION_LAG_US["8 cm"][0]
+
+    fast_frac = fast_us * 1e-3 / (_FIG13_OFFSET_M * 1e3 / _FIG2_ROCK["vs"])
+    slow_frac = slow_us * 1e-3 / (_FIG16_OFFSET_M * 1e3 / _FIG15_VIRGIN["vs"])
+    assert fast_frac < 0.001, f"fast: {fast_frac:.4%} of traveltime"
+    assert slow_frac > 0.02, f"slow: {slow_frac:.4%} of traveltime"
+    assert slow_frac / fast_frac > 30.0
+
+
+def test_invasion_moves_the_slow_formation_energy_into_the_p_wavetrain():
+    """The published mechanism, measured.
+
+    Conclusion C says small velocity contrasts modify the internal
+    dynamics more easily in slow formations "through an increase of the
+    P wavetrain". Splitting each trace at its own arrow, P/S rises with
+    thickness at every frequency at or above 3 kHz and with frequency at
+    every thickness -- and at the top end the P wavetrain overtakes the
+    shear packet outright.
+    """
+    for f_khz in (3.0, 6.0, 7.5):
+        virgin, eight, sixteen = _FIG16_P_OVER_S[f_khz]
+        assert virgin < eight < sixteen, f"{f_khz} kHz: {_FIG16_P_OVER_S[f_khz]}"
+    # monotone in frequency for each model
+    for col in range(3):
+        series = [_FIG16_P_OVER_S[f][col] for f in (3.0, 6.0, 7.5)]
+        assert series == sorted(series), f"column {col}: {series}"
+    # the virgin trace never lets P win; invasion makes it win
+    assert max(t[0] for t in _FIG16_P_OVER_S.values()) < 0.5
+    assert _FIG16_P_OVER_S[6.0][2] > 1.0
+    assert _FIG16_P_OVER_S[7.5][1] > 1.0 and _FIG16_P_OVER_S[7.5][2] > 1.0
+
+
+def test_the_virgin_airy_arrival_is_frequency_independent():
+    """Why the shear-packet peak can be read as the Airy phase.
+
+    An Airy phase arrives at the stationary point of the group-velocity
+    curve, which is a property of the medium, not of the source. The
+    virgin packet peaks within 0.10 ms of 5.05 ms across a 7.5x change
+    in source frequency. The invaded traces drift more, and that wider
+    spread is carried into the tolerance of the fwap comparison below.
+    """
+    virgin = np.array(_FIG16_AIRY_MS["virgin"])
+    assert np.ptp(virgin) / virgin.mean() < 0.025, f"{virgin}"
+    for name in ("8 cm", "16 cm"):
+        arr = np.array(_FIG16_AIRY_MS[name])
+        assert np.ptp(arr) / arr.mean() < 0.08, f"{name}: {arr}"
+        assert arr.min() > virgin.max(), "invasion delays the packet"
+
+
+def test_figure_16_confirms_figure_8a_group_minimum_from_the_time_domain():
+    """Two figures, two domains, one number.
+
+    Figure 8a's published phase curve, differentiated, put the slow
+    flexural group minimum at 992 m/s. Figure 16's virgin waveforms put
+    the arrival at 5.05 ms over 5 m, which is 990 m/s. Neither reading
+    used fwap, and they are 0.24 % apart.
+    """
+    measured = _FIG16_OFFSET_M / (float(np.mean(_FIG16_AIRY_MS["virgin"])) * 1e-3)
+    published = _FIG8A_GROUP_MINIMUM[0]
+    assert measured == pytest.approx(published, rel=0.01), (
+        f"{measured:.1f} m/s from figure 16 against {published} from figure 8a"
+    )
+
+
+def test_the_layered_group_velocity_is_twice_as_wrong_as_the_open_hole_one():
+    """Figure 15's verdict, qualified where it stops holding.
+
+    Figure 15 tied these three models' *phase* velocity at 1.47-1.48 %
+    rms and concluded the layered solver is as accurate as the open-hole
+    one. Differentiate, and that stops being true: predicting figure
+    16's Airy arrival from the group-velocity minimum is ~3 % late for
+    the virgin rock -- figure 9's result, reached from another figure --
+    and about twice that once a layer is present.
+
+    The comparison is made against the *latest* measured arrival in each
+    model, the most charitable end of the range, so the gap is a floor
+    rather than a headline.
+    """
+    errors = {}
+    for name, thickness in (("virgin", None), ("8 cm", 0.08), ("16 cm", 0.16)):
+        v_g, _ = _fig16_group_minimum(thickness)
+        predicted_ms = _FIG16_OFFSET_M / v_g * 1e3
+        latest = max(_FIG16_AIRY_MS[name])
+        errors[name] = predicted_ms / latest - 1.0
+        assert predicted_ms > latest, (
+            f"{name}: fwap predicts {predicted_ms:.2f} ms, measured at most "
+            f"{latest:.2f} ms -- the Airy phase is late, not early"
+        )
+    assert 0.01 < errors["virgin"] < 0.05, errors
+    for name in ("8 cm", "16 cm"):
+        assert errors[name] > 1.7 * errors["virgin"], errors
+
+
+def test_fwap_resolves_nothing_at_figure_16_lowest_source_frequency():
+    """The panel that measures best is the one fwap cannot reach.
+
+    Panel (a) has the compact wavelets, the cleanest correlations and
+    the frequency-independent Airy pick. At 1 kHz the flexural solver
+    returns no root for the virgin rock or for either invaded model --
+    the near-cutoff gap figure 10 proved is a solver limitation rather
+    than physics, now confirmed on the layered path too.
+    """
+    probe = np.array([1000.0])
+    for thickness in (None, 0.08, 0.16):
+        v = _fig16_flexural(thickness, probe)
+        assert not np.any(np.isfinite(v)), f"thickness {thickness}: {v}"
+    freq = np.linspace(200.0, 12000.0, 241)
+    for name, thickness in (("virgin", None), ("8 cm", 0.08), ("16 cm", 0.16)):
+        v = _fig16_flexural(thickness, freq)
+        onset = freq[np.isfinite(v)].min() / 1.0e3
+        assert onset == pytest.approx(_FIG16_ONSET_KHZ[name], abs=0.35)
+        assert onset > 1.0, f"{name} onset {onset} kHz is above the 1 kHz panel"
+
+
+def test_the_slow_flexural_curves_are_structurally_sound():
+    """The contrast with figure 14, stated as an assertion.
+
+    Figure 14's fast-formation quadrupole came back shredded: interior
+    gaps, a sawtooth against the bracket ceiling, and a group velocity
+    that went negative. The same package on the slow formation, open
+    hole and layered alike, returns one contiguous run per model with a
+    monotone phase velocity and a group velocity that never changes
+    sign. Whatever is wrong here is an accuracy problem, and A.2's
+    bracket is not implicated.
+    """
+    freq = np.linspace(200.0, 12000.0, 241)
+    for thickness in (None, 0.08, 0.16):
+        v = _fig16_flexural(thickness, freq)
+        ok = np.isfinite(v)
+        idx = np.where(ok)[0]
+        assert int((np.diff(idx) > 1).sum()) == 0, f"{thickness}: interior gap"
+        vv = v[ok]
+        assert np.all(np.diff(vv) <= 1.0), f"{thickness}: phase not monotone"
+        assert vv.max() <= _FIG15_VIRGIN["vs"] + 1.0
+        ff = freq[ok]
+        dv = np.diff(vv) / np.diff(ff)
+        v_g = vv[:-1] / (1.0 - (ff[:-1] / vv[:-1]) * dv)
+        assert np.all(v_g > 0.0), f"{thickness}: negative group velocity"
+
+
+# ----------------------------------------------------------------------
+# Figure 17: the slow-formation quadrupole, which fwap will not compute
+#
+# "Quadrupole source. Invaded zone effects in the presence of a slow
+# sandstone. Iso-offset (z = 5m) of the waveforms obtained in the
+# presence of the only virgin formation (1), and a 8 cm (2) and 16 cm
+# (3) invaded zone. The source center frequency is successively equal to
+# 1 kHz (a), 3 kHz (b), 6 kHz (c), and 7.5 kHz (d). Each series is
+# normalized with respect to its own maximum denoted by 1.00."
+#
+# **The headline is a refusal, not a number.**
+# `quadrupole_dispersion_layered` raises `ValueError` on this model
+# before computing anything: the slow-formation branch requires every
+# layer to be at least as fast in shear as the formation, and an invaded
+# zone is by definition slower. Eight of the figure's twelve waveforms
+# are therefore not merely inaccurate -- they are unrepresentable.
+#
+# The constraint is deliberate (`_validate_flexural_layers_stacked`,
+# documented as plan G'.0) and it is right that a softer annulus is a
+# harder regime. What makes it a finding rather than a limitation is the
+# **asymmetry with the sister path**:
+#
+#   * `flexural_dispersion_layered` applies the same check only when
+#     there are **two or more** layers -- the single-layer path
+#     "documents but does not enforce it", in the code's own words.
+#   * So the *identical* one-layer invaded-zone model is accepted at
+#     n = 1 and rejected at n = 2.
+#   * And the n = 1 answers obtained in that supposedly unsupported
+#     regime are the ones figure 15 tied to the published curves at
+#     **1.47-1.48 % rms**, as good as the open-hole solver.
+#
+# So the regime the n=2 validator refuses is one the n=1 code demonstrably
+# handles. Figure 15(b) plots exactly the curves fwap will not produce --
+# and the figure-15 work digitised only panel (a), so this was reachable
+# then and missed. Figure 17 is what caught it.
+#
+# **What fwap can still do**, and it is not much: the virgin screw mode
+# resolves from 5.25 kHz up (196 of 297 samples, no interior gaps, group
+# velocity never negative -- structurally sound, like figure 16 and
+# unlike figure 14). Panels (a) and (b) sit at 1 and 3 kHz, below that
+# onset. **So of the twelve plotted waveforms, exactly two have a
+# computable screw-mode phase velocity.**
+#
+# Predicting the virgin Airy arrival: the screw packet peaks at
+# 4.91-4.99 ms across all four source frequencies -- frequency-
+# independent, so it is the Airy phase -- giving 1008.1 m/s. fwap's
+# group minimum of 954.2 m/s puts it at 5.24 ms, **+5.6 %**, against the
+# flexural mode's +3.0 % on the same rock in figure 16.
+#
+# **The published data, which stands whatever fwap does.**
+#
+# Twelve arrows again calibrate the figure, and this is the tightest
+# external agreement in the series: the four virgin arrows give
+# 1193.6 m/s against `V_S` = 1201 (**-0.61 %**) and the eight invaded
+# ones **1081.3** against 1081 (**+0.03 %**). Finding them needed a
+# better discriminator than figure 16 used -- figure 17's dense
+# high-frequency wavetrains produce blobs that pass a shape test, so the
+# arrow is identified as the arrow-shaped component *not connected to
+# the trace*. Re-running figure 16 with the stricter method reproduces
+# its twelve values exactly, so nothing there needed correcting.
+#
+#     f_c        virgin   8 cm    16 cm    spread
+#     1 kHz      0.156    0.496   1.000    **6.41x**
+#     3 kHz      0.918    0.838   1.000     1.19x
+#     6 kHz      1.000    0.455   0.546     2.20x
+#     7.5 kHz    0.757    0.312   1.000     3.21x
+#
+# Digits and ink agree to 0.028. The 1 kHz virgin glyph is the one real
+# ambiguity -- it could read 0.156 or 0.186, and the ink (0.184 +- 0.02
+# on a 39-pixel excursion) cannot separate them. Comparing the glyph
+# against known 5s and 8s elsewhere in the same figure settles it: the
+# 8s in this font are two closed bowls (0.918, 0.838) and this is the
+# open-topped 5 of 0.455.
+#
+# **Panel (a)'s 6.41x is the largest spread in the four waveform
+# figures, and the virgin trace is the smallest one.** A slow-formation
+# quadrupole at 1 kHz is barely excited; adding an invaded zone brings
+# the screw mode's useful starting energy down into the source band and
+# the response grows six-fold. That is the same mechanism figure 14
+# named in a fast formation, here with the sign of the effect much
+# larger.
+#
+# **The report's own claim for these panels, checked as written.** Page
+# 229 says the P-wavetrain growth with invaded-zone thickness is "especially
+# true with the quadrupole source (Figure 17c, d)". Splitting each trace
+# at its own arrow, P/S grows from virgin to 16 cm by **26x** at 6 kHz
+# and **69x** at 7.5 kHz, against the dipole's 15x and 13x in figure 16.
+# Read as absolute level rather than growth the claim would look false --
+# the dipole's P/S is larger at 6 kHz -- so the wording matters, and it
+# is the growth the authors wrote.
+#
+# **No delays are quoted from this figure.** Panels (b)-(d) give 8 cm
+# lags of +868.9, +867.8 and +862.4 us at 3, 6 and 7.5 kHz -- constant
+# to +-3 us across a 2.5x change in source frequency, the cycle-hopping
+# signature figure 14 established. Panel (a) clears r = 0.8 on both
+# traces but its 8 cm lag (+357 us) contradicts the peak-time shift of
+# the same trace (+100 us), so it is not quoted either.
+# ----------------------------------------------------------------------
+
+#: Figure 17: printed peak-amplitude scale factors (virgin, 8 cm, 16 cm)
+#: keyed by source centre frequency in kHz. Digits read from the page and
+#: confirmed against the plotted ink to 0.028.
+_FIG17_PEAK_AMPLITUDE = {
+    1.0: (0.156, 0.496, 1.000),
+    3.0: (0.918, 0.838, 1.000),
+    6.0: (1.000, 0.455, 0.546),
+    7.5: (0.757, 0.312, 1.000),
+}
+
+#: Figure 17: P-wavetrain over shear-packet amplitude, split at the arrow.
+_FIG17_P_OVER_S = {
+    1.0: (0.13, 0.14, 0.04),
+    3.0: (0.03, 0.07, 0.07),
+    6.0: (0.04, 0.12, 1.05),
+    7.5: (0.04, 0.59, 2.76),
+}
+
+#: Figure 17: shear speed from each drawn arrow at 5 m (m/s).
+_FIG17_ARROW_VS = {
+    1.0: (1188.2, 1078.1, 1080.2),
+    3.0: (1195.5, 1083.0, 1084.1),
+    6.0: (1191.1, 1075.9, 1080.2),
+    7.5: (1199.7, 1084.1, 1085.2),
+}
+
+#: Figure 17: time of the screw-packet peak (ms) at 5 m for the virgin
+#: model, at each of the four source centre frequencies.
+_FIG17_VIRGIN_AIRY_MS = (4.99, 4.91, 4.99, 4.95)
+
+#: Lowest frequency (kHz) at which fwap resolves the virgin slow screw
+#: mode, against the onset figure 17(b) shows a wavetrain at.
+_FIG17_VIRGIN_ONSET_KHZ = 5.25
+
+_FIG17_OFFSET_M = 5.0
+
+
+def test_fig17_scale_factors_are_internally_consistent():
+    """The transcription, including the one ambiguous glyph.
+
+    Panel (a)'s virgin factor could read 0.156 or 0.186 and the ink
+    cannot separate them on a 39-pixel excursion; the glyph shape does,
+    against known 5s and 8s in the same figure. Either reading gives the
+    same conclusion, and the assertions below hold for both.
+    """
+    for f_khz, triple in _FIG17_PEAK_AMPLITUDE.items():
+        assert max(triple) == pytest.approx(1.0), f"{f_khz} kHz: {triple}"
+        assert min(triple) > 0.0, f"{f_khz} kHz: {triple}"
+        assert sum(v == 1.0 for v in triple) == 1, f"{f_khz} kHz: {triple}"
+
+
+def test_the_figure_17_arrows_are_the_tightest_external_tie_in_the_series():
+    """Twelve arrowheads, two published velocities, no solver.
+
+    The eight invaded arrows average 1081.3 m/s against table 1's 1081.
+    Finding them needed a stricter discriminator than figure 16 used --
+    this figure's dense wavetrains produce blobs that pass a shape test,
+    so the arrow is the arrow-shaped component *not connected to the
+    trace*. Figure 16 re-measured that way reproduces its twelve values
+    exactly, so its record needed no correction.
+    """
+    virgin = np.array([t[0] for t in _FIG17_ARROW_VS.values()])
+    invaded = np.array([v for t in _FIG17_ARROW_VS.values() for v in t[1:]])
+    assert virgin.size == 4 and invaded.size == 8
+    assert invaded.mean() == pytest.approx(_FIG15_INVADED["vs"], rel=0.005)
+    assert virgin.mean() == pytest.approx(_FIG15_VIRGIN["vs"], rel=0.01)
+    assert np.abs(invaded / _FIG15_INVADED["vs"] - 1).max() < 0.01
+    assert invaded.max() < virgin.min(), "the two families do not overlap"
+
+
+def test_invasion_multiplies_the_slow_quadrupole_response_at_1_khz():
+    """Panel (a): the largest spread in any of the four waveform figures.
+
+    A slow-formation quadrupole at 1 kHz is barely excited -- the virgin
+    trace is the *smallest* in its panel at 0.156 -- and a 16 cm invaded
+    zone brings the screw mode's useful starting energy down into the
+    source band, multiplying the response by more than six.
+    """
+    virgin, eight, sixteen = _FIG17_PEAK_AMPLITUDE[1.0]
+    assert virgin < eight < sixteen
+    assert sixteen / virgin > 5.0
+    others = [max(t) / min(t) for f, t in _FIG17_PEAK_AMPLITUDE.items() if f != 1.0]
+    assert max(t := _FIG17_PEAK_AMPLITUDE[1.0]) / min(t) > max(others)
+    # larger than anything the fast-formation quadrupole managed
+    assert max(t) / min(t) > max(
+        max(x) / min(x) for x in _FIG14_PEAK_AMPLITUDE.values()
+    )
+
+
+def test_the_quadrupole_p_wavetrain_grows_faster_than_the_dipole_s():
+    """The report's claim for figures 17(c, d), read as it is written.
+
+    "The increase of the absolute and relative amplitude of the P
+    wavetrain with the thickness of the invaded zone ... is especially
+    true with the quadrupole source." It is the *growth* that is
+    compared, not the level -- read as level the claim would look false,
+    since the dipole's P/S is larger at 6 kHz.
+    """
+    for f_khz in (6.0, 7.5):
+        quad = _FIG17_P_OVER_S[f_khz]
+        dip = _FIG16_P_OVER_S[f_khz]
+        quad_growth = quad[2] / quad[0]
+        dip_growth = dip[2] / dip[0]
+        assert quad_growth > dip_growth, (
+            f"{f_khz} kHz: quadrupole {quad_growth:.0f}x vs dipole {dip_growth:.0f}x"
+        )
+        assert quad[2] > 1.0, "P overtakes S with a 16 cm zone"
+    # and read as level rather than growth it would go the other way
+    assert _FIG16_P_OVER_S[6.0][2] > _FIG17_P_OVER_S[6.0][2]
+
+
+def test_quadrupole_dispersion_layered_accepts_a_single_invaded_zone():
+    """A.6, fixed: the n=2 slow-formation path takes an invaded zone.
+
+    An invaded zone is slower in shear than the rock it replaces. The
+    per-layer ``layer.vs >= vs`` constraint now applies to the
+    multi-layer path only, which is what this function's docstring
+    always said and what ``flexural_dispersion_layered`` always did.
+    """
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    freq = np.array([6000.0, 7500.0])
+    for thickness in (0.08, 0.16):
+        mode = quadrupole_dispersion_layered(
+            freq,
+            **_FIG15_VIRGIN,
+            **fluid,
+            a=0.10,
+            layers=(BoreholeLayer(**_FIG15_INVADED, thickness=thickness),),
+        )
+        v = 1.0 / mode.slowness
+        assert np.isfinite(v).all(), f"{thickness}: {v}"
+        # below the invaded shear speed, above the fluid: a bound mode
+        assert np.all(v < _FIG15_INVADED["vs"])
+        assert np.all(v > 800.0)
+
+    # two soft layers still raise -- the multi-layer guard is untouched
+    with pytest.raises(ValueError, match="at least as fast in shear"):
+        quadrupole_dispersion_layered(
+            freq,
+            **_FIG15_VIRGIN,
+            **fluid,
+            a=0.10,
+            layers=(
+                BoreholeLayer(**_FIG15_INVADED, thickness=0.08),
+                BoreholeLayer(**_FIG15_INVADED, thickness=0.08),
+            ),
+        )
+
+
+def test_the_same_model_is_now_accepted_at_both_n1_and_n2():
+    """The asymmetry A.6 was filed for, closed.
+
+    Before the fix, the identical one-layer invaded-zone model was
+    accepted at n=1 and rejected at n=2. Both paths now take it, and
+    both put the phase velocity below the invaded shear speed.
+    """
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    freq = np.array([6000.0])
+    layers = (BoreholeLayer(**_FIG15_INVADED, thickness=0.16),)
+
+    n1 = (
+        1.0
+        / flexural_dispersion_layered(
+            freq, **_FIG15_VIRGIN, **fluid, a=0.10, layers=layers
+        ).slowness
+    )
+    n2 = (
+        1.0
+        / quadrupole_dispersion_layered(
+            freq, **_FIG15_VIRGIN, **fluid, a=0.10, layers=layers
+        ).slowness
+    )
+    assert np.isfinite(n1).all() and np.isfinite(n2).all()
+    for v in (n1, n2):
+        assert np.all(v < _FIG15_INVADED["vs"])
+    # the screw mode is the faster of the two at a given frequency
+    assert n2[0] > n1[0]
+
+
+def test_six_of_figure_17s_twelve_waveforms_now_have_a_phase_velocity():
+    """What the fix buys on this figure, counted.
+
+    Before: two, both virgin. The eight invaded waveforms raised before
+    computing. After: six -- the two invaded models resolve at 6 and
+    7.5 kHz apiece. The remaining six are all below the screw mode's
+    onset, which this fix does not touch and which the near-cutoff gap
+    already covers.
+    """
+    from fwap.cylindrical_solver import (
+        quadrupole_dispersion,
+        quadrupole_dispersion_layered,
+    )
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    probe = 1.0e3 * np.array([1.0, 3.0, 6.0, 7.5])
+    computable = int(
+        np.isfinite(
+            quadrupole_dispersion(probe, **_FIG15_VIRGIN, **fluid, a=0.10).slowness
+        ).sum()
+    )
+    assert computable == 2, "the virgin model still resolves only 6 and 7.5 kHz"
+    for thickness in (0.08, 0.16):
+        m = quadrupole_dispersion_layered(
+            probe,
+            **_FIG15_VIRGIN,
+            **fluid,
+            a=0.10,
+            layers=(BoreholeLayer(**_FIG15_INVADED, thickness=thickness),),
+        )
+        computable += int(np.isfinite(m.slowness).sum())
+    assert computable == 6, f"{computable} of 12 plotted waveforms"
+
+
+def test_the_virgin_screw_airy_arrival_is_worse_than_the_flexural_one():
+    """The one forward prediction figure 17 still allows.
+
+    The screw packet peaks within 0.05 ms of 4.96 ms across all four
+    source frequencies, so it is the Airy phase. fwap's group minimum
+    puts it at 5.24 ms -- late by more than the flexural mode's +3.0 %
+    on the same rock in figure 16, and in the same direction.
+    """
+    from fwap.cylindrical_solver import quadrupole_dispersion
+
+    arr = np.array(_FIG17_VIRGIN_AIRY_MS)
+    assert np.ptp(arr) / arr.mean() < 0.02, f"frequency-independent: {arr}"
+
+    freq = np.linspace(200.0, 15000.0, 297)
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    v = 1.0 / quadrupole_dispersion(freq, **_FIG15_VIRGIN, **fluid, a=0.10).slowness
+    idx = np.where(np.isfinite(v))[0]
+    seg = max(np.split(idx, np.where(np.diff(idx) > 1)[0] + 1), key=len)
+    ff, vv = freq[seg], v[seg]
+    v_g = 1.0 / np.gradient(ff / vv, ff)
+    predicted_ms = _FIG17_OFFSET_M / v_g.min() * 1e3
+    error = predicted_ms / arr.mean() - 1.0
+    assert 0.03 < error < 0.09, f"{predicted_ms:.2f} ms vs {arr.mean():.2f}"
+    # structurally sound, unlike figure 14's fast-formation quadrupole
+    assert np.all(v_g > 0.0)
+    assert int((np.diff(idx) > 1).sum()) == 0, "no interior gaps"
+    onset = freq[np.isfinite(v)].min() / 1.0e3
+    assert onset == pytest.approx(_FIG17_VIRGIN_ONSET_KHZ, abs=0.4)
+
+
+# ----------------------------------------------------------------------
+# Figure 15(b) and A.6: the reference the fix rests on
+#
+# "Invaded zone effects with a slow sandstone. Dispersion and attenuation
+# of the flexural (a) and screw (b) modes in the presence of: (1) the
+# only virgin formation; (2) a 8 cm thick invaded zone; (3) a 16 cm thick
+# invaded zone; (4) the only invaded zone."
+#
+# Panel (b) is the screw mode -- the curves `quadrupole_dispersion_layered`
+# used to refuse to compute. The figure-15 work digitised only panel (a),
+# which is why A.6 went unnoticed until figure 17.
+#
+# **Calibration.** The panel's x-axis runs 2-10 kHz, not 0-10: nine evenly
+# spaced ticks with the "5" label under the fourth and "10" under the
+# ninth. Physics confirms it -- curves 1, 2 and 3 leave the axis at
+# v = 0.80 (= 1201/1500, the *virgin* shear speed, as the report says on
+# p. 228) and curve 4 at 0.72 (= 1081/1500, the invaded one). Tick fits:
+# x to 0.008 kHz, y to 0.00006 normalised.
+#
+# **Curve identification, checked rather than assumed.** The four solid
+# curves merge, so each is followed from its own start with slope
+# prediction, stopping where a neighbour comes within two line widths.
+# The 16 cm trace was verified to sit on run 3 of 4 at every sampled
+# frequency -- it is curve 3, not curve 4. That check mattered: on rms
+# alone the 16 cm data fits an *invaded-only* prediction slightly better
+# than a layered one, because curves 3 and 4 converge to within 0.6-0.8 %
+# over the band where fwap and the trace overlap. Curve 2 is 4.2 % from
+# its nearest neighbour there, which is why the 8 cm tie carries the
+# weight and the 16 cm one only corroborates.
+#
+# **What this settles.** With the single-layer guard removed, the n=2
+# layered path returns, against these curves:
+#
+#     model               band          rms      median
+#     virgin (control)    5.25-9.75    1.29 %    +0.35 %
+#     8 cm invaded        5.75-8.00    **0.58 %**  +0.29 %
+#     16 cm invaded       5.00-5.50    2.12 %    +2.07 %   (3 points)
+#
+# The 8 cm figure is better than the same solver's own virgin control on
+# the same figure. The code was refusing a regime it computes correctly,
+# and its docstring had said "(multi-layer only)" all along.
+#
+# The fix does not touch the onset: fwap resolves the 8 cm model from
+# 5.6 kHz against a published 3.4 kHz, which is the slow screw mode's
+# near-cutoff gap already recorded at _NEAR_CUTOFF_GAPS.
+# ----------------------------------------------------------------------
+
+#: Figure 15(b): screw-mode phase velocity (Hz, m/s), read off the
+#: published curves. Virgin is the control; the two invaded models are
+#: the ones the n=2 layered path used to refuse.
+_FIG15B_SCREW_PHASE = {
+    "virgin": (
+        (4.5e3, 1185.4),
+        (5.0e3, 1171.7),
+        (5.5e3, 1157.2),
+        (6.0e3, 1144.6),
+        (6.5e3, 1132.0),
+        (7.0e3, 1121.5),
+        (7.5e3, 1112.9),
+        (8.0e3, 1104.3),
+        (8.5e3, 1095.8),
+        (9.0e3, 1090.2),
+        (9.5e3, 1085.3),
+    ),
+    "invaded_8cm": (
+        (4.0e3, 1153.9),
+        (4.5e3, 1123.2),
+        (5.0e3, 1095.6),
+        (5.5e3, 1069.8),
+        (6.0e3, 1049.0),
+        (6.5e3, 1029.2),
+        (7.0e3, 1014.3),
+        (7.5e3, 1002.5),
+        (8.0e3, 993.4),
+    ),
+    "invaded_16cm": (
+        (4.0e3, 1099.5),
+        (4.5e3, 1071.0),
+        (5.0e3, 1049.6),
+        (5.5e3, 1031.9),
+    ),
+}
+
+#: Figure 15(b): thickness of the annulus for each model, or None for
+#: the open-hole virgin control.
+_FIG15B_THICKNESS = {"virgin": None, "invaded_8cm": 0.08, "invaded_16cm": 0.16}
+
+#: Separation between curve 3 (16 cm) and its nearest neighbour, curve 4
+#: (invaded rock alone), as a fraction, over 5.0-5.5 kHz. This is why the
+#: 16 cm tie corroborates rather than decides.
+_FIG15B_CURVE_3_4_SEPARATION = 0.008
+
+
+def test_fig15b_curves_start_at_the_published_shear_speeds():
+    """Anchor the digitisation before anything is built on it.
+
+    Every traced sample must lie below the shear speed of the medium the
+    mode ends up sampling, and the invaded models must lie below the
+    virgin one at matched frequency -- a thicker slow annulus cannot
+    speed the mode up.
+    """
+    for name, table in _FIG15B_SCREW_PHASE.items():
+        v = np.array([x for _, x in table])
+        assert np.all(v < _FIG15_VIRGIN["vs"]), f"{name}: {v.max()}"
+        assert np.all(np.diff(v) < 0.0), f"{name} is not monotone: {v}"
+    common = [4.5e3, 5.0e3, 5.5e3]
+    for f in common:
+        virgin = dict(_FIG15B_SCREW_PHASE["virgin"])[f]
+        eight = dict(_FIG15B_SCREW_PHASE["invaded_8cm"])[f]
+        sixteen = dict(_FIG15B_SCREW_PHASE["invaded_16cm"])[f]
+        assert sixteen < eight < virgin, f"{f}: {sixteen}, {eight}, {virgin}"
+
+
+@pytest.mark.parametrize("model", sorted(_FIG15B_SCREW_PHASE))
+def test_quadrupole_layered_tracks_figure_15b(model):
+    """A.6 fixed, measured against the figure that plots it.
+
+    The virgin row is a control -- it uses the open-hole solver, which
+    figure 8a already tied at 0.94 % rms on this rock, so it prices the
+    digitisation itself. The two invaded rows go through the layered path
+    that used to raise `ValueError` before computing anything.
+    """
+    from fwap.cylindrical_solver import (
+        quadrupole_dispersion,
+        quadrupole_dispersion_layered,
+    )
+
+    table = _FIG15B_SCREW_PHASE[model]
+    freq = np.array([f for f, _ in table])
+    ref = np.array([v for _, v in table])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    thickness = _FIG15B_THICKNESS[model]
+    if thickness is None:
+        got = (
+            1.0 / quadrupole_dispersion(freq, **_FIG15_VIRGIN, **fluid, a=0.10).slowness
+        )
+    else:
+        got = (
+            1.0
+            / quadrupole_dispersion_layered(
+                freq,
+                **_FIG15_VIRGIN,
+                **fluid,
+                a=0.10,
+                layers=(BoreholeLayer(**_FIG15_INVADED, thickness=thickness),),
+            ).slowness
+        )
+    ok = np.isfinite(got)
+    # the 16 cm model resolves only its top two rows -- the rest of its
+    # published band is below fwap's onset, which this fix does not touch
+    assert ok.sum() >= 2, f"{model}: only {ok.sum()} samples resolved"
+    rel = (got[ok] - ref[ok]) / ref[ok]
+    rms = float(np.sqrt((rel**2).mean()))
+    assert rms < 0.035, f"{model}: rms {rms:.2%}"
+
+
+def test_the_8cm_layered_tie_is_better_than_its_own_virgin_control():
+    """The evidence that the refused regime was computed correctly.
+
+    If the layered path were unsound where the guard used to block it,
+    it would score worse than the open-hole solver on the same figure.
+    It scores better -- 0.58 % rms against the virgin control's 1.29 % --
+    which is what turns "the guard is over-strict" from an argument into
+    a measurement.
+    """
+    from fwap.cylindrical_solver import (
+        quadrupole_dispersion,
+        quadrupole_dispersion_layered,
+    )
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+
+    def score(model: str) -> float:
+        table = _FIG15B_SCREW_PHASE[model]
+        freq = np.array([f for f, _ in table])
+        ref = np.array([v for _, v in table])
+        th = _FIG15B_THICKNESS[model]
+        if th is None:
+            got = (
+                1.0
+                / quadrupole_dispersion(freq, **_FIG15_VIRGIN, **fluid, a=0.10).slowness
+            )
+        else:
+            got = (
+                1.0
+                / quadrupole_dispersion_layered(
+                    freq,
+                    **_FIG15_VIRGIN,
+                    **fluid,
+                    a=0.10,
+                    layers=(BoreholeLayer(**_FIG15_INVADED, thickness=th),),
+                ).slowness
+            )
+        ok = np.isfinite(got)
+        rel = (got[ok] - ref[ok]) / ref[ok]
+        return float(np.sqrt((rel**2).mean()))
+
+    eight = score("invaded_8cm")
+    control = score("virgin")
+    assert eight < 0.012, f"8 cm layered rms {eight:.2%}"
+    assert eight < control, f"8 cm {eight:.2%} vs virgin control {control:.2%}"
+
+
+def test_the_16cm_tie_is_recorded_as_corroborating_not_deciding():
+    """State the limit rather than let the number stand unqualified.
+
+    Over the band where fwap and the traced curve overlap, curve 3
+    (16 cm) and curve 4 (the invaded rock alone) run within 0.8 % of each
+    other. The trace was verified to sit on curve 3 by run ordering, but
+    an rms comparison at that separation cannot by itself distinguish a
+    layered prediction from an invaded-only one -- so the 8 cm tie is the
+    one the fix rests on.
+    """
+    from fwap.cylindrical_solver import quadrupole_dispersion
+
+    table = _FIG15B_SCREW_PHASE["invaded_16cm"]
+    freq = np.array([f for f, _ in table])
+    ref = np.array([v for _, v in table])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    # curve 4: the invaded rock as a half-space, no layered path at all
+    curve4 = (
+        1.0 / quadrupole_dispersion(freq, **_FIG15_INVADED, **fluid, a=0.10).slowness
+    )
+    ok = np.isfinite(curve4)
+    assert ok.any(), "curve 4 resolves somewhere in the band"
+    gap = np.abs(curve4[ok] - ref[ok]) / ref[ok]
+    assert gap.max() < 0.03, (
+        "curves 3 and 4 are close enough that this comparison cannot "
+        f"separate them: worst {gap.max():.2%}"
+    )
+    assert _FIG15B_CURVE_3_4_SEPARATION < 0.01
+
+
+def test_the_fast_formation_marcher_is_grid_independent_at_n1():
+    """What the A.2 fix delivers at n=1, and what it leaves at n=2.
+
+    A dispersion solver's answer at a frequency must not depend on which
+    other frequencies were asked for in the same call. After the fix the
+    n=1 fast-formation branch satisfies that exactly: grids of 5 to 161
+    points over the same band, and grids starting anywhere from 1 to
+    5 kHz, all return the same 10 kHz value to **0.000 %**.
+
+    The n=2 path does not. It is on the fundamental now rather than an
+    overtone, which is the fix working, but the value still moves by a
+    few percent with the grid and vanishes on some. That is the n=2
+    root-finding instability figure 6 recorded independently -- two
+    grids differing by last-bit rounding giving 47 and 42 converged
+    points of 71 -- and A.2 was never going to remove it.
+
+    So n=1 fast-formation results are quotable and n=2 ones are not yet.
+    """
+    from fwap import flexural_dispersion, quadrupole_dispersion
+
+    rock = dict(vp=4500.0, vs=2600.0, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.10)
+
+    def at_10khz(fn, grids):
+        out = []
+        for f in grids:
+            v = 1.0 / fn(f, **rock).slowness
+            out.append(v[-1])
+        return np.array(out)
+
+    by_density = [np.linspace(2000.0, 10000.0, n) for n in (5, 9, 21, 41, 81, 161)]
+    by_start = [np.linspace(lo, 10000.0, 41) for lo in (1e3, 2e3, 3e3, 4e3, 5e3)]
+
+    for grids in (by_density, by_start):
+        flex = at_10khz(flexural_dispersion, grids)
+        assert np.isfinite(flex).all(), f"n=1 lost the branch: {flex}"
+        assert np.ptp(flex) / flex.mean() < 1.0e-9, (
+            f"n=1 must not depend on the grid; spread {np.ptp(flex):.3e} m/s"
+        )
+
+    quad = at_10khz(quadrupole_dispersion, by_density)
+    good = quad[np.isfinite(quad)]
+    assert good.size >= 2
+    assert np.ptp(good) / good.mean() > 1.0e-4, (
+        "if n=2 has become grid-independent too, the instability figure 6 "
+        "recorded is gone and this test should be rewritten"
+    )
