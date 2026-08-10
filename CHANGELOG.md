@@ -112,7 +112,29 @@ the project uses [Semantic Versioning](https://semver.org/).
   21-36 %**, so a caller filtering on `NaN` keeps two to three times as many
   wrong answers from `quadrupole_dispersion` than from `flexural_dispersion`.
 
-  Fourteen tests now pin the item, not three, and every reference table carries
+  **Figure 12 adds the layered path, and inverts the health metric.** It is the
+  first published check of `flexural_dispersion_layered` /
+  `quadrupole_dispersion_layered`: the flexural and screw modes with (1) a 16 cm
+  invaded zone, (2) an 8 cm one, (3) virgin rock only, (4) invaded rock only.
+  Table 1's two fast rows are virgin 4878/2601/2160 and invaded 4390/2341/2360,
+  and the figure's own plateaus confirm that transcription — 1.7357 against
+  2601/1500 (+0.10 %) and 1.5630 against 2341/1500 (+0.15 %).
+  All eight runs — two modes × four models — return values strictly inside their
+  own `(V_R, V_S)` window and sawtooth, with upward jumps of +121 to +185 m/s
+  where a guided mode's phase velocity can only fall. Against figure 12a's
+  merged phase band the layered flexural solver reads **+31 % at 6 kHz rising to
+  +53 % by 9.8 kHz**.
+  The new part is the coverage: 73 % / 38 % (flexural, 16 cm / 8 cm) and
+  74 % / 77 % (screw) against 9 % / 10 % and 50 % / 35 % for the corresponding
+  homogeneous models. **An altered zone raises coverage four- to eightfold while
+  the answers stay wrong**, so on the layered path coverage is not a weak health
+  signal but an inverted one — the configuration that returns the most answers
+  is the furthest from having any.
+  Stated limit: figure 12a draws eight curves in a 1.2-wide window and resolves
+  all eight only across 3.5-5.0 kHz, which is also where they cross. No
+  per-model curve was traced there and none is tabulated.
+
+  Seventeen tests now pin the item, not three, and every reference table carries
   its own shear-speed anchor test.
 
 ### Validated

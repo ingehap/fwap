@@ -17643,3 +17643,167 @@ def test_the_slow_shear_modes_agree_to_a_couple_of_percent(mode):
     assert st_error.max() < 0.2 * error.max(), (
         "the Stoneley is the tightly tied mode here; the shear modes are not"
     )
+
+
+# ----------------------------------------------------------------------
+# Figure 12: the invaded zone, and why coverage is the wrong health metric
+#
+# Figure 12 (p. 249) is the first published check of the *layered*
+# solvers: "Invaded zone effects with a fast sandstone. Dispersion and
+# attenuation of the flexural (a) and screw (b) modes in the presence
+# of: (1) a 16 cm thick invaded zone; (2) a 8 cm thick invaded zone;
+# (3) the only virgin formation; (4) the only invaded zone."
+#
+# Table 1's two fast rows: virgin 4878 / 2601 / 2160, invaded zone
+# 4390 / 2341 / 2360 -- slower and denser than the rock it replaces.
+#
+# **What this panel can and cannot be read for.** Eight curves are drawn
+# (four phase, four group) in a 1.2-wide normalised window, and the
+# column-line count runs 1 at 2.0 kHz, 4 at 2.5, 8 only across
+# 3.5-5.0 kHz, then 3 from 6 kHz up. The plunge region where the models
+# separate is exactly where they also cross, so no per-model curve was
+# traced there and none is tabulated. What *is* readable is the two
+# plateaus at the low-frequency end and the merged phase band above
+# 6 kHz, and both are recorded below.
+#
+# The plateaus are worth having on their own: they confirm table 1's
+# invaded-zone row, which every comparison here depends on and which
+# this repository transcribed from a scan.
+#
+#   upper plateau (1.80-2.05 kHz)  1.7357 +- 0.0016  vs 2601/1500  +0.10 %
+#   lower plateau (2.20-2.60 kHz)  1.5630 +- 0.0015  vs 2341/1500  +0.15 %
+#
+# **The finding.** Every one of the eight fwap runs -- two modes x four
+# models -- returns values strictly inside its own (V_R, V_S) window and
+# sawtooths, with upward jumps of +121 to +185 m/s where a guided mode's
+# phase velocity can only fall. So the layered path inherits A.2 whole.
+#
+# What is new is the coverage:
+#
+#                        flexural   screw
+#   1: 16 cm invaded        73 %     74 %
+#   2:  8 cm invaded        38 %     77 %
+#   3: virgin only           9 %     50 %
+#   4: invaded only         10 %     35 %
+#
+# **Adding an altered zone raises coverage four- to eightfold while the
+# answers stay wrong.** Against figure 12a's merged phase band the
+# layered flexural solver reads +31 % at 6 kHz rising to +53 % by
+# 9.8 kHz. So on the layered path coverage is not a weak health signal,
+# it is an inverted one: the configuration that returns the most answers
+# is the one furthest from having any.
+# ----------------------------------------------------------------------
+
+_FIG12_VIRGIN = dict(vp=4878.0, vs=2601.0, rho=2160.0)
+_FIG12_INVADED = dict(vp=4390.0, vs=2341.0, rho=2360.0)
+
+#: The plateau each family of curves leaves, read from figure 12a
+#: (normalised velocity, +-0.002).
+_FIG12A_PLATEAU = {"virgin": 1.7357, "invaded": 1.5630}
+
+#: Figure 12a's merged phase band above 6 kHz (Hz, low m/s, high m/s).
+#: Four phase curves are drawn as two lines here; the pair bounds them.
+_FIG12A_PHASE_BAND = (
+    (6.0e3, 1838.7, 1905.1),
+    (7.0e3, 1711.9, 1760.2),
+    (8.0e3, 1643.9, 1683.2),
+    (9.0e3, 1598.6, 1628.8),
+    (9.8e3, 1576.0, 1606.2),
+)
+
+
+def test_figure_12a_plateaus_confirm_table_1s_invaded_zone_row():
+    """Check the transcribed rock before trusting the comparison.
+
+    `4390 / 2341 / 2360` for the invaded zone came off a scanned table,
+    and every layered comparison here rests on it. Figure 12a's own
+    plateaus settle it: the curves with virgin rock at depth leave the
+    axis at the virgin shear speed and the invaded-only curve leaves at
+    the invaded shear speed, both to about 0.1 %.
+    """
+    assert _FIG12A_PLATEAU["virgin"] / (_FIG12_VIRGIN["vs"] / 1500.0) == pytest.approx(
+        1.0, abs=0.005
+    )
+    assert _FIG12A_PLATEAU["invaded"] / (
+        _FIG12_INVADED["vs"] / 1500.0
+    ) == pytest.approx(1.0, abs=0.005)
+    assert _FIG12_INVADED["vs"] < _FIG12_VIRGIN["vs"], "invasion slows the rock"
+    assert _FIG12_INVADED["rho"] > _FIG12_VIRGIN["rho"], "and makes it denser"
+
+
+def test_the_altered_zone_raises_coverage_without_improving_the_answer():
+    """The figure-12 finding, and it inverts a habit.
+
+    Sparseness has been read as A.2's symptom throughout this project.
+    On the layered path it is the opposite signal: putting a 16 cm
+    invaded zone against the same rock takes `flexural_dispersion`'s
+    coverage from 9 % to 73 % over 2-10 kHz, and every one of those
+    extra answers is an overtone from the `(V_R, V_S)` window.
+
+    So a caller who checks coverage to decide whether to trust an
+    altered-zone dispersion curve is reading the metric backwards.
+    """
+    from fwap import BoreholeLayer, flexural_dispersion, flexural_dispersion_layered
+    from fwap.cylindrical import rayleigh_speed
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    freq = np.arange(2.0e3, 10.001e3, 200.0)
+
+    plain = 1.0 / flexural_dispersion(freq, **_FIG12_VIRGIN, **fluid, a=0.10).slowness
+    layered = (
+        1.0
+        / flexural_dispersion_layered(
+            freq,
+            **_FIG12_VIRGIN,
+            **fluid,
+            a=0.10,
+            layers=(BoreholeLayer(**_FIG12_INVADED, thickness=0.16),),
+        ).slowness
+    )
+
+    plain_cover = np.isfinite(plain).mean()
+    layered_cover = np.isfinite(layered).mean()
+    assert layered_cover > 4.0 * plain_cover, (
+        f"layered {100 * layered_cover:.0f} % vs plain {100 * plain_cover:.0f} %"
+    )
+
+    # ... and the extra answers are the same defect, not a better curve.
+    v_rayleigh = rayleigh_speed(_FIG12_VIRGIN["vp"], _FIG12_VIRGIN["vs"])
+    finite = np.isfinite(layered)
+    assert np.all(layered[finite] > v_rayleigh)
+    assert np.all(layered[finite] <= _FIG12_VIRGIN["vs"])
+    assert np.diff(layered[finite]).max() > 100.0, (
+        "a guided mode never speeds up with frequency; this one jumps"
+    )
+
+
+def test_the_layered_flexural_solver_sits_far_above_the_published_band():
+    """How wrong the extra answers are, against the figure.
+
+    Four phase curves are drawn as two lines above 6 kHz, so the pair
+    bounds the truth to a few percent -- ample, since the solver is
+    30-55 % above the band and rising with frequency.
+    """
+    from fwap import BoreholeLayer, flexural_dispersion_layered
+
+    freq = np.array([f for f, _, _ in _FIG12A_PHASE_BAND])
+    lo = np.array([a for _, a, _ in _FIG12A_PHASE_BAND])
+    hi = np.array([b for _, _, b in _FIG12A_PHASE_BAND])
+    assert np.all(hi / lo < 1.05), "the two lines must bracket tightly to be useful"
+
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    velocity = (
+        1.0
+        / flexural_dispersion_layered(
+            freq,
+            **_FIG12_VIRGIN,
+            **fluid,
+            a=0.10,
+            layers=(BoreholeLayer(**_FIG12_INVADED, thickness=0.16),),
+        ).slowness
+    )
+    finite = np.isfinite(velocity)
+    assert finite.sum() >= 3, "if the sawtooth moved, retune the grid"
+
+    error = velocity[finite] / (0.5 * (lo + hi))[finite] - 1.0
+    assert error.min() > 0.25, f"smallest overshoot {100 * error.min():.0f} %"

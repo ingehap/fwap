@@ -78,7 +78,7 @@ training data — one hole of one tool does not change that.
 |-----------|----------------|
 | ~~**F.2 A waveform fixture CI can use**~~ | *Closed, with one thing it does not mean.* `iodp_u1347a_dsi` — an eight-receiver DSI monopole run, **CC0** on Zenodo — is registered, read by `read_ldeo_waveforms`, and exercised by `stc` at **0.948** median peak coherence. CI *can* use it but does not: the default run stays hermetic and skips it. The blocking claim ("no openly redistributable gather is known to exist") turned out to be false. Kept below. |
 | ~~**F.5 The ODP file's unknowns**~~ | *Closed.* Both answered, and the item was filed on a wrong premise — "not resolvable from the files" meant "nobody had opened the rest of the archive". The hole identity is settled by the archive's own run table (six runs matched by name and depth interval, six for six); the offsets are the LSS **8/10/10/12 ft** set, confirmed by first-break moveout to an intercept of −0.0 µs. Kept below. |
-| **A.2 Fast-formation leakage, `n=1` and `n=2`** | **Measured against the published curves for four rocks, and it is two defects.** Figures 2a and 7a plot this exact quantity for stated formations. Digitised, the flexural branch runs `V_S` → Scholte and crosses `V_R` at **4.43-4.45 kHz in all three fast rocks** — although `V_R` spans 2413 to 3388 m/s. The solver's `(V_R, V_S)` window therefore empties at the same frequency whatever the formation, and holds the true root over **10 %** of the band. *Wrong answers*: overtones labelled as the mode, sawtoothing where a guided mode cannot, and **worse the harder the rock** — +62 % median in the fast sandstone, +72 % in limestone, **+134 % in granite**, which returns nothing at all across the 3-10 kHz band figure 7a resolves. *Missing answers*: at both ends of the band no real-axis root exists. Moving the bracket edge to the Scholte speed recovers **4.4-16.4 kHz at 0.66 % median error** and nothing outside it, so the fix is scoped rather than guessed: a bracket edit for the middle, complex `k_z` for the two ends. Pinned by fourteen tests, not fixed. **`n=2` checked against figure 7b too, and it is the worse of the two**: same mechanism and stiffness ordering, but 65-75 % coverage against `n=1`'s 21-36 %, so a `NaN` filter keeps two to three times as many wrong answers. One fix repairs both. |
+| **A.2 Fast-formation leakage, `n=1` and `n=2`** | **Measured against the published curves for four rocks, and it is two defects.** Figures 2a and 7a plot this exact quantity for stated formations. Digitised, the flexural branch runs `V_S` → Scholte and crosses `V_R` at **4.43-4.45 kHz in all three fast rocks** — although `V_R` spans 2413 to 3388 m/s. The solver's `(V_R, V_S)` window therefore empties at the same frequency whatever the formation, and holds the true root over **10 %** of the band. *Wrong answers*: overtones labelled as the mode, sawtoothing where a guided mode cannot, and **worse the harder the rock** — +62 % median in the fast sandstone, +72 % in limestone, **+134 % in granite**, which returns nothing at all across the 3-10 kHz band figure 7a resolves. *Missing answers*: at both ends of the band no real-axis root exists. Moving the bracket edge to the Scholte speed recovers **4.4-16.4 kHz at 0.66 % median error** and nothing outside it, so the fix is scoped rather than guessed: a bracket edit for the middle, complex `k_z` for the two ends. Pinned by seventeen tests, not fixed. **`n=2` checked against figure 7b too, and it is the worse of the two**: same mechanism and stiffness ordering, but 65-75 % coverage against `n=1`'s 21-36 %, so a `NaN` filter keeps two to three times as many wrong answers. One fix repairs both. **Figure 12 adds the layered path and inverts the health metric**: a 16 cm invaded zone takes flexural coverage from 9 % to 73 % on the same rock while every extra answer is an overtone 31-53 % above the published band — so on the layered path *high* coverage is the worse sign. |
 | **A.1 Validation figures** | *Re-scoped from five to three* (five → three → four → three: fig 4 was restored, then the figure itself was seen and turned out **not to be a dispersion figure at all** — it is a dipole shot gather, so it cannot be scored in the overlay schema. It did settle A.2's yes/no question, which is why it was worth fetching). Which figure carries the flexural dispersion curves is now known — **figure 2a of Schmitt & Cheng**, since digitised, which also gives A.1's flexural-Scholte tie its first *external* confirmation (1493 m/s read at 24.9 kHz against 1484 computed). **The "figures are the weaker instrument" premise is now measurably wrong.** It compared a 1e-3 analytic tie with a *5 % overlay budget* — but the budget was a choice, not a limit of the method. Digitised carefully, figure 8a ties `stoneley_dispersion` to a published slow-formation curve at **0.04 % rms, below what the figure can resolve**, which is the project's first external tie better than 1 %, and it pins the borehole radius as a by-product. The analytic ties are tighter numerically and are not external at all. What still needs the books is the **pseudo-Rayleigh curve**, **cased Stoneley** and **VTI flexural**, which have no external tie of any kind. |
 | **F.4 Two unconfirmed checksums** | Also body-only until this revision, which is the same failure as A.2's. `forge_dsi_las` and `iodp_u1347a_dsi` both carry digests computed from copies that did not come down their canonical URLs, because those hosts were blocked from the sessions that added them. One successful fetch each clears it. It is the only place the fixture registry asserts something it has not verified. |
 | **A.5 residue: delta-matrix reformulation** | Optional and blocked on nothing, which is why it kept falling off the list. A delta-matrix / Abo-Zena form of the elastic stack would remove the cancellation the grid-stability filter exists to work around, and raise the crack-wave ceiling above the ~240 kHz where the propagators stop being representable. |
@@ -670,6 +670,57 @@ limestone and sandstone curves become a single plotted line at exactly
 Five more tests pin this, and the reference tables carry their own shear-speed
 anchor test.
 
+### Figure 12 — the invaded zone, and coverage turns out to be an inverted signal
+
+Figure 12 (p. 249) is the first published check of the **layered** solvers:
+*"Invaded zone effects with a fast sandstone. Dispersion and attenuation of the
+flexural (a) and screw (b) modes in the presence of: (1) a 16 cm thick invaded
+zone; (2) a 8 cm thick invaded zone; (3) the only virgin formation; (4) the only
+invaded zone."* Table 1's two fast rows: virgin 4878 / 2601 / 2160, invaded
+4390 / 2341 / 2360 — slower and denser than the rock it replaces.
+
+**What this panel can be read for, and what it cannot.** Eight curves are drawn
+in a 1.2-wide normalised window. The column-line count runs **1 line at 2.0 kHz,
+4 at 2.5, 8 only across 3.5-5.0 kHz, then 3 from 6 kHz up** — so the plunge
+region where the four models separate is exactly where they also cross. No
+per-model curve was traced there and none is tabulated. Stated rather than
+papered over: this is the one figure of the four whose middle is beyond the
+method.
+
+**What is readable is worth having anyway.** The two plateaus confirm table 1's
+invaded-zone row, which every comparison here depends on and which this
+repository transcribed from a scan:
+
+| | read | `V_S/V_f` | |
+|---|---|---|---|
+| upper plateau, 1.80-2.05 kHz | 1.7357 ± 0.0016 | 2601/1500 = 1.7340 | **+0.10 %** |
+| lower plateau, 2.20-2.60 kHz | 1.5630 ± 0.0015 | 2341/1500 = 1.5607 | **+0.15 %** |
+
+**The layered path inherits A.2 whole.** All eight fwap runs — two modes × four
+models — return values strictly inside their own `(V_R, V_S)` window and
+sawtooth, with upward jumps of **+121 to +185 m/s** where a guided mode's phase
+velocity can only fall. Against figure 12a's merged phase band the layered
+flexural solver reads **+31 % at 6 kHz rising to +53 % by 9.8 kHz**.
+
+**And the new thing, which inverts a habit this file has had throughout.**
+
+| model | flexural | screw |
+|---|---|---|
+| 1: 16 cm invaded | **73 %** | 74 % |
+| 2: 8 cm invaded | 38 % | **77 %** |
+| 3: virgin only | 9 % | 50 % |
+| 4: invaded only | 10 % | 35 % |
+
+Adding an altered zone raises coverage **four- to eightfold while the answers
+stay wrong**. Sparseness has been read as A.2's symptom since the item was
+filed — "converges over roughly 38 % of a 1-12 kHz band" is how the original
+entry states the problem. On the layered path that reading is backwards: the
+configuration returning the most answers is the one furthest from having any. A
+caller who checks coverage to decide whether to trust an altered-zone dispersion
+curve is reading the metric upside down.
+
+Three more tests, including one that pins the coverage inversion.
+
 ### Figure 8a — the slow formation, and the first external tie better than 1 %
 
 Everything above measures a defect. Figure 8a (p. 245) is the other kind of
@@ -783,6 +834,15 @@ its root-finding stays sparse: on a typical casing + cement stack a fast
 formation converges over roughly 38 % of a 1-12 kHz band, and only above about
 5 kHz. That sparseness is why `scripts/gen_surrogate_dataset.py` keeps the cased
 dataset single-mode.
+
+> *Corrected by figure 12: sparseness is the wrong thing to be watching.* The
+> 38 % is real, but it is not the defect and it is not even monotone with it.
+> Against the published invaded-zone curves, a 16 cm altered layer takes the
+> flexural solver from **9 % coverage to 73 %** on the same rock — and every one
+> of the extra answers is an overtone, 31-53 % above the figure. On the layered
+> path high coverage is the *worse* sign, not the better one. Keeping the cased
+> dataset single-mode is still right; the reason to state is "the second mode is
+> wrong where it is returned", not "it is rarely returned".
 
 **It affects `n=2` as well.** Checking the quadrupole's high-frequency asymptote
 turned up the same signature: in slow formations `quadrupole_dispersion`
