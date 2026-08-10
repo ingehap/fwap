@@ -320,7 +320,7 @@ committed by the session that wrote the note.
 > **Then the paper arrived and there were two of them.** The document that
 > contains this fig 4 is *Schmitt, D. P., & Cheng, C. H., "Shear Wave Logging
 > In (Multilayered) Elastic Formations: An Overview", MIT Earth Resources
-> Laboratory, pp. 213-246* — two authors, different title, different venue,
+> Laboratory, pp. 213-268* — two authors, different title, different venue,
 > **and its own figure numbering**. The JASA article this file cites is the
 > single-author *Shear wave logging in elastic formations*, 84(6), 2215-2229.
 > They are closely related — same method, near-identical abstract — but they
@@ -1740,7 +1740,7 @@ which puts this item behind the same literature access A.1 needs.
 >
 > > Schmitt, D. P., & **Cheng, C. H.** *Shear Wave Logging In (Multilayered)
 > > Elastic Formations: An Overview.* MIT Earth Resources Laboratory, pp.
-> > 213-246.
+> > 213-268.
 >
 > — **two** authors, a different title, and an ERL report rather than the JASA
 > article this file cites. Its figure numbering is its own, which is why "fig 4"
@@ -1907,7 +1907,12 @@ depend on them.
 - Schmitt, D. P. (1988). Shear wave logging in elastic formations. *J. Acoust.
   Soc. Am.* 84(6), 2215-2229. https://doi.org/10.1121/1.397015
 - Schmitt, D. P., & Cheng, C. H. *Shear Wave Logging In (Multilayered) Elastic
-  Formations: An Overview.* MIT Earth Resources Laboratory, pp. 213-246.
+  Formations: An Overview.* MIT Earth Resources Laboratory, pp. 213-268.
+  *(Page range corrected from 213-246 while inventorying what else the
+  paper offers: p. 246 is figure 9, with sixteen more figures after it.
+  The paper carries **25** figures and runs to p. 268 — the commit that
+  fixed this citation got the author, title and venue right and the end
+  page wrong.)*
   **A second, closely related document, and the one every "fig N" in this
   file actually refers to.** Same method and a near-identical abstract, but two
   authors, a different title and its own figure numbering. Its table 1 and

@@ -17010,7 +17010,7 @@ def test_fast_flexural_returns_a_curve_not_a_sawtooth():
 #
 # Provenance. Schmitt, D. P., & Cheng, C. H., "Shear Wave Logging In
 # (Multilayered) Elastic Formations: An Overview", MIT Earth Resources
-# Laboratory, pp. 213-246 -- *not* the single-author JASA article this
+# Laboratory, pp. 213-268 -- *not* the single-author JASA article this
 # repository cites elsewhere. Figure 2a is on p. 239 of the bound volume.
 # "Dipole source. Dispersion (a), attenuation (b), and excitation
 # (c) of the flexural mode (1) and the first trapped mode (2) in the
