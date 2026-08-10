@@ -471,10 +471,21 @@ should not have to rediscover it.
    it is the only external measure of how wrong that path was.
 2. **Table 1's casing and cement rows** (6098/3354/7500; 2823/1729/1920;
    2823/1555/1730) — the repo's cased-hole fixtures use invented values.
-3. **The Appendix (pp. 235–236)** gives the `M(ω,k)` matrix elements explicitly.
-   This is the only route that could *resolve* A.7 rather than characterise it:
-   it distinguishes a wrong matrix entry from cancellation in the propagator
-   chain.
+3. ~~**The Appendix (pp. 235–236)** gives the layer matrix `T(n, j, r)`
+   explicitly.~~ **Done, and it found more than it was sent for.** It was listed
+   here as the only route that could *resolve* A.7 rather than characterise it.
+   It did something better: checking fwap's **formulation** against it — rather
+   than its output — showed that the SV column of the layer matrices is not a
+   solution of the elastodynamic equations at all (roadmap A.8), which is
+   probably A.7's cause and costs about 1.5 % on the layered `n=1` output.
+   The method is worth generalising: **a paper that prints its matrices lets you
+   test the formulation term by term, with no root-finding, no digitisation and
+   no tolerance to argue about.** The decisive test needed no reference values —
+   only the observation that a solution must be a *fixed* combination of any
+   basis for the solution space, so its coefficients cannot drift with radius.
+   That is a stronger instrument than anything in §3, and it belongs in the table
+   there: it catches errors in the model itself, which is the one thing output
+   comparison can only ever see indirectly.
 4. **Figure 8(b)** — a ±10 % `V_S` sensitivity study, constraining the solver's
    derivative rather than its value. Directly relevant to inversion.
 5. **Figure 12(b)** — the fast-formation invaded screw mode, twin of the 15(b)

@@ -6,6 +6,55 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Known issues
+- **The SV column of the cylindrical layer matrices is not a solution of the
+  elastodynamic equations** (roadmap A.8). Found by checking fwap's *formulation*
+  against Schmitt & Cheng's appendix (pp. 235-236), which prints all 36 elements
+  of the layer matrix `T(n, j, r)` in closed form and notes they are "the ones
+  numerically used".
+  Transcribed and validated against Hooke's law (self-consistent to 1e-11), the
+  appendix gives a basis for the layer's solution space. Written in that basis,
+  the P and SH columns of `_layer_e_matrix_n1`, `_layer_e_matrix_n2` and their
+  complex twins are **exact** — coefficients constant to ~1e-13 across a 4 cm
+  change in radius. The two **SV columns drift by 24-86 %**, which means they are
+  not solutions: a solution is a *fixed* combination of any basis for the space.
+  The cause is the ansatz rather than the algebra. fwap represents the SV field
+  as a vector potential with only an azimuthal component; the cylindrical vector
+  Laplacian couples the radial and azimuthal components through a term
+  proportional to `n`, which that ansatz has no term to cancel, so the radial
+  equation becomes Bessel of order `sqrt(n^2 + 1)` rather than `n`. At `n = 0`
+  the coupling vanishes — `_layer_e_matrix_n0` passes the same test cleanly, and
+  `stoneley_dispersion` still ties figure 8a at 0.04 % rms.
+  **Measured cost.** Across figure 15's eight published invaded-zone
+  frequencies, a determinant assembled only from the appendix reads **0.24 % rms,
+  median -0.22 %, with errors of both signs**; `flexural_dispersion_layered`
+  reads **1.49 % rms, median -1.49 %, low at every one**. Figure 15's "1.47 %
+  rms" was read, when it was measured, as the layered propagator being sound. It
+  is nearly sound, and this is what the remaining 1.5 % is.
+  Not fixed. The appendix supplies the correct column, but substituting it
+  touches four layer matrices, both propagators, the cased determinants at n=1
+  and n=2 and the single-layer path — which carries the same ansatz in separate
+  code — and wants the paper's cased-hole figures (20, 21) digitised to validate.
+  Very likely also the root of A.7: a propagator built from a non-solution has no
+  reason to yield a clean determinant.
+  **Scope enlarged, and the correction demonstrated before being reverted.** The
+  same ansatz appears in the *open-hole* determinants. Rebuilding that problem
+  from the appendix and scoring both against figure 8a's three published curves
+  for one rock: Stoneley **0.03 % vs fwap's 0.03 %**, flexural **0.08 % vs
+  1.30 %**, screw **0.06 % vs 0.43 %**. The published curves are therefore
+  reproducible to 0.06 %, which means the "about ±1 %" this project has quoted as
+  the digitisation floor for every `n >= 1` tie was fwap's model error rather than
+  the scan; `n = 0` agreeing to 0.03 % is the control.
+  The corrected column was derived from the appendix, verified against it to
+  1e-16 at both orders, and applied: figure 8a's flexural moved **1.29 % →
+  0.063 %**, its screw **0.43 % → 0.058 %**, and figures 2a/7a's fast flexural
+  **0.78 / 1.03 / 0.87 % → 0.23 / 0.38 / 0.44 %**. It was then reverted, because
+  it is only half the change — the layered paths carry the same ansatz in separate
+  code, so correcting the open hole alone breaks five `layer == formation`
+  collapse-to-unlayered invariants and leaves the solver in a worse state than
+  either endpoint. Roadmap A.8 carries the formulas and the remaining scope.
+  Pinned by thirteen tests in `tests/test_schmitt_appendix.py`.
+
 ### Fixed
 - **The fast-formation flexural and screw solvers no longer return an overtone**
   (roadmap A.2). `_flexural_dispersion_fast_formation` and its `n = 2` and cased
