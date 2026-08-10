@@ -569,8 +569,16 @@ depend on them.
 
 ### References for section A
 
-- Schmitt, D. P. (1988). Shear-wave logging in elastic formations. *J. Acoust.
-  Soc. Am.* 84(6), 2230-2244.
+- Schmitt, D. P. (1988). Shear wave logging in elastic formations. *J. Acoust.
+  Soc. Am.* 84(6), 2215-2229. https://doi.org/10.1121/1.397015
+  <br>*Corrected:* every citation of this paper outside `fwap/validation.py`
+  gave the pages as **2230-2244** and hyphenated the title as "Shear-wave" —
+  thirteen page ranges and twelve titles across nine files, all propagated from
+  one another rather than checked. `validation.py` had it right the whole time,
+  so the correct value was **already in the repository**. That matters because
+  A.1's remaining ask is "find figure 4 in this paper", and a wrong page range
+  is exactly what wastes the trip. The DOI is added so the next check is a click
+  rather than a search.
 - Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in Boreholes*,
   Chapter 4. CRC Press.
 - Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole Acoustic Methods*,

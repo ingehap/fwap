@@ -126,8 +126,8 @@ checks fail loudly.
 
 References
 ----------
-* Schmitt, D. P. (1988). Shear-wave logging in elastic formations.
-  *Journal of the Acoustical Society of America* 84(6), 2230-2244.
+* Schmitt, D. P. (1988). Shear wave logging in elastic formations.
+  *Journal of the Acoustical Society of America* 84(6), 2215-2229.
 * Cheng, C. H., & Toksoz, M. N. (1981). Elastic wave propagation
   in a fluid-filled borehole and synthetic acoustic logs.
   *Geophysics* 46(7), 1042-1053.

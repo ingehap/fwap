@@ -22,8 +22,8 @@ References
   Conference on Signals, Systems and Computers*, 449-453.
 * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in Boreholes*,
   Chapter 4. CRC Press.
-* Schmitt, D. P. (1988). Shear-wave logging in elastic formations.
-  *Journal of the Acoustical Society of America* 84(6), 2230-2244.
+* Schmitt, D. P. (1988). Shear wave logging in elastic formations.
+  *Journal of the Acoustical Society of America* 84(6), 2215-2229.
 """
 
 from __future__ import annotations

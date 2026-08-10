@@ -44,8 +44,8 @@ References
 * Deng, C., et al. (2022). OpenFWI: Large-scale multi-structural
   benchmark datasets for full waveform inversion. *NeurIPS Datasets
   and Benchmarks.*
-* Schmitt, D. P. (1988). Shear-wave logging in elastic formations.
-  *J. Acoust. Soc. Am.* 84(6), 2230-2244. (The forward physics this
+* Schmitt, D. P. (1988). Shear wave logging in elastic formations.
+  *J. Acoust. Soc. Am.* 84(6), 2215-2229. (The forward physics this
   script wraps.)
 """
 

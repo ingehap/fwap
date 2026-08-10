@@ -36,8 +36,8 @@ References
   and Applications.* Plenum (closed-form Rayleigh approximation).
 * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
   Boreholes*, Chapter 4. CRC Press (cylindrical-mode theory).
-* Schmitt, D. P. (1988). Shear-wave logging in elastic formations.
-  *Journal of the Acoustical Society of America* 84(6), 2230-2244.
+* Schmitt, D. P. (1988). Shear wave logging in elastic formations.
+  *Journal of the Acoustical Society of America* 84(6), 2215-2229.
 """
 
 from __future__ import annotations
