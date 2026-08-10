@@ -107,6 +107,23 @@ between the two. And when a section says "what is left", **check every bullet on
 every pass**, because a list that was right when written is the easiest kind of
 sentence to stop reading.
 
+**A third rule, which the two above did not prevent and which cost five more
+instances to learn: correct at the site of the claim, then explain below it.**
+Every one of those five was a correction written *beneath* a stale sentence
+rather than applied *to* it — an A.2 table row with new text prepended to
+contradictory old text, an original A.2 entry still ending "a fix means
+complex-plane root tracking" with the correction in a different section, and
+A.1 still opening with "the only checks that tie the solver to literature" while
+its own re-scope seventy lines down said otherwise. Each *reads* as
+conscientious: the correction exists, it is dated, it is argued. But a reader
+meets the original sentence first and has nothing to tell them it has been
+overturned, so the stale claim keeps working exactly as before.
+
+Appending is not correcting. The fix is mechanical — strike the sentence where
+it stands, or hang a blockquote off it saying which half survives — and the tell
+that it was skipped is a correction whose text describes a claim the reader has
+not yet been warned about.
+
 ## A. Cylindrical-Biot dispersion solver
 
 **Shipped.** Plan items A through H in `plans/cylindrical_biot.md` are closed:
@@ -127,15 +144,38 @@ The phenomenological models stay shipped
 closed-form smoothed-step dispersion curve without solving the determinant per
 frequency.
 
-What is still open here is narrow, and is items A.1, A.2 and A.5 below.
+What is still open here is narrow: items **A.1** and **A.2** below, plus the
+optional delta-matrix residue of **A.5** — whose forward model is complete and
+struck in the table above, so the bare "A.5" this line used to carry overstated
+it.
 
 ### A.1 Validation-figure coverage
 
-Plan item I, marked partial. These are the only checks that tie the solver to
-literature rather than to itself, and the item splits cleanly in two: the
-analytic ties, which are done, and the digitised figures, which are not.
+Plan item I, marked partial. ~~These are the only checks that tie the solver to
+literature rather than to itself~~ — **that was true when written and is not
+now**; see "The item was over-scoped" below, which is the correction this
+sentence used to sit seventy lines above without carrying any mark of. The
+analytic ties *are* checks against literature, several of them tighter than a
+traced figure can score. What is true is the split: the analytic ties are done,
+the digitised figures are not.
 
-**Four analytic ties now exist that need no figure.**
+**Six analytic ties are described below**, and the two most recent are the ones
+the re-scope below rests on — so they are written out here rather than only in
+its mode table, which is where they lived for a revision. The table carries one
+more that has no prose entry, the flexural long-wavelength limit `1/V_S`
+(Ellefsen-Cheng-Toksöz), so the total is **seven**. That discrepancy is stated
+rather than left for a reader to trip over: a count in prose and a count in a
+table drifting apart is how this section went wrong the first time.
+
+*Flexural and quadrupole, at the high-frequency end.* Both approach the same
+plane-interface Scholte speed the `n=0` Stoneley does, because at short
+wavelength the borehole wall looks flat to *every* azimuthal order. Checked to
+**1e-3** against `scholte_speed`, and all three azimuthal orders agree with each
+other at 400 kHz to **6e-6** — which no per-mode check can see, since a branch
+error in one order shows up only as a disagreement between them. Slow formations
+only: in fast ones `n=1` and `n=2` both go leaky, which is A.2.
+
+The four that came earlier:
 
 *Scholte, at the high-frequency end.* The validation notebook's section 6 checks
 the cylindrical Stoneley solver against `fwap.scholte_speed`, which solves the
