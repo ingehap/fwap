@@ -74,7 +74,7 @@ training data — one hole of one tool does not change that.
 |-----------|----------------|
 | ~~**F.2 A waveform fixture CI can use**~~ | *Closed, with one thing it does not mean.* `iodp_u1347a_dsi` — an eight-receiver DSI monopole run, **CC0** on Zenodo — is registered, read by `read_ldeo_waveforms`, and exercised by `stc` at **0.948** median peak coherence. CI *can* use it but does not: the default run stays hermetic and skips it. The blocking claim ("no openly redistributable gather is known to exist") turned out to be false. Kept below. |
 | ~~**F.5 The ODP file's unknowns**~~ | *Closed.* Both answered, and the item was filed on a wrong premise — "not resolvable from the files" meant "nobody had opened the rest of the archive". The hole identity is settled by the archive's own run table (six runs matched by name and depth interval, six for six); the offsets are the LSS **8/10/10/12 ft** set, confirmed by first-break moveout to an intercept of −0.0 µs. Kept below. |
-| **A.2 Fast-formation leakage, `n=1` and `n=2`** | **Measured against the published curve, and it is two defects.** Schmitt & Cheng figure 2a plots this exact quantity for a stated rock. Digitised, it shows the flexural branch running `V_S` → Scholte and crossing `V_R` at **4.45 kHz** — so the solver's `(V_R, V_S)` window holds the true root over **10 %** of the plotted band. *Wrong answers*: on the paper's own rock the solver answers at 5 of 13 frequencies, all inside `(V_R, V_S)`, all **62-73 % too fast** — flexural overtones labelled as the mode, sawtoothing where a guided mode cannot. *Missing answers*: at both ends of the band no real-axis root exists at all. Moving the bracket edge to the Scholte speed recovers **4.4-16.4 kHz at 0.66 % median error** and nothing outside it, so the fix is now scoped rather than guessed: a bracket edit for the middle, complex `k_z` for the two ends. Pinned by five tests, not fixed. Affects `n=2` identically, so one fix repairs two solvers. |
+| **A.2 Fast-formation leakage, `n=1` and `n=2`** | **Measured against the published curves for four rocks, and it is two defects.** Figures 2a and 7a plot this exact quantity for stated formations. Digitised, the flexural branch runs `V_S` → Scholte and crosses `V_R` at **4.43-4.45 kHz in all three fast rocks** — although `V_R` spans 2413 to 3388 m/s. The solver's `(V_R, V_S)` window therefore empties at the same frequency whatever the formation, and holds the true root over **10 %** of the band. *Wrong answers*: overtones labelled as the mode, sawtoothing where a guided mode cannot, and **worse the harder the rock** — +62 % median in the fast sandstone, +72 % in limestone, **+134 % in granite**, which returns nothing at all across the 3-10 kHz band figure 7a resolves. *Missing answers*: at both ends of the band no real-axis root exists. Moving the bracket edge to the Scholte speed recovers **4.4-16.4 kHz at 0.66 % median error** and nothing outside it, so the fix is scoped rather than guessed: a bracket edit for the middle, complex `k_z` for the two ends. Pinned by fourteen tests, not fixed. **`n=2` checked against figure 7b too, and it is the worse of the two**: same mechanism and stiffness ordering, but 65-75 % coverage against `n=1`'s 21-36 %, so a `NaN` filter keeps two to three times as many wrong answers. One fix repairs both. |
 | **A.1 Validation figures** | *Re-scoped from five to three* (five → three → four → three: fig 4 was restored, then the figure itself was seen and turned out **not to be a dispersion figure at all** — it is a dipole shot gather, so it cannot be scored in the overlay schema. It did settle A.2's yes/no question, which is why it was worth fetching). Which figure carries the flexural dispersion curves is now known — **figure 2a of Schmitt & Cheng**, since digitised, which also gives A.1's flexural-Scholte tie its first *external* confirmation (1493 m/s read at 24.9 kHz against 1484 computed). Stoneley, flexural and quadrupole are tied analytically at 1e-8 to 1e-3, against a 5 % overlay budget — so their figures were dropped as the weaker instrument. What still needs the books is the **pseudo-Rayleigh curve**, **cased Stoneley** and **VTI flexural**, which have no external tie of any kind. |
 | **F.4 Two unconfirmed checksums** | Also body-only until this revision, which is the same failure as A.2's. `forge_dsi_las` and `iodp_u1347a_dsi` both carry digests computed from copies that did not come down their canonical URLs, because those hosts were blocked from the sessions that added them. One successful fetch each clears it. It is the only place the fixture registry asserts something it has not verified. |
 | **A.5 residue: delta-matrix reformulation** | Optional and blocked on nothing, which is why it kept falling off the list. A delta-matrix / Abo-Zena form of the elastic stack would remove the cancellation the grid-stability filter exists to work around, and raise the crack-wave ceiling above the ~240 kHz where the propagators stop being representable. |
@@ -594,6 +594,99 @@ tests in `tests/test_cylindrical_solver.py` pin the disagreement against the
 digitised table, which is checked in with its own end-anchor test so a bad
 digitisation cannot silently become the reference.
 
+### A.2 — figure 7a, and the defect measured against formation stiffness
+
+Figure 2a settles one rock. **Figure 7a** (p. 244) plots the flexural mode for
+**granite (1), limestone (2) and the same fast sandstone (3)** on one axis,
+0-15 kHz, so the same measurement can be made against stiffness instead of at a
+point. Same digitisation method, with the axes least-squares fitted to the tick
+marks rather than to the frame rules: **15 x-ticks residual to 0.018 kHz, 4
+y-ticks residual to 0.0004 normalised (0.5 m/s)**. Axis calibration is
+negligible here; line thickness still gives about ±20 m/s.
+
+**Three anchors instead of one.** Every plateau lands on its own formation shear
+speed:
+
+| | plateau read | `V_S` | |
+|---|---|---|---|
+| granite | 3749.6 | 3750 | **−0.01 %** |
+| limestone | 2768.7 | 2771 | **−0.08 %** |
+| fast sandstone | 2597.7 | 2601 | **−0.13 %** |
+
+**The bracket empties at the same frequency for every fast formation.** All
+three curves cross `V_R` between **4.43 and 4.45 kHz**, although `V_R` spans
+2413 to 3388 m/s and `V_S` spans 2601 to 3750. Figure 2a gave 4.45 kHz for the
+sandstone from a different page with a different axis range, so that is four
+consistent readings. This is *not* self-similarity in `v/V_S` — at 5 kHz the
+three read 0.690, 0.818, 0.838 — so two things vary and cancel. Recorded as
+measured, not explained; it is the first thing to check when the fix is
+attempted, because a mode-selection rule would want to key on it.
+
+The practical form of that: the frequency at which `flexural_dispersion` stops
+being able to contain the mode is **not rock-dependent**, so a caller cannot
+reason their way around it from the formation properties they have.
+
+**The error grows with stiffness.** By 11 kHz all three published curves have
+converged to one line near 1570 m/s. Against it:
+
+| | fwap at 11-13 kHz | error |
+|---|---|---|
+| fast sandstone | 2551-2442 | +57 % to +64 % |
+| limestone | 2738-2628 | **+69 % to +73 %** |
+| granite | 3740-3483 | **+124 % to +137 %** |
+
+The `(V_R, V_S)` window rides further above the true curve the faster the rock,
+so the defect is worst exactly where dipole logging most needs the answer.
+
+**And over the band figure 7a actually resolves, granite returns nothing at
+all** — NaN at all 13 tabulated frequencies from 3 to 10 kHz. Limestone answers
+at 2 of 9 (4.25 and 4.5 kHz, +3.3 % and +1.5 %), both in the same sliver at the
+crossing that figure 2a already identified. The wrong answers live higher up,
+where the figure has merged the curves; the resolved band is simply empty.
+
+**A check on the digitisation that owes nothing to fwap.** The fast sandstone is
+plotted twice in this report — figure 2a (0.600-1.800 over 0-25 kHz) and figure
+7a (0.500-2.600 over 0-15 kHz). Two pages, two axis ranges, two independent
+calibrations of one physical curve. Over 2.50-5.50 kHz, thirteen consecutive
+readings, they agree to within **−0.25 % to +0.38 %**. Above 5.75 kHz figure 7a
+reads 0.8-1.9 % high, and that is explained rather than mysterious: the
+limestone and sandstone curves become a single plotted line at exactly
+5.75 kHz, so a column trace returns the band centre. Granite joins them at
+10.25 kHz. Nothing above those points is tabulated.
+
+Five more tests pin this, and the reference tables carry their own shear-speed
+anchor test.
+
+#### And figure 7b checks the `n=2` claim this file has been asserting
+
+The table row and the item body have both said *"affects `n=2` identically, so
+one fix repairs two solvers"* since the re-diagnosis, on the strength of a
+non-monotone scatter between `V_R` and `V_S`. Figure 7b plots the **screw
+(quadrupole) mode** for the same three formations over 4-20 kHz, so it can be
+checked rather than asserted.
+
+**It holds** — same mechanism, same stiffness ordering — **with one difference
+that makes `n=2` the more dangerous solver of the two.** Measured over each
+rock's plotted band at 0.2 kHz:
+
+| rock | coverage | within 5 % | the rest |
+|---|---|---|---|
+| granite | **75 %** | 1 point | +5 % to +136 %, median **+102 %** |
+| limestone | **66 %** | none | +11 % to +66 %, median **+57 %** |
+| fast sandstone | **65 %** | none | +13 % to +56 %, median **+46 %** |
+
+Every finite value again lies strictly inside `(V_R, V_S)`; in fact the returned
+values sweep that window end to end — 3389-3750, 2565-2771, 2413-2601. And the
+bracket empties at a mode-specific but again rock-independent frequency:
+**7.53 / 7.61 / 7.69 kHz**, against 4.45 / 4.43 / 4.43 for the flexural mode,
+with `V_R` spanning 2413 to 3388 in both.
+
+The difference is coverage: **65-75 % here against 21-36 % at `n=1`**. A caller
+filtering on `NaN` keeps two to three times as many wrong answers from
+`quadrupole_dispersion` as from `flexural_dispersion`. So of the two solvers the
+quadrupole is the one that fails most quietly, and "one fix repairs two solvers"
+understates which of them needs it more.
+
 ### A.2 Fast-formation flexural leakage — the original entry
 
 Was filed as "cased flexural bracketing", which measurement showed to be the
@@ -612,6 +705,14 @@ them. Over the default mixed prior, 19 of 31 fast draws cleared `min_finite` and
 18 of those 19 were non-monotone, which corrects a comment in the generator
 claiming such draws "often fall below `min_finite`". So this item is not only
 about the flexural mode; a fix would repair two solvers.
+
+> *Checked against figure 7b, and the "finite values a `NaN` filter keeps" half
+> is the understatement here.* Against the published screw-mode curves the
+> quadrupole solver covers **65-75 %** of the band on the three fast rocks,
+> against 21-36 % for the flexural solver on the same rocks — and is +46 % to
+> +102 % wrong at the median, with **1 correct point across all three**. Of the
+> two solvers the quadrupole is the one that fails most quietly. See the
+> figure-7b subsection above.
 
 **It is not caused by the layer stack.** Removing the casing and cement entirely
 leaves the identical formation just as sparse in an *open* hole, over the same
@@ -715,6 +816,13 @@ which puts this item behind the same literature access A.1 needs.
 > flexural and screw dispersion for granite, limestone and fast sandstone
 > together. Both are fast-formation flexural dispersion over the band fwap
 > returns almost nothing for.
+>
+> *Both have since been digitised — see the figure-2a and figure-7a sections
+> above.* The coverage column here is the weaker statement, and it should not
+> be quoted on its own: coverage counts answers, and figure 7a shows the
+> answers are 57-137 % wrong. Granite in particular returns **nothing at all**
+> over the 3-10 kHz band figure 7a resolves; its "10 %" is a sawtooth at
+> 11-13 kHz, outside the resolved region entirely.
 >
 > **Settled — the figure has been seen, and it refutes the second case.**
 > Schmitt 1988 fig 4 is a dipole **shot gather** in a *fast sandstone*: 14

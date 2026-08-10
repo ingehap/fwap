@@ -17068,3 +17068,345 @@ def test_fast_flexural_disagrees_with_the_published_curve():
 
     error = (velocity[finite] - reference[finite]) / reference[finite]
     assert error.min() > 0.5, "the returned mode is far faster than the flexural one"
+
+
+# ----------------------------------------------------------------------
+# A.2, generalised: figure 7a puts three fast formations on one axis
+#
+# Figure 2a settles the fast sandstone. Figure 7a of the same report
+# (p. 244) plots the flexural mode for **granite (1), limestone (2) and
+# the fast sandstone (3)** together, 0-15 kHz, so the defect can be
+# measured against formation stiffness rather than at one rock.
+#
+# Digitised the same way, at 600 dpi, with the axes least-squares fitted
+# to the tick marks rather than to the frame rules: 15 x-ticks residual
+# to 0.018 kHz, 4 y-ticks residual to 0.0004 normalised (0.5 m/s). Axis
+# calibration is negligible here; the line thickness still dominates.
+#
+# Three results, and the second is the one worth having.
+#
+#   1. All three plateaus land on the formation shear speed: 3749.6,
+#      2768.7, 2597.7 against 3750, 2771, 2601. Three anchors, not one.
+#
+#   2. All three cross V_R at **4.43-4.45 kHz** -- although V_R spans
+#      2413 to 3388 m/s and V_S spans 2601 to 3750. The frequency at
+#      which the solver's bracket stops containing the mode is set by
+#      the hole and the fluid, not by the rock. Figure 2a gave 4.45 kHz
+#      for the sandstone independently, so that is four consistent
+#      readings. Note this is *not* because the curves are self-similar
+#      in v/V_S -- at 5 kHz they read 0.690, 0.818, 0.838 -- so two
+#      things vary and happen to cancel. Measured, not explained.
+#
+#   3. The error grows with stiffness: median +62 % (sandstone), +72 %
+#      (limestone), +134 % (granite), because the (V_R, V_S) window
+#      rides further above the true curve the faster the rock. The
+#      defect is worst exactly where dipole logging most needs it.
+#
+# Resolution limit, stated because the tables below stop where it bites:
+# limestone and sandstone become one plotted line at 5.75 kHz, and
+# granite joins them at 10.25 kHz. Past those points a column trace
+# reports the band centre, not a curve. Tabulated only where resolved.
+# ----------------------------------------------------------------------
+
+_FIG7_ROCKS = {
+    "granite": dict(vp=5881.0, vs=3750.0, rho=2160.0),
+    "limestone": dict(vp=5081.0, vs=2771.0, rho=2160.0),
+}
+
+#: Phase velocity (Hz, m/s) of the flexural mode, digitised from
+#: Schmitt & Cheng figure 7a, over the band where each curve is a
+#: separate line. Uncertainty about +-20 m/s.
+_FIG7A_FLEXURAL_PHASE = {
+    "granite": (
+        (3.0e3, 3752.9),
+        (3.5e3, 3752.9),
+        (4.0e3, 3723.2),
+        (4.25e3, 3616.1),
+        (4.5e3, 3309.3),
+        (4.75e3, 2857.8),
+        (5.0e3, 2588.4),
+        (5.5e3, 2234.7),
+        (6.0e3, 2043.8),
+        (7.0e3, 1843.3),
+        (8.0e3, 1739.1),
+        (9.0e3, 1672.3),
+        (10.0e3, 1618.6),
+    ),
+    "limestone": (
+        (2.5e3, 2766.2),
+        (3.0e3, 2750.3),
+        (3.5e3, 2762.2),
+        (4.0e3, 2719.6),
+        (4.25e3, 2638.7),
+        (4.5e3, 2531.2),
+        (4.75e3, 2394.4),
+        (5.0e3, 2266.9),
+        (5.5e3, 2052.2),
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_FIG7_ROCKS))
+def test_figure_7a_tables_start_at_the_formation_shear_speed(name):
+    """Anchor each figure-7a table before it judges anything.
+
+    Two independently computable values bracket every one of these
+    curves -- the shear speed it leaves and the Scholte speed it heads
+    for -- and the low-frequency end is the one the table reaches. Three
+    rocks spanning 2601-3750 m/s all hitting their own V_S is a much
+    stronger check on the digitisation than one rock doing it.
+    """
+    rock = _FIG7_ROCKS[name]
+    table = _FIG7A_FLEXURAL_PHASE[name]
+    velocity = np.array([v for _, v in table])
+
+    assert velocity[0] / rock["vs"] == pytest.approx(1.0, abs=0.01)
+    assert np.diff(velocity).max() < 20.0, "phase velocity does not increase"
+    assert velocity[-1] < 0.75 * rock["vs"], "the table must cover the plunge"
+
+
+@pytest.mark.parametrize("name", sorted(_FIG7_ROCKS))
+def test_the_bracket_empties_near_4_4_khz_whatever_the_formation(name):
+    """The sharpest statement of A.2's first defect.
+
+    `_flexural_dispersion_fast_formation` searches phase velocity in
+    `(V_R, V_S)`. Figure 7a shows all three formations leaving that
+    window between 4.43 and 4.45 kHz, though V_R spans 2413 to 3388 m/s.
+    So the bracket does not fail at a rock-dependent frequency that a
+    caller could reason about -- it fails at the same place for every
+    fast formation, because what sets it is the hole and the fluid.
+    """
+    from fwap.cylindrical import rayleigh_speed
+
+    rock = _FIG7_ROCKS[name]
+    table = _FIG7A_FLEXURAL_PHASE[name]
+    freq = np.array([f for f, _ in table])
+    velocity = np.array([v for _, v in table])
+    v_rayleigh = rayleigh_speed(rock["vp"], rock["vs"])
+
+    assert velocity[0] > v_rayleigh > velocity[-1], "the table must span V_R"
+    crossing = np.interp(-v_rayleigh, -velocity, freq)
+    assert 4.3e3 < crossing < 4.6e3, f"{name} leaves the bracket at {crossing:.0f} Hz"
+
+
+@pytest.mark.parametrize("name", sorted(_FIG7_ROCKS))
+def test_the_solver_is_silent_over_the_band_figure_7a_resolves(name):
+    """Where the figure is at its most informative, the solver says
+    nothing.
+
+    Over the tabulated band -- the part of figure 7a where each rock is
+    drawn as its own line -- `flexural_dispersion` returns NaN at every
+    frequency above the 4.45 kHz crossing, for both rocks. For granite
+    it returns NaN at **all 13**, including below the crossing: the
+    published curve is resolved from 3 to 10 kHz and fwap covers none
+    of it.
+
+    The wrong answers this item is really about live higher up, at
+    11-13 kHz, where the figure has merged the three curves. That is
+    the next test.
+    """
+    from fwap import flexural_dispersion
+    from fwap.cylindrical import rayleigh_speed
+
+    rock = _FIG7_ROCKS[name]
+    table = _FIG7A_FLEXURAL_PHASE[name]
+    freq = np.array([f for f, _ in table])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+    velocity = 1.0 / flexural_dispersion(freq, **rock, **fluid, a=0.10).slowness
+    finite = np.isfinite(velocity)
+
+    assert not finite[freq > 4.6e3].any(), "nothing survives above the crossing"
+    v_rayleigh = rayleigh_speed(rock["vp"], rock["vs"])
+    assert np.all(velocity[finite] > v_rayleigh), "any answer is bracket interior"
+    if name == "granite":
+        assert not finite.any(), "granite is empty across the whole resolved band"
+
+
+#: Centre of the single line the three figure-7a curves have collapsed
+#: into by 11 kHz (Hz, m/s). Not a per-rock reading -- the band is about
+#: 30 m/s wide there, so treat these as +-2 %.
+_FIG7A_MERGED_BAND = (
+    (11.0e3, 1581.0),
+    (11.5e3, 1577.0),
+    (12.0e3, 1569.0),
+    (12.5e3, 1565.0),
+    (13.0e3, 1557.0),
+)
+
+
+def test_fast_flexural_error_grows_with_formation_stiffness():
+    """The reason figure 7a was worth digitising as well as figure 2a.
+
+    At 11-13 kHz all three published curves have converged to one line
+    near 1570 m/s. Against it the solver reads about 2700 m/s in
+    limestone and about 3650 in granite -- **+69 % and +124 %** at the
+    low end. The `(V_R, V_S)` window rides further above the true curve
+    the faster the rock, so the defect is worst exactly where dipole
+    logging most needs the answer.
+
+    The ordering is the assertion. The absolute numbers depend on the
+    ±2 % merged-band reading; that granite is far worse than limestone
+    does not.
+    """
+    from fwap import flexural_dispersion
+
+    freq = np.array([f for f, _ in _FIG7A_MERGED_BAND])
+    reference = np.array([v for _, v in _FIG7A_MERGED_BAND])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+
+    error = {}
+    for name, rock in _FIG7_ROCKS.items():
+        velocity = 1.0 / flexural_dispersion(freq, **rock, **fluid, a=0.10).slowness
+        assert np.isfinite(velocity).all(), f"{name}: expected the sawtooth here"
+        error[name] = (velocity - reference) / reference
+
+    assert error["limestone"].min() > 0.5
+    assert error["granite"].min() > 1.0
+    assert error["granite"].min() > error["limestone"].max(), (
+        "the harder the rock, the further the returned overtone is from the mode"
+    )
+
+
+def test_the_two_figures_agree_where_both_resolve_the_same_rock():
+    """A check on the digitisation that owes nothing to fwap.
+
+    The fast sandstone is plotted twice in the same report, on different
+    pages, with different axis ranges -- figure 2a spans 0.600-1.800
+    over 0-25 kHz, figure 7a spans 0.500-2.600 over 0-15 kHz. Two
+    independent calibrations of the same physical curve.
+
+    Below 5.75 kHz, where figure 7a still draws the sandstone as its own
+    line, the two reads agree to better than 0.5 %. Above it the
+    sandstone and limestone curves become one line in figure 7a, which
+    is why nothing from that region is tabulated.
+    """
+    fig2 = {f: v for f, v in _FIG2A_FLEXURAL_PHASE if f <= 5.5e3}
+    assert fig2, "figure 2a must sample the band figure 7a resolves"
+
+    # Figure 7a, fast sandstone, read at figure 2a's own frequencies.
+    fig7_sandstone = {3.0e3: 2589.5, 4.0e3: 2535.1, 5.0e3: 2179.3}
+    for freq, v7 in fig7_sandstone.items():
+        v2 = fig2[freq]
+        assert v7 / v2 == pytest.approx(1.0, abs=0.005), (
+            f"the two figures disagree at {freq / 1e3:.0f} kHz: {v2} vs {v7}"
+        )
+
+
+# ----------------------------------------------------------------------
+# A.2 at n = 2: figure 7b, the claim this file has been asserting
+#
+# The roadmap has said "affects n=2 identically, so one fix repairs two
+# solvers" since the item was re-diagnosed, on the strength of a
+# non-monotone scatter between V_R and V_S. Figure 7b plots the screw
+# (quadrupole) mode for the same three formations over 4-20 kHz, so the
+# claim can be checked rather than asserted.
+#
+# It holds, with one difference that makes n=2 the more dangerous of the
+# two. Measured over each rock's plotted band at 0.2 kHz:
+#
+#   rock       coverage   within 5 %   the rest
+#   granite      75 %      1 point     +5 % to +136 %, median +102 %
+#   limestone    66 %      none        +11 % to +66 %, median  +57 %
+#   sandstone    65 %      none        +13 % to +56 %, median  +46 %
+#
+# Every finite value again lies strictly inside (V_R, V_S) -- in fact
+# the returned values sweep that window end to end (3389-3750,
+# 2565-2771, 2413-2601). Same stiffness ordering as n=1.
+#
+# The difference: coverage is **65-75 % here against 21-36 % at n=1**.
+# A caller who filters on NaN therefore keeps two to three times as many
+# wrong answers from the quadrupole solver as from the flexural one.
+#
+# And the bracket empties at a mode-specific, rock-independent
+# frequency: 7.53 / 7.61 / 7.69 kHz here, against 4.45 / 4.43 / 4.43 kHz
+# for the flexural mode, while V_R spans 2413 to 3388 m/s in both.
+# ----------------------------------------------------------------------
+
+#: Screw (quadrupole) phase velocity (Hz, m/s) from figure 7b, over the
+#: band where each curve is a separate line. Uncertainty about +-20 m/s.
+_FIG7B_SCREW_PHASE = {
+    "granite": (
+        (6.9e3, 3771.5),
+        (7.0e3, 3751.7),
+        (7.5e3, 3417.1),
+        (8.0e3, 2896.5),
+        (9.0e3, 2342.4),
+        (10.0e3, 2068.0),
+        (12.0e3, 1829.2),
+        (14.0e3, 1718.1),
+    ),
+    "limestone": (
+        (6.6e3, 2774.6),
+        (7.0e3, 2727.1),
+        (7.5e3, 2607.9),
+        (8.0e3, 2440.5),
+        (9.0e3, 2148.0),
+        (9.5e3, 2037.8),
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_FIG7B_SCREW_PHASE))
+def test_the_quadrupole_bracket_empties_near_7_6_khz(name):
+    """The `n=2` half of A.2, checked instead of asserted.
+
+    Same shape as the flexural result and the same rock-independence:
+    all three formations leave `(V_R, V_S)` between 7.53 and 7.69 kHz.
+    The emptying frequency is a property of the mode and the hole, not
+    of the formation -- 4.4 kHz at `n=1`, 7.6 kHz at `n=2`.
+    """
+    from fwap.cylindrical import rayleigh_speed
+
+    rock = _FIG7_ROCKS[name]
+    table = _FIG7B_SCREW_PHASE[name]
+    freq = np.array([f for f, _ in table])
+    velocity = np.array([v for _, v in table])
+    v_rayleigh = rayleigh_speed(rock["vp"], rock["vs"])
+
+    assert velocity[0] / rock["vs"] == pytest.approx(1.0, abs=0.01)
+    assert np.diff(velocity).max() < 20.0
+    assert velocity[0] > v_rayleigh > velocity[-1], "the table must span V_R"
+    crossing = np.interp(-v_rayleigh, -velocity, freq)
+    assert 7.4e3 < crossing < 7.8e3, f"{name} leaves the bracket at {crossing:.0f} Hz"
+
+
+@pytest.mark.parametrize("name", sorted(_FIG7B_SCREW_PHASE))
+def test_quadrupole_keeps_more_wrong_answers_than_flexural(name):
+    """Why `n=2` is the more dangerous of the two solvers.
+
+    Above the crossing `quadrupole_dispersion` keeps returning finite
+    values -- 65-75 % coverage against 21-36 % for `flexural_dispersion`
+    on the same rocks -- and they are overtones from the same
+    `(V_R, V_S)` window, tens of percent fast. A `NaN` filter is
+    therefore a *worse* guard here, not a better one.
+
+    Sampled on a grid rather than at the tabulated frequencies, because
+    what comes back is a scatter with gaps: which individual frequency
+    converges is not stable and is not the point.
+    """
+    from fwap import flexural_dispersion, quadrupole_dispersion
+    from fwap.cylindrical import rayleigh_speed
+
+    rock = _FIG7_ROCKS[name]
+    table = _FIG7B_SCREW_PHASE[name]
+    ref_f = np.array([f for f, _ in table])
+    ref_v = np.array([v for _, v in table])
+    fluid = dict(vf=1500.0, rho_f=1000.0)
+
+    grid = np.arange(7.9e3, ref_f[-1] + 1.0, 100.0)
+    screw = 1.0 / quadrupole_dispersion(grid, **rock, **fluid, a=0.10).slowness
+    finite = np.isfinite(screw)
+    assert finite.sum() >= 3, "the quadrupole solver does not go quiet here"
+
+    v_rayleigh = rayleigh_speed(rock["vp"], rock["vs"])
+    assert np.all(screw[finite] > v_rayleigh), "every answer is bracket interior"
+    assert np.all(screw[finite] < rock["vs"])
+    error = (screw[finite] - np.interp(grid, ref_f, ref_v)[finite]) / np.interp(
+        grid, ref_f, ref_v
+    )[finite]
+    assert error.min() > 0.05, f"{name}: expected overtones, not the screw mode"
+
+    flexural = 1.0 / flexural_dispersion(grid, **rock, **fluid, a=0.10).slowness
+    assert finite.mean() > np.isfinite(flexural).mean(), (
+        "n=2 hands back more of its wrong answers than n=1 does"
+    )

@@ -68,8 +68,52 @@ the project uses [Semantic Versioning](https://semver.org/).
   proximity to the real axis is not the criterion.
   The digitised reference table is checked in as `_FIG2A_FLEXURAL_PHASE` in
   `tests/test_cylindrical_solver.py`, with an end-anchor test of its own so a
-  bad digitisation cannot silently become the reference. Five tests now pin the
-  item, not three.
+  bad digitisation cannot silently become the reference.
+
+  **Figure 7a then measured the same defect against formation stiffness.** It
+  plots the flexural mode for granite, limestone and the same fast sandstone on
+  one axis over 0-15 kHz. Digitised with the axes least-squares fitted to the
+  ticks (15 x-ticks residual to 0.018 kHz, 4 y-ticks to 0.0004 normalised):
+  - **Three anchors, not one.** Every plateau lands on its own shear speed —
+    3749.6 / 2768.7 / 2597.7 against 3750 / 2771 / 2601.
+  - **The bracket empties at the same frequency whatever the rock.** All three
+    cross `V_R` between **4.43 and 4.45 kHz**, though `V_R` spans 2413 to
+    3388 m/s. Figure 2a gave 4.45 kHz for the sandstone from a different page
+    with a different axis range — four consistent readings. Not self-similarity
+    in `v/V_S` (which reads 0.690 / 0.818 / 0.838 at 5 kHz); two things vary and
+    cancel. Measured, not explained.
+  - **The error grows with stiffness.** At 11-13 kHz, where all three published
+    curves have converged to one line near 1570 m/s, the solver returns
+    2551-2442 in sandstone (+57 to +64 %), 2738-2628 in limestone (+69 to
+    +73 %) and **3740-3483 in granite (+124 to +137 %)**. The `(V_R, V_S)`
+    window rides further above the true curve the faster the rock.
+  - **Over the band figure 7a resolves, granite returns nothing** — NaN at all
+    13 tabulated frequencies from 3 to 10 kHz. Its "10 % coverage" is a
+    sawtooth at 11-13 kHz, outside the resolved region entirely.
+  - **Cross-check owing nothing to fwap**: the fast sandstone is plotted in both
+    figures, on different pages with different axis ranges. Over 2.50-5.50 kHz
+    the two independent reads agree to **−0.25 % to +0.38 %** across thirteen
+    consecutive samples. Above 5.75 kHz figure 7a reads 0.8-1.9 % high, because
+    its limestone and sandstone curves become a single plotted line at exactly
+    that frequency (granite joins them at 10.25 kHz). Nothing past those points
+    is tabulated.
+
+  **Figure 7b then checked the `n=2` claim** this item has been asserting since
+  its re-diagnosis — "affects `n=2` identically, so one fix repairs two
+  solvers". It holds, with one difference that makes the quadrupole solver the
+  more dangerous of the two. Against the published screw-mode curves for the
+  same three rocks: coverage **75 / 66 / 65 %** (granite / limestone / fast
+  sandstone), median error **+102 / +57 / +46 %**, **one** point within 5 %
+  across all three, every finite value inside `(V_R, V_S)` and in fact sweeping
+  that window end to end. The bracket empties at 7.53 / 7.61 / 7.69 kHz — again
+  essentially rock-independent, and mode-specific rather than shared with
+  `n=1`'s 4.4 kHz.
+  Coverage is the difference that matters: **65-75 % here against `n=1`'s
+  21-36 %**, so a caller filtering on `NaN` keeps two to three times as many
+  wrong answers from `quadrupole_dispersion` than from `flexural_dispersion`.
+
+  Fourteen tests now pin the item, not three, and every reference table carries
+  its own shear-speed anchor test.
 
 ### Fixed
 - **The flexural high-frequency test was anchored to the wrong reference**
