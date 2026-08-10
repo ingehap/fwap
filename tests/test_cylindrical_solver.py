@@ -18972,3 +18972,71 @@ def test_the_near_cutoff_gap_is_an_absolute_offset_not_a_percentage():
     assert gaps.min() > 1.3 and gaps.max() < 2.2, "tight in absolute terms"
     assert gaps.max() / gaps.min() < 1.6
     assert pcts.max() / pcts.min() > 4.0, "and wildly spread as percentages"
+
+
+# ----------------------------------------------------------------------
+# Figure 13: how little a dipole sees invasion at 1 kHz
+#
+# "Dipole source. Invaded zone effects in the presence of a fast
+# sandstone. Iso-offset (z = 5m) of the waveforms obtained in the
+# presence of the only virgin formation (1), and a 8 cm (2) and 16 cm
+# (3) invaded zone. The source center frequency is successively equal to
+# 1 kHz (a), 3 kHz (b), 6 kHz (c), and 7.5 kHz (d)."
+#
+# **Only panel (a) is measurable, and that is stated first.** Panels
+# (b)-(d) are long ringing wavetrains whose amplitude exceeds the trace
+# spacing, with the authors' guide lines drawn through them. No
+# combination of band width and component filter got a cross-correlation
+# above 0.8 against the virgin trace, so **no delays are quoted from
+# them** -- the same wall figure 6 hit.
+#
+# Panel (a) extracts cleanly, and the answer is a number worth having:
+# cross-correlated against the virgin trace, the 8 cm model lags by
+# **+0.1 us** and the 16 cm model by **+1.2 us**, at correlations of
+# 0.992 and 0.981. Over a ~2 ms traveltime at 5 m that is **0.06 %**.
+#
+# A 16 cm invaded zone is undetectable at 1 kHz, which is the
+# time-domain form of what figure 12 shows in the frequency domain: all
+# three models share a plotted plateau at V_S below about 2 kHz, and
+# figure 12's own reading put that plateau at 1.7357 for the whole
+# group. Figure 13(a) says how far apart they actually are there.
+#
+# The effect does grow -- figure 12 shows the curves separating above
+# 2 kHz -- but this figure's higher-frequency panels are beyond the
+# method, so that growth is not measured here.
+# ----------------------------------------------------------------------
+
+#: Figure 13(a): cross-correlation lag against the virgin trace at a
+#: 1 kHz source and 5 m offset (microseconds), and the correlation.
+_FIG13A_INVASION_LAG_US = {"8 cm": (0.1, 0.992), "16 cm": (1.2, 0.981)}
+_FIG13_OFFSET_M = 5.0
+
+
+def test_invasion_is_undetectable_at_1_khz():
+    """The size of the invaded-zone effect where a dipole tool works.
+
+    Both invaded models reproduce the virgin waveform at 5 m to within
+    about a microsecond, correlating above 0.98. Whatever the layered
+    solver gets wrong on this rock, the *invasion* part of the answer is
+    negligible at 1 kHz -- which is consistent with figure 12, where all
+    three models share a plateau below about 2 kHz.
+    """
+    for name, (lag_us, corr) in _FIG13A_INVASION_LAG_US.items():
+        assert abs(lag_us) < 5.0, f"{name}: {lag_us} us"
+        assert corr > 0.97, f"{name}: r = {corr}"
+    # thicker invasion delays more, and both delay rather than advance
+    assert _FIG13A_INVASION_LAG_US["16 cm"][0] > _FIG13A_INVASION_LAG_US["8 cm"][0]
+    assert min(v for v, _ in _FIG13A_INVASION_LAG_US.values()) >= 0.0
+
+
+def test_the_1_khz_invasion_lag_is_a_negligible_fraction_of_traveltime():
+    """Put the microseconds in context.
+
+    The flexural arrival at 5 m in this rock is around 2 ms at 1 kHz --
+    the mode is near its `V_S` limit there. A 1.2 us shift is under a
+    tenth of a percent of that, well below anything a slowness log
+    resolves.
+    """
+    travel_ms = _FIG13_OFFSET_M * 1.0e3 / _FIG2_ROCK["vs"]
+    worst = max(abs(v) for v, _ in _FIG13A_INVASION_LAG_US.values())
+    assert worst * 1e-3 / travel_ms < 0.001, "under 0.1 % of the traveltime"

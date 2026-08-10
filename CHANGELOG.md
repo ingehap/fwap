@@ -278,6 +278,15 @@ the project uses [Semantic Versioning](https://semver.org/).
   At this scan quality the glyphs are not reliably legible ("0.0014" and
   "0.0019" cannot be told apart).
 
+  **Figure 13 measures how little a dipole sees invasion at 1 kHz.** Only its
+  first panel is measurable — panels (b)-(d) are ringing wavetrains exceeding the
+  trace spacing with guide lines drawn through them, and no extraction reached a
+  cross-correlation above 0.8 against the virgin trace, so nothing is quoted from
+  them. Panel (a) extracts cleanly: the 8 cm model lags the virgin waveform by
+  **+0.1 us** and the 16 cm model by **+1.2 us** at 5 m, correlating at 0.992 and
+  0.981 — **under 0.1 % of the traveltime**. That is the time-domain form of
+  figure 12's shared low-frequency plateau.
+
   **Figure 15 then exonerates the layered code.** It is figure 12's slow
   counterpart — same four models, same solver calls, table 1's slow sandstone
   2751/1201/2100 and its invaded zone 2338/1081/2000 — and it separates two
@@ -307,7 +316,7 @@ the project uses [Semantic Versioning](https://semver.org/).
   rock alone. That claim covered two modes in one homogeneous rock and does not
   extend to layered models; corrected at its site.
 
-  Forty-six tests now pin the item, not three, and every reference table carries
+  Forty-eight tests now pin the item, not three, and every reference table carries
   its own shear-speed anchor test.
 
 ### Validated
