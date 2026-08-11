@@ -6,6 +6,46 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **The cased hole is tied to published curves for the first time** (roadmap A.1).
+  Every cased-hole number in the suite had been scored against `fwap` itself —
+  A.9's leaky branch was validated against the bound solver it takes over from
+  because no published cased curve had been read, and A.7's screw path had been
+  silent. Schmitt & Cheng's figures 20 and 21 are cased-hole dispersion for the
+  dipole and the screw, and `plans/guides.md` §11 had listed them as unread.
+
+  Digitised at 600 dpi, with Table 1's own casing and cement rows read from the
+  page (casing 6098/3354/7500, cement 1 2823/1729/1920, cement 2 2823/1555/1730 —
+  the cased fixtures elsewhere in the suite use invented values):
+
+  | figure | case | median | worst | coverage |
+  | --- | --- | --- | --- | --- |
+  | 20a flexural | open hole (anchor) | 0.28 % | 0.63 % | 18/18, 6.5–15 kHz |
+  | 20a flexural | casing + 1 cm cement | **0.21 %** | 0.72 % | 23/23, 4–15 kHz |
+  | 20a flexural | casing + 3 cm cement | **0.23 %** | 0.50 % | 23/23, 4–15 kHz |
+  | 21a screw | open hole (anchor) | 0.26 % | 1.67 % | 13/13, 8–20 kHz |
+  | 21a screw | casing + 1 cm cement | **0.82 %** | 1.76 % | 10/10, 8–20 kHz |
+  | 21a screw | casing + 3 cm cement | **0.27 %** | 1.04 % | 10/10, 8–20 kHz |
+
+  The flexural tie is at the digitisation floor — the residual is the same size
+  as the open-hole anchor's. Figure 21 is the one §11 called *"the only external
+  measure of how wrong that path was"* for A.7; before A.7 the configuration
+  returned nothing at all, so there was no number to take.
+
+  **The geometry is the thing to get right**, and it is quoted rather than
+  inferred: p. 230 says the inner borehole radius is *decreased* by the casing
+  and cement, so the 10 cm radius is the formation contact and the 3 cm-cement
+  case has `a = 5.98 cm`.
+
+  **The anchor earned its keep.** The first trace of figure 20's open-hole curve
+  jumped onto a steeper neighbour through the knee. It showed as −10 % against
+  the open-hole solver, and an independent kink test — looking for the slope
+  discontinuity a curve-jump leaves — put the jump at 6.32–6.35 kHz without
+  reference to `fwap` at all. That curve is recorded only above 6.5 kHz.
+
+  What still needs the books is **VTI flexural**, and it needs a different paper:
+  Schmitt (1989). This one is isotropic throughout.
+
 ### Fixed
 - **A.9's recorded gap is closed, and its recorded description was wrong in both
   halves.** Over `V_S_layer / V_S` in [1.3, 1.5] at `ka = 2.5` the slow-formation
