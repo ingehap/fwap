@@ -22058,3 +22058,308 @@ def test_the_fast_formation_marcher_is_grid_independent_at_both_orders():
     assert np.ptp(quad) / quad.mean() < 1.0e-9, (
         f"n=2 must not depend on the grid either; spread {np.ptp(quad):.3e} m/s"
     )
+
+
+# ----------------------------------------------------------------------
+# Figures 20 and 21: the cased hole, externally (roadmap A.1)
+#
+# Until now every cased-hole number in this suite was scored against
+# fwap itself -- A.9's leaky branch had no published curve at all, and
+# A.7's screw path had been silent, so nothing external had ever touched
+# the propagator stack. Figures 20 and 21 are that measurement, and they
+# were in the paper the whole time; `plans/guides.md` section 11 listed
+# them as unread.
+#
+# Geometry, from p. 230: "the inner borehole radius is decreased by the
+# amount of the casing and cement thickness ... the original borehole
+# radius is 10 cm". So 10 cm is the FORMATION contact and the fluid
+# column shrinks -- the 3 cm-cement case has a = 5.98 cm, not 10 cm.
+# Getting this backwards is the one mistake that would quietly ruin the
+# comparison, which is why it is quoted here rather than inferred.
+#
+# The layer properties are Table 1's own casing and cement rows, read
+# from the page (p. 227). The cased fixtures elsewhere in this file use
+# invented values; these do not.
+#
+# Digitised at 600 dpi by tracing each curve with a momentum-following
+# tracer, then checked two ways before being trusted, per guides section
+# 5: the open-hole curve in each figure is case (1), which fwap's
+# already-validated open-hole solvers compute independently, and every
+# trace was tested for the slope discontinuity a curve-jump leaves. Both
+# checks fired on the first attempt at figure 20's open-hole curve --
+# the tracer had jumped onto a steeper neighbour through the knee, the
+# anchor showed -10 % there and the kink test put the jump at 6.32-6.35
+# kHz without reference to fwap at all. That curve is therefore recorded
+# only above 6.5 kHz.
+#
+# Uncertainty: about +-8 m/s where the curves are shallow, and much
+# worse on the steep descents, where a 0.05 kHz read error is 30 m/s.
+# ----------------------------------------------------------------------
+
+#: Table 1, p. 227. Steel casing and the two cements, as published.
+_S88_CASING = BoreholeLayer(vp=6098.0, vs=3354.0, rho=7500.0, thickness=0.0102)
+_S88_CEMENT_1 = dict(vp=2823.0, vs=1729.0, rho=1920.0)
+_S88_CEMENT_2 = dict(vp=2823.0, vs=1555.0, rho=1730.0)
+#: Table 1's fast sandstone, and the borehole of figures 20 and 21.
+_S88_FAST = dict(vp=4878.0, vs=2601.0, rho=2160.0)
+_S88_BOREHOLE = dict(vf=1500.0, rho_f=1000.0)
+_S88_OUTER = 0.10
+
+
+def _s88_cased(cement_thickness: float) -> tuple[float, tuple[BoreholeLayer, ...]]:
+    """Fluid radius and layer stack for a figure 20/21 cased case."""
+    a = _S88_OUTER - _S88_CASING.thickness - cement_thickness
+    cement = BoreholeLayer(**_S88_CEMENT_1, thickness=cement_thickness)
+    return a, (_S88_CASING, cement)
+
+
+_FIG20A_OPEN_HOLE = (
+    (6500.0, 1802.7),
+    (7000.0, 1741.0),
+    (7500.0, 1695.2),
+    (8000.0, 1662.3),
+    (8500.0, 1636.7),
+    (9000.0, 1616.4),
+    (9500.0, 1600.3),
+    (10000.0, 1581.8),
+    (10500.0, 1568.4),
+    (11000.0, 1559.2),
+    (11500.0, 1550.9),
+    (12000.0, 1546.3),
+    (12500.0, 1544.1),
+    (13000.0, 1538.0),
+    (13500.0, 1531.1),
+    (14000.0, 1526.6),
+    (14500.0, 1519.7),
+    (15000.0, 1517.5),
+)
+
+_FIG20A_CEMENT_1CM = (
+    (4000.0, 2590.4),
+    (4500.0, 2586.1),
+    (5000.0, 2544.6),
+    (5500.0, 2429.8),
+    (6000.0, 2269.8),
+    (6500.0, 2113.8),
+    (7000.0, 1976.8),
+    (7500.0, 1877.5),
+    (8000.0, 1805.7),
+    (8500.0, 1753.7),
+    (9000.0, 1708.4),
+    (9500.0, 1676.9),
+    (10000.0, 1641.3),
+    (10500.0, 1618.5),
+    (11000.0, 1600.3),
+    (11500.0, 1583.4),
+    (12000.0, 1568.4),
+    (12500.0, 1544.1),
+    (13000.0, 1538.0),
+    (13500.0, 1531.1),
+    (14000.0, 1526.6),
+    (14500.0, 1519.7),
+    (15000.0, 1517.5),
+)
+
+_FIG20A_CEMENT_3CM = (
+    (4000.0, 2590.4),
+    (4500.0, 2586.1),
+    (5000.0, 2583.8),
+    (5500.0, 2563.3),
+    (6000.0, 2526.7),
+    (6500.0, 2460.1),
+    (7000.0, 2365.5),
+    (7500.0, 2245.1),
+    (8000.0, 2131.3),
+    (8500.0, 2020.6),
+    (9000.0, 1930.9),
+    (9500.0, 1859.2),
+    (10000.0, 1793.4),
+    (10500.0, 1744.1),
+    (11000.0, 1703.5),
+    (11500.0, 1671.5),
+    (12000.0, 1641.3),
+    (12500.0, 1613.9),
+    (13000.0, 1592.8),
+    (13500.0, 1577.5),
+    (14000.0, 1563.8),
+    (14500.0, 1550.9),
+    (15000.0, 1544.1),
+)
+
+_FIG21A_OPEN_HOLE = (
+    (8000.0, 2331.9),
+    (9000.0, 2090.8),
+    (10000.0, 1927.2),
+    (11000.0, 1820.1),
+    (12000.0, 1747.5),
+    (13000.0, 1693.8),
+    (14000.0, 1656.2),
+    (15000.0, 1626.0),
+    (16000.0, 1603.4),
+    (17000.0, 1583.6),
+    (18000.0, 1574.1),
+    (19000.0, 1562.8),
+    (20000.0, 1551.5),
+)
+
+_FIG21A_CEMENT_1CM = (
+    (8000.0, 2487.8),
+    (9000.0, 2308.4),
+    (10000.0, 2117.0),
+    (12000.0, 1851.4),
+    (15000.0, 1662.5),
+    (16000.0, 1630.4),
+    (17000.0, 1601.7),
+    (18000.0, 1574.1),
+    (19000.0, 1562.8),
+    (20000.0, 1551.5),
+)
+
+_FIG21A_CEMENT_3CM = (
+    (8000.0, 2487.8),
+    (9000.0, 2308.4),
+    (10000.0, 2157.6),
+    (12000.0, 1923.7),
+    (15000.0, 1725.4),
+    (16000.0, 1689.2),
+    (17000.0, 1657.7),
+    (18000.0, 1636.3),
+    (19000.0, 1621.5),
+    (20000.0, 1607.9),
+)
+
+
+def _s88_score(table, model_freq, model_slowness, drop=()):
+    """Median/rms/worst relative difference against a digitised table."""
+    freq = np.array([f for f, _ in table])
+    ref = np.array([v for _, v in table])
+    keep = np.ones(freq.size, bool)
+    for lo, hi in drop:
+        keep &= ~((freq >= lo) & (freq <= hi))
+    freq, ref = freq[keep], ref[keep]
+    finite = np.isfinite(model_slowness)
+    model = np.interp(freq, model_freq[finite], 1.0 / model_slowness[finite])
+    rel = np.abs(model / ref - 1.0)
+    return float(np.median(rel)), float(np.sqrt((rel**2).mean())), float(rel.max())
+
+
+def test_figure_20_and_21_open_hole_curves_anchor_the_digitisation():
+    """Check the digitisation before letting it judge the cased solver.
+
+    Case (1) of each figure is the open hole, which the already-validated
+    open-hole solvers compute without any propagator stack. It is the
+    anchor, and it is what caught a tracer that had jumped curves.
+
+    Both figures also start on the formation shear speed, which is the
+    second anchor and an independent one: 2601 m/s from Table 1 against
+    a plateau read off the plot.
+    """
+    freq20 = np.array([f for f, _ in _FIG20A_OPEN_HOLE])
+    res20 = flexural_dispersion(freq20, **_S88_FAST, **_S88_BOREHOLE, a=_S88_OUTER)
+    median, rms, worst = _s88_score(_FIG20A_OPEN_HOLE, freq20, res20.slowness)
+    assert median < 0.006, f"figure 20 open hole: median {100 * median:.2f} %"
+    assert worst < 0.012, f"figure 20 open hole: worst {100 * worst:.2f} %"
+
+    from fwap.cylindrical_solver import quadrupole_dispersion
+
+    freq21 = np.array([f for f, _ in _FIG21A_OPEN_HOLE])
+    res21 = quadrupole_dispersion(freq21, **_S88_FAST, **_S88_BOREHOLE, a=_S88_OUTER)
+    median, rms, worst = _s88_score(_FIG21A_OPEN_HOLE, freq21, res21.slowness)
+    assert median < 0.010, f"figure 21 open hole: median {100 * median:.2f} %"
+    assert worst < 0.025, f"figure 21 open hole: worst {100 * worst:.2f} %"
+
+    # The plateau is the formation shear speed, on both figures.
+    assert _FIG20A_CEMENT_3CM[0][1] == pytest.approx(_S88_FAST["vs"], rel=0.01)
+    assert _FIG21A_CEMENT_3CM[0][1] / _S88_FAST["vs"] < 1.0
+
+
+@pytest.mark.parametrize(
+    ("label", "thickness", "table", "median_max", "worst_max"),
+    [
+        ("1 cm cement", 0.01, "_FIG20A_CEMENT_1CM", 0.005, 0.012),
+        ("3 cm cement", 0.03, "_FIG20A_CEMENT_3CM", 0.005, 0.012),
+    ],
+)
+def test_cased_flexural_matches_figure_20(
+    label, thickness, table, median_max, worst_max
+):
+    """The cased dipole against a published curve, for the first time.
+
+    Everything the cased n=1 path had been scored on until now was
+    internal -- A.9's leaky branch was validated against the bound solver
+    it takes over from, because no published cased curve had been read.
+    This is that curve. It covers the whole plotted band, and it lands at
+    the digitisation floor: the residual is the same size as the
+    open-hole anchor's, which is what "as close as the figure can
+    resolve" looks like.
+    """
+    reference = globals()[table]
+    freq = np.array([f for f, _ in reference])
+    a, layers = _s88_cased(thickness)
+    res = flexural_dispersion_layered(
+        freq, **_S88_FAST, **_S88_BOREHOLE, a=a, layers=layers
+    )
+    assert np.isfinite(res.slowness).all(), (
+        f"{label}: {int((~np.isfinite(res.slowness)).sum())} frequencies empty"
+    )
+    median, rms, worst = _s88_score(reference, freq, res.slowness)
+    assert median < median_max, f"{label}: median {100 * median:.2f} %"
+    assert worst < worst_max, f"{label}: worst {100 * worst:.2f} %"
+
+
+@pytest.mark.parametrize(
+    ("label", "thickness", "table", "median_max", "worst_max"),
+    [
+        ("1 cm cement", 0.01, "_FIG21A_CEMENT_1CM", 0.014, 0.025),
+        ("3 cm cement", 0.03, "_FIG21A_CEMENT_3CM", 0.008, 0.020),
+    ],
+)
+def test_cased_screw_matches_figure_21(label, thickness, table, median_max, worst_max):
+    """The path A.7 had forced into silence, measured from outside.
+
+    ``plans/guides.md`` section 11 called figure 21 "the only external
+    measure of how wrong that path was", and it was never read. Before
+    A.7 this configuration returned nothing at all, so there was no
+    number to compare; it now covers 8-20 kHz.
+    """
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+
+    reference = globals()[table]
+    freq = np.array([f for f, _ in reference])
+    a, layers = _s88_cased(thickness)
+    res = quadrupole_dispersion_layered(
+        freq, **_S88_FAST, **_S88_BOREHOLE, a=a, layers=layers
+    )
+    assert np.isfinite(res.slowness).all(), (
+        f"{label}: {int((~np.isfinite(res.slowness)).sum())} frequencies empty"
+    )
+    median, rms, worst = _s88_score(reference, freq, res.slowness)
+    assert median < median_max, f"{label}: median {100 * median:.2f} %"
+    assert worst < worst_max, f"{label}: worst {100 * worst:.2f} %"
+
+
+def test_the_cased_curves_order_by_cement_thickness_as_the_paper_says():
+    """A shape check the tolerances above cannot make.
+
+    The paper's own reading of figure 20 (p. 230) is that the useful
+    energy shifts to higher frequency as the borehole radius falls, so
+    thicker cement holds the mode near the shear speed longer. Both the
+    published curves and fwap must show that ordering, and a scoring
+    tolerance would not notice if both drifted together.
+    """
+    freq = np.arange(7000.0, 12001.0, 500.0)
+    velocities = []
+    for thickness in (0.01, 0.03):
+        a, layers = _s88_cased(thickness)
+        res = flexural_dispersion_layered(
+            freq, **_S88_FAST, **_S88_BOREHOLE, a=a, layers=layers
+        )
+        assert np.isfinite(res.slowness).all()
+        velocities.append(1.0 / res.slowness)
+    thin, thick = velocities
+    assert np.all(thick > thin), "thicker cement must hold the mode faster"
+    # And the published tables say the same, independently of fwap.
+    for f_hz in (8000.0, 10000.0, 12000.0):
+        ref_thin = np.interp(f_hz, *zip(*_FIG20A_CEMENT_1CM))
+        ref_thick = np.interp(f_hz, *zip(*_FIG20A_CEMENT_3CM))
+        assert ref_thick > ref_thin, f"published curves disagree at {f_hz} Hz"

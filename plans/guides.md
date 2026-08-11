@@ -727,12 +727,20 @@ measured property, and it is how the A.9 gap should be bounded properly.
 Recorded here because §8 says to inventory first, and because the next person
 should not have to rediscover it.
 
-1. **Figures 20 and 21** — cased-hole dispersion and attenuation: cement
-   thickness effects, cement shear-velocity effects, and the same for the screw
-   mode. Figure 21 covers exactly the configuration A.7 forced into silence, so
-   it is the only external measure of how wrong that path was.
-2. **Table 1's casing and cement rows** (6098/3354/7500; 2823/1729/1920;
-   2823/1555/1730) — the repo's cased-hole fixtures use invented values.
+1. ~~**Figures 20 and 21** — cased-hole dispersion and attenuation~~ **Done, for
+   the dispersion panels.** They were the first external measurement of anything
+   behind casing: flexural **0.21 % / 0.23 % median** (1 cm / 3 cm cement, 45/45
+   points, 4-15 kHz) and screw **0.82 % / 0.27 %** (39/39, 8-20 kHz), against
+   open-hole anchors of 0.28 % and 0.26 % from the same figures. Figure 21 was
+   the item described here as "the only external measure of how wrong that path
+   was" for A.7 — before A.7 the configuration returned nothing, so there was no
+   number to take. The attenuation panels remain unusable: they are computed
+   from Table 1's `Q` values and no `fwap` dispersion API accepts `Q`.
+2. ~~**Table 1's casing and cement rows**~~ **Read from the page and in use.**
+   Casing 6098/3354/7500, cement 1 2823/1729/1920, cement 2 2823/1555/1730 — the
+   values quoted here were correct, and are now checked rather than quoted. The
+   figure 20/21 fixtures use them; the older cased fixtures elsewhere still use
+   invented values, which is fine for solver tests and not fine for ties.
 3. ~~**The Appendix (pp. 235–236)** gives the layer matrix `T(n, j, r)`
    explicitly.~~ **Done, and it found more than it was sent for.** It was listed
    here as the only route that could *resolve* A.7 rather than characterise it.
