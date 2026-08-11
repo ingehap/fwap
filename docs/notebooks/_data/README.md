@@ -6,17 +6,25 @@ live in this directory.
 
 ## Status
 
-**Two curves are shipped**, both traced from Schmitt & Cheng (1987):
+**Five curves are shipped** and all five pass, every one at the
+digitisation floor:
 
-| File | Scores against `flexural_dispersion` |
-|------|--------------------------------------|
-| `schmitt_cheng_1987_fig8a_flexural_slow.csv` | **PASS** — 0.04 % RMS, worst 0.15 %, 55/55 points |
-| `schmitt_cheng_1987_fig2_flexural_fast.csv`  | **PASS** — 0.37 % RMS, worst 1.37 %, 61/89 points |
+| File | Solver | Score |
+|------|--------|-------|
+| `schmitt_cheng_1987_fig8a_flexural_slow.csv` | `flexural_dispersion` | **0.04 %** RMS, worst 0.15 %, 55/55 pts |
+| `schmitt_cheng_1987_fig2_flexural_fast.csv`  | `flexural_dispersion` | **0.37 %** RMS, worst 1.37 %, 61/89 pts |
+| `ellefsen_cheng_schmitt_1988_fig4_flexural_vti_soft.csv` | `flexural_dispersion_vti` | **0.30 %** RMS, worst 1.29 %, 70/73 pts |
+| `ellefsen_cheng_schmitt_1988_fig4_flexural_iso_soft.csv` | `flexural_dispersion` | **0.17 %** RMS, worst 0.34 %, 73/73 pts |
+| `ellefsen_cheng_schmitt_1988_fig2_flexural_iso_hard.csv` | `flexural_dispersion` | **0.45 %** RMS, worst 0.91 %, 17/73 pts |
 
-Both are at the digitisation floor. The fast curve scores over
-2.75-17.75 kHz only: above that the solver returns `NaN` rather than a
-wrong root, so 28 of its 89 points are unscored and **the overlay is
-silent there, not green**.
+The third row is the **first external check `flexural_dispersion_vti` has
+ever had**.
+
+**Two of them are scored thinly, and say so.** The fast-formation path
+returns `NaN` outside a narrow band rather than a wrong root, so
+`..._fig2_flexural_iso_hard.csv` is scored over only 2.0-6.0 kHz (17 of 73
+points) and `schmitt_cheng_1987_fig2_flexural_fast.csv` over 2.75-17.75 kHz
+(61 of 89). Outside those bands **the overlay is silent, not green**.
 
 These are deliberately *independent* of the reads recorded under roadmap
 A.1, which live as constants in `tests/test_cylindrical_solver.py` rather
@@ -96,20 +104,34 @@ The elastic reference is **Ellefsen, Cheng & Schmitt (1988)**, MIT ERL
 formation, so one figure ties both `flexural_dispersion_vti` and
 `flexural_dispersion`.
 
-**Blocked, not merely undone.** That report states no numbers: constants
-are deferred to Thomsen (1986) — Green River shale and shale (5000) — and
-no borehole radius or fluid properties appear anywhere in it. Deriving the
-radius from the same figure the overlay scores against would be the silent
-refit this directory exists to prevent.
+That report states no numbers — constants deferred to Thomsen (1986), no
+borehole radius, no fluid properties, its fig 1 a labelled schematic — so
+the geometry had to be assembled from elsewhere and **checked before use**:
 
-**The four curves are traced anyway and parked in
-[`pending/`](pending/README.md)** — both branches of both figures, 73
-points each over 1.5-19.5 kHz. Nothing reads that directory, so they cannot
-be scored against a geometry nobody has verified; `pending/README.md` says
-exactly what is missing and how to promote them. Tracing them now also
-produced the two anchors that will identify the right Thomsen rows:
-`V_S0` = **1775 m/s** (hard) and **1488 m/s** (soft), read off the
-low-frequency limits and not used in the tracing.
+* **The rocks.** Thomsen (1986) table 1: Green River shale (Schock et al.
+  1974 row) `V_P0` 3292, `V_S0` 1768 m/s, `rho` 2075, `eps` 0.195,
+  `delta` -0.220, `gamma` 0.180; shale (5000) (Jones & Wang 1981 row)
+  `V_P0` 3048, `V_S0` 1490 m/s, `rho` 2420, `eps` 0.255, `delta` -0.050,
+  `gamma` 0.480.
+* **How the rows were confirmed.** The curves were traced *first*, and
+  their low-frequency limits — where the flexural branch tends to `V_S` —
+  read **1775** and **1488** m/s against the table's 1768 and 1490:
+  **+0.4 %** and **+0.13 %**. That also settles which of table 1's two
+  Green River shale entries is meant, since the other (Podio et al.) has
+  `V_S0` = 2432 m/s. Tsvankin's figure 1.12 gives the same row's
+  `eps` = 0.195 and `delta` = -0.22 independently.
+* **The radius was a prediction, not a fit.** `a` = 0.10 m is Schmitt's
+  value in the companion ERL reports; it was used untuned, and all three
+  scoreable overlays then landed under 0.5 % RMS. A wrong radius shifts the
+  knee in frequency and would have shown up at once. Deriving it from the
+  figures instead would have been the silent refit this directory exists to
+  prevent.
+
+**One of the four branches is still unscored**, and the blocker is the
+solver rather than the reference: `flexural_dispersion_vti` raises
+`NotImplementedError` for fast-formation TI, which is exactly Green River
+shale at `V_Sv` 1768 > `V_f` 1500. That curve waits in
+[`pending/`](pending/README.md) with its geometry already verified.
 
 ## Workflow for adding an overlay
 

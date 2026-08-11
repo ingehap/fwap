@@ -449,8 +449,14 @@ References to reproduce, in order of effort:
    (covers D and E).
 4. Tang & Cheng 2004 fig 7.1 — cased-hole Stoneley (covers G).
 5. Ellefsen, Cheng & Schmitt 1988 figs 2/4 — elastic VTI flexural
-   (covers H). Blocked on Thomsen 1986's constants: the report
-   states no numbers and no borehole radius.
+   (covers H). **Done for three of the four branches**: soft TI
+   0.30 %, soft equivalent-isotropic 0.17 %, hard
+   equivalent-isotropic 0.45 %. The fourth (fig 2 TI, Green River
+   shale) is blocked on the *solver*, not the reference —
+   `flexural_dispersion_vti` raises `NotImplementedError` for
+   fast-formation TI, and Green River shale is fast at
+   `V_Sv` 1768 > `V_f` 1500. Traced curve and verified geometry
+   both wait in `docs/notebooks/_data/pending/`.
 
 **Validation.** The notebook itself is the validation; an `nbval`
 pytest hook fails if any cell errors or a per-curve RMS deviation

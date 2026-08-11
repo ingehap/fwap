@@ -95,6 +95,51 @@ the project uses [Semantic Versioning](https://semver.org/).
   What still needs the books is **VTI flexural**, and it needs a different paper:
   Schmitt (1989). This one is isotropic throughout.
 
+### Added
+- **`flexural_dispersion_vti` has an external check for the first time**, and
+  the validation notebook's section 5 is a real overlay rather than a
+  picture. Three curves traced from Ellefsen, Cheng & Schmitt (1988), MIT
+  ERL ([DSpace](https://dspace.mit.edu/handle/1721.1/75100)):
+  - `..._fig4_flexural_vti_soft.csv` — **0.30 % RMS**, worst 1.29 %, 70/73
+    points over 2.25-19.5 kHz, against `flexural_dispersion_vti`.
+  - `..._fig4_flexural_iso_soft.csv` — **0.17 % RMS**, worst 0.34 %, 73/73
+    points, against `flexural_dispersion`.
+  - `..._fig2_flexural_iso_hard.csv` — **0.45 % RMS**, worst 0.91 %, but
+    only **17/73** points over 2.0-6.0 kHz: the fast-formation path returns
+    `NaN` outside that band, so the overlay is *silent* there, not green.
+  Each figure plots a TI formation against an *equivalent isotropic* one
+  defined to share its vertical velocities, which is why one trace scores
+  two different solvers.
+  **The geometry was assembled from three documents and checked before
+  use**, because the Ellefsen report states no numbers at all — no elastic
+  constants, no borehole radius, no fluid properties, its fig 1 a labelled
+  schematic. The rocks come from Thomsen (1986) table 1: Green River shale
+  (Schock et al. row) 3292 / 1768 m/s, 2075 kg/m^3, `eps` 0.195,
+  `delta` -0.220, `gamma` 0.180; shale (5000) (Jones & Wang row)
+  3048 / 1490 m/s, 2420 kg/m^3, `eps` 0.255, `delta` -0.050,
+  `gamma` 0.480.
+  **Two independent confirmations, both set up before the table was
+  opened.** The curves were traced first, and their low-frequency limits —
+  where the flexural branch tends to `V_S` — read **1775** and **1488** m/s
+  against the table's 1768 and 1490: **+0.4 %** and **+0.13 %**. That also
+  discriminates between table 1's two Green River shale entries, the other
+  (Podio et al.) sitting at `V_S0` = 2432 m/s. Tsvankin's figure 1.12
+  gives the same row's `eps` = 0.195 and `delta` = -0.22 from a third
+  document. **And the borehole radius was a prediction**: `a` = 0.10 m
+  appears nowhere in the report, was taken from Schmitt's companion ERL
+  reports, used untuned, and all three overlays then landed under 0.5 %.
+  A wrong radius shifts the knee in frequency and would have failed loudly.
+- **The fourth branch is blocked on the solver, not the reference**, and is
+  recorded that way. `flexural_dispersion_vti` raises
+  `NotImplementedError` for fast-formation TI (`V_Sv` > `V_f`), which is
+  exactly Green River shale at 1768 against a 1500 m/s fluid, so fig 2's TI
+  branch cannot be scored. Its traced curve and its now-verified geometry
+  both wait in `docs/notebooks/_data/pending/`; promoting it needs no new
+  digitising and no new literature, only the H.d follow-up. Worth knowing
+  before that starts: the *isotropic* fast path is itself sparse — 17 of 73
+  points on the same rock — so a TI path inheriting that behaviour would be
+  scored just as thinly.
+
 ### Fixed
 - **"Schmitt 1989 fig 5" is a monopole shot gather, and three other things
   the VTI validation section claimed are also untrue.** Checked against the
