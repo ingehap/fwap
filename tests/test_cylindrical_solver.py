@@ -865,6 +865,9 @@ def test_k_or_hankel_leaky_branch_returns_finite_complex():
         ("bound", complex(18.0, 0.0)),
         ("radiating", complex(0.0, 22.0)),
         ("leaky", complex(2.68, 22.35)),
+        # Re(alpha) < 0: what the outgoing root becomes below the real
+        # k_z axis, unreachable until _radial_wavenumber existed.
+        ("second quadrant", complex(-2.68, 22.35)),
     ],
 )
 @pytest.mark.parametrize("n", [0, 1, 2])
@@ -928,6 +931,190 @@ def test_k_or_hankel_leaky_branch_is_outgoing_at_a_leaky_alpha():
 
     assert slope_leaky == pytest.approx(+alpha.imag, rel=0.05)
     assert slope_bound == pytest.approx(-alpha.imag, rel=0.05)
+
+
+# ---------------------------------------------------------------------
+# Which root of alpha^2 to use, and on which sheet to evaluate it
+# (roadmap A.10)
+# ---------------------------------------------------------------------
+
+
+def test_radial_wavenumber_picks_the_decaying_root_when_bound():
+    """A bound branch must decay outward, which is ``Re(alpha) > 0``."""
+    from fwap.cylindrical_solver import _radial_wavenumber
+
+    for alpha_squared in (144.0 + 0.0j, 144.0 + 30.0j, 144.0 - 30.0j):
+        alpha = _radial_wavenumber(alpha_squared, leaky=False)
+        assert alpha.real > 0.0
+        assert alpha * alpha == pytest.approx(alpha_squared, rel=1.0e-12)
+
+
+def test_radial_wavenumber_picks_the_outgoing_root_on_both_sides_of_the_axis():
+    """The rule the principal square root does not implement.
+
+    ``numpy.sqrt`` selects ``Re(alpha) >= 0``, which is the *decay*
+    condition, and carries ``sign(Im(alpha)) = sign(Im(alpha^2))``.
+    Since ``Im(alpha^2) = 2 Re(k_z) Im(k_z)``, the principal root is
+    outgoing only while ``Im(k_z) >= 0``: below the real axis it is
+    incoming, and that is where a complex root search seeded on the
+    axis spends part of its time.
+    """
+    from fwap.cylindrical_solver import _radial_wavenumber
+
+    omega, vs = 2.0 * np.pi * 8000.0, 2000.0
+    for kz_imag in (+2.0, 0.0, -2.0):
+        kz = complex(25.0, kz_imag)
+        alpha_squared = kz * kz - (omega / vs) ** 2
+        assert alpha_squared.real < 0.0, "this k_z is in the leaky regime"
+
+        principal = np.sqrt(alpha_squared)
+        outgoing = _radial_wavenumber(alpha_squared, leaky=True)
+
+        assert outgoing.imag >= 0.0, f"incoming at Im(kz) = {kz_imag}"
+        assert outgoing * outgoing == pytest.approx(alpha_squared, rel=1.0e-12)
+        # Below the axis the two disagree, and the principal one is wrong.
+        if kz_imag < 0.0:
+            assert principal.imag < 0.0
+            assert outgoing == pytest.approx(-principal, rel=1.0e-12)
+        else:
+            assert outgoing == pytest.approx(principal, rel=1.0e-12)
+
+
+def test_k_or_hankel_leaky_agrees_with_hankel2_on_its_principal_sheet():
+    """The leaky branch is evaluated through ``kv``/``iv`` rather than
+    ``hankel2``, and the swap must not move any value that was already
+    being computed.
+
+    ``(pi/2) i^{n+1} H_n^{(2)}(i z) = -K_n(z) + i pi (-1)^n I_n(z)`` is
+    an identity, so the two forms agree wherever ``hankel2`` is on its
+    principal sheet -- which is every argument the solvers reached
+    before the outgoing root existed. They part company only at
+    ``arg(i z) > pi``, where ``hankel2`` crosses its branch cut and
+    returns the wrong sheet.
+    """
+    from scipy import special
+
+    from fwap.cylindrical_solver import _k_or_hankel
+
+    r = 0.1
+
+    def hankel2_form(n: int, alpha: complex) -> complex:
+        return complex(
+            (np.pi / 2.0) * (1j ** (n + 1)) * special.hankel2(n, 1j * alpha * r)
+        )
+
+    # First-quadrant alpha: Re >= 0, so arg(i alpha r) < pi.
+    for alpha in (12 + 55j, 0.1 + 30j, 40 + 3j, 1.0e-3 + 12j):
+        for n in (0, 1, 2):
+            new = _k_or_hankel(n, complex(alpha), r, leaky=True)[0]
+            old = hankel2_form(n, complex(alpha))
+            assert abs(new - old) / abs(old) < 1.0e-14, f"n={n}, alpha={alpha}"
+
+    # Straddling Re(alpha) = 0, which is arg(i alpha r) = pi: hankel2
+    # jumps across its cut there, the kv/iv form walks through it.
+    below, above = complex(-1.0e-4, 30.0), complex(+1.0e-4, 30.0)
+    continued = _k_or_hankel(1, below, r, leaky=True)[0]
+    reference = _k_or_hankel(1, above, r, leaky=True)[0]
+    assert abs(continued - reference) / abs(reference) < 1.0e-4
+    jump = abs(hankel2_form(1, below) - hankel2_form(1, above)) / abs(
+        hankel2_form(1, above)
+    )
+    assert jump > 0.5, (
+        f"hankel2 is supposed to jump here (got {jump:.3g}) -- that is why "
+        f"it is not used"
+    )
+
+
+@pytest.mark.parametrize(
+    ("label", "velocity", "leaky_p", "leaky_s"),
+    [
+        ("all bound", 1200.0, False, False),
+        ("fluid oscillatory", 2200.0, False, False),
+        ("formation S leaky", 3200.0, False, True),
+        ("formation P and S leaky", 4800.0, True, True),
+    ],
+)
+def test_the_complex_determinant_is_continuous_across_the_real_kz_axis(
+    label, velocity, leaky_p, leaky_s
+):
+    """The invariant that makes a complex root search well posed.
+
+    Every leaky search seeds on the real ``k_z`` axis and then steps off
+    it, so the determinant has to be one analytic function there rather
+    than two glued together. It was not. The principal square root
+    flips the sign of any oscillatory radial wavenumber as ``Im(k_z)``
+    changes sign, and ``hankel2`` then crosses its own cut on top of
+    that: the determinant jumped by a factor of ``-1`` where only the
+    fluid branch flipped -- harmless, an overall factor does not move
+    roots -- and by a ``k_z``-dependent factor where a formation branch
+    flipped, which is a different function with different roots.
+
+    The measurement is the one-sided limits against the value on the
+    axis: both must converge, and linearly in the offset.
+    """
+    from fwap.cylindrical_solver._n1_isotropic import _modal_determinant_n1_complex
+
+    geometry = dict(vp=4500.0, vs=2650.0, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.1)
+    omega = 2.0 * np.pi * 12000.0
+    kz_real = omega / velocity
+
+    def det(kz: complex) -> complex:
+        return _modal_determinant_n1_complex(
+            kz, omega, **geometry, leaky_p=leaky_p, leaky_s=leaky_s
+        )
+
+    on_axis = det(complex(kz_real, 0.0))
+    assert abs(on_axis) > 0.0
+
+    previous = None
+    for eps in (1.0e-6, 1.0e-8, 1.0e-10):
+        above = abs(det(complex(kz_real, +eps)) - on_axis) / abs(on_axis)
+        below = abs(det(complex(kz_real, -eps)) - on_axis) / abs(on_axis)
+        assert below < 1.0e-4, f"{label}: discontinuous from below ({below:.3g})"
+        assert above < 1.0e-4, f"{label}: discontinuous from above ({above:.3g})"
+        # Linear in eps, so a genuine limit rather than a small jump.
+        if previous is not None:
+            assert below < previous / 10.0
+        previous = below
+
+
+def test_a_layer_wavenumber_sign_flip_cancels_in_the_propagator():
+    """Why the branch rule is needed in the half-space and not in a layer.
+
+    A layer keeps both ``I_n`` and ``K_n``, and negating its radial
+    wavenumber maps that pair onto a linear combination of itself --
+    ``K_n(z e^{i pi}) = -K_n(z) + i pi (-1)^n I_n(z)``. So the flip is a
+    change of basis, ``E' = E S`` for a constant invertible ``S``, and
+    it cancels in ``P = E(r_out) E(r_in)^{-1}``. The formation
+    half-space keeps only the outgoing solution, has no second column
+    to absorb the change, and therefore does need the rule.
+    """
+    import fwap.cylindrical_solver._cased as cased_module
+    from fwap.cylindrical_solver._cased import _layer_e_matrix_n1_complex
+
+    kz = complex(43.0, 1.5)
+    layer = dict(omega=37500.0, vp=2464.0, vs=1120.0, rho=2000.0)
+    r_in, r_out = 0.10, 0.14
+
+    e_in = _layer_e_matrix_n1_complex(kz, r=r_in, **layer)
+    e_out = _layer_e_matrix_n1_complex(kz, r=r_out, **layer)
+    propagator = e_out @ np.linalg.inv(e_in)
+
+    original_sqrt = cased_module.np.sqrt
+    try:
+        cased_module.np.sqrt = lambda x: -original_sqrt(x)
+        e_in_flipped = _layer_e_matrix_n1_complex(kz, r=r_in, **layer)
+        e_out_flipped = _layer_e_matrix_n1_complex(kz, r=r_out, **layer)
+    finally:
+        cased_module.np.sqrt = original_sqrt
+    propagator_flipped = e_out_flipped @ np.linalg.inv(e_in_flipped)
+
+    # The basis really did change ...
+    basis_change = np.abs(e_in - e_in_flipped).max() / np.abs(e_in).max()
+    assert basis_change > 0.1, "the flip did not reach the E-matrix"
+    # ... and the propagator did not notice.
+    residual = np.abs(propagator - propagator_flipped).max() / np.abs(propagator).max()
+    assert residual < 1.0e-9, f"propagator moved by {residual:.3g}"
 
 
 # ---------------------------------------------------------------------
@@ -14269,6 +14456,124 @@ def test_the_cased_leaky_branch_is_grid_independent():
         values.append(1.0 / res.slowness[index])
     spread = float(np.ptp(values))
     assert spread / float(np.mean(values)) < 1.0e-12, f"spread {spread:.3e} m/s"
+
+
+def test_the_leaky_cased_search_never_evaluates_the_incoming_branch():
+    """The search must stay on the outgoing sheet for its whole run.
+
+    The returned roots always had ``Im(k_z) > 0``, so the answers were
+    on the right sheet; the search getting there was not. 14 % of the
+    dipole run's leaky Bessel evaluations, and 3 % of the screw's, sat
+    at ``Im(alpha) < 0`` -- an *incoming* wave, the opposite of the
+    radiation condition the leaky branch exists to impose -- because the
+    principal square root flips below the real ``k_z`` axis. Roadmap
+    A.10.
+    """
+    import fwap.cylindrical_solver._bessel as bessel_module
+    import fwap.cylindrical_solver._cased as cased_module
+    import fwap.cylindrical_solver._leaky as leaky_module
+    import fwap.cylindrical_solver._n1_isotropic as n1_module
+    import fwap.cylindrical_solver._n2_quadrupole as n2_module
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+
+    seen: list[complex] = []
+    original = bessel_module._k_or_hankel
+    modules = (
+        bessel_module,
+        cased_module,
+        leaky_module,
+        n1_module,
+        n2_module,
+    )
+
+    def spy(n, alpha, r, *, leaky):
+        if leaky:
+            seen.append(complex(alpha))
+        return original(n, alpha, r, leaky=leaky)
+
+    patched = [m for m in modules if hasattr(m, "_k_or_hankel")]
+    try:
+        for module in patched:
+            module._k_or_hankel = spy
+        layers = (_A2_CASING, _A2_CEMENT)
+        for driver in (flexural_dispersion_layered, quadrupole_dispersion_layered):
+            seen.clear()
+            driver(_A2_FREQ, **_A2_SLOW, **_A2_BOREHOLE, layers=layers)
+            assert seen, "the leaky branch was never exercised"
+            incoming = [alpha for alpha in seen if alpha.imag < 0.0]
+            assert not incoming, (
+                f"{driver.__name__}: {len(incoming)} of {len(seen)} leaky "
+                f"evaluations were on the incoming branch"
+            )
+    finally:
+        for module in patched:
+            module._k_or_hankel = original
+
+
+def test_one_root_sits_in_the_slow_cased_gap_a9_could_not_seed():
+    """What continuity across the axis buys, on A.9's own open question.
+
+    A.9 recorded a gap: around ``V_S_layer / V_S`` in [1.3, 1.5] at
+    ``ka = 2.5`` the real-axis scan finds no ``Im(det)`` crossing to
+    seed from, and the roadmap noted that "a pole off the real axis
+    cannot be seen that way, so an argument-principle search would be
+    needed to say whether one is there".
+
+    The argument principle needs a single-valued analytic function on
+    and inside the contour, which is exactly what the branch rule
+    supplies -- before it, a contour dipping below the real axis crossed
+    the determinant's discontinuity and its winding number meant
+    nothing. It now answers the question: one root, in the gap and on
+    either side of it. Locating it is A.9 driver work and is not done
+    here; this test pins the count.
+    """
+    from fwap.cylindrical_solver import _modal_determinant_n1_cased_complex
+    from fwap.cylindrical_solver._leaky import _detect_leaky_branches
+
+    formation = dict(vp=2200.0, vs=800.0, rho=2200.0)
+    borehole = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+    omega = 2.5 * borehole["vf"] / borehole["a"]  # ka = 2.5
+
+    # A box holding the leaky branch, with every formation branch point
+    # outside it: k_P = 17.0, k_f = 25.0, k_S = 46.9 rad/m.
+    re_lo, re_hi, im_lo, im_hi = 40.0, 46.0, -1.0, 6.0
+    steps = np.linspace(0.0, 1.0, 400, endpoint=False)
+    contour = np.concatenate(
+        [
+            (re_lo + (re_hi - re_lo) * steps) + 1j * im_lo,
+            re_hi + 1j * (im_lo + (im_hi - im_lo) * steps),
+            (re_hi - (re_hi - re_lo) * steps) + 1j * im_hi,
+            re_lo + 1j * (im_hi - (im_hi - im_lo) * steps),
+        ]
+    )
+
+    for ratio in (1.3, 1.4, 1.5, 1.6):
+        vs_layer = ratio * formation["vs"]
+        layers = (
+            BoreholeLayer(vp=2.2 * vs_layer, vs=vs_layer, rho=2000.0, thickness=0.04),
+        )
+
+        def determinant(kz: complex, layers=layers) -> complex:
+            _, leaky_p, leaky_s = _detect_leaky_branches(
+                kz, omega, formation["vp"], formation["vs"], borehole["vf"]
+            )
+            return _modal_determinant_n1_cased_complex(
+                kz,
+                omega,
+                **formation,
+                **borehole,
+                layers=layers,
+                leaky_p=leaky_p,
+                leaky_s=leaky_s,
+            )
+
+        values = np.array([determinant(complex(z)) for z in contour])
+        assert np.all(np.isfinite(values)), f"ratio {ratio}: contour hit a pole"
+        phase = np.unwrap(np.angle(np.append(values, values[0])))
+        winding = (phase[-1] - phase[0]) / (2.0 * np.pi)
+        assert winding == pytest.approx(1.0, abs=1.0e-3), (
+            f"Vs_layer/Vs = {ratio}: winding number {winding:.4f}, expected one root"
+        )
 
 
 def test_cased_flexural_fast_formation_covers_a_contiguous_middle_band():

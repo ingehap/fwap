@@ -435,6 +435,27 @@ document why.
   correcting this paper's citation across nine files fixed the authorship, title
   and venue and left the page range wrong — p. 246 is figure 9, with sixteen
   figures after it.
+- **A closed item that was closed on the wrong axis.** A.10 was filed, fixed and
+  marked closed as a *documentation* defect: the leaky Bessel branch's docstring
+  described a function the code did not compute, so the docstring was corrected
+  and the invariants the code really held were pinned by tests. All of that was
+  right, and it stopped one step short. Establishing what the branch *is* left
+  untouched the question of which root of `alpha^2` to hand it — and there the
+  code was taking the principal square root, which imposes decay rather than
+  radiation and is *incoming* below the real `k_z` axis. 14 % of a production
+  leaky search ran on it. *Fixing the description of a thing is not the same as
+  checking the thing, and finishing the first can retire the item before anyone
+  does the second. When a docstring turns out to be false, the question to leave
+  open is not "what does the code do?" but "what else in this neighbourhood has
+  never been measured?"*
+- **The reason the residue was invisible.** Every returned answer was on the
+  correct sheet, because roots come back with `Im(k_z) > 0` and the branch is
+  right there. The defect lived entirely in the *path* the search took to reach
+  them, which no test looked at and no output revealed. What exposed it was
+  instrumenting the solver — counting the evaluations, not inspecting the
+  results. *A search can be wrong in a way its answers cannot show. If a
+  procedure explores, measure what it explored, not only what it returned.*
+
 - **A "correction" that was the defect.** Building A.9 turned up a docstring
   claiming ``_k_or_hankel``'s leaky branch reduces to ``K_n`` in the bound
   limit. It does not -- verified, factors of 2 to 3e3 -- so the obvious move was

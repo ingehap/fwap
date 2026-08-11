@@ -12,7 +12,10 @@ import numpy as np
 from scipy import optimize, special
 
 from fwap._common import logger
-from fwap.cylindrical_solver._bessel import _k_or_hankel
+from fwap.cylindrical_solver._bessel import (
+    _k_or_hankel,
+    _radial_wavenumber,
+)
 from fwap.cylindrical_solver._dataclasses import BoreholeMode, BranchSegment
 
 # =====================================================================
@@ -154,21 +157,23 @@ from fwap.cylindrical_solver._dataclasses import BoreholeMode, BranchSegment
 #
 # For each radial wavenumber ``alpha = sqrt(k_z^2 - omega^2 / V^2)``,
 # the principal-branch ``numpy.sqrt`` returns the value with
-# ``Re(alpha) >= 0``. That gives the right sign in the bound regime
-# (``alpha`` real and positive). In the leaky regime, ``alpha^2``
-# has negative real part and the principal sqrt has positive real
-# part with positive imaginary part:
+# ``Re(alpha) >= 0``. That is the *decay* condition, and it is the
+# right one in the bound regime (``alpha`` real and positive).
 #
-#     alpha = sqrt(alpha^2)  -- numpy default
-#         -> Re(alpha) >= 0, Im(alpha) >= 0.
+# The outgoing-wave condition with ``e^{-i omega t}`` time dependence
+# is a different one: ``Im(alpha) > 0``. This block used to claim the
+# principal branch satisfies it too, and it does not in general. The
+# principal root carries
 #
-# For the outgoing-wave condition with ``e^{-i omega t}`` time
-# dependence, we need ``Im(alpha) > 0`` (so ``e^{i alpha r}`` decays
-# as r grows). The numpy default already satisfies this on the
-# principal branch -- no sign flip needed. This is the cleanest
-# convention; document it explicitly because the other common
-# textbook choice (``Re(alpha) < 0``) flips the sign and uses
-# ``H_n^{(1)}``.
+#     sign(Im(alpha)) = sign(Im(alpha^2)) = sign(2 Re(k_z) Im(k_z)),
+#
+# so it is outgoing exactly while ``Im(k_z) >= 0`` and *incoming*
+# below the real ``k_z`` axis -- which is half of the plane a complex
+# root search seeded on that axis moves through. ``_radial_wavenumber``
+# applies the correct rule per branch; see its docstring, and roadmap
+# A.10 for the measurements. Document the convention explicitly
+# because the other common textbook choice (``Re(alpha) < 0``) flips
+# the sign and uses ``H_n^{(1)}``.
 #
 # Detection rule for the regime classifier (L2 below):
 #
@@ -287,9 +292,13 @@ def _modal_determinant_n0_complex(
         bound or leaky from ``(kz, omega)``.
     """
     kz_c = complex(kz)
-    F = np.sqrt(kz_c * kz_c - (omega / vf) ** 2)
-    p = np.sqrt(kz_c * kz_c - (omega / vp) ** 2)
-    s = np.sqrt(kz_c * kz_c - (omega / vs) ** 2)
+    # The fluid always uses I-Bessel, so the sign of F is immaterial to
+    # the physics -- but not to continuity: the oscillatory branch flips
+    # across the real k_z axis and takes the determinant's sign with it.
+    F_sq = kz_c * kz_c - (omega / vf) ** 2
+    F = _radial_wavenumber(F_sq, leaky=bool(F_sq.real < 0.0))
+    p = _radial_wavenumber(kz_c * kz_c - (omega / vp) ** 2, leaky=leaky_p)
+    s = _radial_wavenumber(kz_c * kz_c - (omega / vs) ** 2, leaky=leaky_s)
     Fa = F * a
 
     # Fluid: I-Bessel always (regular at r=0). scipy.special.iv

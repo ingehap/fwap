@@ -7,6 +7,59 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **The leaky determinant was two functions glued along the real `k_z` axis**
+  (roadmap A.10). Every complex root search seeds on that axis and then steps
+  off it, so the determinant has to be one analytic function there. It was not.
+
+  `numpy.sqrt` selects `Re(alpha) >= 0`, which is the *decay* condition and the
+  right rule for a bound branch. The radiation condition is a different one,
+  `Im(alpha) > 0`, and the principal root carries
+  `sign(Im(alpha)) = sign(2 Re(k_z) Im(k_z))` — so it is outgoing only while
+  `Im(k_z) >= 0`, and **incoming** below the axis. **14 %** of the leaky Bessel
+  evaluations in the A.9 cased dipole run, and 3 % of the screw's, were on that
+  incoming branch. Correcting the root alone is not enough: with `Re(alpha) < 0`
+  the argument `i alpha r` crosses `hankel2`'s cut, so `_k_or_hankel` also
+  evaluates its leaky branch through
+  `(pi/2) i^{n+1} H_n^{(2)}(i z) = -K_n(z) + i pi (-1)^n I_n(z)`, whose `kv`/`iv`
+  cut lies on the negative real axis where `z` never goes.
+
+  Measured at 12 kHz in the fast sandstone, as one-sided limits against the
+  value on the axis:
+
+  | branch that flips | `det(k_z - i0) / det(k_z + i0)` before | jump before | jump after |
+  | --- | --- | --- | --- |
+  | none (all bound) | `+1` | 7e-12 | 7e-12 |
+  | fluid only, oscillatory | `-1` exactly — an overall factor, so roots were never moved | 2 | 2.5e-11 |
+  | formation S leaky | `-0.238 + 0.020i` — `k_z`-dependent, a different function with different roots | 1.24 | 3.4e-11 |
+  | formation P and S leaky | `+0.279 - 0.091i` — likewise | 0.73 | 3.4e-11 |
+
+  ("jump" is `abs(det(k_z - i0) - det(k_z))` over `abs(det(k_z))`; after the fix
+  both one-sided limits converge on the axis value, and linearly in the offset.)
+
+  **No published or returned value changes.** The new leaky evaluation agrees
+  with the previous `hankel2` one to **1.5e-16** over every argument the solvers
+  actually reached, the A.9 dipole and screw branches return bit-identical
+  velocities and attenuations, and the incoming-branch evaluations go
+  **457 → 0** and **119 → 0**. The A.10 order-consistency invariant
+  (`d/dx K_n = -K_{n+1} + (n/x) K_n` on the returned pair) now also holds at
+  second-quadrant `alpha`, which did not exist before.
+
+  Layer blocks need no such rule and are left alone: they keep both `I_n` and
+  `K_n`, so negating a layer wavenumber is a change of basis that cancels in
+  `E(r_out) E(r_in)^{-1}` — measured at **1.1e-12** while the E-matrix itself
+  moves by 312 %.
+
+  **It answers A.9's open question.** A.9 recorded a gap at
+  `V_S_layer / V_S` in [1.3, 1.5] (`ka = 2.5`) where the real-axis scan has
+  nothing to seed from, and noted that an argument-principle search would be
+  needed to say whether a root is there at all. That search needs a
+  single-valued analytic function on and inside the contour, which is what this
+  supplies — before it, a contour dipping below the axis crossed the
+  discontinuity and its winding number meant nothing. The count is **exactly one
+  root** at each of 1.3, 1.4 and 1.5, and they are ordinary members of the same
+  branch (855.1, 850.5 and 859.3 m/s, positive attenuation, `|det|` sharp to
+  1e-13). Seeding the driver from it is A.9 driver work and is not done here.
+
 - **The `n = 2` fast-formation solvers were tracking round-off** (roadmap A.7).
   The modal determinant evaluated at real `k_z` is not complex in any useful
   sense: it is a real quantity times a phase that does not depend on `k_z`,
