@@ -591,8 +591,15 @@ def flexural_dispersion_vti(
 # References:
 #   * Schmitt, D. P. (1989). Acoustic multipole logging in
 #     transversely isotropic poroelastic formations. *J. Acoust.
-#     Soc. Am.* 86(6), 2397-2421. Sect. II for the four-potential
-#     decomposition.
+#     Soc. Am.* 86(6), 2397-2421, doi:10.1121/1.398448. Sect. II for
+#     the four-potential decomposition.
+#     The DOI is corroborated but not confirmed: it agrees with the
+#     volume, issue and pages recorded here, and every route that could
+#     settle it against the publisher -- doi.org, Crossref, OpenAlex,
+#     Semantic Scholar, the AIP page -- is blocked by this project's
+#     network policy. Worth one look from a session that can reach
+#     them, because the sibling citation was corrected across nine
+#     files and still had its page range wrong (plans/guides.md 9).
 #   * Tsvankin, I. (2001). *Seismic Signatures and Analysis of
 #     Reflection Data in Anisotropic Media.* Pergamon, ch. 1.
 
