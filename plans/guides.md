@@ -435,6 +435,25 @@ document why.
   correcting this paper's citation across nine files fixed the authorship, title
   and venue and left the page range wrong — p. 246 is figure 9, with sixteen
   figures after it.
+- **A number that was computed instead of measured.** The crack-wave ceiling
+  was recorded as ~240 kHz for several revisions. Nobody had run the solver to
+  the edge; the figure was a constant divided by a radius, and the test that
+  carried it asserted the arithmetic and then probed a frequency far above the
+  real limit -- so it passed, twice over, while measuring nothing. The band
+  actually stops at 84 kHz. *A derived bound is a prediction. Until something
+  runs to the edge and reports where it stopped, it should be written as a
+  prediction, and a test that checks a prediction against its own algebra is
+  not evidence about the code.*
+- **A patch that only half-applied, and would have confirmed the wrong thing.**
+  The experiment that settles which constraint binds is to raise the Bessel
+  bound and see whether the ceiling moves. It did not move -- but the first
+  attempt patched only the module global the determinant reads, while the
+  driver re-imports the same name from the package namespace on every call, so
+  the scan window never widened. The right answer came out of a broken
+  experiment. *When an intervention produces no effect, check that the
+  intervention happened. A null result and an unapplied treatment are the same
+  observation.*
+
 - **A search floor that became a claim about physics.** The leaky window is
   floored at the formation shear speed, which is a reasonable place to stop
   looking. Reading its output, a pole appeared to vanish at one annulus stiffness

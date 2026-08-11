@@ -18177,17 +18177,83 @@ def test_crack_wave_api_reports_nan_where_no_second_root_survives():
     )
     assert np.isnan(mode.slowness[0])
 
-    # And an upper frequency limit, from the same representability bound rather
-    # than from physics: the scan window runs from
-    # ``omega * r_outermost / _BESSEL_ARG_MAX`` up to the bound floor, and above
-    # about 240 kHz on this stack the two cross and there is no window left.
-    from fwap.cylindrical_solver._cased import _BESSEL_ARG_MAX
+    # There is an upper frequency limit too, and it is measured rather than
+    # derived -- see
+    # ``test_the_crack_wave_ceiling_is_set_by_the_propagator_product``.
+    assert np.isnan(_cw_public(np.array([2.0e5]), 1.0e-4).slowness[0])
 
-    r_outermost = _MA_A + 0.05 + 1.0e-4 + 0.20
-    collapse_hz = _BESSEL_ARG_MAX * 1500.0 / (2.0 * np.pi * r_outermost)
-    assert 2.0e5 < collapse_hz < 3.0e5
-    above = _cw_public(np.array([collapse_hz * 1.5]), 1.0e-4)
-    assert np.isnan(above.slowness[0])
+
+def test_the_crack_wave_ceiling_is_set_by_the_propagator_product():
+    """Where the crack-wave band actually stops, and what stops it.
+
+    This block used to assert arithmetic on a constant --
+    ``_BESSEL_ARG_MAX * V_f / (2 pi r)``, about 242 kHz -- and then check
+    that 1.5x that frequency returns NaN. Both halves passed and neither
+    measured the solver: the real ceiling is **84 kHz**, so everything
+    above it is NaN and the check could not fail.
+
+    The ceiling is not the Bessel-argument bound either. Raising that
+    constant fourfold moves it from 84 kHz to 84 kHz. What binds is the
+    *product*: the determinant goes non-finite over the bottom of the scan
+    window while its inputs are all still fine, and that floor climbs with
+    frequency faster than the crack root does. At 84 kHz the root sits
+    0.3 % above the floor; two kilohertz later it is underneath it.
+
+    Roadmap A.5's residue is the reformulation that would lift this, and
+    the numbers here are what it should be aimed at.
+    """
+    assert np.isfinite(_cw_public(np.array([8.4e4]), 1.0e-4).slowness[0])
+    assert np.isnan(_cw_public(np.array([8.6e4]), 1.0e-4).slowness[0])
+
+
+def test_raising_the_bessel_bound_does_not_raise_the_crack_wave_ceiling():
+    """The experiment that says which constraint binds.
+
+    ``_BESSEL_ARG_MAX`` caps the argument of the unscaled ``I_n``, and it
+    is what the scan window's floor is computed from -- so it looks like
+    the thing holding the ceiling down. It is not. Lifting it fourfold
+    lets the window reach lower phase velocities and buys nothing,
+    because the determinant is already non-finite there for a different
+    reason: the propagator product overflows.
+
+    Patching takes two names. The determinant reads the module global in
+    ``_cased``; the driver re-imports it from the package namespace on
+    every call. Patching only the first moves the guard but not the
+    window, which measures nothing -- and did, on the first attempt here.
+    """
+    import fwap.cylindrical_solver as cylindrical_solver
+    import fwap.cylindrical_solver._cased as cased
+
+    original = cased._BESSEL_ARG_MAX
+
+    def ceiling() -> float:
+        """Highest 2 kHz step still returning a root, searched upward."""
+        last = 0.0
+        for f_khz in np.arange(78.0, 120.0, 2.0):
+            if np.isfinite(_cw_public(np.array([f_khz * 1e3]), 1.0e-4).slowness[0]):
+                last = float(f_khz)
+            elif last and f_khz > last + 6.0:
+                break
+        return last
+
+    baseline = ceiling()
+    assert 80.0 <= baseline <= 90.0, f"ceiling moved to {baseline} kHz"
+
+    try:
+        raised = original * 4.0
+        cased._BESSEL_ARG_MAX = raised
+        cylindrical_solver._BESSEL_ARG_MAX = raised
+        with np.errstate(invalid="ignore", over="ignore"):
+            widened = ceiling()
+    finally:
+        cased._BESSEL_ARG_MAX = original
+        cylindrical_solver._BESSEL_ARG_MAX = original
+
+    assert abs(widened - baseline) <= 4.0, (
+        f"the ceiling moved from {baseline} to {widened} kHz when the Bessel "
+        f"bound was raised 4x; it is supposed to be held down by the "
+        f"propagator product instead"
+    )
 
 
 def test_microannulus_stable_root_filter_drops_grid_dependent_roots():
