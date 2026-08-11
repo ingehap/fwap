@@ -2369,6 +2369,90 @@ def _flexural_kz_bracket(
     return kz_lo, kz_hi
 
 
+#: Velocities probed across the search window when deciding which part
+#: of a complex determinant carries the signal. The separation between
+#: the two parts is ~16 orders of magnitude, so a handful is ample; the
+#: only failure mode a larger number guards against is every probe
+#: landing on a root at once.
+_SIGNAL_PART_PROBES = 7
+
+
+def _real_root_function(
+    det_fn: Callable[[float, float], complex],
+    freq: np.ndarray,
+    *,
+    vs: float,
+    vf: float,
+) -> Callable[[float, float], float]:
+    r"""
+    Reduce a complex modal determinant to the real function whose zeros
+    are the modes.
+
+    In the fast-formation window the determinant evaluated at real
+    ``k_z`` is not complex in any useful sense: it is a real quantity
+    times a constant phase, because the only imaginary factors are the
+    fixed ``i^k`` the oscillatory fluid Bessel functions and the
+    row/column rescale contribute, and those do not depend on ``k_z``.
+    The phase is constant to ~1e-26 across the window, measured. So one
+    of ``Re(det)`` and ``Im(det)`` is the mode function and the other is
+    round-off at ~1e-16 of it, and which is which is decided by the
+    parity of that fixed power of ``i``.
+
+    **That parity flips with azimuthal order** -- roadmap A.7. At
+    ``n = 1`` the determinant is imaginary and ``Im(det) = 0`` is the
+    root condition; at ``n = 2`` it is real, and tracking ``Im(det)``
+    there means tracking pure round-off. Measured over 600 velocities at
+    12 kHz in the fast sandstone, the open-hole ``n = 2`` determinant has
+    **one** sign change in ``Re`` and **212** in ``Im``.
+
+    This helper measures the split rather than assuming it, so a change
+    of convention anywhere upstream cannot silently reintroduce the
+    defect.
+
+    Parameters
+    ----------
+    det_fn : callable
+        ``det_fn(k_z, omega) -> complex`` at real ``k_z``.
+    freq : ndarray
+        Frequency grid (Hz); the median frequency is probed.
+    vs, vf : float
+        Formation shear and borehole-fluid velocities (m/s), defining
+        the probe window as in :func:`_march_fast_flexural_branch`.
+
+    Returns
+    -------
+    callable
+        ``(k_z, omega) -> float``, either the real or the imaginary part.
+        Falls back to the imaginary part -- the historical choice -- when
+        the probes are uninformative.
+    """
+    f_arr = np.asarray(freq, dtype=float)
+    if f_arr.size == 0 or not vs > vf:
+        return lambda kz, omega: float(det_fn(kz, omega).imag)
+    omega = 2.0 * np.pi * float(np.median(f_arr))
+    velocities = np.linspace(vf, vs, _SIGNAL_PART_PROBES + 2)[1:-1]
+    re_weight = 0.0
+    im_weight = 0.0
+    for velocity in velocities:
+        try:
+            value = det_fn(omega / float(velocity), omega)
+        except (ValueError, ArithmeticError, OverflowError):
+            continue
+        magnitude = abs(value)
+        if not np.isfinite(magnitude) or magnitude == 0.0:
+            continue
+        re_weight += abs(value.real) / magnitude
+        im_weight += abs(value.imag) / magnitude
+    if re_weight > im_weight:
+        logger.debug(
+            "fast-formation marcher: tracking Re(det) (weights re=%.3g im=%.3g)",
+            re_weight,
+            im_weight,
+        )
+        return lambda kz, omega: float(det_fn(kz, omega).real)
+    return lambda kz, omega: float(det_fn(kz, omega).imag)
+
+
 def _march_fast_flexural_branch(
     im_det: Callable[[float, float], float],
     freq: np.ndarray,
@@ -2613,7 +2697,7 @@ def _flexural_dispersion_fast_formation(
             slowness=slowness,
         )
 
-    def _im_det(kz: float, _omega: float) -> float:
+    def _det(kz: float, _omega: float) -> complex:
         return _modal_determinant_n1_complex(
             complex(kz, 0.0),
             _omega,
@@ -2625,9 +2709,13 @@ def _flexural_dispersion_fast_formation(
             a,
             leaky_p=False,
             leaky_s=False,
-        ).imag
+        )
 
-    slowness = _march_fast_flexural_branch(_im_det, f_arr, vs=vs, vf=vf)
+    # Roadmap A.7: which part of the determinant carries the signal is
+    # measured, not assumed. It is Im at n=1 and Re at n=2, and the
+    # n=2 path tracked the wrong one for as long as it existed.
+    root_fn = _real_root_function(_det, f_arr, vs=vs, vf=vf)
+    slowness = _march_fast_flexural_branch(root_fn, f_arr, vs=vs, vf=vf)
 
     return BoreholeMode(
         name="flexural",

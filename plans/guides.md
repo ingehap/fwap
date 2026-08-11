@@ -448,6 +448,19 @@ document why.
   docstring, not about the code. Before correcting an implementation to match
   its description, find the invariant the implementation is actually holding --
   and if the test suite does not state it, that absence is the finding.*
+- **A defect diagnosed from a mechanism nobody measured.** A.7 was written up
+  as catastrophic cancellation in the propagator chain, with the delta-matrix
+  reformulation named as the only route out. The evidence was real -- ninety
+  sign changes where the physics supports a handful, near-duplicate pairs
+  straddling the true value, all the signatures of lost precision -- and the
+  mechanism was never tested. It was not the propagator: that reproduces its
+  own exact identity to 1e-16, and the same noise appears in the open-hole
+  determinant, which has no propagator at all. The determinant is simply real
+  at ``n = 2`` and the marcher was tracking its imaginary part. *Signatures
+  identify a class of problem, not an instance of one. The cheapest check on
+  "X is caused by Y" is to look for X somewhere Y is absent* -- here, one call
+  to the un-cased solver, which had been sitting in the same test file the
+  whole time.
 - **A causal claim that did not survive its own test.** A.8 was recorded as
   "almost certainly also A.7's cause", on the reasonable argument that a
   propagator built from a non-solution has no reason to produce a clean
@@ -484,7 +497,10 @@ repaired all three, and they now assert the agreement instead.
 | fast flexural, granite | **no correct sample** | 0.87 % median | **0.45 %** |
 | invaded zone at `n=2` | `ValueError` | 0.58 % rms | **0.136 %** |
 | `n=1` near-cutoff gap | 1.48 kHz | 1.48 kHz | **0.00 kHz** |
-| defects known | 1, misdiagnosed | 3 | 5, three fixed |
+| slow screw, fig 5a | not one within 5 % | 8 % median | **0.16 %** (A.7) |
+| fast screw, granite / limestone | — | 2.60 / 12.80 % median | **1.63 / 1.38 %** (A.7) |
+| screw cutoff, figs 6 & 14 | 32 % high | 32 % high | **+1.6 %** (A.7) |
+| defects known | 1, misdiagnosed | 3 | 6, five fixed |
 
 Two properties of the paper carried this, and they are different in kind. The
 figures — five rocks, two domains — made a scattered set of anomalies resolve
@@ -533,13 +549,23 @@ Equilibrating rows and columns before taking the determinant -- a
 non-dimensionalisation, done numerically -- is the standard remedy and has not
 been tried.
 
-**But it will not fix A.7, and the dimensionless form says why.** The
-propagator's catastrophic cancellation is governed by ``|s_layer| h``, the
-layer's thickness in radial wavelengths: the chain multiplies
-``exp(+s h)`` against ``exp(-s h)`` and the difference of two large numbers is
-lost. That group is already dimensionless, and no rescaling changes it --
-which is the argument for the delta-matrix reformulation being the only route,
-stated in one line instead of by experiment.
+**A prediction this section made, and it was wrong.** The first version of
+this section argued that non-dimensionalisation could not fix A.7, because the
+propagator's cancellation is governed by ``|s_layer| h`` -- already a
+dimensionless group, so no rescaling touches it -- and that this proved the
+delta-matrix reformulation was the only route. The reasoning was sound and the
+premise was false: A.7 was not cancellation in the propagator at all. The
+propagator reproduces ``E(b)`` from ``P E(a)`` to 1e-16, and the noise it was
+blamed for appears just as strongly in the open-hole determinant, which has no
+propagator. It was the marcher tracking the imaginary part of a determinant
+that is real at ``n = 2``.
+
+The lesson is not that the dimensionless view failed -- it is that it was
+applied to an unchecked premise. *A dimensionless argument inherits every
+assumption in the mechanism it is reasoning about; it makes a wrong mechanism
+sound rigorous rather than exposing it.* The measurement that settled A.7 --
+comparing the medians of ``|Re|/|det|`` and ``|Im|/|det|`` across the window --
+is itself dimensionless, and took a minute.
 
 The natural next step is to make the fixtures a grid in ``(V_S_layer/V_S, h/a,
 ka)`` rather than a list of named rocks, and report coverage as a surface. That
