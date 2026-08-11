@@ -6,6 +6,31 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **The crack-wave ceiling is 84 kHz, not ~240** (roadmap A.5 residue). The 240
+  figure came from arithmetic on a constant — `_BESSEL_ARG_MAX * V_f / (2 pi r)`
+  — rather than from running the solver, and the test that recorded it asserted
+  that arithmetic and then checked a frequency well above the real ceiling, so
+  both halves passed while measuring nothing.
+
+  `_BESSEL_ARG_MAX` is also not what holds the ceiling down: raised fourfold, it
+  moves from 84 kHz to 84 kHz. What binds is the **product**. The determinant
+  turns non-finite over the bottom ~16 % of the scan window while every input is
+  still fine — parts finite, fluid Wronskian exact to 2e-16 — and that floor
+  climbs with frequency faster than the crack root does. At 84 kHz the root sits
+  0.3 % above it; two kilohertz later it is underneath. `|E_form|` reaches
+  **1.15e150** against a `sqrt(DBL_MAX)` headroom of 1.34e154, and widening the
+  window makes `_layer_propagator_n0` overflow in `matmul` outright.
+
+  The cancellation the grid-stability filter works around is real and separate:
+  `cond(P_outer)` runs **1e35–1e40**.
+
+  The reformulation A.5 prescribes still stands — a compound-matrix form
+  addresses overflow and conditioning together. What is now ruled out is the
+  cheap version: equilibrating to dodge the overflow alone would widen the
+  spurious-root zone rather than the usable band, because overflow is currently
+  acting as a safety net.
+
 ### Added
 - **The fixture registry now checks its own unverified claims** (roadmap F.4).
   Two entries — `forge_dsi_las` and `iodp_u1347a_dsi` — carry digests computed
