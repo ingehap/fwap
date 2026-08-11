@@ -7,6 +7,30 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **The fixture registry now checks its own unverified claims** (roadmap F.4).
+  Two entries — `forge_dsi_las` and `iodp_u1347a_dsi` — carry digests computed
+  from copies that never came down their canonical URLs, and that was recorded
+  only as a `CHECKSUM CAVEAT` paragraph in prose. It is now a
+  `checksum_confirmed` field as well, with `check_registry_caveats()` raising if
+  the flag and the paragraph disagree, `--list` printing
+  `CHECKSUM UNCONFIRMED AGAINST URL` on the header line, and the unconfirmed set
+  pinned in `tests/test_real_data.py`. A successful fetch of an unconfirmed entry
+  now prints the three edits that clear it, because that download succeeds and
+  matches and otherwise looks like any other green run.
+
+  The guarded failure is the quiet one: someone confirms a digest, clears the
+  flag, leaves the paragraph — and the registry then reads as verified where it
+  is not.
+
+  **The fetches themselves remain open, and the blocker was re-measured rather
+  than assumed.** `gdr.openei.org` and `zenodo.org` are both refused at the
+  network gateway (403 to CONNECT, policy denial) while ordinary HTTPS works, so
+  this is the same obstruction that created F.4. What could be settled was: all
+  three digests match the copies in hand — 606 016 251 bytes of the IODP
+  archive, 21 435 504 of its member, 3 001 504 of the FORGE LAS — so none is a
+  transcription error. What is unverified is the provenance of the bytes, not
+  the arithmetic over them.
+
 - **The cased hole is tied to published curves for the first time** (roadmap A.1).
   Every cased-hole number in the suite had been scored against `fwap` itself —
   A.9's leaky branch was validated against the bound solver it takes over from
