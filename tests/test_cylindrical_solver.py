@@ -14417,8 +14417,17 @@ def test_the_cased_leaky_branch_joins_the_bound_one_across_the_shear_speed():
     assert 0.97 < last_bound / formation["vs"] < 1.0
 
     # Past the crossing the bound path has nothing and the leaky one
-    # continues, from just above the shear speed -- no jump across the
-    # boundary.
+    # takes over, from above the shear speed and above where the bound
+    # side stopped.
+    #
+    # This block used to claim "no jump across the boundary". The
+    # assertions below never tested that -- they allow anything up to
+    # 1.15 V_S -- and a finer sweep of the annulus does not support it:
+    # the bound side runs to 798.91 m/s at V_S_layer / V_S = 1.26 and
+    # the leaky side starts at 857.39 at 1.28, a 7 % step rather than a
+    # join. Whether the bound mode is absorbed at the shear branch point
+    # or continues onto a sheet this search does not cover is not
+    # settled here; what is asserted is only what is measured.
     first_leaky = None
     for vs_layer in (1400.0, 1800.0, 3140.0):
         layers = (
@@ -14456,6 +14465,196 @@ def test_the_cased_leaky_branch_is_grid_independent():
         values.append(1.0 / res.slowness[index])
     spread = float(np.ptp(values))
     assert spread / float(np.mean(values)) < 1.0e-12, f"spread {spread:.3e} m/s"
+
+
+def _gap_sweep_layers(ratio: float, vs: float = 800.0) -> tuple[BoreholeLayer, ...]:
+    """One annulus of the stiffness sweep A.9's gap was recorded on."""
+    vs_layer = ratio * vs
+    return (BoreholeLayer(vp=2.2 * vs_layer, vs=vs_layer, rho=2000.0, thickness=0.04),)
+
+
+#: ``ka = omega a / V_f = 2.5``, the point A.9's gap was recorded at.
+_GAP_FREQ = np.array([2.5 * 1500.0 / 0.10 / (2.0 * np.pi)])
+_GAP_FORMATION = dict(vp=2200.0, vs=800.0, rho=2200.0)
+
+
+def test_the_recorded_slow_cased_gap_is_closed():
+    """A.9's gap, and the values are not new -- they were counted first.
+
+    Over ``V_S_layer / V_S`` in [1.3, 1.5] at ``ka = 2.5`` the real-axis
+    scan does find its one ``Im(det)`` crossing, at 1006, 978 and 956
+    m/s. The mode is at 855, 851 and 859, and from that far away the
+    complex tracker runs instead to the layer's own shear speed --
+    1040.00, 1120.00, 1200.00 m/s to the digit -- which is the
+    degeneracy ``exclude`` names and rejects. Correctly rejected, and
+    nothing left.
+
+    Seeding off the real axis reaches them directly. The expected values
+    below are the ones an argument-principle count over the window
+    identified independently of the marcher, in
+    ``test_one_root_sits_in_the_slow_cased_gap_a9_could_not_seed``.
+    """
+    expected = {1.3: 855.09, 1.4: 850.51, 1.5: 859.31}
+    for ratio, velocity in expected.items():
+        res = flexural_dispersion_layered(
+            _GAP_FREQ,
+            **_GAP_FORMATION,
+            **_A2_BOREHOLE,
+            layers=_gap_sweep_layers(ratio),
+        )
+        assert np.isfinite(res.slowness[0]), f"still empty at ratio {ratio}"
+        assert res.attenuation_per_meter is not None
+        assert 1.0 / res.slowness[0] == pytest.approx(velocity, abs=0.01)
+        # Leaky means it radiates, and above V_S is what makes it leaky.
+        assert res.attenuation_per_meter[0] > 0.0
+        assert 1.0 / res.slowness[0] > _GAP_FORMATION["vs"]
+
+
+def test_the_leaky_cased_branch_is_continuous_across_the_closed_gap():
+    """The gap closed as a branch, not as three isolated answers.
+
+    The whole point of a gap is that the curve either side of it did not
+    join up. Swept finely from 1.28 to 1.60 the annulus-stiffness family
+    is now unbroken, and both the phase velocity and the attenuation
+    vary smoothly -- the velocity dips to a shallow minimum near 1.38
+    and climbs again, which no per-frequency accident would produce.
+    """
+    ratios = np.arange(1.28, 1.605, 0.04)
+    velocity, attenuation = [], []
+    for ratio in ratios:
+        res = flexural_dispersion_layered(
+            _GAP_FREQ,
+            **_GAP_FORMATION,
+            **_A2_BOREHOLE,
+            layers=_gap_sweep_layers(float(ratio)),
+        )
+        assert np.isfinite(res.slowness[0]), f"empty at ratio {ratio:.2f}"
+        assert res.attenuation_per_meter is not None
+        velocity.append(1.0 / res.slowness[0])
+        attenuation.append(float(res.attenuation_per_meter[0]))
+
+    velocity = np.array(velocity)
+    attenuation = np.array(attenuation)
+    assert np.all(velocity > _GAP_FORMATION["vs"])
+    assert np.all(attenuation > 0.0)
+    # No step, which is what a gap filled by a second family would leave.
+    assert np.max(np.abs(np.diff(velocity)) / velocity[:-1]) < 0.01
+    # And one turning point each, not several: the velocity falls to a
+    # minimum near 1.38 and climbs, the attenuation rises to a maximum
+    # near 1.48 and falls. Two spliced families do not do this, and it
+    # is a structural claim rather than a tolerance to tune.
+    for label, curve in (("velocity", velocity), ("attenuation", attenuation)):
+        turns = int((np.diff(np.sign(np.diff(curve))) != 0).sum())
+        assert turns == 1, f"{label} has {turns} turning points, expected 1"
+
+
+def test_the_seed_sweep_leaves_a_branch_the_scan_already_found_alone():
+    """The guarantee that makes the sweep safe to have.
+
+    Its extra reach also finds the shear branch point's own zeros, which
+    are sharp and are not modes. Seeded from those at a frequency where
+    the flexural mode has genuinely left the window, the monotone rule
+    follows that family instead, and starting from the low-frequency end
+    it takes the whole band: every already-converged frequency moved,
+    by 17 % at 3.5 kHz, ending 0.23 % above ``V_S`` instead of 1.3 %.
+
+    So the sweep runs only when the scan found nothing anywhere. This
+    test asserts that by disabling the sweep outright and requiring the
+    answers to be identical to the last bit.
+    """
+    import fwap.cylindrical_solver._leaky as leaky_module
+
+    layers = (_A2_CASING, _A2_CEMENT)
+    with_sweep = flexural_dispersion_layered(
+        _A2_FREQ, **_A2_SLOW, **_A2_BOREHOLE, layers=layers
+    )
+
+    original = leaky_module._LEAKY_CASED_SEED_SWEEP_POINTS
+    try:
+        leaky_module._LEAKY_CASED_SEED_SWEEP_POINTS = 0
+        without_sweep = flexural_dispersion_layered(
+            _A2_FREQ, **_A2_SLOW, **_A2_BOREHOLE, layers=layers
+        )
+    finally:
+        leaky_module._LEAKY_CASED_SEED_SWEEP_POINTS = original
+
+    assert np.array_equal(
+        np.isfinite(with_sweep.slowness), np.isfinite(without_sweep.slowness)
+    ), "the sweep changed which frequencies converge"
+    finite = np.isfinite(with_sweep.slowness)
+    assert np.array_equal(
+        with_sweep.slowness[finite], without_sweep.slowness[finite]
+    ), "the sweep changed a value the scan had already found"
+
+
+def test_the_shear_branch_points_own_zeros_are_sharp_and_are_not_modes():
+    """Why the sweep has a floor, and why sharpness could not supply it.
+
+    Just above ``V_S`` the determinant has a family of genuine zeros --
+    sharp to 1e-13 and carrying winding number +1, so every
+    root-quality test the marcher owns accepts them. They are still not
+    modes, and the two things a guided mode has to do are what say so:
+    respond to the waveguide, and disperse. This family does neither.
+    """
+    from fwap.cylindrical_solver import _modal_determinant_n1_cased_complex
+    from fwap.cylindrical_solver._leaky import (
+        _detect_leaky_branches,
+        _track_complex_root,
+    )
+
+    vs = _GAP_FORMATION["vs"]
+
+    def locate(ratio: float, omega: float) -> complex | None:
+        layers = _gap_sweep_layers(ratio, vs)
+
+        def det(kz: complex) -> complex:
+            _, leaky_p, leaky_s = _detect_leaky_branches(
+                kz, omega, _GAP_FORMATION["vp"], vs, _A2_BOREHOLE["vf"]
+            )
+            return _modal_determinant_n1_cased_complex(
+                kz,
+                omega,
+                **_GAP_FORMATION,
+                **_A2_BOREHOLE,
+                layers=layers,
+                leaky_p=leaky_p,
+                leaky_s=leaky_s,
+            )
+
+        # Seed just above V_S, where this family lives.
+        guess = complex(omega / (vs * 1.012), 0.03 * omega / (vs * 1.012))
+        root = _track_complex_root(det, guess)
+        if root is None or root.imag <= 0.0:
+            return None
+        if abs(det(root)) >= 1.0e-6 * abs(det(root * 1.002)):
+            return None
+        return root
+
+    omega_ka25 = 2.0 * np.pi * float(_GAP_FREQ[0])
+
+    # Deaf to the waveguide: the annulus shear speed runs 960 -> 1600
+    # m/s and this family does not move.
+    across_annulus = [locate(ratio, omega_ka25) for ratio in (1.2, 1.4, 1.6, 1.8, 2.0)]
+    speeds = [omega_ka25 / r.real for r in across_annulus if r is not None]
+    assert len(speeds) >= 4, "the family should be present at most stiffnesses"
+    assert max(speeds) / min(speeds) - 1.0 < 0.01, (
+        f"a mode would respond to a 67 % change in annulus stiffness; "
+        f"this moved from {min(speeds):.2f} to {max(speeds):.2f} m/s"
+    )
+
+    # And it does not disperse: pinned within ~2 % of V_S at every
+    # frequency, where the flexural branch falls 953 -> 834 m/s over
+    # 3 -> 8 kHz.
+    across_frequency = []
+    for freq in (3000.0, 5968.3, 8000.0, 11000.0):
+        omega = 2.0 * np.pi * freq
+        root = locate(1.6, omega)
+        if root is not None:
+            across_frequency.append(omega / root.real / vs)
+    assert len(across_frequency) >= 3
+    assert max(across_frequency) < 1.03, (
+        f"pinned to the branch point, as expected: {across_frequency}"
+    )
 
 
 def test_the_leaky_cased_search_never_evaluates_the_incoming_branch():

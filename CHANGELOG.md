@@ -7,6 +7,51 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **A.9's recorded gap is closed, and its recorded description was wrong in both
+  halves.** Over `V_S_layer / V_S` in [1.3, 1.5] at `ka = 2.5` the slow-formation
+  cased dipole returned `NaN`. The note said the real-axis scan finds nothing and
+  the mode sits within ~1e-3 of the shear branch point. The scan does find its one
+  crossing — at 1006, 978 and 956 m/s — and the mode is 6–7 % above `V_S`, at 855,
+  851 and 859. From that far away the complex tracker runs instead to the layer's
+  own shear speed (1040.00, 1120.00, 1200.00 m/s to the digit), which is the
+  degeneracy `exclude` names and rejects. Correctly rejected, and nothing left.
+
+  `_march_leaky_cased_branch` now falls back to seeding **off** the real axis,
+  which converges immediately and coarsely — a single level at 5 % of `Re(k_z)`
+  over 12 points already finds all three roots to 1e-4. The swept stiffness family
+  is unbroken from 1.28 to 1.62, with one turning point in each of phase velocity
+  and attenuation. The values were counted before they were computed: an
+  argument-principle winding number over the window identified them independently
+  of the marcher, which is the job A.10's continuity fix made possible.
+
+  **The sweep is gated on the branch never starting, and the gate is the
+  load-bearing part.** Its extra reach also finds a family of zeros just above
+  `V_S` that are sharp to 1e-13 and carry winding number +1 — so no root-quality
+  test rejects them — and are not modes. They fail both things a guided mode must
+  do:
+
+  | | across the annulus (`V_S_layer / V_S` 1.2 → 2.0) | across frequency (3 → 15 kHz) |
+  | --- | --- | --- |
+  | the branch-point family | 807–810 m/s, ignores the casing | 1.004–1.017 `V_S`, non-monotone |
+  | the flexural branch | falls with the annulus in step | 953 → 888 → 868 → 834 m/s |
+
+  Ungated, the sweep seeds off that family at a frequency where the mode has left
+  the window, and the monotone-descent rule walks it down the whole band: **every**
+  already-converged frequency moved, by 17 % at 3.5 kHz, ending 0.23 % above `V_S`
+  instead of 1.3 %. Gated, production output is **bit-identical** — 0 values
+  changed, 0 frequencies gained or lost on both the dipole and the screw — and the
+  fixture that had nothing converges. A fixed dead band cannot separate the two
+  families, because the flexural branch descends into the same neighbourhood at
+  the top of the band, so the floor applies to *seeding* only; continuation, which
+  arrives along a dispersion curve, stays unrestricted.
+
+  **Left open, and newly visible:** the bound side runs to 798.91 m/s at ratio
+  1.26 and the leaky side starts at 857.39 at 1.28 — a 7 % step rather than a
+  join. Whether the bound mode is absorbed at the shear branch point or continues
+  onto a sheet this search does not cover is not settled here. The "no jump across
+  the boundary" claim in the crossing test's comment was never what its assertions
+  checked (they allow 1.15 `V_S`), and is withdrawn.
+
 - **The leaky determinant was two functions glued along the real `k_z` axis**
   (roadmap A.10). Every complex root search seeds on that axis and then steps
   off it, so the determinant has to be one analytic function there. It was not.

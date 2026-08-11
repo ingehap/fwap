@@ -435,6 +435,33 @@ document why.
   correcting this paper's citation across nine files fixed the authorship, title
   and venue and left the page range wrong — p. 246 is figure 9, with sixteen
   figures after it.
+- **A defect description that was wrong in both halves, and had been quoted
+  onward.** A.9's gap was recorded as "the real-axis seeding finds nothing" and
+  "the mode sits within ~1e-3 of the shear branch point". Neither held: the scan
+  finds its crossing, and the mode is 6-7 % above the branch point. Both halves
+  had been repeated into a roadmap entry, a constant's docstring and a summary
+  before anyone measured them, and the true mechanism -- a crossing 15 % away
+  from the mode, from which the tracker runs to a *different* known degeneracy --
+  is not reachable from either. *A defect note is a hypothesis with a citation
+  count. The longer it goes unmeasured the more places quote it, and none of
+  those are evidence.*
+- **A fix that passed its target and broke everything else.** The gap closed on
+  the first attempt: three ratios, three right answers, matching an independent
+  root count. Run against the production fixture the same code moved every
+  already-converged frequency by up to 17 % onto a family of sharp non-modal
+  zeros. The target measurement was real and it was one point; what caught it was
+  a *regression* measurement against the case that already worked. *When a fix is
+  aimed at what a procedure could not do, the load-bearing test is on what it
+  already did. Measure the unchanged case, element by element, not in summary --
+  coverage went 35/45 to 41/45 and looked like an improvement while every value
+  underneath it was wrong.*
+- **A test whose comment asserted more than the test did.** The crossing oracle's
+  comment said "no jump across the boundary"; its assertions allowed anything
+  under 1.15 V_S, and a finer sweep found a 7 % step. The comment had been true
+  of nothing ever measured. *A comment beside an assertion is read as part of it.
+  If it states a property, the property should be in the assert -- otherwise it
+  is a claim with a test-shaped frame around it and no test inside.*
+
 - **A closed item that was closed on the wrong axis.** A.10 was filed, fixed and
   marked closed as a *documentation* defect: the leaky Bessel branch's docstring
   described a function the code did not compute, so the docstring was corrected
