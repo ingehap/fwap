@@ -208,7 +208,12 @@ distributed across ~7 mergeable PRs. Conservative estimate:
 
 - Schmitt, D. P. (1989). Acoustic multipole logging in
   transversely isotropic poroelastic formations. *J. Acoust.
-  Soc. Am.* 86(6), 2397-2421.
+  Soc. Am.* 86(6), 2397-2421, doi:10.1121/1.398448.
+  The DOI agrees with the volume, issue and pages recorded here but has
+  not been confirmed against the publisher: doi.org, Crossref, OpenAlex,
+  Semantic Scholar and the AIP page are all blocked by this project's
+  network policy. Figure 5 of this paper — Thomsen-γ-induced flexural
+  splitting — is the overlay A.1's remaining VTI tie needs.
 - Norris, A. N. (1990). The speed of a tube wave. *J. Acoust.
   Soc. Am.* 87(1), 414-417.
 - Ellefsen, Cheng & Toksöz (1991). Effects of anisotropy on the
