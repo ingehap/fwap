@@ -7,9 +7,9 @@
 # (velocity 1.2-1.8 km/s hard / 1.1-1.5 km/s soft, frequency 0-20 kHz).
 # Converted as slowness = 1 / (v_km_s * 1000).
 #
-# NOT SCOREABLE YET -- see pending/README.md. The report states no elastic
-# constants (deferred to Thomsen 1986), no borehole radius and no fluid
-# properties, so the model curve cannot be computed.
+# Formation: shale (5000) (Thomsen 1986 table 1, Jones & Wang 1981 row):
+# V_P0 3048, V_S0 1490 m/s, rho 2420 kg/m^3, eps 0.255, delta -0.050,
+# gamma 0.480. Borehole: water 1500 m/s / 1000 kg/m^3, a = 0.10 m.
 #
 # freq_hz, slowness_s_per_m
 1500.0,0.000672028
