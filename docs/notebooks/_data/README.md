@@ -62,6 +62,7 @@ Suggested filenames (matching the notebook section titles):
 | `ellefsen_cheng_schmitt_1988_fig2_flexural_vti_hard.csv` | Ellefsen/Cheng/Schmitt 1988 fig 2 | elastic VTI flexural, hard |
 | `ellefsen_cheng_schmitt_1988_fig2_flexural_iso_hard.csv` | Ellefsen/Cheng/Schmitt 1988 fig 2 | equivalent isotropic, hard |
 | `ellefsen_cheng_schmitt_1988_fig4_flexural_vti_soft.csv` | Ellefsen/Cheng/Schmitt 1988 fig 4 | elastic VTI flexural, soft |
+| `ellefsen_cheng_schmitt_1988_fig4_flexural_iso_soft.csv` | Ellefsen/Cheng/Schmitt 1988 fig 4 | equivalent isotropic, soft |
 
 The two flexural rows were `schmitt_1988_fig4_flexural_{slow,fast}.csv`
 until the reference was actually opened. The source consulted is the
@@ -99,8 +100,16 @@ formation, so one figure ties both `flexural_dispersion_vti` and
 are deferred to Thomsen (1986) — Green River shale and shale (5000) — and
 no borehole radius or fluid properties appear anywhere in it. Deriving the
 radius from the same figure the overlay scores against would be the silent
-refit this directory exists to prevent, so the curves stay untraced until
-Thomsen's table is to hand.
+refit this directory exists to prevent.
+
+**The four curves are traced anyway and parked in
+[`pending/`](pending/README.md)** — both branches of both figures, 73
+points each over 1.5-19.5 kHz. Nothing reads that directory, so they cannot
+be scored against a geometry nobody has verified; `pending/README.md` says
+exactly what is missing and how to promote them. Tracing them now also
+produced the two anchors that will identify the right Thomsen rows:
+`V_S0` = **1775 m/s** (hard) and **1488 m/s** (soft), read off the
+low-frequency limits and not used in the tracing.
 
 ## Workflow for adding an overlay
 

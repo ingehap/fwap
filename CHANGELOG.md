@@ -134,6 +134,32 @@ the project uses [Semantic Versioning](https://semver.org/).
   be inferred from the figure itself, and deliberately was not: fitting the
   geometry to the curve the overlay then scores against is the silent refit
   `_data/README.md` exists to prevent.
+
+### Added
+- **Four flexural curves traced from Ellefsen, Cheng & Schmitt (1988) and
+  parked unscored** in `docs/notebooks/_data/pending/`: both branches of
+  fig 2 (hard) and fig 4 (soft), 73 points each over 1.5-19.5 kHz, at
+  400 dpi. They are deliberately *not* in `_data/` proper, because a CSV
+  there is picked up by `check_overlay` on sight and asserted against the
+  5 % budget — and scoring against a geometry nobody has verified produces
+  a number that looks like validation and is not. Nothing reads
+  `pending/`; its README states what is missing and how to promote them.
+  Each figure plots the TI formation against an *equivalent isotropic* one
+  defined to share its vertical P and S velocities, so each pair ties two
+  solvers from one trace — the TI branch scores `flexural_dispersion_vti`,
+  the isotropic branch `flexural_dispersion`.
+  **The trace carries its own consistency check.** On each figure the two
+  branches must converge to the same low-frequency limit, because that
+  limit is `V_S` and the equivalent isotropic formation is defined to share
+  it. Traced independently — one solid curve, one dashed — they agree to
+  **0.1 m/s** on fig 2 (1775.0 against 1775.1) and to **0.0 m/s** on fig 4
+  (1488.0 both). Those two numbers are also the anchors that will identify
+  the right Thomsen rows: if Green River shale does not give `V_S0` ≈ 1775
+  m/s, the hard formation is not Green River shale. Tsvankin's fig 1.12
+  supplies a second check for the hard rock alone, `epsilon` = 0.195 and
+  `delta` = -0.22 — his monograph turns out not to reproduce Thomsen's
+  table (no "shale (5000)" anywhere in its 436 pages, and its only tables
+  are 6.1, 7.1 and 8.1), so it does not unblock the overlay.
 - **A.9's recorded gap is closed, and its recorded description was wrong in both
   halves.** Over `V_S_layer / V_S` in [1.3, 1.5] at `ka = 2.5` the slow-formation
   cased dipole returned `NaN`. The note said the real-axis scan finds nothing and
