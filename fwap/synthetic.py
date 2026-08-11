@@ -14,8 +14,8 @@ References
   ISBN 978-2-7108-0664-6.
 * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in Boreholes*,
   Chapter 4. CRC Press (cylindrical-mode dispersion).
-* Schmitt, D. P. (1988). Shear-wave logging in elastic formations.
-  *Journal of the Acoustical Society of America* 84(6), 2230-2244.
+* Schmitt, D. P. (1988). Shear wave logging in elastic formations.
+  *Journal of the Acoustical Society of America* 84(6), 2215-2229.
 """
 
 from __future__ import annotations
@@ -342,7 +342,7 @@ def dipole_flexural_dispersion(
     frequency limit is 25% above. This is *not* a full cylindrical Biot
     model; for production use one should solve the 3x3 modal determinant
     in Hankel/Bessel functions (Paillet & Cheng, 1991, chap. 4; Schmitt,
-    1988, *JASA* 84(6), 2230-2244).
+    1988, *JASA* 84(6), 2215-2229).
 
     The returned callable accepts a NumPy array of frequencies and
     returns a same-shape array of slownesses.

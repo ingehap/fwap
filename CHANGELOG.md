@@ -38,6 +38,28 @@ the project uses [Semantic Versioning](https://semver.org/).
   all. The below-cutoff sparseness, separately, still does.
 
 ### Fixed
+- **The Schmitt (1988) citation carried another paper's page range.** Every
+  reference to "Shear wave logging in elastic formations" outside
+  `fwap/validation.py` gave it as *J. Acoust. Soc. Am.* 84(6), **2230-2244**.
+  That is a different article: JASA 84(6) carries three Schmitt papers back to
+  back — 2200-2214 *Effects of radial layering when logging in saturated porous
+  formations* (Schmitt), **2215-2229 *Shear wave logging in elastic
+  formations*** (Schmitt, the one this package builds on, DOI 10.1121/1.397015),
+  and 2230-2244 *Shear wave logging in semi-infinite saturated porous
+  formations* (Schmitt, Zhu & Cheng). So the citation paired the elastic paper's
+  title and author with the porous paper's pages, pointing anyone chasing the
+  `n=1` modal determinant at a Biot two-phase paper instead.
+  Corrected in all thirteen places (`fwap/synthetic.py`, `fwap/dispersion.py`,
+  `fwap/cylindrical.py`, `fwap/cylindrical_solver/{__init__,_n1_isotropic,`
+  `_leaky}.py`, `scripts/gen_surrogate_dataset.py`, `plans/roadmap.md`,
+  `docs/plans/cylindrical_biot_G_prime.md`); `fwap/validation.py` was already
+  right. The title is also unhyphenated as published ("Shear wave logging", not
+  "Shear-wave logging") so all fourteen sites now read identically.
+  **Not verified:** `_n1_isotropic.py` attributes the high-frequency Rayleigh
+  reduction to "Eqs. 24-26" of that paper. The paper is paywalled and
+  unavailable here, so the equation numbers stand as they were — if they were
+  copied from the same source as the page range they may point into the wrong
+  article too.
 - **The flexural high-frequency test was anchored to the wrong reference**
   (roadmap A.1). `test_flexural_high_f_slowness_above_inverse_rayleigh` compared
   the modal `n=1` slowness against `rayleigh_speed` with `rel=0.10`. The

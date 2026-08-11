@@ -138,8 +138,8 @@ from fwap.cylindrical_solver._dataclasses import BoreholeMode
 #   Boreholes*, ch. 4. CRC Press. The four-potential cylindrical
 #   decomposition with explicit n=1 forms; the boundary-condition
 #   table this block implements.
-# * Schmitt, D. P. (1988). Shear-wave logging in elastic
-#   formations. *J. Acoust. Soc. Am.* 84(6), 2230-2244 (the
+# * Schmitt, D. P. (1988). Shear wave logging in elastic
+#   formations. *J. Acoust. Soc. Am.* 84(6), 2215-2229 (the
 #   isotropic n=1 dispersion curves the validation tests target).
 # * Aki, K., & Richards, P. G. (2002). *Quantitative Seismology*,
 #   2nd ed., sect. 7.2. Vector-potential Helmholtz decomposition
@@ -1764,8 +1764,8 @@ from fwap.cylindrical_solver._dataclasses import BoreholeMode
 #
 # References
 # ----------
-# * Schmitt, D. P. (1988). Shear-wave logging in elastic
-#   formations. *J. Acoust. Soc. Am.* 84(6), 2230-2244. Eqs.
+# * Schmitt, D. P. (1988). Shear wave logging in elastic
+#   formations. *J. Acoust. Soc. Am.* 84(6), 2215-2229. Eqs.
 #   24-26 give the high-frequency reduction of the dipole modal
 #   determinant to the Rayleigh secular equation.
 # * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
@@ -2077,8 +2077,8 @@ def _modal_determinant_n1(
 
     References
     ----------
-    * Schmitt, D. P. (1988). Shear-wave logging in elastic
-      formations. *J. Acoust. Soc. Am.* 84(6), 2230-2244
+    * Schmitt, D. P. (1988). Shear wave logging in elastic
+      formations. *J. Acoust. Soc. Am.* 84(6), 2215-2229
       (the n=1 dipole modal determinant).
     * Kurkjian, A. L., & Chang, S.-K. (1986). Acoustic multipole
       sources in fluid-filled boreholes. *Geophysics* 51(1),
@@ -2555,8 +2555,8 @@ def flexural_dispersion(
 
     References
     ----------
-    * Schmitt, D. P. (1988). Shear-wave logging in elastic
-      formations. *J. Acoust. Soc. Am.* 84(6), 2230-2244.
+    * Schmitt, D. P. (1988). Shear wave logging in elastic
+      formations. *J. Acoust. Soc. Am.* 84(6), 2215-2229.
     * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
       Boreholes.* CRC Press, Ch. 4.
     """

@@ -529,8 +529,8 @@ depend on them.
 
 ### References for section A
 
-- Schmitt, D. P. (1988). Shear-wave logging in elastic formations. *J. Acoust.
-  Soc. Am.* 84(6), 2230-2244.
+- Schmitt, D. P. (1988). Shear wave logging in elastic formations. *J. Acoust.
+  Soc. Am.* 84(6), 2215-2229.
 - Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in Boreholes*,
   Chapter 4. CRC Press.
 - Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole Acoustic Methods*,
