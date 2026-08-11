@@ -882,29 +882,37 @@ _LEAKY_CASED_SEED_SWEEP_LEVELS = (0.03, 0.07)
 #: Height above the formation shear speed below which the sweep will not
 #: take a *fresh* seed, as a fraction of ``V_S``.
 #:
-#: ``V_S`` is a branch point of the determinant, and the determinant has
-#: a family of genuine zeros clustered just above it -- verified sharp
-#: (1e-13) and carrying winding number +1, so no sharpness or
-#: root-quality test will reject them. They are not modes. Held against
-#: the two things a mode has to do, they fail both: over an annulus
-#: stiffness sweep from ``V_S_layer / V_S = 1.2`` to ``2.0`` they sit at
-#: 807-810 m/s and ignore the casing entirely, and over 3-15 kHz they
-#: sit at 1.004-1.017 ``V_S`` non-monotonically instead of dispersing.
-#: The flexural branch beside them does both: 953 -> 888 -> 868 -> 834
-#: m/s over 3 -> 8 kHz, falling with the annulus in step.
+#: ``V_S`` is a branch point of the determinant, and there is a pole that
+#: hugs it -- sharp to 1e-13 and carrying winding number +1, so no
+#: sharpness or root-quality test will reject it.
+#:
+#: It is not the flexural branch, which is the only claim this floor
+#: needs and the only one that survived measuring. Over 3-15 kHz it sits
+#: at 1.004-1.017 ``V_S`` non-monotonically instead of dispersing, where
+#: the flexural branch falls 953 -> 888 -> 868 -> 834 m/s over 3 -> 8
+#: kHz. Seeded on it, the monotone rule follows it and the production
+#: answer is destroyed -- measured at 17 % at 3.5 kHz.
+#:
+#: An earlier version of this note said it "ignores the casing entirely"
+#: and is "not a mode". Both are overclaimed. Swept finely through the
+#: bound/leaky crossing it moves with the annulus and is one continuous
+#: object: 814.80 m/s at ``V_S_layer / V_S = 1.10``, down through
+#: **798.86 at 1.295 -- below ``V_S``** -- and back to 808.11 at 1.41,
+#: with one turning point and ``|det|`` sharp throughout. It looks static
+#: only when sampled coarsely at stiffnesses far from the crossing.
 #:
 #: This is a floor on *seeding*, not on the answer, and the distinction
-#: is the whole design. A fixed dead band cannot separate the two
-#: families, because the flexural branch itself descends into that
-#: neighbourhood at the top of the band -- A.9's 12 kHz answer is 810.4
-#: m/s, 1.3 % above ``V_S``, right among the artefacts. It gets there by
-#: continuation, arriving along a dispersion curve from above, which is
-#: evidence a fresh seed landing in the same place does not have. So
-#: continuation stays unrestricted and only the sweep is floored.
+#: is the whole design. A fixed dead band cannot separate the two,
+#: because the flexural branch itself descends into that neighbourhood at
+#: the top of the band -- A.9's 12 kHz answer is 810.4 m/s, 1.3 % above
+#: ``V_S``. It gets there by continuation, arriving along a dispersion
+#: curve from above, which is evidence a fresh seed landing in the same
+#: place does not have. So continuation stays unrestricted and only the
+#: sweep is floored.
 #:
-#: Margins at ``ka = 2.5``: the artefacts reach 1.7 % above ``V_S``, the
-#: seeds actually needed are 6.3-7.4 % above it. A factor of about two
-#: either side of this threshold.
+#: Margins at ``ka = 2.5``: the branch-point pole reaches 1.7 % above
+#: ``V_S``, the seeds actually needed are 6.3-7.4 % above it. A factor of
+#: about two either side of this threshold.
 _LEAKY_CASED_SEED_FLOOR = 0.03
 
 #: How many frequencies the sweep may be attempted at, spread across the

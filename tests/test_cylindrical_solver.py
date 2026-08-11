@@ -14422,12 +14422,19 @@ def test_the_cased_leaky_branch_joins_the_bound_one_across_the_shear_speed():
     #
     # This block used to claim "no jump across the boundary". The
     # assertions below never tested that -- they allow anything up to
-    # 1.15 V_S -- and a finer sweep of the annulus does not support it:
-    # the bound side runs to 798.91 m/s at V_S_layer / V_S = 1.26 and
-    # the leaky side starts at 857.39 at 1.28, a 7 % step rather than a
-    # join. Whether the bound mode is absorbed at the shear branch point
-    # or continues onto a sheet this search does not cover is not
-    # settled here; what is asserted is only what is measured.
+    # 1.15 V_S -- and a finer sweep does not support it: the bound side
+    # runs to 798.91 m/s at V_S_layer / V_S = 1.26 and the leaky side
+    # starts at 857.39 at 1.28, a 7 % step.
+    #
+    # The step is real and it is not a discontinuity, because the two
+    # sides are not the same mode. The bound mode is absorbed at the
+    # shear branch point -- past 1.2775 the proper-sheet determinant has
+    # no root anywhere in the bound window -- while the leaky branch
+    # reported above the crossing already existed below it, at 868.30
+    # m/s while the bound mode was still alive at 786.67. A handover
+    # between two modes, not a break in one. Pinned by
+    # test_the_bound_dipole_mode_is_absorbed_at_the_shear_branch_point
+    # and test_the_leaky_branch_coexists_with_the_bound_mode_below_the_crossing.
     first_leaky = None
     for vs_layer in (1400.0, 1800.0, 3140.0):
         layers = (
@@ -14633,14 +14640,186 @@ def test_the_seed_sweep_is_bounded_when_there_is_nothing_to_find():
     assert max(swept_at) == pytest.approx(2.0 * np.pi * freq[-1])
 
 
-def test_the_shear_branch_points_own_zeros_are_sharp_and_are_not_modes():
+def test_the_bound_dipole_mode_is_absorbed_at_the_shear_branch_point():
+    """Half of the crossing question: what becomes of the bound mode.
+
+    As the annulus stiffens the bound dipole mode climbs toward the
+    formation shear speed. It reaches it and stops existing -- not
+    "the solver stops finding it": a dense scan of the real,
+    proper-sheet determinant across the *whole* bound window finds
+    exactly one sign change while the mode exists and **none at all**
+    afterwards. Absorbed at the branch point.
+
+    That is why the layered driver's answer steps 7 % at the crossing.
+    It is a handover between two different modes, not a break in one:
+    the bound mode ends here, and the leaky branch the driver reports
+    above it was already there below it (see
+    ``test_the_leaky_branch_coexists_with_the_bound_mode_below_the_crossing``).
+    """
+    from fwap.cylindrical_solver import _modal_determinant_n1_cased
+
+    omega = 2.0 * np.pi * float(_GAP_FREQ[0])
+    vs = _GAP_FORMATION["vs"]
+    grid = np.linspace(600.0, vs * 0.99999, 1500)
+
+    def crossings(ratio: float) -> int:
+        layers = _gap_sweep_layers(ratio, vs)
+        values = np.array(
+            [
+                _modal_determinant_n1_cased(
+                    omega / c, omega, **_GAP_FORMATION, **_A2_BOREHOLE, layers=layers
+                )
+                for c in grid
+            ]
+        )
+        finite = np.isfinite(values)
+        return int((np.diff(np.sign(values[finite])) != 0).sum())
+
+    for ratio in (1.26, 1.27, 1.275):
+        assert crossings(ratio) == 1, f"the bound mode should exist at {ratio}"
+    for ratio in (1.28, 1.30, 1.35, 1.40):
+        assert crossings(ratio) == 0, (
+            f"a bound root survives at {ratio}; it should have been absorbed"
+        )
+
+
+def test_the_leaky_branch_coexists_with_the_bound_mode_below_the_crossing():
+    """The other half: the leaky branch is a different mode, not a sequel.
+
+    Below the crossing the driver reports the bound mode, above it the
+    leaky one, and the answer steps 7 % between them. That step is only
+    a discontinuity if the two are the same mode. They are not -- at
+    ``V_S_layer / V_S = 1.20`` the bound mode sits at 786.67 m/s while
+    the leaky branch is already there at 868.30, radiating, with the
+    branch-point pole at 810.14 between them. Three objects, one
+    stiffness.
+    """
+    from fwap.cylindrical_solver import _modal_determinant_n1_cased_complex
+    from fwap.cylindrical_solver._leaky import (
+        _detect_leaky_branches,
+        _track_complex_root,
+    )
+
+    omega = 2.0 * np.pi * float(_GAP_FREQ[0])
+    vs = _GAP_FORMATION["vs"]
+    layers = _gap_sweep_layers(1.20, vs)
+
+    bound = flexural_dispersion_layered(
+        _GAP_FREQ, **_GAP_FORMATION, **_A2_BOREHOLE, layers=layers
+    )
+    assert np.isfinite(bound.slowness[0])
+    bound_velocity = 1.0 / bound.slowness[0]
+    assert bound_velocity < vs, "below the crossing the driver reports a bound mode"
+    assert bound.attenuation_per_meter is None or (
+        float(bound.attenuation_per_meter[0]) == 0.0
+    )
+
+    def determinant(kz: complex) -> complex:
+        _, leaky_p, leaky_s = _detect_leaky_branches(
+            kz, omega, _GAP_FORMATION["vp"], vs, _A2_BOREHOLE["vf"]
+        )
+        return _modal_determinant_n1_cased_complex(
+            kz,
+            omega,
+            **_GAP_FORMATION,
+            **_A2_BOREHOLE,
+            layers=layers,
+            leaky_p=leaky_p,
+            leaky_s=leaky_s,
+        )
+
+    # The leaky flexural branch, at the same stiffness the bound mode
+    # is alive at.
+    guess = complex(omega / 868.0, 0.05 * omega / 868.0)
+    root = _track_complex_root(determinant, guess)
+    assert root is not None and root.imag > 0.0
+    leaky_velocity = omega / root.real
+    assert leaky_velocity > vs, "and it radiates, so it is above V_S"
+    assert abs(determinant(root)) < 1.0e-6 * abs(determinant(root * 1.002))
+    # Well clear of the bound mode: a different object, not its sequel.
+    assert leaky_velocity / bound_velocity - 1.0 > 0.05
+
+
+def test_the_branch_point_pole_continues_through_the_crossing():
+    """The rest of the crossing question, and the answer is continuity.
+
+    Tracked on the improper sheet -- ``leaky_s`` forced rather than
+    taken from :func:`_detect_leaky_branches`, so the sheet does not
+    change under the search -- the branch-point pole is one unbroken
+    object across the crossing. It descends toward ``V_S``, passes
+    **below** it over roughly ``1.285 <= V_S_layer / V_S <= 1.315``,
+    reaching 798.86 m/s at 1.295, and climbs back. One turning point,
+    ``|det|`` sharp at every step.
+
+    This is what settles the question the A.9 write-up left open. The
+    mode is not annihilated at the branch point; the search simply
+    cannot see this part of it, because the production window is
+    floored at ``V_S`` and here the pole is under that floor while
+    remaining a perfectly good leaky root with positive attenuation.
+    An earlier search that only looked above ``V_S`` saw it vanish at
+    1.28 and reappear at 1.32, with the attenuation apparently jumping
+    0.98 -> 1.47. That gap was the floor, not the physics.
+    """
+    from fwap.cylindrical_solver import _modal_determinant_n1_cased_complex
+    from fwap.cylindrical_solver._leaky import _track_complex_root
+
+    omega = 2.0 * np.pi * float(_GAP_FREQ[0])
+    vs = _GAP_FORMATION["vs"]
+
+    velocity, attenuation = [], []
+    root: complex | None = None
+    for ratio in np.arange(1.26, 1.3451, 0.005):
+        layers = _gap_sweep_layers(float(ratio), vs)
+
+        def determinant(kz: complex, layers=layers) -> complex:
+            return _modal_determinant_n1_cased_complex(
+                kz,
+                omega,
+                **_GAP_FORMATION,
+                **_A2_BOREHOLE,
+                layers=layers,
+                leaky_p=False,
+                leaky_s=True,
+            )
+
+        seed = (
+            root if root is not None else complex(omega / 803.0, 0.03 * omega / 803.0)
+        )
+        root = _track_complex_root(determinant, seed)
+        assert root is not None, f"continuation lost at ratio {ratio:.3f}"
+        assert root.imag > 0.0, f"attenuation went negative at {ratio:.3f}"
+        assert abs(determinant(root)) < 1.0e-6 * abs(determinant(root * 1.002))
+        velocity.append(omega / root.real)
+        attenuation.append(root.imag)
+
+    velocity = np.array(velocity)
+    attenuation = np.array(attenuation)
+
+    # It goes under the floor the production search stops at.
+    assert np.any(velocity < vs), "the excursion below V_S is the whole point"
+    assert velocity.min() / vs > 0.99, "but only just under it"
+    # One object: a single turning point, and no step in attenuation.
+    turns = int((np.diff(np.sign(np.diff(velocity))) != 0).sum())
+    assert turns == 1, f"{turns} turning points, expected one continuous dip"
+    assert np.max(np.abs(np.diff(attenuation)) / attenuation[:-1]) < 0.15
+
+
+def test_the_branch_point_pole_is_sharp_and_is_not_the_flexural_branch():
     """Why the sweep has a floor, and why sharpness could not supply it.
 
-    Just above ``V_S`` the determinant has a family of genuine zeros --
-    sharp to 1e-13 and carrying winding number +1, so every
-    root-quality test the marcher owns accepts them. They are still not
-    modes, and the two things a guided mode has to do are what say so:
-    respond to the waveguide, and disperse. This family does neither.
+    A pole hugs the shear branch point -- sharp to 1e-13 and carrying
+    winding number +1, so every root-quality test the marcher owns
+    accepts it. The floor needs one claim about it and only one: it is
+    not the flexural branch. Over frequency it stays pinned within ~2 %
+    of ``V_S`` where the flexural branch falls 953 -> 834 m/s.
+
+    An earlier version of this test claimed more -- that it "ignores the
+    casing" and is "not a mode" -- from a coarse stiffness sample far
+    from the crossing. Swept finely it moves with the annulus and is one
+    continuous object that dips *below* ``V_S``; see
+    ``test_the_branch_point_pole_continues_through_the_crossing``. The
+    annulus check below is kept as the measurement it actually is: at
+    stiffnesses well away from the crossing the pole barely moves.
     """
     from fwap.cylindrical_solver import _modal_determinant_n1_cased_complex
     from fwap.cylindrical_solver._leaky import (
@@ -14678,14 +14857,15 @@ def test_the_shear_branch_points_own_zeros_are_sharp_and_are_not_modes():
 
     omega_ka25 = 2.0 * np.pi * float(_GAP_FREQ[0])
 
-    # Deaf to the waveguide: the annulus shear speed runs 960 -> 1600
-    # m/s and this family does not move.
+    # Well away from the crossing it is nearly static: the annulus shear
+    # speed runs 960 -> 1600 m/s and the pole moves under 1 %. Near the
+    # crossing it does move -- that is the other test.
     across_annulus = [locate(ratio, omega_ka25) for ratio in (1.2, 1.4, 1.6, 1.8, 2.0)]
     speeds = [omega_ka25 / r.real for r in across_annulus if r is not None]
-    assert len(speeds) >= 4, "the family should be present at most stiffnesses"
+    assert len(speeds) >= 4, "the pole should be present at most stiffnesses"
     assert max(speeds) / min(speeds) - 1.0 < 0.01, (
-        f"a mode would respond to a 67 % change in annulus stiffness; "
-        f"this moved from {min(speeds):.2f} to {max(speeds):.2f} m/s"
+        f"away from the crossing this pole tracks the branch point; "
+        f"it moved from {min(speeds):.2f} to {max(speeds):.2f} m/s"
     )
 
     # And it does not disperse: pinned within ~2 % of V_S at every
