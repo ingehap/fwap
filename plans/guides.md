@@ -501,6 +501,85 @@ document why.
 
 ---
 
+## 9b. A worked example: the defect only the search *path* could show
+
+Every instrument in §3 reads an **output** — a dispersion curve, a matrix
+element, a conserved quantity. A.10's residue was invisible to all of them, and
+the account is short enough to give in full.
+
+**How it came up.** A.10 had been filed, fixed and closed as a *documentation*
+defect: the leaky Bessel branch's docstring described a function the code did
+not compute, so the docstring was corrected and the invariants the code really
+held were pinned by tests. All of that was right. It was also reported, on the
+way past, as still open — a misstatement, and checking it is what turned up
+what follows.
+
+**The defect.** Settling what the leaky branch *is* had left untouched the
+question of which root of `alpha^2` to feed it. `numpy.sqrt` selects
+`Re(alpha) >= 0`, which is the **decay** condition and the correct rule for a
+bound branch. The radiation condition is a different one, `Im(alpha) > 0`, and
+the principal root carries
+
+    sign(Im(alpha)) = sign(Im(alpha^2)) = sign(2 Re(k_z) Im(k_z)),
+
+so it is outgoing only while `Im(k_z) >= 0` and **incoming** below the real
+axis — which is exactly where a search seeded on that axis spends part of its
+time. 14 % of the leaky Bessel evaluations in A.9's cased dipole run, and 3 %
+of the screw's, were on the incoming branch.
+
+Fixing the root exposed a second layer under it. With `Re(alpha) < 0` the
+argument `i alpha r` crosses `hankel2`'s branch cut, so the leaky branch had to
+be evaluated instead through `-K_n(z) + i pi (-1)^n I_n(z)`, whose cut lies on
+the negative real axis where `z` never goes.
+
+**What it buys.** The determinant is one analytic function across the seeding
+axis for the first time. Measured as one-sided limits against the value on the
+axis, at 12 kHz in the fast sandstone:
+
+| branch that flips | jump before | jump after |
+|---|---|---|
+| none (all bound) | 7e-12 | 7e-12 |
+| fluid only, oscillatory | 2 (ratio exactly `-1`) | 2.5e-11 |
+| formation S leaky | 1.24 | 3.4e-11 |
+| formation P and S leaky | 0.73 | 3.4e-11 |
+
+The distinction in the middle two rows is the whole point. The fluid flip was
+an **overall factor**, and an overall factor never moves a root; the formation
+flips were `k_z`-dependent, which is a different function with different roots.
+
+**What it does not change.** Nothing published or returned. The new leaky
+evaluation matches the previous one to **1.5e-16** over every argument the
+solvers actually reached, A.9's dipole and screw branches return bit-identical
+velocities and attenuations, and incoming-branch evaluations go 457 → 0 and
+119 → 0.
+
+**What it settles that was not asked.** A.9 had recorded a gap at
+`V_S_layer / V_S` in [1.3, 1.5] where the real-axis scan has nothing to seed
+from, and noted that an argument-principle search would be needed *"to say
+whether one is there"*. That search needs precisely a single-valued analytic
+function on and inside the contour: before this, a contour dipping below the
+axis crossed the discontinuity and its winding number meant nothing. It now
+answers — **one root**, at 855.1, 850.5 and 859.3 m/s, positive attenuation,
+`|det|` sharp to 1e-13. Wiring the driver to seed from it is separate work and
+was left separate; the test pins the count.
+
+**Why it survived the first pass.** Every returned answer was on the correct
+sheet, because roots come back with `Im(k_z) > 0` and the branch is right
+there. The defect lived entirely in the *path* the search took to reach them.
+No output revealed it and no test looked at it; what found it was instrumenting
+the solver — counting the evaluations rather than inspecting the results.
+
+*A search can be wrong in a way its answers cannot show.* That is the gap in
+§3's hierarchy this example marks. All four instruments there read what a
+procedure **returned**; the nearest any comes to this is structural invariants,
+which catch branch hopping — but they catch it as a jump in the returned curve,
+not as a step the search took. A procedure that explores has a trajectory as
+well as an answer, and the trajectory is a separate object that can be measured
+directly: instrument the evaluator, log its arguments, and assert on what it was
+asked rather than on what it replied. The two lessons this produced are in §9.
+
+---
+
 ## 10. What it produced
 
 Fifty-two digitised reference tables and twelve scalar anchors, each with
