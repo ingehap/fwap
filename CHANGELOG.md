@@ -994,6 +994,22 @@ the project uses [Semantic Versioning](https://semver.org/).
   Stoneley's tie an order of magnitude tighter than the shear modes'.
 
 ### Fixed
+- **The "Schmitt (1988) eqs. 24-26" pointer in `_n1_isotropic.py` is
+  withdrawn.** Three places said those equations give the high-frequency
+  reduction of the dipole modal determinant to the Rayleigh secular
+  equation. In the companion ERL report (Schmitt & Cheng 1987, pp. 220-221)
+  they are the Thomson-Haskell propagator product (24), the 6x6 `H` assembly
+  (25) and the borehole-wall boundary conditions (26) — layer propagation
+  and matrix assembly, with no Rayleigh secular equation anywhere near them.
+  That report is the document every other "fig N" in this repository turned
+  out to mean, and this pointer arrived carrying the same wrong page range,
+  so the likeliest reading is that the equation numbers are mis-sourced the
+  same way.
+  **Not proven, and deliberately not "corrected".** The JASA article is
+  paywalled and its own numbering is unverified, so the numbers are dropped
+  rather than replaced with a guess. The reduction itself is not in doubt —
+  Paillet & Cheng (1991) sect. 4.2 carries it and remains the pointer. This
+  was the last item the earlier citation fix had to leave open.
 - **Validation-notebook section 2 cited a figure that is not a dispersion
   curve, and a geometry that does not exist.** It named "Schmitt 1988
   fig 4" and quoted parameters attributed to that paper's table 1 — a
