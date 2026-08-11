@@ -7,6 +7,116 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **A.9's recorded gap is closed, and its recorded description was wrong in both
+  halves.** Over `V_S_layer / V_S` in [1.3, 1.5] at `ka = 2.5` the slow-formation
+  cased dipole returned `NaN`. The note said the real-axis scan finds nothing and
+  the mode sits within ~1e-3 of the shear branch point. The scan does find its one
+  crossing — at 1006, 978 and 956 m/s — and the mode is 6–7 % above `V_S`, at 855,
+  851 and 859. From that far away the complex tracker runs instead to the layer's
+  own shear speed (1040.00, 1120.00, 1200.00 m/s to the digit), which is the
+  degeneracy `exclude` names and rejects. Correctly rejected, and nothing left.
+
+  `_march_leaky_cased_branch` now falls back to seeding **off** the real axis,
+  which converges immediately and coarsely — a single level at 5 % of `Re(k_z)`
+  over 12 points already finds all three roots to 1e-4. The swept stiffness family
+  is unbroken from 1.28 to 1.62, with one turning point in each of phase velocity
+  and attenuation. The values were counted before they were computed: an
+  argument-principle winding number over the window identified them independently
+  of the marcher, which is the job A.10's continuity fix made possible.
+
+  **The sweep is gated on the branch never starting, and the gate is the
+  load-bearing part.** Its extra reach also finds a family of zeros just above
+  `V_S` that are sharp to 1e-13 and carry winding number +1 — so no root-quality
+  test rejects them — and are not modes. They fail both things a guided mode must
+  do:
+
+  | | across the annulus (`V_S_layer / V_S` 1.2 → 2.0) | across frequency (3 → 15 kHz) |
+  | --- | --- | --- |
+  | the branch-point family | 807–810 m/s, ignores the casing | 1.004–1.017 `V_S`, non-monotone |
+  | the flexural branch | falls with the annulus in step | 953 → 888 → 868 → 834 m/s |
+
+  Ungated, the sweep seeds off that family at a frequency where the mode has left
+  the window, and the monotone-descent rule walks it down the whole band: **every**
+  already-converged frequency moved, by 17 % at 3.5 kHz, ending 0.23 % above `V_S`
+  instead of 1.3 %. Gated, production output is **bit-identical** — 0 values
+  changed, 0 frequencies gained or lost on both the dipole and the screw — and the
+  fixture that had nothing converges. A fixed dead band cannot separate the two
+  families, because the flexural branch descends into the same neighbourhood at
+  the top of the band, so the floor applies to *seeding* only; continuation, which
+  arrives along a dispersion curve, stays unrestricted.
+
+  **Cost, because the sweep is paid where it cannot help.** A stack with no mode
+  anywhere fails pass one at every frequency, which is exactly when pass two
+  runs, so an uncapped sweep does its full seed grid at all of them — and the
+  surrogate generators reject such stacks by the hundred. Three tests in
+  `tests/test_gen_surrogate_dataset.py` went 41 s → 828 s and the CI job
+  422 s → 1331 s. The sweep now tries at most 5 frequencies, spread across the
+  band rather than taken from its start, and the grid is 16x2 rather than 24x3
+  (12 seeds already found all three gap roots to 1e-4). Pass two also skips the
+  real-axis scan while no root has been found, where it provably returns what it
+  returned in pass one. Those three tests are back to 82 s and the suite to 4:48;
+  the recovered values are identical at every setting tried.
+
+  **Left open, and newly visible:** the bound side runs to 798.91 m/s at ratio
+  1.26 and the leaky side starts at 857.39 at 1.28 — a 7 % step rather than a
+  join. Whether the bound mode is absorbed at the shear branch point or continues
+  onto a sheet this search does not cover is not settled here. The "no jump across
+  the boundary" claim in the crossing test's comment was never what its assertions
+  checked (they allow 1.15 `V_S`), and is withdrawn.
+
+- **The leaky determinant was two functions glued along the real `k_z` axis**
+  (roadmap A.10). Every complex root search seeds on that axis and then steps
+  off it, so the determinant has to be one analytic function there. It was not.
+
+  `numpy.sqrt` selects `Re(alpha) >= 0`, which is the *decay* condition and the
+  right rule for a bound branch. The radiation condition is a different one,
+  `Im(alpha) > 0`, and the principal root carries
+  `sign(Im(alpha)) = sign(2 Re(k_z) Im(k_z))` — so it is outgoing only while
+  `Im(k_z) >= 0`, and **incoming** below the axis. **14 %** of the leaky Bessel
+  evaluations in the A.9 cased dipole run, and 3 % of the screw's, were on that
+  incoming branch. Correcting the root alone is not enough: with `Re(alpha) < 0`
+  the argument `i alpha r` crosses `hankel2`'s cut, so `_k_or_hankel` also
+  evaluates its leaky branch through
+  `(pi/2) i^{n+1} H_n^{(2)}(i z) = -K_n(z) + i pi (-1)^n I_n(z)`, whose `kv`/`iv`
+  cut lies on the negative real axis where `z` never goes.
+
+  Measured at 12 kHz in the fast sandstone, as one-sided limits against the
+  value on the axis:
+
+  | branch that flips | `det(k_z - i0) / det(k_z + i0)` before | jump before | jump after |
+  | --- | --- | --- | --- |
+  | none (all bound) | `+1` | 7e-12 | 7e-12 |
+  | fluid only, oscillatory | `-1` exactly — an overall factor, so roots were never moved | 2 | 2.5e-11 |
+  | formation S leaky | `-0.238 + 0.020i` — `k_z`-dependent, a different function with different roots | 1.24 | 3.4e-11 |
+  | formation P and S leaky | `+0.279 - 0.091i` — likewise | 0.73 | 3.4e-11 |
+
+  ("jump" is `abs(det(k_z - i0) - det(k_z))` over `abs(det(k_z))`; after the fix
+  both one-sided limits converge on the axis value, and linearly in the offset.)
+
+  **No published or returned value changes.** The new leaky evaluation agrees
+  with the previous `hankel2` one to **1.5e-16** over every argument the solvers
+  actually reached, the A.9 dipole and screw branches return bit-identical
+  velocities and attenuations, and the incoming-branch evaluations go
+  **457 → 0** and **119 → 0**. The A.10 order-consistency invariant
+  (`d/dx K_n = -K_{n+1} + (n/x) K_n` on the returned pair) now also holds at
+  second-quadrant `alpha`, which did not exist before.
+
+  Layer blocks need no such rule and are left alone: they keep both `I_n` and
+  `K_n`, so negating a layer wavenumber is a change of basis that cancels in
+  `E(r_out) E(r_in)^{-1}` — measured at **1.1e-12** while the E-matrix itself
+  moves by 312 %.
+
+  **It answers A.9's open question.** A.9 recorded a gap at
+  `V_S_layer / V_S` in [1.3, 1.5] (`ka = 2.5`) where the real-axis scan has
+  nothing to seed from, and noted that an argument-principle search would be
+  needed to say whether a root is there at all. That search needs a
+  single-valued analytic function on and inside the contour, which is what this
+  supplies — before it, a contour dipping below the axis crossed the
+  discontinuity and its winding number meant nothing. The count is **exactly one
+  root** at each of 1.3, 1.4 and 1.5, and they are ordinary members of the same
+  branch (855.1, 850.5 and 859.3 m/s, positive attenuation, `|det|` sharp to
+  1e-13). Seeding the driver from it is A.9 driver work and is not done here.
+
 - **The `n = 2` fast-formation solvers were tracking round-off** (roadmap A.7).
   The modal determinant evaluated at real `k_z` is not complex in any useful
   sense: it is a real quantity times a phase that does not depend on `k_z`,

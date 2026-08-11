@@ -12,7 +12,10 @@ import numpy as np
 from scipy import optimize, special
 
 from fwap._common import logger
-from fwap.cylindrical_solver._bessel import _k_or_hankel
+from fwap.cylindrical_solver._bessel import (
+    _k_or_hankel,
+    _radial_wavenumber,
+)
 from fwap.cylindrical_solver._dataclasses import (
     BoreholeLayer,
     BoreholeMode,
@@ -275,9 +278,13 @@ def _modal_determinant_n2_complex(
     _modal_determinant_n1_complex : The n=1 sister.
     """
     kz_c = complex(kz)
-    F = np.sqrt(kz_c * kz_c - (omega / vf) ** 2)
-    p = np.sqrt(kz_c * kz_c - (omega / vp) ** 2)
-    s = np.sqrt(kz_c * kz_c - (omega / vs) ** 2)
+    # The fluid always uses I-Bessel, so the sign of F is immaterial to
+    # the physics -- but not to continuity: the oscillatory branch flips
+    # across the real k_z axis and takes the determinant's sign with it.
+    F_sq = kz_c * kz_c - (omega / vf) ** 2
+    F = _radial_wavenumber(F_sq, leaky=bool(F_sq.real < 0.0))
+    p = _radial_wavenumber(kz_c * kz_c - (omega / vp) ** 2, leaky=leaky_p)
+    s = _radial_wavenumber(kz_c * kz_c - (omega / vs) ** 2, leaky=leaky_s)
     Fa = F * a
 
     # Fluid: I-Bessel always (regular at r=0). scipy.special.iv

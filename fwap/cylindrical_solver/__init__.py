@@ -155,6 +155,9 @@ from fwap.cylindrical_solver._bessel import (
     _layered_n0_radial_wavenumbers as _layered_n0_radial_wavenumbers,
 )
 from fwap.cylindrical_solver._bessel import (
+    _radial_wavenumber as _radial_wavenumber,
+)
+from fwap.cylindrical_solver._bessel import (
     _radial_wavenumbers_vti as _radial_wavenumbers_vti,
 )
 

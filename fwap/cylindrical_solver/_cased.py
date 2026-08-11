@@ -16,7 +16,12 @@ from __future__ import annotations
 import numpy as np
 from scipy import special
 
-from fwap.cylindrical_solver._bessel import _i0_i1, _k0_k1, _k_or_hankel
+from fwap.cylindrical_solver._bessel import (
+    _i0_i1,
+    _k0_k1,
+    _k_or_hankel,
+    _radial_wavenumber,
+)
 from fwap.cylindrical_solver._dataclasses import BoreholeLayer
 
 # =====================================================================
@@ -2994,7 +2999,11 @@ def _modal_determinant_n1_cased_complex(
     _modal_determinant_n2_cased_complex : The n=2 sister.
     """
     kz_c = complex(kz)
-    F = np.sqrt(kz_c * kz_c - (omega / vf) ** 2)
+    # The fluid always uses I-Bessel, so the sign of F is immaterial to
+    # the physics -- but not to continuity: the oscillatory branch flips
+    # across the real k_z axis and takes the determinant's sign with it.
+    F_sq = kz_c * kz_c - (omega / vf) ** 2
+    F = _radial_wavenumber(F_sq, leaky=bool(F_sq.real < 0.0))
     radii = [a]
     for L in layers:
         radii.append(radii[-1] + L.thickness)
@@ -3027,8 +3036,8 @@ def _modal_determinant_n1_cased_complex(
     # Formation half-space: only K-flavour cols (radiation
     # condition); use _k_or_hankel to support the leaky branch.
     # At n=1 the pair needed is (K_0, K_1), i.e. ``_k_or_hankel(0, ...)``.
-    p_form = np.sqrt(kz_c * kz_c - (omega / vp) ** 2)
-    s_form = np.sqrt(kz_c * kz_c - (omega / vs) ** 2)
+    p_form = _radial_wavenumber(kz_c * kz_c - (omega / vp) ** 2, leaky=leaky_p)
+    s_form = _radial_wavenumber(kz_c * kz_c - (omega / vs) ** 2, leaky=leaky_s)
     K0pb, K1pb = _k_or_hankel(0, p_form, b, leaky=leaky_p)
     K0sb, K1sb = _k_or_hankel(0, s_form, b, leaky=leaky_s)
     mu_form = rho * vs * vs
@@ -3371,7 +3380,11 @@ def _modal_determinant_n2_cased_complex(
         brentq's ``Im(det)`` for the fast-formation cased mode.
     """
     kz_c = complex(kz)
-    F = np.sqrt(kz_c * kz_c - (omega / vf) ** 2)
+    # The fluid always uses I-Bessel, so the sign of F is immaterial to
+    # the physics -- but not to continuity: the oscillatory branch flips
+    # across the real k_z axis and takes the determinant's sign with it.
+    F_sq = kz_c * kz_c - (omega / vf) ** 2
+    F = _radial_wavenumber(F_sq, leaky=bool(F_sq.real < 0.0))
     radii = [a]
     for L in layers:
         radii.append(radii[-1] + L.thickness)
@@ -3403,8 +3416,8 @@ def _modal_determinant_n2_cased_complex(
         P_total = P_j @ P_total
     # Formation half-space: only K-flavour cols (radiation
     # condition); use _k_or_hankel to support the leaky branch.
-    p_form = np.sqrt(kz_c * kz_c - (omega / vp) ** 2)
-    s_form = np.sqrt(kz_c * kz_c - (omega / vs) ** 2)
+    p_form = _radial_wavenumber(kz_c * kz_c - (omega / vp) ** 2, leaky=leaky_p)
+    s_form = _radial_wavenumber(kz_c * kz_c - (omega / vs) ** 2, leaky=leaky_s)
     K1pb, K2pb = _k_or_hankel(1, p_form, b, leaky=leaky_p)
     K1sb, K2sb = _k_or_hankel(1, s_form, b, leaky=leaky_s)
     mu_form = rho * vs * vs
