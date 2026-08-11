@@ -88,6 +88,82 @@ def test_registry_entries_are_well_formed():
         assert dataset.what_it_tests.strip()
 
 
+#: The entries whose digests have never been checked against bytes that came
+#: down their own URL. Pinned rather than derived, so that confirming one is a
+#: deliberate edit here as well as in the registry -- roadmap F.4.
+_UNCONFIRMED_CHECKSUMS = ("forge_dsi_las", "iodp_u1347a_dsi")
+
+
+def test_the_registry_says_the_same_thing_twice_about_its_checksums():
+    """A fixture registry must not assert what it has not verified.
+
+    Two entries carry digests computed from copies that did not come down
+    their canonical URL, because the hosts were unreachable from the sessions
+    that added them -- and still are, refused at the network gateway. That is
+    recorded in two places: a ``checksum_confirmed`` flag for programs and a
+    ``CHECKSUM CAVEAT`` paragraph for people.
+
+    Recording it twice is only useful if the two cannot drift, which is what
+    this checks. The failure it is aimed at is the quiet one: someone
+    confirms a digest, clears the flag, leaves the paragraph -- or the
+    reverse -- and the registry then looks verified where it is not.
+    """
+    assert fetch_real_data.check_registry_caveats() == _UNCONFIRMED_CHECKSUMS
+
+    for dataset in fetch_real_data.DATASETS:
+        if dataset.name in _UNCONFIRMED_CHECKSUMS:
+            assert not dataset.checksum_confirmed
+            assert fetch_real_data.CAVEAT_MARKER in dataset.provenance
+        else:
+            assert dataset.checksum_confirmed
+            assert fetch_real_data.CAVEAT_MARKER not in dataset.provenance
+
+
+def test_an_unconfirmed_entry_cannot_lose_half_its_record():
+    """The drift this guards against, made to happen.
+
+    Clearing the flag while leaving the prose -- or the reverse -- must be an
+    error rather than a quietly weaker claim.
+    """
+    import dataclasses
+
+    original = fetch_real_data.find("forge_dsi_las")
+    assert not original.checksum_confirmed
+
+    for mutation in (
+        dataclasses.replace(original, checksum_confirmed=True),
+        dataclasses.replace(
+            original,
+            provenance=original.provenance.replace(
+                fetch_real_data.CAVEAT_MARKER, "note"
+            ),
+        ),
+    ):
+        patched = tuple(
+            mutation if d.name == original.name else d for d in fetch_real_data.DATASETS
+        )
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(fetch_real_data, "DATASETS", patched)
+            with pytest.raises(ValueError, match="checksum_confirmed"):
+                fetch_real_data.check_registry_caveats()
+
+
+def test_the_registry_listing_admits_the_unconfirmed_entries():
+    """Whoever runs ``--list`` should see it, not only whoever reads the code.
+
+    An unverified claim recorded where only a maintainer will find it is
+    barely recorded at all, so the header line says it outright.
+    """
+    lines = fetch_real_data.format_registry().splitlines()
+    headers = {
+        line.split()[0]: line for line in lines if line and not line.startswith(" ")
+    }
+    for dataset in fetch_real_data.DATASETS:
+        header = headers[dataset.name]
+        flagged = "CHECKSUM UNCONFIRMED AGAINST URL" in header
+        assert flagged == (dataset.name in _UNCONFIRMED_CHECKSUMS), header
+
+
 def test_find_rejects_unknown_dataset():
     with pytest.raises(KeyError, match="unknown dataset"):
         fetch_real_data.find("not_a_dataset")

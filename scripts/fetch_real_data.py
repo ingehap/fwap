@@ -98,6 +98,15 @@ class RealDataset:
         zip can be recompressed -- changing the archive's digest while leaving
         the member's untouched -- so this is the digest the assertions actually
         depend on.
+    checksum_confirmed : bool
+        Whether the digests above have ever been checked against bytes that
+        came down ``url`` itself. ``False`` means they were computed from a
+        copy that arrived by some other route, so they pin *what we have*
+        rather than *what the publisher serves*, and the URL may not even
+        resolve. Entries that set it carry a ``CHECKSUM CAVEAT`` paragraph in
+        ``provenance`` saying so; :func:`check_registry_caveats` keeps the two
+        from drifting apart, which is the whole reason this is a field and not
+        just prose. See roadmap F.4.
     """
 
     name: str
@@ -110,7 +119,13 @@ class RealDataset:
     licence: str
     member: str | None = None
     member_sha256: str | None = None
+    checksum_confirmed: bool = True
 
+
+#: Paragraph marker that records an unconfirmed digest in prose. Kept in
+#: step with the ``checksum_confirmed`` flag by
+#: :func:`check_registry_caveats`.
+CAVEAT_MARKER = "CHECKSUM CAVEAT"
 
 #: The registry. Add an entry to make a new file available to the tests.
 DATASETS: tuple[RealDataset, ...] = (
@@ -173,8 +188,14 @@ DATASETS: tuple[RealDataset, ...] = (
             "obtained through a mirror, because gdr.openei.org was not "
             "reachable from the session that added this entry. It has NOT been "
             "confirmed against the canonical URL. The first successful fetch "
-            "should verify it and correct this note."
+            "should verify it and correct this note.\n"
+            "The digest does match the copy in hand -- re-checked, so it is "
+            "not a transcription error -- and gdr.openei.org has been "
+            "unreachable from every session that has tried since, refused at "
+            "the network gateway rather than by the host. What is unverified "
+            "is the provenance of the bytes, not the arithmetic over them."
         ),
+        checksum_confirmed=False,
         licence=(
             "CC BY 4.0. DOE Geothermal Technologies Office data published "
             "through the Geothermal Data Repository is openly licensed, so this "
@@ -225,6 +246,11 @@ DATASETS: tuple[RealDataset, ...] = (
             "route. The URL's shape is inferred from Zenodo's standard file "
             "layout and has NOT been exercised. The first successful fetch "
             "should confirm both, and correct this note.\n"
+            "Both digests do match the copy in hand, re-checked over all "
+            "606 016 251 bytes of the archive and all 21 435 504 of the "
+            "member, so neither is a transcription error. zenodo.org has been "
+            "refused at the network gateway from every session that has tried, "
+            "so the URL remains unexercised.\n"
             "GEOMETRY: transmitter-to-receiver offsets are in neither the "
             "waveform export nor the DLIS it came from. Receiver *spacing* is "
             "0.1524 m from the archive's own file description; the absolute "
@@ -246,6 +272,7 @@ DATASETS: tuple[RealDataset, ...] = (
             "ordinary arrangement for scientific ocean drilling, and it is "
             "recorded here rather than smoothed over."
         ),
+        checksum_confirmed=False,
     ),
     RealDataset(
         name="segyio_small",
@@ -273,6 +300,42 @@ DATASETS: tuple[RealDataset, ...] = (
         ),
     ),
 )
+
+
+def check_registry_caveats() -> tuple[str, ...]:
+    """
+    Names whose checksums have never been confirmed against their URL.
+
+    Cross-checks the two places that record it -- the ``checksum_confirmed``
+    flag and the ``CHECKSUM CAVEAT`` paragraph in ``provenance`` -- and raises
+    if they disagree. They are separate because one is for a program and the
+    other is for a person, and a fixture registry that asserts something it has
+    not verified should say so in both or neither.
+
+    Returns
+    -------
+    tuple of str
+        Dataset names with ``checksum_confirmed=False``, in registry order.
+
+    Raises
+    ------
+    ValueError
+        If any entry carries the flag without the paragraph, or the reverse.
+    """
+    unconfirmed = []
+    for dataset in DATASETS:
+        has_note = CAVEAT_MARKER in dataset.provenance
+        if has_note != (not dataset.checksum_confirmed):
+            raise ValueError(
+                f"{dataset.name}: checksum_confirmed="
+                f"{dataset.checksum_confirmed} but provenance "
+                f"{'does' if has_note else 'does not'} carry a "
+                f"{CAVEAT_MARKER!r} paragraph. Clearing one without the other "
+                "is how an unverified fixture becomes a verified-looking one."
+            )
+        if not dataset.checksum_confirmed:
+            unconfirmed.append(dataset.name)
+    return tuple(unconfirmed)
 
 
 def data_dir() -> Path:
@@ -388,6 +451,25 @@ def fetch(
             f"got {digest}. The upstream file may have changed; do not update "
             "the registry hash without checking what changed."
         )
+    if not dataset.checksum_confirmed:
+        # This is the event roadmap F.4 is waiting for, and it is easy to
+        # miss: the download succeeded and matched, so nothing looks unusual
+        # and the run just goes green. Say so loudly, and say exactly what to
+        # edit, because the caveat is otherwise cleared by whoever happens to
+        # remember it.
+        print(
+            f"\nNOTE: {dataset.name} came down its canonical URL and the "
+            f"digest matched.\n"
+            f"      That is the confirmation roadmap F.4 is waiting for. To "
+            f"clear it:\n"
+            f"        1. set checksum_confirmed=True on this entry;\n"
+            f"        2. delete the CHECKSUM CAVEAT paragraph from its "
+            f"provenance;\n"
+            f"        3. update the F.4 row in plans/roadmap.md.\n"
+            f"      tests/test_real_data.py pins which entries are "
+            f"unconfirmed, so\n"
+            f"      it will fail until step 1 is done -- that is intentional.\n"
+        )
     return path
 
 
@@ -467,7 +549,12 @@ def format_registry() -> str:
     lines: list[str] = []
     for dataset in DATASETS:
         present = "present" if verify(dataset) else "not fetched"
-        lines.append(f"{dataset.name}  [{dataset.kind}]  ({present})")
+        flags = (
+            present
+            if dataset.checksum_confirmed
+            else (f"{present}; CHECKSUM UNCONFIRMED AGAINST URL")
+        )
+        lines.append(f"{dataset.name}  [{dataset.kind}]  ({flags})")
         lines.append(f"  file      : {dataset.filename}")
         if dataset.member is not None:
             lines.append(f"  member    : {dataset.member}")
