@@ -32,12 +32,40 @@ the project uses [Semantic Versioning](https://semver.org/).
   and 10/28. A mode-identification criterion is needed, and shipping a
   half-validated change to a physics solver is worse than shipping the
   measurement.
+  **Now measured against published data too** (see Added, below): scored
+  against the digitised Schmitt & Cheng 1987 fig 2(a) fast-sandstone curve
+  the solver misses by **36.79 % RMS**, worst point 42.20 %, over
+  4.25-22.75 kHz, and returns a finite root at only 75 of 89 reference
+  frequencies. The published fundamental descends smoothly from `V_S` to
+  `V_f`; what fwap returns oscillates between 2410 and 2590 m/s across that
+  band, which is the overtone-crossing signature this item describes,
+  visible now against an external curve rather than only against itself.
   Slow formations are unaffected — this is the fast-formation path only.
   **This corrects the item's own diagnosis**, which said "a fix means
   complex-plane root tracking". Neither defect above involves complex `k_z` at
   all. The below-cutoff sparseness, separately, still does.
 
 ### Fixed
+- **Validation-notebook section 2 cited a figure that is not a dispersion
+  curve, and a geometry that does not exist.** It named "Schmitt 1988
+  fig 4" and quoted parameters attributed to that paper's table 1 — a
+  "shale" at 2740/1280/2400 and a "limestone" at 4900/2840/2700. Opening
+  the reference: **fig 4 is a time-domain shot gather** (dipole, fast
+  sandstone, 1 kHz and 6 kHz source centre frequency), and table 1 has no
+  shale row at all. Its rocks are fast sandstone 4878/2601/2160, slow
+  sandstone 2751/1201/2100, limestone 5081/2771/2160 and granite
+  5881/3750/2160 — so both quoted formations were approximations of rows
+  that were already there, off by up to 8 % in `V_S` and 25 % in density.
+  The flexural dispersion curves are **fig 2(a)** (fast sandstone) and
+  **fig 8(a)** (slow sandstone). Section 2 now uses those, under table 1's
+  own numbers, and is named for the document actually consulted —
+  Schmitt & Cheng (1987) — since the 1988 JASA numbering is paywalled and
+  remains unverified. Corrected in the notebook, in
+  `docs/notebooks/_data/README.md` and in `docs/plans/cylindrical_biot.md`
+  (both the plan-B validation bullet and the plan-I reference list).
+  The plan-B bullet also predicted "the leaky bend just above the geometric
+  cutoff" in that figure. There is no bend and no cutoff; see the Added
+  entry above.
 - **The Schmitt (1988) citation carried another paper's page range.** Every
   reference to "Shear wave logging in elastic formations" outside
   `fwap/validation.py` gave it as *J. Acoust. Soc. Am.* 84(6), **2230-2244**.
@@ -75,6 +103,55 @@ the project uses [Semantic Versioning](https://semver.org/).
   did not exist yet.
 
 ### Added
+- **The first two digitised reference curves, and with them the first
+  external check on `flexural_dispersion`.** Both traced from the
+  open-access MIT ERL report Schmitt & Cheng (1987), 1987.8
+  ([DSpace](https://dspace.mit.edu/handle/1721.1/121148)), which is the
+  precursor to the paywalled Schmitt (1988) JASA paper the plan had been
+  waiting on. Geometry is that report's table 1 verbatim.
+  - `schmitt_cheng_1987_fig8a_flexural_slow.csv` — slow sandstone
+    (2751/1201/2100), 55 points over 1.25-14.75 kHz. **fwap passes at
+    1.27 % RMS**, worst point 1.89 %, against the 5 % budget. Nothing
+    external had ever scored this solver's actual dispersion curve.
+  - `schmitt_cheng_1987_fig2_flexural_fast.csv` — fast sandstone
+    (4878/2601/2160), 89 points over 2.5-24.5 kHz. **fwap fails at
+    36.79 % RMS**, worst point 42.20 %.
+  The failure is the already-documented roadmap A.2 defect, now measured
+  against published data instead of against itself: the returned root is
+  an overtone, running ~40 % fast above 10 kHz while the published
+  fundamental descends smoothly to `V_f`. Tracing was calibrated on the
+  frame and axis ticks alone, and both curves' low-frequency limits then
+  landed on table 1's `V_S` to **+0.01 %** (fast) and **+0.06 %** (slow) —
+  an independent check on the digitising, since `V_S` was not used in it.
+  That the slow curve also matches with the borehole radius left at
+  `a` = 0.10 m corroborates the geometry, which the figure captions give
+  only in passing.
+- **`check_overlay` grew a `known_defect=` marker** that *inverts* the
+  budget assertion rather than relaxing it: an overlay marked with it
+  fails if the curve starts passing. Raising the budget to accommodate the
+  fast-formation curve would have hidden the eventual A.2 fix as
+  effectively as it hides the bug; this way the fix trips the marker and
+  the exemption cannot go stale.
+- **What Schmitt & Cheng fig 2(a) settles about the `n=1` pole below
+  cutoff** (the question left open above, and at the 2024 entry on the
+  cased flexural). The fundamental flexural branch in a fast formation has
+  **no cutoff**: it runs continuously from 2.4 kHz — the lowest frequency
+  plotted — starting at `V_S` (1.734 `V_f`, matching table 1 to 0.01 %) and
+  descending monotonically to 0.996 `V_f` at 24.5 kHz. It is the *first
+  trapped* mode, curve (2), that begins abruptly at ~8 kHz. So the
+  alternative that entry floated — "possibly there is no pole at all, the
+  mode existing only above its cutoff with the low-frequency dipole energy
+  travelling as a shear head wave" — is **wrong**. There is a mode there.
+  Not settled: whether the pole leaves the real axis, which is the part
+  that would explain why the real-axis search cannot find it. Every layer
+  in table 1 carries a finite `Q`, so the published attenuation curve mixes
+  intrinsic loss with radiation loss and cannot separate them. It is
+  suggestive but not proof — flexural attenuation sits at the `Q_beta` = 60
+  intrinsic floor (1/Q x 100 = 1.67) at low frequency and rises to ~5.3 near
+  5 kHz, roughly 3x the floor. One further caveat: the curve is truncated at
+  2.4 kHz rather than continuing to zero, and whether that is Schmitt's
+  plotting choice or his own root-finder's limit is not visible from the
+  figure.
 - **The flexural mode is tied to the plane Scholte speed** (roadmap A.1). The
   argument the `n=2` block already rests on — at short wavelength the borehole
   wall looks flat to *every* azimuthal order — had never been applied to `n=1`,

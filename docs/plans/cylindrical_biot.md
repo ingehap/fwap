@@ -117,8 +117,18 @@ adding a complex-aware twin and a public marcher.
 
 **Validation.**
 
-1. Schmitt 1988 fig 4: dispersion curve with the leaky bend just
-   above the geometric cutoff.
+1. Schmitt & Cheng 1987 fig 2(a): the fast-sandstone flexural
+   phase curve, now digitised to
+   `docs/notebooks/_data/schmitt_cheng_1987_fig2_flexural_fast.csv`.
+   It descends monotonically from `V_S` (1.734 `V_f`) at 2.4 kHz to
+   0.996 `V_f` at 24.5 kHz, with **no cutoff and no bend** — the
+   fundamental is continuous across the whole plotted band, and it
+   is the *first trapped* mode (curve 2) that starts abruptly, at
+   ~8 kHz. This item previously named "Schmitt 1988 fig 4" and
+   expected "the leaky bend just above the geometric cutoff";
+   neither the figure number nor the bend survived contact with the
+   reference. Today's solver misses this curve by 36.8 % RMS, which
+   is the A.2 defect measured against published data.
 2. Slow-formation regression: when `V_S < V_f`, the new code path
    is bypassed and the existing bound-mode solver answer is
    bit-identical.
@@ -422,8 +432,12 @@ References to reproduce, in order of effort:
 
 1. Paillet & Cheng 1991 fig 4.5 — Stoneley + pseudo-Rayleigh on
    limestone (covers A and the existing `stoneley_dispersion`).
-2. Schmitt 1988 fig 4 — flexural in slow + fast formations
-   (covers B and `flexural_dispersion`).
+2. Schmitt & Cheng 1987 figs 2(a) + 8(a) — flexural in fast and
+   slow sandstone (covers B and `flexural_dispersion`). **Done**:
+   both digitised and shipped. This item named "Schmitt 1988
+   fig 4" until the reference was opened; in the ERL report that
+   is a time-domain shot gather, and the dispersion curves are
+   figs 2(a) and 8(a).
 3. Tang & Cheng 2004 fig 3.7, 3.10 — quadrupole slow + fast
    (covers D and E).
 4. Tang & Cheng 2004 fig 7.1 — cased-hole Stoneley (covers G).
