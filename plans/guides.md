@@ -435,6 +435,27 @@ document why.
   correcting this paper's citation across nine files fixed the authorship, title
   and venue and left the page range wrong — p. 246 is figure 9, with sixteen
   figures after it.
+- **A search floor that became a claim about physics.** The leaky window is
+  floored at the formation shear speed, which is a reasonable place to stop
+  looking. Reading its output, a pole appeared to vanish at one annulus stiffness
+  and return at another with its attenuation jumping 50 %, and the natural
+  reading was that two roots had collided and annihilated at the branch point.
+  They had not: the pole dips 0.14 % *below* the shear speed and comes back,
+  continuous the whole way, and the floor had simply stopped reporting it.
+  *A bounded search reports absence and presence with equal confidence, and the
+  boundary is invisible in the output. Before concluding that something ceases to
+  exist, check whether you stopped looking -- the cheapest version is to lift the
+  bound and run the same query.*
+- **A conclusion drawn at the wrong sampling resolution.** The same pole was
+  written up as "ignores the casing entirely, not a mode", from five stiffnesses
+  spanning a 67 % change -- at which it moves under 1 %. All five were far from
+  the crossing. Swept finely through it, the pole moves 2 % and is one continuous
+  object. The coarse sample was not wrong about its own points; it was wrong that
+  those points characterised the family. *A property measured at one resolution
+  is a claim about that resolution. "Does not vary" is the one conclusion a
+  coarse sweep can never support, because it is exactly what under-sampling
+  looks like.*
+
 - **A defect description that was wrong in both halves, and had been quoted
   onward.** A.9's gap was recorded as "the real-axis seeding finds nothing" and
   "the mode sits within ~1e-3 of the shear branch point". Neither held: the scan

@@ -57,12 +57,30 @@ the project uses [Semantic Versioning](https://semver.org/).
   returned in pass one. Those three tests are back to 82 s and the suite to 4:48;
   the recovered values are identical at every setting tried.
 
-  **Left open, and newly visible:** the bound side runs to 798.91 m/s at ratio
-  1.26 and the leaky side starts at 857.39 at 1.28 — a 7 % step rather than a
-  join. Whether the bound mode is absorbed at the shear branch point or continues
-  onto a sheet this search does not cover is not settled here. The "no jump across
-  the boundary" claim in the crossing test's comment was never what its assertions
-  checked (they allow 1.15 `V_S`), and is withdrawn.
+  **The 7 % step at the bound/leaky crossing is settled: three objects, not one.**
+  The step is real — 798.91 m/s at ratio 1.26 against 857.39 at 1.28 — and it is a
+  **handover between two different modes** rather than a break in one.
+
+  | | measured |
+  | --- | --- |
+  | the bound mode | **absorbed at the shear branch point.** Climbs to 799.96 m/s at ratio 1.275; past 1.2775 a 1500-point scan of the proper-sheet determinant finds no root anywhere in the bound window. It ends, rather than being lost by the solver. |
+  | the leaky branch reported above | **already exists below.** At ratio 1.20 it is at 868.30 m/s while the bound mode is still alive at 786.67. Not a sequel. |
+  | the branch-point pole | **continuous through the whole crossing.** On the improper sheet it descends past `V_S`, runs *below* it over `1.285 ≤ V_S_layer / V_S ≤ 1.315` (798.86 m/s at 1.295) and climbs back — one turning point, `\|det\|` sharp to 1e-13 at every step. |
+
+  The third row is what the open question was about, and the answer is that the
+  mode is not annihilated: the production search cannot see that stretch because
+  its window is floored at `V_S`. Searching only above `V_S` made it appear to
+  vanish at 1.28 and return at 1.32 with the attenuation jumping 0.98 → 1.47. The
+  gap was the floor, not the physics.
+
+  **One claim withdrawn.** The branch-point pole was written up as ignoring the
+  casing and "not a mode". Sampled coarsely at stiffnesses far from the crossing
+  it barely moves, which is where that came from; swept finely it runs
+  814.80 → 798.86 → 808.11 m/s over ratios 1.10 → 1.295 → 1.41 and is one
+  continuous object. The seed floor stands on the claim that survived — it is not
+  the flexural branch, and seeding on it destroys the answer by 17 %. The crossing
+  test's "no jump across the boundary" comment was never what its assertions
+  checked (they allow 1.15 `V_S`) and is withdrawn.
 
 - **The leaky determinant was two functions glued along the real `k_z` axis**
   (roadmap A.10). Every complex root search seeds on that axis and then steps
