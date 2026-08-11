@@ -1648,6 +1648,7 @@ def _modal_row1_at_a_n1_vti(
     I1_Ff_a = float(special.iv(1, F_f * a))
     K0_qP_a = float(special.kv(0, alpha_qP * a))
     K1_qP_a = float(special.kv(1, alpha_qP * a))
+    K0_qSV_a = float(special.kv(0, alpha_qSV * a))
     K1_qSV_a = float(special.kv(1, alpha_qSV * a))
     K1_SH_a = float(special.kv(1, alpha_SH * a))
 
@@ -1658,8 +1659,14 @@ def _modal_row1_at_a_n1_vti(
     # ``alpha_qP K_0 + K_1/a`` (matches M12 at alpha_qP -> p).
     row[1] = +alpha_qP * K0_qP_a + K1_qP_a / a
     # C_qSV column post-rescale (col-by-(-i) cancels the +i factor;
-    # matches M13 at alpha_qSV -> s).
-    row[2] = +kz * K1_qSV_a
+    # matches M13 at alpha_qSV -> s). Same two-term radial
+    # derivative as B_qP -- roadmap A.8. Both Christoffel branches
+    # carry the SAME field structure ``u_h = grad_h Phi``,
+    # ``u_z = -gamma alpha Phi``, so u_r is ``d_r Phi`` for qSV
+    # exactly as it is for qP. At n=0 that derivative happens to be
+    # proportional to K_1, which is why the single-K_1 form was
+    # correct there and is not correct here.
+    row[2] = +kz * (alpha_qSV * K0_qSV_a + K1_qSV_a / a)
     # D_SH column: SH cross-coupling via (1/r) d_theta psi_z;
     # KEEP-sign on the K_1/r term per F.1.a.2 (matches M14 at
     # alpha_SH -> s).
@@ -1720,9 +1727,9 @@ def _modal_row1_at_a_n1_vti(
 #                   + 2 C66 alpha_qP K_0(alpha_qP a) / a
 #                   + 4 C66 K_1(alpha_qP a) / a^2 )            # B_qP -> M22
 #
-#       row[2] = -k_z (  Q_qSV / alpha_qSV
-#                          * K_0(alpha_qSV a)
-#                       + 2 C66 K_1(alpha_qSV a) / a )         # C_qSV -> M23
+#       row[2] = -k_z (  Q_qSV K_1(alpha_qSV a)
+#                       + 2 C66 alpha_qSV K_0(alpha_qSV a) / a
+#                       + 4 C66 K_1(alpha_qSV a) / a^2 )       # C_qSV -> M23
 #
 #       row[3] = +2 C66 (  alpha_SH K_0(alpha_SH a) / a
 #                         + 2 K_1(alpha_SH a) / a^2 )          # D_SH -> M24
@@ -1832,9 +1839,16 @@ def _modal_row2_at_a_n1_vti(
         + 2.0 * c66 * alpha_qP * K0_qP_a / a
         + 4.0 * c66 * K1_qP_a / (a * a)
     )
-    # C_qSV column post-rescale: two-term entry with Q_qSV/alpha_qSV
-    # K_0 and 2 C66 K_1/a.
-    row[2] = -kz * (q_qSV / alpha_qSV * K0_qSV_a + 2.0 * c66 * K1_qSV_a / a)
+    # C_qSV column post-rescale: same three-term shape as B_qP with
+    # alpha_qP -> alpha_qSV and Q_qP -> Q_qSV -- roadmap A.8. The
+    # old two-term ``Q_qSV/alpha_qSV K_0 + 2 C66 K_1/a`` form is the
+    # n=0 entry with the Bessel index shifted; it does not follow
+    # from d_r Phi at n=1.
+    row[2] = -kz * (
+        q_qSV * K1_qSV_a
+        + 2.0 * c66 * alpha_qSV * K0_qSV_a / a
+        + 4.0 * c66 * K1_qSV_a / (a * a)
+    )
     # D_SH column: pure 2 C66 prefactor times (alpha_SH K_0/a +
     # 2 K_1/a^2). Distinct mechanism from B_qP / C_qSV (no Q
     # factor); the entire column scales with C66.
@@ -1882,7 +1896,8 @@ def _modal_row2_at_a_n1_vti(
 #       row[0] = 0                                          # A (no shear)
 #       row[1] = +2 C66 (alpha_qP K_0(alpha_qP a)/a
 #                        + 2 K_1(alpha_qP a)/a^2)            # B_qP -> M32
-#       row[2] = +k_z C66 K_1(alpha_qSV a) / a               # C_qSV -> M33
+#       row[2] = +2 k_z C66 (alpha_qSV K_0(alpha_qSV a)/a
+#                            + 2 K_1(alpha_qSV a)/a^2)         # C_qSV -> M33
 #       row[3] = -C66 (alpha_SH^2 K_1(alpha_SH a)
 #                      + 2 alpha_SH K_0(alpha_SH a)/a
 #                      + 4 K_1(alpha_SH a)/a^2)              # D_SH -> M34
@@ -1961,6 +1976,7 @@ def _modal_row3_at_a_n1_vti(
 
     K0_qP_a = float(special.kv(0, alpha_qP * a))
     K1_qP_a = float(special.kv(1, alpha_qP * a))
+    K0_qSV_a = float(special.kv(0, alpha_qSV * a))
     K1_qSV_a = float(special.kv(1, alpha_qSV * a))
     K0_SH_a = float(special.kv(0, alpha_SH * a))
     K1_SH_a = float(special.kv(1, alpha_SH * a))
@@ -1971,9 +1987,10 @@ def _modal_row3_at_a_n1_vti(
     # B_qP column: 2 C66 (alpha_qP K_0/a + 2 K_1/a^2). At isotropic
     # alpha_qP -> p, C66 -> mu, gives M32.
     row[1] = +2.0 * c66 * (alpha_qP * K0_qP_a / a + 2.0 * K1_qP_a / (a * a))
-    # C_qSV column post-rescale: +k_z C66 K_1/a. Matches M33 at
-    # alpha_qSV -> s, C66 -> mu.
-    row[2] = +kz * c66 * K1_qSV_a / a
+    # C_qSV column post-rescale: same shape as B_qP with alpha_qP ->
+    # alpha_qSV, times the k_z column normalisation -- roadmap A.8.
+    # Matches M33 at alpha_qSV -> s, C66 -> mu.
+    row[2] = +2.0 * kz * c66 * (alpha_qSV * K0_qSV_a / a + 2.0 * K1_qSV_a / (a * a))
     # D_SH column: -C66 (alpha_SH^2 K_1 + 2 alpha_SH K_0/a +
     # 4 K_1/a^2). The alpha_SH^2 K_1 direct term is unique to
     # row 3 -- comes from d_r [alpha_SH K_0(alpha_SH r)] =
@@ -2029,7 +2046,8 @@ def _modal_row3_at_a_n1_vti(
 #                * (alpha_qP K_0(alpha_qP a)
 #                   + K_1(alpha_qP a) / a)                  # B_qP -> M42
 #       row[2] = +C44 P_qSV / (C13 + C44)
-#                * K_1(alpha_qSV a)                         # C_qSV -> M43
+#                * (alpha_qSV K_0(alpha_qSV a)
+#                   + K_1(alpha_qSV a) / a)                  # C_qSV -> M43
 #       row[3] = -k_z C44 K_1(alpha_SH a) / a               # D_SH -> M44
 #
 # Note: the B_qP entry has the TWO-TERM ``alpha_qP K_0 + K_1/a``
@@ -2112,6 +2130,7 @@ def _modal_row4_at_a_n1_vti(
 
     K0_qP_a = float(special.kv(0, alpha_qP * a))
     K1_qP_a = float(special.kv(1, alpha_qP * a))
+    K0_qSV_a = float(special.kv(0, alpha_qSV * a))
     K1_qSV_a = float(special.kv(1, alpha_qSV * a))
     K1_SH_a = float(special.kv(1, alpha_SH * a))
 
@@ -2126,10 +2145,12 @@ def _modal_row4_at_a_n1_vti(
     # alpha_qP K_0 + K_1/a combination. At isotropic alpha_qP -> p,
     # P_qP -> 2(lambda+mu) kz^2, gives 2 mu kz (p K_0 + K_1/a) = M42.
     row[1] = +c44 * p_qP / ((c13 + c44) * kz) * (alpha_qP * K0_qP_a + K1_qP_a / a)
-    # C_qSV column post-rescale: C44 P_qSV / (C13 + C44) * K_1.
-    # At isotropic P_qSV / (C13+C44) -> (2 kz^2 - kS^2), gives
-    # mu (2 kz^2 - kS^2) K_1(sa) = M43.
-    row[2] = +c44 * p_qSV / (c13 + c44) * K1_qSV_a
+    # C_qSV column post-rescale: C44 P_qSV / (C13 + C44) times the
+    # same two-term alpha_qSV K_0 + K_1/a combination -- roadmap A.8;
+    # sigma_rz is C44 (d_z u_r + d_r u_z) and both terms carry
+    # d_r Phi, not Phi. At isotropic P_qSV / (C13+C44) ->
+    # (2 kz^2 - kS^2), gives mu (2 kz^2 - kS^2)(s K_0 + K_1/a) = M43.
+    row[2] = +c44 * p_qSV / (c13 + c44) * (alpha_qSV * K0_qSV_a + K1_qSV_a / a)
     # D_SH column post-rescale: -kz C44 K_1(alpha_SH a)/a.
     # Matches M44 at alpha_SH -> s, C44 -> mu.
     row[3] = -kz * c44 * K1_SH_a / a

@@ -80,9 +80,17 @@ def flexural_hf_slowness(vp: float, vs: float) -> float:
     Dipole flexural high-frequency phase slowness: ``1 / V_R(vp, vs)``.
 
     At high frequency the flexural mode localizes at the borehole wall and
-    propagates as a Rayleigh surface wave, so its slowness approaches the
-    (vacuum-loaded) Rayleigh slowness. The true fluid-loaded (Scholte) limit is
-    a few percent slower; this is the standard upper bound.
+    propagates as a surface wave, so this returns the (vacuum-loaded)
+    Rayleigh slowness as a reference value.
+
+    **It is not a bound on the mode.** The true high-frequency limit is the
+    fluid-loaded Scholte speed, and the gap is not small: for a
+    4000/2300 m/s formation against a 1500 m/s fluid, Scholte is 1470 m/s
+    against a Rayleigh speed of 2116 -- about 30 %. A dipole flexural
+    curve descends through ``V_R`` partway up the band and keeps going.
+    Treating this value as a ceiling is what fwap's roadmap A.2 turned out
+    to be, and it is why ``flexural_dispersion`` returned a trapped mode
+    instead of the fundamental over most of the fast-formation band.
 
     Parameters
     ----------

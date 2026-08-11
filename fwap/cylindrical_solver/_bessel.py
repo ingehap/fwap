@@ -42,6 +42,66 @@ def _k0_k1(x: float) -> tuple[float, float]:
     return float(special.kv(0, x)), float(special.kv(1, x))
 
 
+def _radial_wavenumber(alpha_squared: complex, *, leaky: bool) -> complex:
+    r"""
+    Select the physically admissible square root of ``alpha^2``.
+
+    ``alpha^2 = k_z^2 - (omega / V)^2`` has two square roots, and which
+    one is admissible depends on the branch the caller will evaluate:
+
+    * **Bound** (``leaky=False``, field ``~ K_n(alpha r) ~ e^{-alpha r}``):
+      the field must *decay* outward, so ``Re(alpha) > 0``.
+    * **Leaky** (``leaky=True``, field ``~ K_n(alpha r e^{i pi}) ~
+      e^{+alpha r}`` -- see :func:`_k_or_hankel`): the field must
+      *radiate* outward, so with the ``e^{-i omega t}`` time convention
+      the unwrapped phase must grow with ``r``, i.e. ``Im(alpha) > 0``.
+
+    These are different conditions, and ``numpy.sqrt`` implements only
+    the first: its principal branch returns ``Re(alpha) >= 0``, with
+    ``sign(Im(alpha)) = sign(Im(alpha^2))``. Since
+    ``Im(alpha^2) = 2 Re(k_z) Im(k_z)``, the principal root is outgoing
+    exactly when ``Im(k_z) >= 0`` and *incoming* below the real ``k_z``
+    axis -- which is where a complex root search seeded on that axis
+    spends part of its time.
+
+    Parameters
+    ----------
+    alpha_squared : complex
+        ``k_z^2 - (omega / V)^2`` in rad^2 / m^2.
+    leaky : bool
+        Whether the caller will evaluate this wavenumber on the leaky
+        (outgoing Hankel) branch. Use the flag from
+        :func:`_detect_leaky_branches` so the selection rule and the
+        Bessel evaluation agree inside its marginal tolerance band.
+
+    Returns
+    -------
+    complex
+        The admissible root, in rad / m.
+
+    Notes
+    -----
+    Applying this makes the complex determinant a *single* analytic
+    function of ``k_z`` across the real axis. Without it the determinant
+    jumps there: by an overall ``-1`` when only the oscillatory fluid
+    branch flips (harmless -- an overall factor does not move roots),
+    and by a ``k_z``-dependent factor when a formation branch flips,
+    which is a different function with different roots -- roadmap A.10.
+
+    Layer blocks need no such rule. They retain both ``I_n`` and
+    ``K_n``, and flipping the sign of a layer wavenumber maps that pair
+    onto a linear combination of itself; the change of basis cancels in
+    the propagator ``E(r_out) E(r_in)^{-1}``.
+    """
+    alpha = np.sqrt(complex(alpha_squared))
+    if leaky:
+        if alpha.imag < 0.0:
+            alpha = -alpha
+    elif alpha.real < 0.0:
+        alpha = -alpha
+    return complex(alpha)
+
+
 def _k_or_hankel(
     n: int, alpha: complex, r: float, *, leaky: bool
 ) -> tuple[complex, complex]:
@@ -55,27 +115,62 @@ def _k_or_hankel(
 
     Leaky branch (``leaky=True``): for outgoing-radiation BCs with
     ``e^{-i omega t}`` time convention, replace ``K_n(alpha r)``
-    with ``(pi / 2) * i^{n+1} * H_n^{(2)}(i alpha r)``. The
-    ``i^{n+1}`` constant phase factor is absorbed into the unknown
-    amplitudes of the modal determinant, but we keep it here so
-    that the BOUND limit (alpha real and positive) of the Hankel
-    formula matches the corresponding K_n value -- a structural
-    consistency check that the regression test exercises.
+    with ``(pi / 2) * i^{n+1} * H_n^{(2)}(i alpha r)``. This is
+    ``K_n`` continued one sheet counter-clockwise -- expanding the
+    Hankel function gives, for integer ``n``,
+
+        (pi/2) i^{n+1} H_n^{(2)}(i z) = (-1)^{n+1} K_n(z e^{i pi})
+                                      = -K_n(z) + i pi (-1)^n I_n(z)
+
+    (verified to 1e-17) -- so it is a single solution of the modified
+    Bessel equation, and ``K_n(z e^{i pi}) ~ e^{+z}`` rather than
+    ``e^{-z}``. At a genuinely leaky ``alpha`` that is the outgoing,
+    radially growing field the radiation condition asks for: the
+    unwrapped phase runs at ``+Im(alpha)`` rad/m, against ``-Im(alpha)``
+    for plain ``K_n(alpha r)``.
 
     Returns the same ``(K_n, K_{n+1})`` tuple shape regardless of
     branch, so the matrix-building code is identical in both
     regimes.
+
+    Notes
+    -----
+    The two returned orders are consecutive orders of *one* solution,
+    which is what callers rely on: they form radial derivatives with
+    ``d/dx K_n(x) = -K_{n+1}(x) + (n/x) K_n(x)``, and that identity
+    holds for this pair to ~1e-10 at bound, radiating and complex
+    ``alpha`` alike (see
+    ``test_k_or_hankel_leaky_pair_are_consecutive_orders_of_one_solution``).
+    Anything that changes the two slots by different factors -- for
+    instance "fixing" the branch by negating ``alpha``, which leaves the
+    caller's ``alpha`` inconsistent with the values it gets back --
+    breaks that identity and corrupts every column built from the pair.
+
+    This docstring used to claim that the bound limit of the leaky
+    formula matches ``K_n``. It does not: at real positive ``alpha``
+    the two differ by factors of 2 to 3e3, because ``K_n(z e^{i pi})``
+    is the other sheet. The property that matters is the order
+    consistency above, and it was untested until the claim was checked.
     """
     z = alpha * r
     if leaky:
-        # K_n(z) = (pi/2) i^{n+1} H_n^{(2)}(i z) by analytic
-        # continuation. Use ``ix = 1j * z`` as the Hankel argument.
-        ix = 1j * z
-        h_n = special.hankel2(n, ix)
-        h_np1 = special.hankel2(n + 1, ix)
-        phase_n = (np.pi / 2.0) * (1j ** (n + 1))
-        phase_np1 = (np.pi / 2.0) * (1j ** (n + 2))
-        return complex(phase_n * h_n), complex(phase_np1 * h_np1)
+        # Evaluated through the right-hand side of
+        #
+        #     (pi/2) i^{n+1} H_n^{(2)}(i z) = -K_n(z) + i pi (-1)^n I_n(z)
+        #
+        # rather than through ``hankel2`` directly. The two agree to
+        # 1e-16 while ``arg(i z) < pi``, which is every argument the
+        # solvers used to reach; but ``hankel2``'s branch cut sits at
+        # ``arg(i z) = pi``, and the outgoing root selected by
+        # :func:`_radial_wavenumber` crosses it below the real ``k_z``
+        # axis, where ``hankel2`` then returns the wrong sheet. ``kv``
+        # and ``iv`` have their cut on the negative real axis instead,
+        # which ``z`` does not reach in the leaky regime, so this form
+        # continues smoothly across -- roadmap A.10.
+        sign = 1.0 if n % 2 == 0 else -1.0
+        val_n = -special.kv(n, z) + 1j * np.pi * sign * special.iv(n, z)
+        val_np1 = -special.kv(n + 1, z) - 1j * np.pi * sign * special.iv(n + 1, z)
+        return complex(val_n), complex(val_np1)
     return complex(special.kv(n, z)), complex(special.kv(n + 1, z))
 
 

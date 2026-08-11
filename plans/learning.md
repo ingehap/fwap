@@ -5,6 +5,21 @@ and #64, written to change how the next batch of work is chosen. It is not a
 status file — `plans/roadmap.md` is that, and
 `plans/roadmap_1.md` is the priority snapshot. This one is about *method*.
 
+Its sibling is `plans/guides.md`, which covers the other kind of oracle:
+**published figures** rather than analytic identities. The two have different
+failure modes — an analytic oracle can be derived wrongly, a digitised figure can
+be read wrongly — and the figure work moved the project's best external tie from
+"nothing better than 5 %" to 0.04 % rms while finding three defects no analytic
+check had caught.
+
+That document's §3 explains *why* they were missed, and it follows directly from
+the energy-balance result below. A conserved quantity constrains whatever fields
+it is handed and says nothing about which solution it was handed — the same
+reason the balance holds at non-roots. So a solver returning a genuine root of
+the correct determinant, just not the requested one, satisfies every conservation
+law exactly. **Mode substitution is outside this programme's domain, not a gap
+in it.**
+
 ## The short version
 
 Five analytic oracles have been built. **Every one found something. Four of the

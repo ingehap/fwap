@@ -127,8 +127,10 @@ adding a complex-aware twin and a public marcher.
    ~8 kHz. This item previously named "Schmitt 1988 fig 4" and
    expected "the leaky bend just above the geometric cutoff";
    neither the figure number nor the bend survived contact with the
-   reference. Today's solver misses this curve by 36.8 % RMS, which
-   is the A.2 defect measured against published data.
+   reference. The solver missed this curve by 36.8 % RMS when it was
+   first digitised; after A.7/A.8 it matches at **0.37 %** over
+   2.75-17.75 kHz, and returns `NaN` above that rather than a wrong
+   root.
 2. Slow-formation regression: when `V_S < V_f`, the new code path
    is bypassed and the existing bound-mode solver answer is
    bit-identical.

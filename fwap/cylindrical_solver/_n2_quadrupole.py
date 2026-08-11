@@ -12,7 +12,10 @@ import numpy as np
 from scipy import optimize, special
 
 from fwap._common import logger
-from fwap.cylindrical_solver._bessel import _k_or_hankel
+from fwap.cylindrical_solver._bessel import (
+    _k_or_hankel,
+    _radial_wavenumber,
+)
 from fwap.cylindrical_solver._dataclasses import (
     BoreholeLayer,
     BoreholeMode,
@@ -166,21 +169,29 @@ def _modal_determinant_n2(
     # Row 1: u_r^{(f)} - u_r^{(s)} = 0 at r = a (cos(2 theta) sector).
     M11 = (F * I1Fa - 2.0 * I2Fa / a) / (rho_f * omega**2)
     M12 = p * K1pa + 2.0 * K2pa / a
-    M13 = kz * K2sa
+    # SV column (Hansen form) -- roadmap A.8. The azimuthal-only
+    # vector-potential ansatz is not a solution of the elastodynamic
+    # equations for n >= 1; the cylindrical vector Laplacian couples the
+    # radial and azimuthal components through a term proportional to n
+    # that such an ansatz has no term to cancel. This is Schmitt &
+    # Cheng's appendix column (pp. 235-236) with A = s K_{n-1} +
+    # n K_n / a, rewritten in the (K_1, K_2) pair via the K_{n+1}
+    # recurrence, with n = 2.
+    M13 = kz * (s * K1sa + 2.0 * K2sa / a)
     M14 = -2.0 * K2sa / a
 
     # Row 2: -(sigma_rr^{(s)} + P) = 0 at r = a (cos(2 theta) sector;
     # row negated for visual parallel with the n = 0 / n = 1 forms).
     M21 = -I2Fa
     M22 = -mu * (two_kz2_minus_kS2 * K2pa + 2.0 * p * K1pa / a + 12.0 * K2pa / (a * a))
-    M23 = -2.0 * kz * mu * (s * K1sa + 2.0 * K2sa / a)
+    M23 = -2.0 * kz * mu * (s * s * K2sa + s * K1sa / a + 6.0 * K2sa / (a * a))
     M24 = 4.0 * mu * (s * K1sa / a + 3.0 * K2sa / (a * a))
 
     # Row 3: sigma_r_theta^{(s)} = 0 at r = a (sin(2 theta) sector;
     # fluid carries no shear, so M31 = 0).
     M31 = 0.0
     M32 = 4.0 * mu * (p * K1pa / a + 3.0 * K2pa / (a * a))
-    M33 = 2.0 * kz * mu * K2sa / a
+    M33 = 4.0 * kz * mu * (s * K1sa / a + 3.0 * K2sa / (a * a))
     M34 = -mu * ((s * s + 12.0 / (a * a)) * K2sa + 2.0 * s * K1sa / a)
 
     # Row 4: sigma_rz^{(s)} = 0 at r = a (cos(2 theta) sector; M41 = 0
@@ -189,7 +200,7 @@ def _modal_determinant_n2(
     # (= column 3 here) by -i, leaving a real matrix.
     M41 = 0.0
     M42 = 2.0 * kz * mu * (p * K1pa + 2.0 * K2pa / a)
-    M43 = mu * (two_kz2_minus_kS2 + 3.0 / (a * a)) * K2sa
+    M43 = two_kz2_minus_kS2 * mu * (s * K1sa + 2.0 * K2sa / a)
     M44 = -2.0 * kz * mu * K2sa / a
 
     M = np.array(
@@ -267,9 +278,13 @@ def _modal_determinant_n2_complex(
     _modal_determinant_n1_complex : The n=1 sister.
     """
     kz_c = complex(kz)
-    F = np.sqrt(kz_c * kz_c - (omega / vf) ** 2)
-    p = np.sqrt(kz_c * kz_c - (omega / vp) ** 2)
-    s = np.sqrt(kz_c * kz_c - (omega / vs) ** 2)
+    # The fluid always uses I-Bessel, so the sign of F is immaterial to
+    # the physics -- but not to continuity: the oscillatory branch flips
+    # across the real k_z axis and takes the determinant's sign with it.
+    F_sq = kz_c * kz_c - (omega / vf) ** 2
+    F = _radial_wavenumber(F_sq, leaky=bool(F_sq.real < 0.0))
+    p = _radial_wavenumber(kz_c * kz_c - (omega / vp) ** 2, leaky=leaky_p)
+    s = _radial_wavenumber(kz_c * kz_c - (omega / vs) ** 2, leaky=leaky_s)
     Fa = F * a
 
     # Fluid: I-Bessel always (regular at r=0). scipy.special.iv
@@ -298,21 +313,29 @@ def _modal_determinant_n2_complex(
     # Row 1: u_r^{(f)} - u_r^{(s)} = 0 at r = a (cos(2 theta) sector).
     M11 = (F * I1Fa - 2.0 * I2Fa / a) / (rho_f * omega**2)
     M12 = p * K1pa + 2.0 * K2pa / a
-    M13 = kz_c * K2sa
+    # SV column (Hansen form) -- roadmap A.8. The azimuthal-only
+    # vector-potential ansatz is not a solution of the elastodynamic
+    # equations for n >= 1; the cylindrical vector Laplacian couples the
+    # radial and azimuthal components through a term proportional to n
+    # that such an ansatz has no term to cancel. This is Schmitt &
+    # Cheng's appendix column (pp. 235-236) with A = s K_{n-1} +
+    # n K_n / a, rewritten in the (K_1, K_2) pair via the K_{n+1}
+    # recurrence, with n = 2.
+    M13 = kz_c * (s * K1sa + 2.0 * K2sa / a)
     M14 = -2.0 * K2sa / a
 
     # Row 2: -(sigma_rr^{(s)} + P) = 0 at r = a (cos(2 theta) sector;
     # row negated for visual parallel with the n=0 / n=1 forms).
     M21 = -I2Fa
     M22 = -mu * (two_kz2_minus_kS2 * K2pa + 2.0 * p * K1pa / a + 12.0 * K2pa / (a * a))
-    M23 = -2.0 * kz_c * mu * (s * K1sa + 2.0 * K2sa / a)
+    M23 = -2.0 * kz_c * mu * (s * s * K2sa + s * K1sa / a + 6.0 * K2sa / (a * a))
     M24 = 4.0 * mu * (s * K1sa / a + 3.0 * K2sa / (a * a))
 
     # Row 3: sigma_r_theta^{(s)} = 0 at r = a (sin(2 theta) sector;
     # fluid carries no shear, M31 = 0).
     M31 = 0.0 + 0j
     M32 = 4.0 * mu * (p * K1pa / a + 3.0 * K2pa / (a * a))
-    M33 = 2.0 * kz_c * mu * K2sa / a
+    M33 = 4.0 * kz_c * mu * (s * K1sa / a + 3.0 * K2sa / (a * a))
     M34 = -mu * ((s * s + 12.0 / (a * a)) * K2sa + 2.0 * s * K1sa / a)
 
     # Row 4: sigma_rz^{(s)} = 0 at r = a (cos(2 theta) sector;
@@ -320,7 +343,7 @@ def _modal_determinant_n2_complex(
     # column-C-by-(-i) rescale as the real version.
     M41 = 0.0 + 0j
     M42 = 2.0 * kz_c * mu * (p * K1pa + 2.0 * K2pa / a)
-    M43 = mu * (two_kz2_minus_kS2 + 3.0 / (a * a)) * K2sa
+    M43 = two_kz2_minus_kS2 * mu * (s * K1sa + 2.0 * K2sa / a)
     M44 = -2.0 * kz_c * mu * K2sa / a
 
     M = np.array(
@@ -394,7 +417,6 @@ def _quadrupole_dispersion_fast_formation(
     to the determinant), so the returned
     ``BoreholeMode.attenuation_per_meter`` is ``None``.
     """
-    from fwap.cylindrical import rayleigh_speed
 
     f_arr = np.asarray(freq, dtype=float)
     n_f = f_arr.size
@@ -407,10 +429,7 @@ def _quadrupole_dispersion_fast_formation(
             slowness=slowness,
         )
 
-    vR = rayleigh_speed(vp, vs)
-    eps = 1.0e-4
-
-    def _im_det(kz: float, _omega: float) -> float:
+    def _det(kz: float, _omega: float) -> complex:
         return _modal_determinant_n2_complex(
             complex(kz, 0.0),
             _omega,
@@ -422,70 +441,17 @@ def _quadrupole_dispersion_fast_formation(
             a,
             leaky_p=False,
             leaky_s=False,
-        ).imag
+        )
 
-    def _find_root_in_bracket(
-        kz_lo: float,
-        kz_hi: float,
-        omega: float,
-    ) -> float | None:
-        try:
-            d_lo = _im_det(kz_lo, omega)
-            d_hi = _im_det(kz_hi, omega)
-            if not (np.isfinite(d_lo) and np.isfinite(d_hi)):
-                return None
-            if np.sign(d_lo) == np.sign(d_hi):
-                return None
-            return float(
-                optimize.brentq(
-                    _im_det,
-                    kz_lo,
-                    kz_hi,
-                    args=(omega,),
-                    xtol=1.0e-10,
-                )
-            )
-        except (ValueError, RuntimeError):
-            return None
+    from fwap.cylindrical_solver._n1_isotropic import (
+        _march_fast_flexural_branch,
+        _real_root_function,
+    )
 
-    # Walk high to low frequency with continuation: narrow
-    # bracket centred on the previous step's slowness first;
-    # fall back to the wide ``(1/V_S, 1/V_R)`` bracket if the
-    # narrow one fails. Mirrors the n=1 fast-formation strategy.
-    order_desc = np.argsort(-f_arr)
-    f_desc = f_arr[order_desc]
-    slowness_desc = np.full(f_desc.size, np.nan, dtype=float)
-    slowness_prev: float | None = None
-
-    for i, f in enumerate(f_desc):
-        omega = 2.0 * np.pi * float(f)
-        kz_root: float | None = None
-
-        if slowness_prev is not None:
-            kz_centre = slowness_prev * omega
-            kz_lo = max(kz_centre * 0.98, omega / vs * (1.0 + eps))
-            kz_hi = min(kz_centre * 1.02, omega / vR * (1.0 - eps))
-            if kz_hi > kz_lo:
-                kz_root = _find_root_in_bracket(kz_lo, kz_hi, omega)
-
-        if kz_root is None:
-            kz_lo = omega / vs * (1.0 + eps)
-            kz_hi = omega / vR * (1.0 - eps)
-            if kz_hi > kz_lo:
-                kz_root = _find_root_in_bracket(kz_lo, kz_hi, omega)
-
-        if kz_root is None:
-            logger.debug(
-                "_quadrupole_dispersion_fast_formation: no Im(det) "
-                "sign change at f=%.1f Hz",
-                f,
-            )
-            continue
-
-        slowness_desc[i] = kz_root / omega
-        slowness_prev = slowness_desc[i]
-
-    slowness[order_desc] = slowness_desc
+    # Roadmap A.7: at n=2 the signal is in Re(det), not Im(det).
+    # Measured rather than assumed -- see _real_root_function.
+    root_fn = _real_root_function(_det, f_arr, vs=vs, vf=vf)
+    slowness = _march_fast_flexural_branch(root_fn, f_arr, vs=vs, vf=vf)
 
     return BoreholeMode(
         name="quadrupole",
@@ -707,7 +673,6 @@ def _quadrupole_dispersion_fast_formation_layered(
     returned ``BoreholeMode.attenuation_per_meter`` is therefore
     ``None``.
     """
-    from fwap.cylindrical import rayleigh_speed
     from fwap.cylindrical_solver import _modal_determinant_n2_cased_complex
 
     f_arr = np.asarray(freq, dtype=float)
@@ -721,10 +686,7 @@ def _quadrupole_dispersion_fast_formation_layered(
             slowness=slowness,
         )
 
-    vR = rayleigh_speed(vp, vs)
-    eps = 1.0e-4
-
-    def _im_det(kz: float, _omega: float) -> float:
+    def _det(kz: float, _omega: float) -> complex:
         return _modal_determinant_n2_cased_complex(
             complex(kz, 0.0),
             _omega,
@@ -737,66 +699,26 @@ def _quadrupole_dispersion_fast_formation_layered(
             layers=layers,
             leaky_p=False,
             leaky_s=False,
-        ).imag
+        )
 
-    def _find_root_in_bracket(
-        kz_lo: float,
-        kz_hi: float,
-        omega: float,
-    ) -> float | None:
-        try:
-            d_lo = _im_det(kz_lo, omega)
-            d_hi = _im_det(kz_hi, omega)
-            if not (np.isfinite(d_lo) and np.isfinite(d_hi)):
-                return None
-            if np.sign(d_lo) == np.sign(d_hi):
-                return None
-            return float(
-                optimize.brentq(
-                    _im_det,
-                    kz_lo,
-                    kz_hi,
-                    args=(omega,),
-                    xtol=1.0e-10,
-                )
-            )
-        except (ValueError, RuntimeError):
-            return None
+    from fwap.cylindrical_solver._n1_isotropic import (
+        _FAST_FLEXURAL_MAX_CASED_ROOTS,
+        _march_fast_flexural_branch,
+        _real_root_function,
+    )
 
-    order_desc = np.argsort(-f_arr)
-    f_desc = f_arr[order_desc]
-    slowness_desc = np.full(f_desc.size, np.nan, dtype=float)
-    slowness_prev: float | None = None
-
-    for i, f in enumerate(f_desc):
-        omega = 2.0 * np.pi * float(f)
-        kz_root: float | None = None
-
-        if slowness_prev is not None:
-            kz_centre = slowness_prev * omega
-            kz_lo = max(kz_centre * 0.98, omega / vs * (1.0 + eps))
-            kz_hi = min(kz_centre * 1.02, omega / vR * (1.0 - eps))
-            if kz_hi > kz_lo:
-                kz_root = _find_root_in_bracket(kz_lo, kz_hi, omega)
-
-        if kz_root is None:
-            kz_lo = omega / vs * (1.0 + eps)
-            kz_hi = omega / vR * (1.0 - eps)
-            if kz_hi > kz_lo:
-                kz_root = _find_root_in_bracket(kz_lo, kz_hi, omega)
-
-        if kz_root is None:
-            logger.debug(
-                "_quadrupole_dispersion_fast_formation_layered: no "
-                "Im(det) sign change at f=%.1f Hz",
-                f,
-            )
-            continue
-
-        slowness_desc[i] = kz_root / omega
-        slowness_prev = slowness_desc[i]
-
-    slowness[order_desc] = slowness_desc
+    # Roadmap A.7: the n=2 signal is in Re(det). This was the whole of
+    # A.7 -- the path was tracking round-off, and the propagator chain,
+    # which the roadmap blamed, is accurate to 1e-16.
+    root_fn = _real_root_function(_det, f_arr, vs=vs, vf=vf)
+    slowness = _march_fast_flexural_branch(
+        root_fn,
+        f_arr,
+        vs=vs,
+        vf=vf,
+        exclude=tuple(layer.vs for layer in layers),
+        max_roots=_FAST_FLEXURAL_MAX_CASED_ROOTS,
+    )
 
     return BoreholeMode(
         name="quadrupole",
@@ -903,6 +825,28 @@ def quadrupole_dispersion_layered(
         contains a non-positive entry, any layer is malformed,
         or any layer fails the slow-formation constraint
         ``layer.vs >= vs`` (multi-layer only).
+
+    Notes
+    -----
+    The ``layer.vs >= vs`` constraint applies to the **multi-layer**
+    path only, exactly as in :func:`flexural_dispersion_layered`.
+    A single layer softer in shear than a slow formation -- an
+    invaded zone, which is slower than the rock it replaces -- is
+    accepted.
+
+    Until this was corrected the check ran for every layer count,
+    which made the whole invaded-zone family unrepresentable at
+    ``n = 2`` while the identical model was accepted at ``n = 1``.
+    The single-layer allowance is not a guess: Schmitt & Cheng
+    figure 15(b) plots the screw mode for this exact configuration,
+    and against the digitised curves this path returns **0.58 % rms**
+    for an 8 cm invaded zone -- better than the same solver's
+    1.29 % on the virgin rock of the same figure. See
+    ``tests/test_cylindrical_solver.py`` (figure 15b / A.6).
+
+    The correction does not touch the mode's onset, which remains
+    late by the near-cutoff margin recorded for the slow screw mode
+    (fwap 5.6 kHz against a published 3.4 kHz for the 8 cm model).
     """
     layers_tuple = tuple(layers)
     _validate_borehole_layers(layers_tuple)
@@ -949,18 +893,24 @@ def quadrupole_dispersion_layered(
             a=a,
             layers=layers_tuple,
         )
-    # Slow-formation per-layer constraint enforced upstream; reuse
-    # the n=1 helper since the constraint ``layer.vs >= vs`` is
-    # the same at n=2 (Sinha-Norris-Chang-style soft-formation
-    # bound-mode regime).
-    _validate_flexural_layers_stacked(layers_tuple, a, vs)
+    if len(layers_tuple) >= 2:
+        # Multi-layer path requires the per-layer slow-formation
+        # constraint ``layer.vs >= vs``; reuse the n=1 helper, since
+        # the constraint is the same at n=2 (Sinha-Norris-Chang-style
+        # soft-formation bound-mode regime). The single-layer path
+        # deliberately does *not* enforce it, mirroring
+        # ``flexural_dispersion_layered``: see the note in the
+        # docstring for the measurement that settled this.
+        _validate_flexural_layers_stacked(layers_tuple, a, vs)
 
     from fwap.cylindrical_solver import _modal_determinant_n2_cased
+    from fwap.cylindrical_solver._n1_layered import _slow_cased_velocity_floor
 
     # Multi-layer cased-hole brentq loop on top of
     # ``_modal_determinant_n2_cased`` (G''.c). Mirrors the
     # ``flexural_dispersion_layered`` n>=1 branch.
     slowness = np.full_like(f_arr, np.nan, dtype=float)
+    velocity_floor = _slow_cased_velocity_floor(vs, vp, rho, vf, rho_f, layers_tuple)
     for i, f in enumerate(f_arr):
         omega = 2.0 * np.pi * float(f)
 
@@ -1015,6 +965,18 @@ def quadrupole_dispersion_layered(
                 )
                 continue
             kz_root = optimize.brentq(_det, kz_lo, kz_hi, xtol=1.0e-10)
+            if omega / kz_root < velocity_floor:
+                # The expansion loop walked past the mode into the
+                # determinant's far tail; no interface mode of this
+                # geometry is slower than the Scholte speed.
+                logger.debug(
+                    "quadrupole_dispersion_layered: rejected a %.1f m/s root at "
+                    "f=%.1f Hz, below the %.1f m/s Scholte floor",
+                    omega / kz_root,
+                    f,
+                    velocity_floor,
+                )
+                continue
             slowness[i] = kz_root / omega
         except (ValueError, RuntimeError) as exc:
             logger.debug(
@@ -1023,9 +985,115 @@ def quadrupole_dispersion_layered(
                 exc,
             )
 
+    attenuation = _fill_slow_cased_leaky_n2(
+        slowness,
+        f_arr,
+        vp=vp,
+        vs=vs,
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
+        layers=layers_tuple,
+    )
+
     return BoreholeMode(
         name="quadrupole",
         azimuthal_order=2,
         freq=f_arr,
         slowness=slowness,
+        attenuation_per_meter=attenuation,
     )
+
+
+def _fill_slow_cased_leaky_n2(
+    slowness: np.ndarray,
+    f_arr: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...],
+) -> np.ndarray | None:
+    r"""
+    n=2 sister of
+    :func:`~fwap.cylindrical_solver._n1_layered._fill_slow_cased_leaky_n1`.
+
+    Roadmap A.9. Fills the frequencies where the bound n=2 layered
+    search found nothing with the leaky cased branch, in place. See the
+    n=1 twin for the physics and
+    :func:`~fwap.cylindrical_solver._leaky._march_leaky_cased_branch`
+    for the shared marcher.
+
+    This is a different window from roadmap A.7's. A.7 is about the
+    FAST-formation cased ``n = 2`` determinant, which is
+    noise-dominated -- about 90 sign changes at 12 kHz where the physics
+    supports a handful, and 430 on a fine grid even with the layer set
+    equal to the formation. The slow-formation leaky window scanned here
+    carries one to six crossings over the whole dipole band, which is a
+    mode spectrum rather than cancellation noise, so A.7 does not block
+    this path.
+
+    Parameters
+    ----------
+    slowness : ndarray, shape (n_f,)
+        Bound-path result, modified in place.
+    f_arr : ndarray, shape (n_f,)
+        Frequency grid (Hz).
+    vp, vs, rho, vf, rho_f, a : float
+        As in :func:`quadrupole_dispersion_layered`.
+    layers : tuple of BoreholeLayer
+        Annular stack, inside-out.
+
+    Returns
+    -------
+    ndarray or None
+        Attenuation (1/m), or ``None`` when the leaky branch
+        contributed nothing.
+    """
+    missing = ~np.isfinite(slowness)
+    if not layers or not missing.any():
+        return None
+    ceiling = min(vf, min(layer.vs for layer in layers))
+    if not ceiling > vs:
+        return None
+
+    from fwap.cylindrical_solver._cased import _modal_determinant_n2_cased_complex
+    from fwap.cylindrical_solver._leaky import (
+        _detect_leaky_branches,
+        _march_leaky_cased_branch,
+    )
+
+    def _det(kz: complex, omega: float) -> complex:
+        _, leaky_p, leaky_s = _detect_leaky_branches(kz, omega, vp, vs, vf)
+        return _modal_determinant_n2_cased_complex(
+            kz,
+            omega,
+            vp=vp,
+            vs=vs,
+            rho=rho,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
+            layers=layers,
+            leaky_p=leaky_p,
+            leaky_s=leaky_s,
+        )
+
+    leaky_slowness, leaky_atten = _march_leaky_cased_branch(
+        _det,
+        f_arr,
+        vs=vs,
+        ceiling=ceiling,
+        exclude=tuple(layer.vs for layer in layers),
+    )
+    fill = missing & np.isfinite(leaky_slowness)
+    if not fill.any():
+        return None
+    slowness[fill] = leaky_slowness[fill]
+    attenuation = np.full(f_arr.size, np.nan, dtype=float)
+    attenuation[fill] = leaky_atten[fill]
+    return attenuation

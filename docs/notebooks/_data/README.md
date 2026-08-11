@@ -8,23 +8,27 @@ live in this directory.
 
 **Two curves are shipped**, both traced from Schmitt & Cheng (1987):
 
-| File | Scores |
-|------|--------|
-| `schmitt_cheng_1987_fig8a_flexural_slow.csv` | **PASS** — 1.27 % RMS against `flexural_dispersion` |
-| `schmitt_cheng_1987_fig2_flexural_fast.csv`  | **FAIL** — 36.8 % RMS; expected, see below |
+| File | Scores against `flexural_dispersion` |
+|------|--------------------------------------|
+| `schmitt_cheng_1987_fig8a_flexural_slow.csv` | **PASS** — 0.04 % RMS, worst 0.15 %, 55/55 points |
+| `schmitt_cheng_1987_fig2_flexural_fast.csv`  | **PASS** — 0.37 % RMS, worst 1.37 %, 61/89 points |
+
+Both are at the digitisation floor. The fast curve scores over
+2.75-17.75 kHz only: above that the solver returns `NaN` rather than a
+wrong root, so 28 of its 89 points are unscored and **the overlay is
+silent there, not green**.
+
+These are deliberately *independent* of the reads recorded under roadmap
+A.1, which live as constants in `tests/test_cylindrical_solver.py` rather
+than as CSVs — different session, different resolution (400 dpi here),
+different tracer. They agree: this trace puts fig 2(a) at 1494 m/s at
+24.5 kHz against A.1's 1493 m/s at 24.9 kHz. Exporting A.1's constants
+into this directory instead would have made the overlay a restatement of
+a check that already exists.
 
 The rest are still wanted. Each un-digitised section of the validation
 notebook ships with the `fwap` curve only and prints a clearly-marked
 `TODO: digitise <FIGURE>` line.
-
-The fast-formation failure is roadmap A.2, not a surprise: above roughly
-10 kHz the solver's `(V_R, V_S)` search window no longer contains the
-fundamental flexural branch and the returned root is an overtone. The
-overlay is marked `known_defect=` in the notebook, which **inverts** the
-assertion rather than relaxing it — the cell fails if that curve starts
-passing, so the fix trips the marker instead of leaving a stale exemption
-behind. Raising the budget to accommodate it would have hidden the
-eventual fix as effectively as it hides the bug.
 
 **The scoring is already wired.** Dropping a CSV here needs no notebook
 edit: the section's `check_overlay(...)` call switches from printing

@@ -12,7 +12,10 @@ import numpy as np
 from scipy import optimize, special
 
 from fwap._common import logger
-from fwap.cylindrical_solver._bessel import _k_or_hankel
+from fwap.cylindrical_solver._bessel import (
+    _k_or_hankel,
+    _radial_wavenumber,
+)
 from fwap.cylindrical_solver._dataclasses import BoreholeMode, BranchSegment
 
 # =====================================================================
@@ -154,21 +157,23 @@ from fwap.cylindrical_solver._dataclasses import BoreholeMode, BranchSegment
 #
 # For each radial wavenumber ``alpha = sqrt(k_z^2 - omega^2 / V^2)``,
 # the principal-branch ``numpy.sqrt`` returns the value with
-# ``Re(alpha) >= 0``. That gives the right sign in the bound regime
-# (``alpha`` real and positive). In the leaky regime, ``alpha^2``
-# has negative real part and the principal sqrt has positive real
-# part with positive imaginary part:
+# ``Re(alpha) >= 0``. That is the *decay* condition, and it is the
+# right one in the bound regime (``alpha`` real and positive).
 #
-#     alpha = sqrt(alpha^2)  -- numpy default
-#         -> Re(alpha) >= 0, Im(alpha) >= 0.
+# The outgoing-wave condition with ``e^{-i omega t}`` time dependence
+# is a different one: ``Im(alpha) > 0``. This block used to claim the
+# principal branch satisfies it too, and it does not in general. The
+# principal root carries
 #
-# For the outgoing-wave condition with ``e^{-i omega t}`` time
-# dependence, we need ``Im(alpha) > 0`` (so ``e^{i alpha r}`` decays
-# as r grows). The numpy default already satisfies this on the
-# principal branch -- no sign flip needed. This is the cleanest
-# convention; document it explicitly because the other common
-# textbook choice (``Re(alpha) < 0``) flips the sign and uses
-# ``H_n^{(1)}``.
+#     sign(Im(alpha)) = sign(Im(alpha^2)) = sign(2 Re(k_z) Im(k_z)),
+#
+# so it is outgoing exactly while ``Im(k_z) >= 0`` and *incoming*
+# below the real ``k_z`` axis -- which is half of the plane a complex
+# root search seeded on that axis moves through. ``_radial_wavenumber``
+# applies the correct rule per branch; see its docstring, and roadmap
+# A.10 for the measurements. Document the convention explicitly
+# because the other common textbook choice (``Re(alpha) < 0``) flips
+# the sign and uses ``H_n^{(1)}``.
 #
 # Detection rule for the regime classifier (L2 below):
 #
@@ -287,9 +292,13 @@ def _modal_determinant_n0_complex(
         bound or leaky from ``(kz, omega)``.
     """
     kz_c = complex(kz)
-    F = np.sqrt(kz_c * kz_c - (omega / vf) ** 2)
-    p = np.sqrt(kz_c * kz_c - (omega / vp) ** 2)
-    s = np.sqrt(kz_c * kz_c - (omega / vs) ** 2)
+    # The fluid always uses I-Bessel, so the sign of F is immaterial to
+    # the physics -- but not to continuity: the oscillatory branch flips
+    # across the real k_z axis and takes the determinant's sign with it.
+    F_sq = kz_c * kz_c - (omega / vf) ** 2
+    F = _radial_wavenumber(F_sq, leaky=bool(F_sq.real < 0.0))
+    p = _radial_wavenumber(kz_c * kz_c - (omega / vp) ** 2, leaky=leaky_p)
+    s = _radial_wavenumber(kz_c * kz_c - (omega / vs) ** 2, leaky=leaky_s)
     Fa = F * a
 
     # Fluid: I-Bessel always (regular at r=0). scipy.special.iv
@@ -766,6 +775,400 @@ def _march_complex_dispersion_validated(
         if consecutive_invalid > max_consecutive_invalid:
             break
     return kz_curve
+
+
+# ---------------------------------------------------------------------
+# A.9 -- slow-formation cased-hole leaky branch (n >= 1)
+# ---------------------------------------------------------------------
+#
+# Roadmap A.9. Behind a stiff annulus -- steel casing, or any layer
+# much faster in shear than the rock -- the n >= 1 borehole modes of a
+# SLOW formation are faster than that formation's shear speed. The
+# formation S branch is then radiating rather than evanescent, the mode
+# leaks energy into the rock, and the real-valued bound-regime
+# determinant has no root for it at all: it is not that the solver
+# misses the mode, it is that the mode is not in the space that
+# determinant describes.
+#
+# The window is bounded below by the formation shear speed (below it
+# the mode is bound and the ordinary layered path owns it) and above by
+# ``min(V_f, min layer V_S)``: past ``V_f`` the fluid column turns
+# oscillatory, which is the fast-formation regime with its own marcher,
+# and past a layer's shear speed that layer's radial wavenumber turns
+# over and the propagator conditioning degrades.
+#
+# Structurally this is the pseudo-Rayleigh problem one azimuthal order
+# up and with a layer stack in the way, so it reuses that machinery
+# wholesale: ``_detect_leaky_branches`` for the flags,
+# ``_track_complex_root`` for the refinement, and
+# ``_march_complex_dispersion_validated`` for the continuation. What is
+# new is the seeding. The pseudo-Rayleigh driver enumerates its roots
+# from a closed-form cutoff estimate; there is no such estimate here,
+# so the seed comes from a real-``k_z`` scan of ``Im(det)``, taking the
+# SLOWEST crossing as the fundamental and marching up in frequency --
+# the same selection rule roadmap A.2 established for the
+# fast-formation branch, for the same reason.
+#
+# Two artefacts have to be excluded by name, both already known from
+# A.2: the window edges, where a radial wavenumber vanishes, and each
+# layer's own shear speed, where the layer's radial wavenumber vanishes
+# and the determinant has a sign change that is not a mode.
+
+
+#: Real-axis scan resolution when seeding the leaky cased branch. The
+#: window is a few hundred m/s wide and carries up to about six
+#: crossings at the top of the band, so this is ~2 m/s resolution.
+_LEAKY_CASED_SCAN_POINTS = 192
+
+#: Fractional margin held off both ends of the scan window.
+_LEAKY_CASED_EDGE_EPS = 5.0e-4
+
+#: Relative tolerance for calling a candidate degenerate with one of
+#: the ``exclude`` velocities, and the width of the dead band held off
+#: the window ceiling.
+#:
+#: Larger than ``_FAST_FLEXURAL_DEGENERACY_TOL`` (1e-5) on purpose, and
+#: the reason is a dimensionless one. The ceiling of this window IS a
+#: layer shear speed whenever the softest layer is slower than the
+#: fluid, so the ``exclude`` velocity and the scan edge coincide. With a
+#: tolerance tighter than the edge margin, a root pinned at
+#: ``ceiling (1 - eps)`` -- the layer's vanishing radial wavenumber, not
+#: a mode -- slips between the two and is accepted. Measured on an
+#: annulus-stiffness sweep it captured the whole answer over
+#: ``1.31 <= V_S_layer / V_S <= 1.50``, returning ``c / V_S = ceiling /
+#: V_S`` to four figures. The tolerance must therefore exceed
+#: ``_LEAKY_CASED_EDGE_EPS``.
+_LEAKY_CASED_DEGENERACY_TOL = 2.0e-3
+
+#: A seed is only accepted if the determinant at the refined root is
+#: this much smaller than 0.2 % away from it. Guards against the
+#: complex tracker settling somewhere that is not a root.
+_LEAKY_CASED_SHARPNESS = 1.0e-6
+
+#: Consecutive rejected steps the marcher walks past before giving up.
+_LEAKY_CASED_MAX_INVALID = 2
+
+#: Slack on the monotone-descent rule, as a fraction of the previous
+#: step's phase velocity. The branch descends, so a candidate faster
+#: than the last one by more than this is a different branch.
+_LEAKY_CASED_STEP_UP = 5.0e-3
+
+#: Real-axis resolution of the off-axis seed sweep, and the imaginary
+#: offsets it tries at each point as fractions of ``Re(k_z)``.
+#:
+#: The sweep is the fallback for the case the real-axis scan cannot
+#: handle: a pole far enough off the axis that its shadow there is not a
+#: usable seed. It is not a hypothetical. Over
+#: ``1.3 <= V_S_layer / V_S <= 1.5`` at ``ka = 2.5`` the scan does find
+#: its one crossing -- at 1006, 978 and 956 m/s -- but the mode is at
+#: 855, 851 and 859, and from that far away the complex tracker runs
+#: instead to the layer's own shear speed (1040.00, 1120.00, 1200.00 m/s
+#: to the digit), which is the degeneracy ``exclude`` names and rejects.
+#: Correctly rejected, and nothing left: that was A.9's recorded gap.
+#:
+#: Seeded off the axis it converges immediately, and coarsely: a single
+#: level at 5 % of ``Re(k_z)`` over 12 real points already finds all
+#: three roots to 1e-4, and the 16 x 2 grid below finds them to the
+#: same 1e-4 with margin over that. It is kept small on purpose --
+#: see ``_LEAKY_CASED_SWEEP_MAX_ATTEMPTS`` for what it costs in the
+#: case where there is nothing to find.
+#:
+#: The levels bracket the leakage this branch actually carries --
+#: ``Im(k_z) / Re(k_z)`` runs from about 11 % where it first appears to
+#: 0.4 % at the top of the band.
+_LEAKY_CASED_SEED_SWEEP_POINTS = 16
+_LEAKY_CASED_SEED_SWEEP_LEVELS = (0.03, 0.07)
+
+#: Height above the formation shear speed below which the sweep will not
+#: take a *fresh* seed, as a fraction of ``V_S``.
+#:
+#: ``V_S`` is a branch point of the determinant, and there is a pole that
+#: hugs it -- sharp to 1e-13 and carrying winding number +1, so no
+#: sharpness or root-quality test will reject it.
+#:
+#: It is not the flexural branch, which is the only claim this floor
+#: needs and the only one that survived measuring. Over 3-15 kHz it sits
+#: at 1.004-1.017 ``V_S`` non-monotonically instead of dispersing, where
+#: the flexural branch falls 953 -> 888 -> 868 -> 834 m/s over 3 -> 8
+#: kHz. Seeded on it, the monotone rule follows it and the production
+#: answer is destroyed -- measured at 17 % at 3.5 kHz.
+#:
+#: An earlier version of this note said it "ignores the casing entirely"
+#: and is "not a mode". Both are overclaimed. Swept finely through the
+#: bound/leaky crossing it moves with the annulus and is one continuous
+#: object: 814.80 m/s at ``V_S_layer / V_S = 1.10``, down through
+#: **798.86 at 1.295 -- below ``V_S``** -- and back to 808.11 at 1.41,
+#: with one turning point and ``|det|`` sharp throughout. It looks static
+#: only when sampled coarsely at stiffnesses far from the crossing.
+#:
+#: This is a floor on *seeding*, not on the answer, and the distinction
+#: is the whole design. A fixed dead band cannot separate the two,
+#: because the flexural branch itself descends into that neighbourhood at
+#: the top of the band -- A.9's 12 kHz answer is 810.4 m/s, 1.3 % above
+#: ``V_S``. It gets there by continuation, arriving along a dispersion
+#: curve from above, which is evidence a fresh seed landing in the same
+#: place does not have. So continuation stays unrestricted and only the
+#: sweep is floored.
+#:
+#: Margins at ``ka = 2.5``: the branch-point pole reaches 1.7 % above
+#: ``V_S``, the seeds actually needed are 6.3-7.4 % above it. A factor of
+#: about two either side of this threshold.
+_LEAKY_CASED_SEED_FLOOR = 0.03
+
+#: How many frequencies the sweep may be attempted at, spread across the
+#: band, before the pass gives up.
+#:
+#: The sweep exists to *start* a branch, so it needs enough attempts to
+#: land on a frequency where the mode exists -- spread across the band,
+#: not the first few, because a leaky branch can appear anywhere in it.
+#: Once one attempt succeeds, continuation owns the rest and the sweep is
+#: not called again.
+#:
+#: Uncapped this is the expensive case, not the useful one. A stack with
+#: no mode at all fails pass one everywhere, so pass two sweeps at
+#: *every* frequency -- and the surrogate generators reject exactly such
+#: stacks by the hundred. Three tests in
+#: ``tests/test_gen_surrogate_dataset.py`` measure it: 41 s before the
+#: sweep existed, 828 s with it uncapped, 82 s with this cap and the
+#: 16 x 2 grid. The whole CI job went 422 s -> 1331 s uncapped, which is
+#: what sent anyone looking. The fixture the sweep exists for is a single
+#: frequency, so no cap costs it anything -- the values it recovers are
+#: identical at every setting tried.
+_LEAKY_CASED_SWEEP_MAX_ATTEMPTS = 5
+
+
+def _march_leaky_cased_branch(
+    det_fn,
+    freq: np.ndarray,
+    *,
+    vs: float,
+    ceiling: float,
+    exclude: tuple[float, ...] = (),
+) -> tuple[np.ndarray, np.ndarray]:
+    r"""
+    Follow the fundamental leaky cased-hole branch of a slow formation.
+
+    Shared by the ``n = 1`` and ``n = 2`` layered drivers so the two
+    cannot drift apart, in the same way
+    :func:`~fwap.cylindrical_solver._n1_isotropic._march_fast_flexural_branch`
+    is shared by their bound siblings.
+
+    Parameters
+    ----------
+    det_fn : callable
+        ``det_fn(kz: complex, omega: float) -> complex``. The caller is
+        responsible for setting the formation's leaky flags, normally
+        from :func:`_detect_leaky_branches`, so the same callable is
+        valid on both sides of the shear-speed crossing.
+    freq : ndarray, shape (n,)
+        Frequencies in Hz, any order.
+    vs : float
+        Formation shear velocity (m/s); the window floor.
+    ceiling : float
+        Window ceiling (m/s), normally ``min(V_f, min layer V_S)``.
+    exclude : tuple of float, optional
+        Phase velocities at which the determinant is degenerate rather
+        than modal -- each layer's shear speed. See
+        :func:`~fwap.cylindrical_solver._n1_isotropic._march_fast_flexural_branch`
+        for why these have to be named.
+
+    Returns
+    -------
+    (ndarray, ndarray)
+        Phase slowness (s/m) from ``Re(k_z)`` and attenuation (1/m)
+        from ``Im(k_z)``, both aligned with ``freq`` and ``NaN`` where
+        the branch was not found.
+
+    Notes
+    -----
+    The returned ``k_z`` is genuinely complex: this mode radiates into
+    the formation, so unlike the fast-formation bound branch it has a
+    real attenuation rather than a numerically-zero one. ``Im(k_z)``
+    runs about 6 % of ``Re(k_z)`` where the branch first appears and
+    falls below 0.5 % at the top of the dipole band, so the leakage is
+    weak but not negligible.
+    """
+    f_arr = np.asarray(freq, dtype=float)
+    slowness = np.full(f_arr.size, np.nan, dtype=float)
+    attenuation = np.full(f_arr.size, np.nan, dtype=float)
+    if f_arr.size == 0 or not ceiling > vs:
+        return slowness, attenuation
+
+    lo = vs * (1.0 + _LEAKY_CASED_EDGE_EPS)
+    hi = ceiling * (1.0 - _LEAKY_CASED_EDGE_EPS)
+
+    def _degenerate(v: float) -> bool:
+        return any(
+            abs(v / e - 1.0) < _LEAKY_CASED_DEGENERACY_TOL for e in exclude if e > 0.0
+        )
+
+    def _valid(kz: complex, omega: float, ceiling_v: float) -> bool:
+        if not (np.isfinite(kz.real) and np.isfinite(kz.imag)):
+            return False
+        if kz.real <= 0.0 or kz.imag < 0.0:
+            # Im(k_z) < 0 is a wave growing along the borehole.
+            return False
+        v = omega / kz.real
+        # The dead band at the top keeps the window ceiling -- which is
+        # itself a branch point -- out of the accepted set.
+        if not (lo * 0.98 < v < hi * (1.0 - _LEAKY_CASED_DEGENERACY_TOL)):
+            return False
+        if v > ceiling_v:
+            return False
+        if _degenerate(v):
+            return False
+        try:
+            at = abs(det_fn(kz, omega))
+            off = abs(det_fn(kz * 1.002, omega))
+        except (ValueError, ArithmeticError, OverflowError):
+            return False
+        if not (np.isfinite(at) and np.isfinite(off)) or off == 0.0:
+            return False
+        return at < _LEAKY_CASED_SHARPNESS * off
+
+    def _refine(kz_guess: complex, omega: float, ceiling_v: float) -> complex | None:
+        root = _track_complex_root(lambda k: det_fn(k, omega), kz_guess)
+        if root is None or not _valid(root, omega, ceiling_v):
+            return None
+        return root
+
+    def _scan(omega: float, ceiling_v: float) -> complex | None:
+        """Refine the slowest real-axis ``Im(det)`` crossing in the window.
+
+        Walks from the slow end (largest ``k_z``) so the first crossing
+        accepted is the fundamental, which is the same selection rule
+        the fast-formation marcher uses and for the same reason.
+        """
+        grid = np.linspace(omega / hi, omega / lo, _LEAKY_CASED_SCAN_POINTS)
+        try:
+            vals = [det_fn(complex(k, 0.0), omega).imag for k in grid]
+        except (ValueError, ArithmeticError, OverflowError):
+            return None
+        for j in range(grid.size - 1, 0, -1):
+            a_val, b_val = vals[j], vals[j - 1]
+            if not (np.isfinite(a_val) and np.isfinite(b_val)):
+                continue
+            if a_val == 0.0 or np.sign(a_val) == np.sign(b_val):
+                continue
+            mid = complex(0.5 * (grid[j] + grid[j - 1]), 0.0)
+            root = _refine(mid, omega, ceiling_v)
+            if root is not None:
+                return root
+        return None
+
+    def _sweep(omega: float, ceiling_v: float) -> complex | None:
+        """Seed off the real axis, for the poles whose shadow on it is not
+        a usable seed.
+
+        The scan above reads ``Im(det)`` along the real axis, which finds
+        a pole through the sign change it induces there. That works while
+        the pole is close to the axis. Further off, the crossing drifts
+        away from the mode and the tracker started at it converges to
+        something else -- in the case this exists for, to the layer's own
+        shear speed, which ``exclude`` then rejects.
+
+        Seeding directly off the axis removes the dependence on that
+        shadow. The selection rule is the scan's: keep the slowest
+        accepted root, which is the fundamental.
+        """
+        best: complex | None = None
+        floor = vs * (1.0 + _LEAKY_CASED_SEED_FLOOR)
+        real_seeds = np.linspace(omega / hi, omega / lo, _LEAKY_CASED_SEED_SWEEP_POINTS)
+        for k_real in real_seeds:
+            for level in _LEAKY_CASED_SEED_SWEEP_LEVELS:
+                root = _refine(complex(k_real, level * k_real), omega, ceiling_v)
+                if root is None:
+                    continue
+                if omega / root.real < floor:
+                    # The shear branch point's own zeros live here. They
+                    # are sharp and they are not modes; see
+                    # ``_LEAKY_CASED_SEED_FLOOR``.
+                    continue
+                # Slowest = largest Re(k_z).
+                if best is None or root.real > best.real:
+                    best = root
+        return best
+
+    def _march(use_sweep: bool) -> tuple[np.ndarray, np.ndarray]:
+        out_s = np.full(f_arr.size, np.nan, dtype=float)
+        out_a = np.full(f_arr.size, np.nan, dtype=float)
+        order = np.argsort(f_arr)
+        # Attempts spread across the band rather than taken from its
+        # start: a leaky branch can appear anywhere in the band, and a
+        # stack with no branch at all must not pay for every frequency.
+        sweep_at: set[int] = set()
+        if use_sweep and order.size:
+            picks = np.linspace(
+                0, order.size - 1, min(_LEAKY_CASED_SWEEP_MAX_ATTEMPTS, order.size)
+            )
+            sweep_at = {int(order[int(round(p))]) for p in picks}
+        kz_prev: complex | None = None
+        omega_prev: float | None = None
+        misses = 0
+        for i in np.argsort(f_arr):
+            omega = 2.0 * np.pi * float(f_arr[i])
+            ceiling_v = (
+                np.inf
+                if (kz_prev is None or omega_prev is None)
+                else (omega_prev / kz_prev.real) * (1.0 + _LEAKY_CASED_STEP_UP)
+            )
+            root: complex | None = None
+            if kz_prev is not None and omega_prev is not None:
+                root = _refine(kz_prev * (omega / omega_prev), omega, ceiling_v)
+            if root is None and not (use_sweep and kz_prev is None):
+                # Skipped only where it is provably redundant: the sweep
+                # pass runs at all because pass one found nothing, and
+                # while no root has been found this pass either, the
+                # scan sees exactly what it saw then -- no previous root,
+                # so an infinite ceiling and the same window. It returned
+                # None, and would again.
+                root = _scan(omega, ceiling_v)
+            if root is None and use_sweep and int(i) in sweep_at:
+                root = _sweep(omega, ceiling_v)
+
+            if root is None:
+                logger.debug(
+                    "leaky cased marcher: no root at f=%.1f Hz in (%.1f, %.1f) m/s",
+                    omega / (2.0 * np.pi),
+                    lo,
+                    hi,
+                )
+                if kz_prev is not None:
+                    misses += 1
+                    if misses > _LEAKY_CASED_MAX_INVALID:
+                        break
+                continue
+
+            misses = 0
+            out_s[i] = root.real / omega
+            out_a[i] = root.imag
+            kz_prev = root
+            omega_prev = omega
+
+        return out_s, out_a
+
+    # The sweep is a rescue for the case where the branch never starts,
+    # and it is deliberately not used for anything else. Once the scan
+    # has found the branch anywhere in the band, continuation owns it and
+    # the remaining empty frequencies are its ends -- where the mode has
+    # left the window, not where it is hiding.
+    #
+    # Letting the sweep fill those ends instead loses the branch. Its
+    # extra reach finds the shear branch point's zeros (see
+    # ``_LEAKY_CASED_SEED_FLOOR``) at frequencies where the flexural mode
+    # has genuinely gone, the monotone-descent rule then follows that
+    # family down, and because it starts at the low-frequency end it
+    # takes the whole band with it: measured on the standard steel +
+    # cement stack it moved every already-converged frequency, by 17 %
+    # at 3.5 kHz, and ended 0.23 % above ``V_S`` instead of 1.3 %. Gating
+    # it on "pass one found nothing at all" makes that impossible by
+    # construction rather than by tuning -- where the scan succeeds, the
+    # answer is exactly what it was.
+    slowness, attenuation = _march(use_sweep=False)
+    if not np.any(np.isfinite(slowness)):
+        slowness, attenuation = _march(use_sweep=True)
+
+    return slowness, attenuation
 
 
 # ---------------------------------------------------------------------
