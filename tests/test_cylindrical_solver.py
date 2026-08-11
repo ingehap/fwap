@@ -14587,6 +14587,52 @@ def test_the_seed_sweep_leaves_a_branch_the_scan_already_found_alone():
     ), "the sweep changed a value the scan had already found"
 
 
+def test_the_seed_sweep_is_bounded_when_there_is_nothing_to_find():
+    """The cost of the sweep is paid where it cannot help, so it is capped.
+
+    A stack with no mode anywhere fails pass one at every frequency,
+    which is exactly when pass two runs -- so an uncapped sweep does its
+    full seed grid at all of them. The surrogate generators reject such
+    stacks by the hundred: three tests in
+    ``tests/test_gen_surrogate_dataset.py`` went from 41 s to 828 s, and
+    the CI job from 422 s to 1331 s.
+
+    The cap spreads a fixed number of attempts across the band rather
+    than taking the first few, because a leaky branch can appear
+    anywhere in it. This asserts the bound structurally -- by counting
+    the frequencies at which an off-axis seed is tried -- rather than
+    with a wall-clock budget, which this suite keeps out of the default
+    run.
+    """
+    from fwap.cylindrical_solver._leaky import (
+        _LEAKY_CASED_SWEEP_MAX_ATTEMPTS,
+        _march_leaky_cased_branch,
+    )
+
+    freq = np.linspace(2000.0, 12000.0, 45)
+    swept_at: set[float] = set()
+
+    def det_fn(kz: complex, omega: float) -> complex:
+        # Never a root, so pass one finds nothing and pass two runs.
+        if complex(kz).imag != 0.0:
+            swept_at.add(round(omega, 6))
+        return complex(1.0, 1.0)
+
+    slowness, attenuation = _march_leaky_cased_branch(
+        det_fn, freq, vs=800.0, ceiling=1300.0
+    )
+    assert not np.any(np.isfinite(slowness))
+    assert not np.any(np.isfinite(attenuation))
+    assert len(swept_at) <= _LEAKY_CASED_SWEEP_MAX_ATTEMPTS, (
+        f"swept at {len(swept_at)} frequencies, cap is "
+        f"{_LEAKY_CASED_SWEEP_MAX_ATTEMPTS}"
+    )
+    # Spread across the band, not clustered at its start: the lowest and
+    # highest frequencies are both tried.
+    assert min(swept_at) == pytest.approx(2.0 * np.pi * freq[0])
+    assert max(swept_at) == pytest.approx(2.0 * np.pi * freq[-1])
+
+
 def test_the_shear_branch_points_own_zeros_are_sharp_and_are_not_modes():
     """Why the sweep has a floor, and why sharpness could not supply it.
 

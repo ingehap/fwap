@@ -45,6 +45,18 @@ the project uses [Semantic Versioning](https://semver.org/).
   the top of the band, so the floor applies to *seeding* only; continuation, which
   arrives along a dispersion curve, stays unrestricted.
 
+  **Cost, because the sweep is paid where it cannot help.** A stack with no mode
+  anywhere fails pass one at every frequency, which is exactly when pass two
+  runs, so an uncapped sweep does its full seed grid at all of them — and the
+  surrogate generators reject such stacks by the hundred. Three tests in
+  `tests/test_gen_surrogate_dataset.py` went 41 s → 828 s and the CI job
+  422 s → 1331 s. The sweep now tries at most 5 frequencies, spread across the
+  band rather than taken from its start, and the grid is 16x2 rather than 24x3
+  (12 seeds already found all three gap roots to 1e-4). Pass two also skips the
+  real-axis scan while no root has been found, where it provably returns what it
+  returned in pass one. Those three tests are back to 82 s and the suite to 4:48;
+  the recovered values are identical at every setting tried.
+
   **Left open, and newly visible:** the bound side runs to 798.91 m/s at ratio
   1.26 and the leaky side starts at 857.39 at 1.28 — a 7 % step rather than a
   join. Whether the bound mode is absorbed at the shear branch point or continues

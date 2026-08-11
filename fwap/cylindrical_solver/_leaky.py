@@ -868,14 +868,16 @@ _LEAKY_CASED_STEP_UP = 5.0e-3
 #:
 #: Seeded off the axis it converges immediately, and coarsely: a single
 #: level at 5 % of ``Re(k_z)`` over 12 real points already finds all
-#: three roots to 1e-4. The grid below is 6x that, which costs nothing
-#: because it runs only where the scan has already failed.
+#: three roots to 1e-4, and the 16 x 2 grid below finds them to the
+#: same 1e-4 with margin over that. It is kept small on purpose --
+#: see ``_LEAKY_CASED_SWEEP_MAX_ATTEMPTS`` for what it costs in the
+#: case where there is nothing to find.
 #:
 #: The levels bracket the leakage this branch actually carries --
 #: ``Im(k_z) / Re(k_z)`` runs from about 11 % where it first appears to
 #: 0.4 % at the top of the band.
-_LEAKY_CASED_SEED_SWEEP_POINTS = 24
-_LEAKY_CASED_SEED_SWEEP_LEVELS = (0.02, 0.05, 0.09)
+_LEAKY_CASED_SEED_SWEEP_POINTS = 16
+_LEAKY_CASED_SEED_SWEEP_LEVELS = (0.03, 0.07)
 
 #: Height above the formation shear speed below which the sweep will not
 #: take a *fresh* seed, as a fraction of ``V_S``.
@@ -904,6 +906,27 @@ _LEAKY_CASED_SEED_SWEEP_LEVELS = (0.02, 0.05, 0.09)
 #: seeds actually needed are 6.3-7.4 % above it. A factor of about two
 #: either side of this threshold.
 _LEAKY_CASED_SEED_FLOOR = 0.03
+
+#: How many frequencies the sweep may be attempted at, spread across the
+#: band, before the pass gives up.
+#:
+#: The sweep exists to *start* a branch, so it needs enough attempts to
+#: land on a frequency where the mode exists -- spread across the band,
+#: not the first few, because a leaky branch can appear anywhere in it.
+#: Once one attempt succeeds, continuation owns the rest and the sweep is
+#: not called again.
+#:
+#: Uncapped this is the expensive case, not the useful one. A stack with
+#: no mode at all fails pass one everywhere, so pass two sweeps at
+#: *every* frequency -- and the surrogate generators reject exactly such
+#: stacks by the hundred. Three tests in
+#: ``tests/test_gen_surrogate_dataset.py`` measure it: 41 s before the
+#: sweep existed, 828 s with it uncapped, 82 s with this cap and the
+#: 16 x 2 grid. The whole CI job went 422 s -> 1331 s uncapped, which is
+#: what sent anyone looking. The fixture the sweep exists for is a single
+#: frequency, so no cap costs it anything -- the values it recovers are
+#: identical at every setting tried.
+_LEAKY_CASED_SWEEP_MAX_ATTEMPTS = 5
 
 
 def _march_leaky_cased_branch(
@@ -1061,6 +1084,16 @@ def _march_leaky_cased_branch(
     def _march(use_sweep: bool) -> tuple[np.ndarray, np.ndarray]:
         out_s = np.full(f_arr.size, np.nan, dtype=float)
         out_a = np.full(f_arr.size, np.nan, dtype=float)
+        order = np.argsort(f_arr)
+        # Attempts spread across the band rather than taken from its
+        # start: a leaky branch can appear anywhere in the band, and a
+        # stack with no branch at all must not pay for every frequency.
+        sweep_at: set[int] = set()
+        if use_sweep and order.size:
+            picks = np.linspace(
+                0, order.size - 1, min(_LEAKY_CASED_SWEEP_MAX_ATTEMPTS, order.size)
+            )
+            sweep_at = {int(order[int(round(p))]) for p in picks}
         kz_prev: complex | None = None
         omega_prev: float | None = None
         misses = 0
@@ -1074,9 +1107,15 @@ def _march_leaky_cased_branch(
             root: complex | None = None
             if kz_prev is not None and omega_prev is not None:
                 root = _refine(kz_prev * (omega / omega_prev), omega, ceiling_v)
-            if root is None:
+            if root is None and not (use_sweep and kz_prev is None):
+                # Skipped only where it is provably redundant: the sweep
+                # pass runs at all because pass one found nothing, and
+                # while no root has been found this pass either, the
+                # scan sees exactly what it saw then -- no previous root,
+                # so an infinite ceiling and the same window. It returned
+                # None, and would again.
                 root = _scan(omega, ceiling_v)
-            if root is None and use_sweep:
+            if root is None and use_sweep and int(i) in sweep_at:
                 root = _sweep(omega, ceiling_v)
 
             if root is None:
