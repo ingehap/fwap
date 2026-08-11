@@ -96,6 +96,44 @@ the project uses [Semantic Versioning](https://semver.org/).
   Schmitt (1989). This one is isotropic throughout.
 
 ### Fixed
+- **"Schmitt 1989 fig 5" is a monopole shot gather, and three other things
+  the VTI validation section claimed are also untrue.** Checked against the
+  open-access ERL precursor (Schmitt, 1988.13, *Transversely Isotropic
+  Saturated Porous Formations II*, [DSpace](https://dspace.mit.edu/handle/1721.1/75108)):
+  - **Fig 5 is not a dispersion figure.** Four monopole microseismograms
+    against time (0-6 ms, `z` = 5 m, 1 kHz source) comparing permeability
+    cases at an impermeable wall. The flexural dispersion in that report is
+    fig 22. This is the *second* time a figure number in this repository
+    turned out to name a shot gather; the first was "Schmitt 1988 fig 4".
+  - **There is no qP/qSV branch pair.** `flexural_dispersion_vti` returns
+    one `BoreholeMode`, and the literature comparison is TI against
+    *equivalent isotropic*, a different axis entirely. The
+    `..._qSV.csv` row in `_data/README.md` was an orphan no cell read.
+  - **There is no flexural splitting.** A vertical borehole in a VTI medium
+    whose symmetry axis is parallel to the borehole is azimuthally
+    isotropic, so the flexural mode has nothing to split into. Splitting
+    needs azimuthal anisotropy, which this geometry does not have.
+  - **Schmitt 1989 is poroelastic** — Biot two-phase with a permeability
+    tensor — while `flexural_dispersion_vti` is elastic. Scoring one
+    against the other would be a category error even with the right figure.
+  The geometry the section carried (C_11 23.2, C_13 9.0, C_33 18.0, C_44
+  4.0, C_66 6.0 GPa, rho 2400) was attributed to "Schmitt 1989, sect. 4
+  example"; that attribution is withdrawn and the numbers are now marked
+  unverified and illustrative, exactly as the invented shale/limestone
+  geometry in section 2 was.
+  **The elastic reference is Ellefsen, Cheng & Schmitt (1988)**, MIT ERL
+  ([DSpace](https://dspace.mit.edu/handle/1721.1/75100)), figs 2 (hard) and
+  4 (soft) — elastic VTI, symmetry axis parallel to the borehole, each
+  figure plotting the TI formation against its equivalent isotropic one, so
+  a single trace would tie both `flexural_dispersion_vti` and
+  `flexural_dispersion`.
+  **Still blocked, and recorded as blocked rather than skipped.** That
+  report states no numbers at all: constants deferred to Thomsen (1986)
+  (Green River shale; shale (5000)), and no borehole radius or fluid
+  properties anywhere — its fig 1 is a labelled schematic. The radius could
+  be inferred from the figure itself, and deliberately was not: fitting the
+  geometry to the curve the overlay then scores against is the silent refit
+  `_data/README.md` exists to prevent.
 - **A.9's recorded gap is closed, and its recorded description was wrong in both
   halves.** Over `V_S_layer / V_S` in [1.3, 1.5] at `ka = 2.5` the slow-formation
   cased dipole returned `NaN`. The note said the real-axis scan finds nothing and

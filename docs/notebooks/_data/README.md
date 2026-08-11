@@ -59,8 +59,9 @@ Suggested filenames (matching the notebook section titles):
 | `tang_cheng_2004_fig3_7_quadrupole_slow.csv` | Tang & Cheng 2004 fig 3.7                             | quadrupole, slow formation |
 | `tang_cheng_2004_fig3_10_quadrupole_fast.csv` | Tang & Cheng 2004 fig 3.10                           | quadrupole, fast formation |
 | `tang_cheng_2004_fig7_1_stoneley_cased.csv` | Tang & Cheng 2004 fig 7.1                              | cased-hole Stoneley        |
-| `schmitt_1989_fig5_flexural_vti_qP.csv` | Schmitt 1989 fig 5                                         | VTI flexural, qP branch    |
-| `schmitt_1989_fig5_flexural_vti_qSV.csv` | Schmitt 1989 fig 5                                        | VTI flexural, qSV branch   |
+| `ellefsen_cheng_schmitt_1988_fig2_flexural_vti_hard.csv` | Ellefsen/Cheng/Schmitt 1988 fig 2 | elastic VTI flexural, hard |
+| `ellefsen_cheng_schmitt_1988_fig2_flexural_iso_hard.csv` | Ellefsen/Cheng/Schmitt 1988 fig 2 | equivalent isotropic, hard |
+| `ellefsen_cheng_schmitt_1988_fig4_flexural_vti_soft.csv` | Ellefsen/Cheng/Schmitt 1988 fig 4 | elastic VTI flexural, soft |
 
 The two flexural rows were `schmitt_1988_fig4_flexural_{slow,fast}.csv`
 until the reference was actually opened. The source consulted is the
@@ -78,6 +79,28 @@ the table above because no notebook section covers them yet: **fig 7**
 fast formations in one figure) and **figs 20/21** (well-bonded cased-hole
 flexural and screw, which would give section 4 a cased-hole reference
 without needing Tang & Cheng).
+
+The VTI rows were `schmitt_1989_fig5_flexural_vti_{qP,qSV}.csv` until the
+reference was opened. In the open-access ERL precursor (Schmitt 1988.13)
+**fig 5 is a monopole microseismogram**, not a dispersion curve; that
+report's flexural dispersion is fig 22, and it is *poroelastic* while
+`flexural_dispersion_vti` is elastic. There is also no qP/qSV branch pair
+and no flexural splitting — a vertical borehole in a VTI medium with a
+vertical symmetry axis is azimuthally isotropic. The `_qSV` row was an
+orphan no notebook cell read.
+
+The elastic reference is **Ellefsen, Cheng & Schmitt (1988)**, MIT ERL
+([DSpace](https://dspace.mit.edu/handle/1721.1/75100)), figs 2 (hard) and
+4 (soft). Each plots the TI formation against its *equivalent isotropic*
+formation, so one figure ties both `flexural_dispersion_vti` and
+`flexural_dispersion`.
+
+**Blocked, not merely undone.** That report states no numbers: constants
+are deferred to Thomsen (1986) — Green River shale and shale (5000) — and
+no borehole radius or fluid properties appear anywhere in it. Deriving the
+radius from the same figure the overlay scores against would be the silent
+refit this directory exists to prevent, so the curves stay untraced until
+Thomsen's table is to hand.
 
 ## Workflow for adding an overlay
 

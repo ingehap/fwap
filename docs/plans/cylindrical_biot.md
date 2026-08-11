@@ -394,7 +394,12 @@ qualitative behaviour and can be used as a sanity prior.
 - Isotropic-collapse regression: feed `C11 = C33 = λ + 2μ`,
   `C44 = C66 = μ`, `C13 = λ` and recover the isotropic output to
   floating-point precision.
-- Schmitt 1989 fig 5: Thomsen-γ-induced flexural splitting.
+- Ellefsen, Cheng & Schmitt 1988 figs 2/4: elastic VTI flexural,
+  hard and soft, each against its equivalent isotropic formation.
+  (This item said "Schmitt 1989 fig 5: Thomsen-γ-induced flexural
+  splitting". That figure is a monopole shot gather, Schmitt 1989 is
+  poroelastic rather than elastic, and a VTI medium about a vertical
+  borehole is azimuthally isotropic so nothing splits.)
 - Norris 1990 closed-form Stoneley low-frequency limit
   `S_ST² = 1/V_f² + ρ_f / C66`.
 
@@ -443,7 +448,9 @@ References to reproduce, in order of effort:
 3. Tang & Cheng 2004 fig 3.7, 3.10 — quadrupole slow + fast
    (covers D and E).
 4. Tang & Cheng 2004 fig 7.1 — cased-hole Stoneley (covers G).
-5. Schmitt 1989 fig 5 — VTI flexural splitting (covers H).
+5. Ellefsen, Cheng & Schmitt 1988 figs 2/4 — elastic VTI flexural
+   (covers H). Blocked on Thomsen 1986's constants: the report
+   states no numbers and no borehole radius.
 
 **Validation.** The notebook itself is the validation; an `nbval`
 pytest hook fails if any cell errors or a per-curve RMS deviation
