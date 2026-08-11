@@ -373,7 +373,7 @@ def _flexural_dispersion_fast_formation_layered(
             slowness=slowness,
         )
 
-    def _im_det(kz: float, _omega: float) -> float:
+    def _det(kz: float, _omega: float) -> complex:
         return _modal_determinant_n1_cased_complex(
             complex(kz, 0.0),
             _omega,
@@ -386,15 +386,20 @@ def _flexural_dispersion_fast_formation_layered(
             layers=layers,
             leaky_p=False,
             leaky_s=False,
-        ).imag
+        )
 
     from fwap.cylindrical_solver._n1_isotropic import (
         _FAST_FLEXURAL_MAX_CASED_ROOTS,
         _march_fast_flexural_branch,
+        _real_root_function,
     )
 
+    # Roadmap A.7: which part of the determinant carries the signal is
+    # measured, not assumed. It is Im at n=1 and Re at n=2, and the
+    # n=2 path tracked the wrong one for as long as it existed.
+    root_fn = _real_root_function(_det, f_arr, vs=vs, vf=vf)
     slowness = _march_fast_flexural_branch(
-        _im_det,
+        root_fn,
         f_arr,
         vs=vs,
         vf=vf,

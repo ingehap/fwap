@@ -7,6 +7,48 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **The `n = 2` fast-formation solvers were tracking round-off** (roadmap A.7).
+  The modal determinant evaluated at real `k_z` is not complex in any useful
+  sense: it is a real quantity times a phase that does not depend on `k_z`,
+  contributed by the fixed powers of `i` the oscillatory fluid Bessel functions
+  and the row/column rescale introduce. **The parity of that phase flips with
+  azimuthal order.** At `n = 1` the determinant is imaginary, so `Im(det) = 0` is
+  the root condition; at `n = 2` it is real, and the marcher was tracking
+  `Im(det)` there — which is round-off at ~1e-16 of `|det|`.
+
+  Measured over 600 velocities at 12 kHz in the fast sandstone, the open-hole
+  `n = 2` determinant has **one** sign change in `Re` and **212** in `Im`. Both
+  drivers now pick the component that carries the signal by measuring it
+  (`_real_root_function`), so a change of convention upstream cannot silently
+  reintroduce the defect.
+
+  What this closes, all previously recorded as separate defects:
+
+  | | before | after |
+  | --- | --- | --- |
+  | figure 5a screw, fast sandstone | 8 % median, "not one within 5 %" originally | **0.16 % median, 0.43 % worst, 12/12 points** |
+  | figure 7b screw, granite | 2.60 % median, 14/72 converged | **1.63 %, 72/72** |
+  | figure 7b screw, limestone | 12.80 % median, 1/30 converged | **1.38 %, 30/30** |
+  | screw cutoff (figures 6, 14) | 8.3 kHz vs published 6.29 — 32 % high | **6.39 kHz, +1.6 %** |
+  | figure 6(b) ring band, 6.5–8.2 kHz | empty | **fully covered** |
+  | cased `n = 2`, layer = formation | NaN (marcher declined among ~90 crossings) | **reproduces the open hole to 1e-13** |
+  | grid reproducibility | two last-bit-identical grids gave different coverage | **identical coverage and values** |
+
+  **The recorded diagnosis was wrong, and so was the fix it pointed at.** A.7
+  attributed this to catastrophic cancellation in the propagator chain and named
+  the delta-matrix / Abo-Zena reformulation as the only route. The propagator is
+  fine: at `N = 1` it reproduces `E(b)` from `P E(a)` to **1e-16** in a row-scaled
+  norm, and the same 430 `Im(det)` sign changes appear in the **open-hole**
+  determinant, which has no propagator at all. The `plans/guides.md` §10b claim
+  that A.7 was governed by the dimensionless group `|s_layer| h` and therefore
+  immune to rescaling is withdrawn there.
+
+  `tests/data/cylindrical_solver_golden.npz` regenerated for
+  `n2_quadrupole_fast`, which is now reference quality rather than
+  characterisation: both values are sharp zeros of `Re(det)` (2.6e-11 and
+  1.8e-11 relative to 0.1 % away), inside `(V_f, V_S)`, descending, and
+  reproduced exactly by an independent 50 Hz grid.
+
 - **Slow-formation cased holes get their `n >= 1` modes back, as leaky ones**
   (roadmap A.9). Fixing A.8 removed a spurious bound root behind stiff annuli and
   left `flexural_dispersion_layered` / `quadrupole_dispersion_layered` returning

@@ -91,15 +91,23 @@ Regenerations to date
   solvers resolve about a kHz lower than before -- so several entries
   that used to be NaN now carry values.
 
-  ``n2_quadrupole_fast`` is the exception, and it is unchanged in
-  character: its single value (2082.2 m/s at 10 kHz, was 2084.9) is a
-  sign change of ``Im(det)`` on a determinant that is numerically
-  noise-dominated at this frequency -- the imaginary part flips sign
-  every few m/s at a magnitude of ~1e11, with no coherent structure --
-  so it is a noise crossing rather than a mode. That is roadmap A.7,
-  not A.8, and the value is characterisation rather than a reference.
-  It is now at least grid-independent, which it was not before: every
-  grid that converges returns it bit for bit.
+  ``n2_quadrupole_fast`` was the exception, and roadmap A.7 removed it
+  -- see the next entry.
+* ``n2_quadrupole_fast`` again, when roadmap A.7 corrected which part
+  of the determinant the fast-formation marcher tracks. The ``n = 2``
+  determinant at real ``k_z`` is REAL, not imaginary -- the parity of
+  its fixed phase flips with azimuthal order -- so the marcher had been
+  seeding off sign changes in round-off. The old single value
+  (2082.2 m/s at 10 kHz) was one of those.
+
+  The replacement is two values, 2305.2 m/s at 8 kHz and 1916.7 at
+  10 kHz, and unlike its predecessors this array is now reference
+  quality rather than characterisation: both are sharp zeros of
+  ``Re(det)`` (2.6e-11 and 1.8e-11 relative to the determinant 0.1 %
+  away), both lie strictly inside ``(V_f, V_S)``, the pair descends,
+  and an independent 50 Hz grid over 2-10 kHz reproduces both exactly.
+  Coverage went up because the mode's onset moved from 8.3 kHz to
+  6.4 against a published 6.29.
 """
 
 from __future__ import annotations

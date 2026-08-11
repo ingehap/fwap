@@ -2347,15 +2347,24 @@ def test_quadrupole_slow_formation_bit_identical_after_dispatch():
         )
 
 
-def test_quadrupole_fast_formation_im_det_relative_zero():
-    """In the fast-formation regime the converged ``k_z`` is real
-    and brentq targets ``Im(det) = 0``. Because the n=2
-    determinant magnitudes are ~15 orders larger than the n=1
-    sister, the absolute residual ``|Im(det)|`` at the converged
-    root can still be ~1e8 -- but it must be *relatively* tiny
-    against ``|det|`` itself (machine-precision territory). This
-    is the n=2 analogue of the n=1 local-zero check, expressed
-    as a relative residual rather than as an absolute one."""
+def test_quadrupole_fast_formation_re_det_relative_zero():
+    """In the fast-formation regime the converged ``k_z`` is real and
+    brentq targets ``Re(det) = 0`` -- **not** ``Im(det) = 0``.
+
+    Roadmap A.7. The determinant at real ``k_z`` is a real quantity
+    times a constant phase, and the parity of that phase flips with
+    azimuthal order: imaginary at ``n = 1``, real at ``n = 2``. This
+    test asserted the ``n = 1`` convention and passed only because the
+    marcher was hitting round-off crossings that happened to sit near
+    the true root.
+
+    The residual is measured against the determinant a little way OFF
+    the root, not against ``|det|`` at the root itself. The same-point
+    ratio was what this test used, and it is ill-posed: at a genuine
+    root the signal part goes to zero, so ``|det(root)|`` collapses to
+    whichever floor is larger and the ratio stops measuring anything.
+    On this rock at 50 kHz it reads 0.9998 at a root that is sharp to
+    **1e-14** against its own neighbourhood."""
     from fwap.cylindrical_solver import (
         _modal_determinant_n2_complex,
         quadrupole_dispersion,
@@ -2391,11 +2400,41 @@ def test_quadrupole_fast_formation_im_det_relative_zero():
             leaky_p=False,
             leaky_s=False,
         )
-        relative = abs(det_at_root.imag) / max(abs(det_at_root), 1.0e-300)
-        assert relative < 1.0e-12, (
-            f"Im(det)/|det| not at machine precision at converged "
-            f"root for f={res.freq[i]}: relative={relative}, "
-            f"det={det_at_root}"
+        det_off = max(
+            abs(
+                _modal_determinant_n2_complex(
+                    kz_root * 1.002,
+                    omega,
+                    vp,
+                    vs,
+                    rho,
+                    vf,
+                    rho_f,
+                    a,
+                    leaky_p=False,
+                    leaky_s=False,
+                ).real
+            ),
+            abs(
+                _modal_determinant_n2_complex(
+                    kz_root * 0.998,
+                    omega,
+                    vp,
+                    vs,
+                    rho,
+                    vf,
+                    rho_f,
+                    a,
+                    leaky_p=False,
+                    leaky_s=False,
+                ).real
+            ),
+        )
+        relative = abs(det_at_root.real) / max(det_off, 1.0e-300)
+        assert relative < 1.0e-9, (
+            f"Re(det) not a sharp zero at the converged root for "
+            f"f={res.freq[i]}: |Re(det)| = {abs(det_at_root.real):.3e} "
+            f"against {det_off:.3e} a fifth of a percent away"
         )
 
 
@@ -13641,34 +13680,21 @@ def test_modal_determinant_n2_cased_complex_layer_eq_formation_im_det_sign_match
     assert changes_unl.size >= 1
 
 
-def test_quadrupole_dispersion_layered_fast_formation_layer_eq_formation_is_silent():
-    """The cased `n=2` determinant is unusable even when the layer is
-    the formation -- which is how general the conditioning problem is.
+def test_quadrupole_dispersion_layered_fast_formation_layer_eq_formation_matches_open_hole():
+    """The oracle A.7 said could not be written, written for real.
 
-    This used to be a "soft correctness oracle that doesn't depend on
-    brentq's exact multi-root pick": with ``layer = formation`` the
-    cased dispatch had to return at least one finite slowness in the
-    bound regime. The premise no longer holds, because there is no
-    defensible multi-root pick.
+    With ``layer = formation`` -- a 1 cm annulus identical to the
+    half-space -- the cased dispatch is physically the open hole, so it
+    must return the open-hole answer. It used to return nothing: the
+    marcher, tracking ``Im(det)``, found 10 sign changes at 10 kHz and
+    33 at 14 kHz and declined to choose, and that was recorded as
+    catastrophic cancellation in the propagator chain.
 
-    Scanned across the corrected ``(V_f, V_S)`` window this
-    configuration -- a 1 cm layer identical to the half-space, i.e.
-    physically the open hole -- gives **10 sign changes at 10 kHz and
-    33 at 14 kHz**, where the open-hole determinant gives one clean
-    root. They arrive as near-duplicate pairs straddling the true value
-    (2084.0 and 2085.0 against the open hole's 2084.9), which is the
-    signature of catastrophic cancellation in the propagator chain, not
-    a mode spectrum.
-
-    So the marcher declines to choose and the path is silent here. That
-    is a deliberate trade: NaN instead of a number drawn from noise. The
-    open-hole call on the same rock is unaffected and returns the
-    branch.
-
-    If this test starts failing because finite values come back, the
-    cased determinant has been reconditioned -- the delta-matrix
-    reformulation kept as roadmap A.5 residue is the intended route --
-    and the comparison should be written for real.
+    It was not the propagator. The ``n = 2`` determinant is real, not
+    imaginary, so ``Im(det)`` was round-off and every one of those
+    crossings was noise; the propagator reproduces ``E(b)`` from
+    ``P E(a)`` to 1e-16. Tracking the part that carries the signal, the
+    cased path now reproduces the open-hole branch to **1e-13**.
     """
     from fwap.cylindrical_solver import (
         BoreholeMode,
@@ -13691,17 +13717,15 @@ def test_quadrupole_dispersion_layered_fast_formation_layer_eq_formation_is_sile
     )
     assert isinstance(res, BoreholeMode)
     assert res.attenuation_per_meter is None  # bound mode
-    assert not np.any(np.isfinite(res.slowness)), (
-        "the cased n=2 determinant is noise-dominated here; returning a "
-        "root from it would be a lottery"
-    )
+    assert np.isfinite(res.slowness).all()
 
-    # the open hole on the same rock is unaffected
     open_hole = quadrupole_dispersion(
         f, vp=g["vp"], vs=g["vs"], rho=g["rho"], vf=g["vf"], rho_f=g["rho_f"], a=g["a"]
     )
     finite = np.isfinite(open_hole.slowness)
-    assert finite.all(), "the open-hole path still resolves the branch"
+    assert finite.all(), "the open-hole path resolves the branch"
+    np.testing.assert_allclose(res.slowness, open_hole.slowness, rtol=1.0e-11)
+
     velocity = 1.0 / open_hole.slowness[finite]
     assert np.all(velocity < g["vs"])
     assert np.all(velocity > g["vf"])
@@ -18903,9 +18927,15 @@ def test_quadrupole_now_returns_the_screw_mode_in_this_fast_rock():
     Over 6.4-25 kHz the solver used to answer at nearly three quarters
     of the band, every value inside `(V_R, V_S)` and sweeping that
     window edge to edge, with **not one within 5 %** of the published
-    curve. It now tracks the published screw branch: monotone, below
-    `V_R`, and within a few percent once the separate near-cutoff onset
-    delay is allowed for.
+    curve. A.2 put it on the right branch at 8 % median. A.7 -- the
+    marcher was tracking `Im(det)` where the `n = 2` signal is in
+    `Re(det)` -- took it to **0.16 % median over all twelve tabulated
+    frequencies, 0.43 % worst**, which is inside the figure's own line
+    width.
+
+    Two points sit above `V_R`, as they must: the low-frequency end of
+    this branch is the formation shear speed, and `V_R` was never a
+    limit of it.
     """
     from fwap import quadrupole_dispersion
 
@@ -18916,17 +18946,16 @@ def test_quadrupole_now_returns_the_screw_mode_in_this_fast_rock():
     )
     finite = np.isfinite(velocity)
 
-    assert finite.sum() >= 8
+    assert finite.all(), f"expected the whole table; got {finite.sum()}"
     v_rayleigh = rayleigh_speed(_FIG2_ROCK["vp"], _FIG2_ROCK["vs"])
-    assert np.all(velocity[finite] < v_rayleigh)
+    assert np.all(velocity[finite] <= _FIG2_ROCK["vs"])
     assert np.all(velocity[finite] > _FIG2_FLUID["vf"])
     assert _descends(velocity[finite])
+    assert (velocity[finite] > v_rayleigh).sum() >= 2
 
-    # The residual here is the near-cutoff onset delay, not the branch:
-    # shifted by ~1.1 kHz the same curve matches to 1.35 %.
     error = np.abs(velocity[finite] / reference[finite] - 1.0)
-    assert error.min() < 0.05, f"closest point {100 * error.min():.1f} %"
-    assert np.median(error) < 0.08, f"median {100 * np.median(error):.1f} %"
+    assert np.median(error) < 0.004, f"median {100 * np.median(error):.2f} %"
+    assert error.max() < 0.008, f"worst {100 * error.max():.2f} %"
 
 
 # ----------------------------------------------------------------------
@@ -19188,14 +19217,18 @@ def test_the_figure_6_ring_sits_above_the_cutoff_and_the_source():
     assert _FIG5A_SCREW_CUTOFF_KHZ < _FIG5A_SCREW_PHASE[0][0] / 1e3 + 0.3
 
 
-def test_the_quadrupole_cutoff_is_far_above_the_published_one():
-    """The figure-6 finding: the mode's onset is misplaced, not just its
-    values.
+def test_the_quadrupole_cutoff_now_lands_on_the_published_one():
+    """The figure-6 finding, and its cause.
 
-    `quadrupole_dispersion` finds no root for this rock below about
-    8.3 kHz, against a published cutoff of 6.29 kHz -- 32 % high -- and
-    returns NaN at every frequency across the band where figure 6(b)
-    shows the screw mode ringing hardest.
+    `quadrupole_dispersion` used to find no root for this rock below
+    about **8.3 kHz**, against a published cutoff of 6.29 -- 32 % high --
+    and returned NaN across the whole band where figure 6(b) shows the
+    screw mode ringing hardest. That was read as a near-cutoff onset
+    defect separate from the search window.
+
+    It was neither: it was roadmap A.7, the marcher tracking the wrong
+    part of the determinant. The onset is now **6.39 kHz, +1.6 %**, and
+    the ring band is fully covered.
     """
     from fwap import quadrupole_dispersion
 
@@ -19206,32 +19239,32 @@ def test_the_quadrupole_cutoff_is_far_above_the_published_one():
     assert finite.any(), "the solver must find the mode somewhere"
 
     first = grid[finite][0] / 1e3
-    assert first > 1.2 * _FIG5A_SCREW_CUTOFF_KHZ, f"first root {first:.2f} kHz"
-    assert first > _FIG6B_RING_KHZ, "and above the frequency the waveforms ring at"
+    assert first / _FIG5A_SCREW_CUTOFF_KHZ - 1.0 < 0.05, f"first root {first:.2f} kHz"
+    assert first < _FIG6B_RING_KHZ, "and below the frequency the waveforms ring at"
 
-    # Nothing at all across the observed ring band.
+    # And the observed ring band is now fully covered.
     band = np.arange(6.5e3, 8.2e3, 100.0)
     got = 1.0 / quadrupole_dispersion(band, **_FIG2_ROCK, **fluid, a=0.10).slowness
-    assert not np.isfinite(got).any(), "the ring band comes back empty"
+    assert np.isfinite(got).all(), "the ring band resolves end to end"
 
 
-def test_quadrupole_dispersion_is_not_reproducible_across_equal_grids():
-    """The sharpest caveat in this file, and it applies to every coverage
-    number in it -- including the ones measured here.
+def test_quadrupole_dispersion_is_reproducible_across_equal_grids():
+    """The sharpest caveat in this file, now discharged.
 
     `np.arange(6.0, 20.01, 0.2) * 1e3` and
     `np.arange(6.0e3, 20.01e3, 200.0)` are the same 71 frequencies to
-    within **1.5e-11 Hz** -- last-bit floating-point rounding, a relative
-    difference of 8e-16. Handed to `quadrupole_dispersion` they return
-    **different coverage**, and disagree about whether individual
-    frequencies converge at all.
+    within **1.5e-11 Hz** -- last-bit floating-point rounding, a
+    relative difference of 8e-16. Handed to `quadrupole_dispersion`
+    they used to return **different coverage** and disagree about
+    whether individual frequencies converged at all, so coverage was a
+    property of how the caller happened to build the array rather than
+    of the rock.
 
-    The cause is the continuation marcher: it walks from high to low
-    frequency, so missing a root at one step changes everything
-    downstream. The consequence is that coverage is a property of how
-    the caller happened to build the array, not only of the rock and the
-    band, and two callers writing the same sweep two ways get different
-    NaNs.
+    That was roadmap A.7: the marcher was seeding off sign changes in
+    round-off, and which ones it found depended on the last bit of the
+    frequency. Tracking the part of the determinant that carries the
+    signal, the two grids now agree exactly -- same coverage, same
+    values.
     """
     from fwap import quadrupole_dispersion
 
@@ -19245,10 +19278,11 @@ def test_quadrupole_dispersion_is_not_reproducible_across_equal_grids():
     va = 1.0 / quadrupole_dispersion(a, **_FIG2_ROCK, **fluid, a=0.10).slowness
     vb = 1.0 / quadrupole_dispersion(b, **_FIG2_ROCK, **fluid, a=0.10).slowness
 
-    assert np.isfinite(va).sum() != np.isfinite(vb).sum(), (
-        "if this ever passes, the marcher has been made grid-stable -- good news, "
-        "and the coverage numbers in this file can then be trusted as rock properties"
-    )
+    assert np.isfinite(va).sum() == np.isfinite(vb).sum()
+    np.testing.assert_array_equal(np.isfinite(va), np.isfinite(vb))
+    finite = np.isfinite(va)
+    assert finite.sum() > 60, f"and it is nearly the whole band: {finite.sum()}/71"
+    np.testing.assert_allclose(va[finite], vb[finite], rtol=1.0e-12)
 
 
 # ----------------------------------------------------------------------
@@ -20006,38 +20040,52 @@ def test_the_dipole_goes_flat_above_3_khz_and_the_quadrupole_never_does():
     assert worst > 1.25, f"quadrupole stays sensitive: {worst}"
 
 
-def test_fwap_still_returns_no_screw_root_at_figure_14_source_frequencies():
-    """Twelve plotted wavetrains, and the A.2 fix does not reach them.
+def test_the_figure_14_screw_onset_now_reaches_the_top_source_frequency():
+    """Twelve plotted wavetrains, and A.7 reaches the top of them.
 
-    Figure 14 plots three models at four source centre frequencies. The
-    virgin fast sandstone -- the reference every panel is normalised
-    against -- still returns no root at any of the four: the corrected
-    window moves the onset down but not below 6 kHz, and the figure's
-    sources sit at or under it.
+    Figure 14 plots three models at four source centre frequencies
+    (1.5, 3.0, 6.0, 7.5 kHz). The virgin fast sandstone used to return
+    no root at any of the four, which was recorded as a near-cutoff
+    onset gap that the A.2 window fix was never going to move.
 
-    This is the near-cutoff onset gap, not the bracket. Fixing A.2 was
-    never going to move it, and the count here is a reminder of that.
+    A.7 moved it: the virgin onset is now 6.4 kHz rather than 8.4, so
+    the 7.5 kHz source resolves. The three lower sources still do not,
+    and correctly -- they are below the published 6.29 kHz cutoff, so
+    there is no trapped screw mode there to find. The invaded models,
+    being slower, cut on lower and reach further down the list.
     """
     freq = 1.0e3 * np.array(_FIG14_SOURCE_KHZ)
     virgin = _fig14_quadrupole(None, freq)
-    assert not np.any(np.isfinite(virgin)), f"expected no roots, got {virgin}"
+    resolved = np.isfinite(virgin)
+    assert resolved.sum() == 1, f"expected only the 7.5 kHz source, got {virgin}"
+    assert resolved[-1], "and it is the highest source frequency"
+    assert not resolved[:-1].any(), "the rest are below the published cutoff"
 
+    # The invaded models cut on lower, so they reach further down.
     found = sum(
         int(np.isfinite(_fig14_quadrupole(th, freq)).sum()) for th in (0.08, 0.16)
     )
-    assert found <= 6, f"{found} of 12 plotted pairs resolved"
+    assert found >= 2, f"{found} of 8 invaded pairs resolved"
 
 
-def test_the_figure_14_screw_onset_sits_above_the_whole_figure():
-    """Quantify the gap between the published band and fwap's."""
+def test_the_figure_14_screw_onset_sits_inside_the_figure():
+    """Quantify what is left of the gap between the published band and
+    fwap's, after A.7.
+
+    The virgin onset was 8.4 kHz, above every source frequency in the
+    figure. It is now 6.4, inside the figure and within 1.6 % of the
+    published 6.29 -- so the recorded onset defect was the wrong-part
+    tracking, not a separate near-cutoff problem.
+    """
     freq = np.linspace(1000.0, 15000.0, 141)
     virgin = _fig14_quadrupole(None, freq)
     ok = np.isfinite(virgin)
     assert ok.any(), "the solver resolves the mode somewhere"
     onset_khz = freq[ok].min() / 1.0e3
-    assert onset_khz == pytest.approx(_FIG14_VIRGIN_ONSET_KHZ, abs=0.6)
-    assert onset_khz > max(_FIG14_SOURCE_KHZ), (
-        f"onset {onset_khz} kHz is above every source frequency in the figure"
+    assert onset_khz < _FIG14_VIRGIN_ONSET_KHZ - 1.5, f"onset {onset_khz} kHz"
+    assert onset_khz / _FIG5A_SCREW_CUTOFF_KHZ - 1.0 < 0.05
+    assert onset_khz < max(_FIG14_SOURCE_KHZ), (
+        f"onset {onset_khz} kHz is inside the figure's source range"
     )
 
 
@@ -20094,42 +20142,47 @@ def test_the_screw_group_velocity_is_no_longer_negative():
     assert v_ok.max() < _FIG12_VIRGIN["vs"], "no run up to the V_S ceiling"
 
 
-def test_the_cased_n2_determinant_is_too_noisy_to_root_find():
-    """The limit of the A.2 fix, stated rather than papered over.
+def test_the_cased_n2_coverage_is_physical_now_that_the_right_part_is_tracked():
+    """Roadmap A.7, and the third reading of the same coverage numbers.
 
-    Figure 12's inverted coverage signal reproduced at `n = 2`: adding a
-    layer made the problem strictly harder and the solver converged on
-    strictly *more* of the band, because coverage was tracking the
-    bracket rather than the physics.
+    This measurement has now meant three different things. Before A.2,
+    adding a layer bought *more* coverage than the virgin rock, which
+    was the bracket rather than the physics. After A.2 it inverted, and
+    the layered path went near-silent: scanned across the corrected
+    window the cased `n = 2` determinant showed of order ninety sign
+    changes at 12 kHz, and the marcher declined to choose. That was
+    written up as catastrophic cancellation in the propagator chain,
+    with the delta-matrix reformulation as the only route out.
 
-    Widening the window removed the overtones and exposed why: scanned
-    across the full `(V_f, V_S)` window the **cased** `n = 2`
-    determinant has of order ninety sign changes at 12 kHz on this
-    model, where the physics supports a handful. That is numerical
-    noise from the propagator chain, not a mode spectrum, and the old
-    narrow bracket hid it by only ever looking at a sliver.
+    It was neither the bracket nor the propagator. The `n = 2`
+    determinant is REAL at real `k_z` -- the parity of the fixed phase
+    flips with azimuthal order -- so `Im(det)`, which the marcher was
+    tracking, was round-off, and every one of those crossings was
+    noise. Tracking `Re(det)` gives **one** crossing where there were
+    430 on a 1200-point grid, and the propagator itself reproduces
+    `E(b)` from `P E(a)` to 1e-16.
 
-    So the marcher refuses to pick one: past
-    `_FAST_FLEXURAL_MAX_CASED_ROOTS` crossings it reports nothing. The
-    layered `n = 2` path is therefore **quiet, not fixed** -- the
-    bracket was only one of its problems, and the remaining one is
-    conditioning, which is what the delta-matrix reformulation kept as
-    an open item (A.5 residue) is for.
-
-    The open-hole `n = 2` path shares none of this: its determinant is a
-    single 4x4 and it tracks the published screw curve.
+    Coverage now increases with an invaded zone again -- 87, 95, 102 of
+    141 for virgin, 8 cm and 16 cm -- and this time it is physics: the
+    invaded rock is slower, so the screw mode cuts on lower and more of
+    the band is inside it. The onsets say so directly, 6.40, 5.60 and
+    4.90 kHz.
     """
     freq = np.linspace(1000.0, 15000.0, 141)
-    counts = []
+    counts, onsets = [], []
     for thickness in (None, 0.08, 0.16):
         v = _fig14_quadrupole(thickness, freq)
-        counts.append(int(np.isfinite(v).sum()))
+        ok = np.isfinite(v)
+        counts.append(int(ok.sum()))
+        onsets.append(freq[ok].min() / 1.0e3)
 
-    # the inversion is gone: layering no longer buys spurious coverage
-    assert counts[0] > counts[1], f"coverage {counts}"
-    assert counts[0] > counts[2], f"coverage {counts}"
-    # and the layered path is near-silent rather than confidently wrong
-    assert max(counts[1], counts[2]) < 10, f"coverage {counts}"
+    # Coverage is high everywhere, not near-silent.
+    assert min(counts) > 80, f"coverage {counts}"
+    # It rises with invasion, and the onsets explain why: a slower
+    # altered zone lowers the cutoff.
+    assert counts[0] < counts[1] < counts[2], f"coverage {counts}"
+    assert onsets[0] > onsets[1] > onsets[2], f"onsets {onsets}"
+    assert onsets[0] == pytest.approx(6.4, abs=0.3)
 
 
 def test_the_figure_14_model_returns_no_attenuation_at_all():
@@ -21233,7 +21286,7 @@ def test_the_16cm_tie_is_recorded_as_corroborating_not_deciding():
     assert _FIG15B_CURVE_3_4_SEPARATION < 0.01
 
 
-def test_the_fast_formation_marcher_is_grid_independent_at_n1():
+def test_the_fast_formation_marcher_is_grid_independent_at_both_orders():
     """What A.2 delivered at n=1, and what A.8 changed at n=2.
 
     A dispersion solver's answer at a frequency must not depend on which
@@ -21242,14 +21295,12 @@ def test_the_fast_formation_marcher_is_grid_independent_at_n1():
     points over the same band, and grids starting anywhere from 1 to
     5 kHz, all return the same 10 kHz value to **0.000 %**.
 
-    The n=2 path used to move by a few percent with the grid. After the
-    roadmap-A.8 correction it no longer does -- every grid that
-    converges returns the same value bit for bit -- but it still drops
-    to NaN on some grids (the finest, and the lowest-starting). So the
-    n=2 fast-formation instability has changed character: it is now an
-    all-or-nothing convergence failure rather than a wandering answer,
-    which is a strictly better failure mode but still not quotable
-    coverage.
+    The n=2 path used to move by a few percent with the grid, and then
+    -- after roadmap A.8 -- to converge or not depending on the grid.
+    Roadmap A.7 removed the remaining half: it was seeding off sign
+    changes in round-off, because the `n = 2` determinant is real and
+    the marcher was tracking its imaginary part. Both orders now
+    satisfy the property exactly, on every grid.
     """
     from fwap import flexural_dispersion, quadrupole_dispersion
 
@@ -21273,15 +21324,7 @@ def test_the_fast_formation_marcher_is_grid_independent_at_n1():
         )
 
     quad = at_10khz(quadrupole_dispersion, by_density + by_start)
-    good = quad[np.isfinite(quad)]
-    assert good.size >= 2
-    # Where it converges the answer is now grid-independent too ...
-    assert np.ptp(good) / good.mean() < 1.0e-9, (
-        f"n=2 values should agree where they exist; spread {np.ptp(good):.3e}"
-    )
-    # ... but it does not converge on every grid, which is the residual
-    # n=2 fast-formation instability figure 6 recorded independently.
-    assert not np.isfinite(quad).all(), (
-        "if n=2 now converges on every grid, the instability figure 6 "
-        "recorded is gone and this test should be rewritten"
+    assert np.isfinite(quad).all(), f"n=2 lost the branch: {quad}"
+    assert np.ptp(quad) / quad.mean() < 1.0e-9, (
+        f"n=2 must not depend on the grid either; spread {np.ptp(quad):.3e} m/s"
     )

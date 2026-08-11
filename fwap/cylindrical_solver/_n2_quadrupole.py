@@ -422,7 +422,7 @@ def _quadrupole_dispersion_fast_formation(
             slowness=slowness,
         )
 
-    def _im_det(kz: float, _omega: float) -> float:
+    def _det(kz: float, _omega: float) -> complex:
         return _modal_determinant_n2_complex(
             complex(kz, 0.0),
             _omega,
@@ -434,13 +434,17 @@ def _quadrupole_dispersion_fast_formation(
             a,
             leaky_p=False,
             leaky_s=False,
-        ).imag
+        )
 
     from fwap.cylindrical_solver._n1_isotropic import (
         _march_fast_flexural_branch,
+        _real_root_function,
     )
 
-    slowness = _march_fast_flexural_branch(_im_det, f_arr, vs=vs, vf=vf)
+    # Roadmap A.7: at n=2 the signal is in Re(det), not Im(det).
+    # Measured rather than assumed -- see _real_root_function.
+    root_fn = _real_root_function(_det, f_arr, vs=vs, vf=vf)
+    slowness = _march_fast_flexural_branch(root_fn, f_arr, vs=vs, vf=vf)
 
     return BoreholeMode(
         name="quadrupole",
@@ -675,7 +679,7 @@ def _quadrupole_dispersion_fast_formation_layered(
             slowness=slowness,
         )
 
-    def _im_det(kz: float, _omega: float) -> float:
+    def _det(kz: float, _omega: float) -> complex:
         return _modal_determinant_n2_cased_complex(
             complex(kz, 0.0),
             _omega,
@@ -688,15 +692,20 @@ def _quadrupole_dispersion_fast_formation_layered(
             layers=layers,
             leaky_p=False,
             leaky_s=False,
-        ).imag
+        )
 
     from fwap.cylindrical_solver._n1_isotropic import (
         _FAST_FLEXURAL_MAX_CASED_ROOTS,
         _march_fast_flexural_branch,
+        _real_root_function,
     )
 
+    # Roadmap A.7: the n=2 signal is in Re(det). This was the whole of
+    # A.7 -- the path was tracking round-off, and the propagator chain,
+    # which the roadmap blamed, is accurate to 1e-16.
+    root_fn = _real_root_function(_det, f_arr, vs=vs, vf=vf)
     slowness = _march_fast_flexural_branch(
-        _im_det,
+        root_fn,
         f_arr,
         vs=vs,
         vf=vf,
