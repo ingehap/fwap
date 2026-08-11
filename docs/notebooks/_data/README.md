@@ -6,9 +6,29 @@ live in this directory.
 
 ## Status
 
-Empty until reference curves are digitised. Each section of the
-validation notebook ships with the `fwap` curve only and prints a
-clearly-marked `TODO: digitise <FIGURE>` line.
+**Two curves are shipped**, both traced from Schmitt & Cheng (1987):
+
+| File | Scores against `flexural_dispersion` |
+|------|--------------------------------------|
+| `schmitt_cheng_1987_fig8a_flexural_slow.csv` | **PASS** — 0.04 % RMS, worst 0.15 %, 55/55 points |
+| `schmitt_cheng_1987_fig2_flexural_fast.csv`  | **PASS** — 0.37 % RMS, worst 1.37 %, 61/89 points |
+
+Both are at the digitisation floor. The fast curve scores over
+2.75-17.75 kHz only: above that the solver returns `NaN` rather than a
+wrong root, so 28 of its 89 points are unscored and **the overlay is
+silent there, not green**.
+
+These are deliberately *independent* of the reads recorded under roadmap
+A.1, which live as constants in `tests/test_cylindrical_solver.py` rather
+than as CSVs — different session, different resolution (400 dpi here),
+different tracer. They agree: this trace puts fig 2(a) at 1494 m/s at
+24.5 kHz against A.1's 1493 m/s at 24.9 kHz. Exporting A.1's constants
+into this directory instead would have made the overlay a restatement of
+a check that already exists.
+
+The rest are still wanted. Each un-digitised section of the validation
+notebook ships with the `fwap` curve only and prints a clearly-marked
+`TODO: digitise <FIGURE>` line.
 
 **The scoring is already wired.** Dropping a CSV here needs no notebook
 edit: the section's `check_overlay(...)` call switches from printing
@@ -34,13 +54,30 @@ Suggested filenames (matching the notebook section titles):
 |---------------------------------------|--------------------------------------------------------------|----------------------------|
 | `paillet_cheng_1991_fig4_5_stoneley.csv`   | Paillet & Cheng 1991 fig 4.5                          | Stoneley, limestone        |
 | `paillet_cheng_1991_fig4_5_pseudo_rayleigh.csv` | Paillet & Cheng 1991 fig 4.5                     | pseudo-Rayleigh, limestone |
-| `schmitt_1988_fig4_flexural_slow.csv` | Schmitt 1988 fig 4                                           | flexural, slow formation   |
-| `schmitt_1988_fig4_flexural_fast.csv` | Schmitt 1988 fig 4                                           | flexural, fast formation   |
+| `schmitt_cheng_1987_fig8a_flexural_slow.csv` | Schmitt & Cheng 1987 fig 8(a) *(shipped)*             | flexural, slow sandstone   |
+| `schmitt_cheng_1987_fig2_flexural_fast.csv` | Schmitt & Cheng 1987 fig 2(a) *(shipped)*             | flexural, fast sandstone   |
 | `tang_cheng_2004_fig3_7_quadrupole_slow.csv` | Tang & Cheng 2004 fig 3.7                             | quadrupole, slow formation |
 | `tang_cheng_2004_fig3_10_quadrupole_fast.csv` | Tang & Cheng 2004 fig 3.10                           | quadrupole, fast formation |
 | `tang_cheng_2004_fig7_1_stoneley_cased.csv` | Tang & Cheng 2004 fig 7.1                              | cased-hole Stoneley        |
 | `schmitt_1989_fig5_flexural_vti_qP.csv` | Schmitt 1989 fig 5                                         | VTI flexural, qP branch    |
 | `schmitt_1989_fig5_flexural_vti_qSV.csv` | Schmitt 1989 fig 5                                        | VTI flexural, qSV branch   |
+
+The two flexural rows were `schmitt_1988_fig4_flexural_{slow,fast}.csv`
+until the reference was actually opened. The source consulted is the
+open-access MIT ERL precursor, Schmitt & Cheng (1987) report 1987.8
+([DSpace](https://dspace.mit.edu/handle/1721.1/121148)), whose **fig 4
+is a time-domain shot gather, not a dispersion curve**. Its flexural
+dispersion lives in fig 2(a) (fast sandstone) and fig 8(a) (slow
+sandstone). The 1988 JASA article is paywalled and was not consulted, so
+its own figure numbering is unverified — hence filenames that name the
+document actually traced.
+
+Two further figures in that report are worth digitising and are not in
+the table above because no notebook section covers them yet: **fig 7**
+(flexural and screw for granite, limestone and fast sandstone — three
+fast formations in one figure) and **figs 20/21** (well-bonded cased-hole
+flexural and screw, which would give section 4 a cased-hole reference
+without needing Tang & Cheng).
 
 ## Workflow for adding an overlay
 

@@ -1720,8 +1720,9 @@ from fwap.cylindrical_solver._dataclasses import BoreholeMode
 #     s^2 = omega^2 (1/V^2 - 1/V_S^2).
 #
 # Defining ``xi = (V / V_S)^2`` and ``a_PS^2 = (V_S / V_P)^2``,
-# substituting and simplifying with the Mathematica-grade algebra
-# in Schmitt (1988) eq. 24-26 yields
+# substituting and simplifying (see Paillet & Cheng 1991 sect. 4.2;
+# the equation-number pointer that used to sit here was wrong --
+# see the References note below) yields
 #
 #     (2 - xi)^2 = 4 * sqrt( (1 - xi * a_PS^2) * (1 - xi) ),
 #
@@ -1762,9 +1763,10 @@ from fwap.cylindrical_solver._dataclasses import BoreholeMode
 # What this comment does *not* establish:
 #
 #   * Algebraic execution of the row-reduction steps from the 3x3
-#     to the 2x2. That reduction is in Schmitt (1988) eqs. 24-26
-#     and Paillet & Cheng (1991) sect. 4.2; reproducing it here
-#     adds zero value over a pointer.
+#     to the 2x2. Paillet & Cheng (1991) sect. 4.2 carries that
+#     reduction; reproducing it here adds zero value over a
+#     pointer. This used to cite "Schmitt (1988) eqs. 24-26"
+#     alongside it, which is withdrawn -- see References.
 #   * Quantitative reproduction of any specific dispersion-curve
 #     value. That belongs to substep 1.8 + Step 4's published-
 #     curve match against Paillet & Cheng 1991 fig. 4.5.
@@ -1772,12 +1774,26 @@ from fwap.cylindrical_solver._dataclasses import BoreholeMode
 # References
 # ----------
 # * Schmitt, D. P. (1988). Shear wave logging in elastic
-#   formations. *J. Acoust. Soc. Am.* 84(6), 2215-2229. Eqs.
-#   24-26 give the high-frequency reduction of the dipole modal
-#   determinant to the Rayleigh secular equation.
+#   formations. *J. Acoust. Soc. Am.* 84(6), 2215-2229.
+#   *This citation used to add "Eqs. 24-26 give the high-frequency
+#   reduction of the dipole modal determinant to the Rayleigh
+#   secular equation." That claim is withdrawn.* In the companion
+#   ERL report (Schmitt & Cheng 1987, 1987.8, pp. 220-221) those
+#   numbers are the Thomson-Haskell propagator product (24), the
+#   6x6 ``H`` assembly (25) and the borehole-wall boundary
+#   conditions (26) -- layer propagation and matrix assembly, with
+#   no Rayleigh secular equation nearby. That report is the
+#   document every other "fig N" in this repository turned out to
+#   mean, and this pointer arrived with the same page range that
+#   was wrong, so the likeliest reading is that the equation
+#   numbers are mis-sourced the same way. **Not proven**: the JASA
+#   article is paywalled and its own numbering is unverified, so
+#   the numbers are dropped rather than corrected. The reduction
+#   itself is not in doubt -- Paillet & Cheng carry it.
 # * Paillet, F. L., & Cheng, C. H. (1991). *Acoustic Waves in
 #   Boreholes*, Sect. 4.2 (high-frequency asymptotic forms of
-#   the cylindrical-mode dispersion equation).
+#   the cylindrical-mode dispersion equation). The pointer for the
+#   row reduction above.
 # * Rayleigh, Lord (1885). On waves propagating along the plane
 #   surface of an elastic solid. *Proc. London Math. Soc.* 17,
 #   4-11 (the secular equation itself).

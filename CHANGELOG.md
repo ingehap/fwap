@@ -541,6 +541,14 @@ the project uses [Semantic Versioning](https://semver.org/).
   and 10/28. A mode-identification criterion is needed, and shipping a
   half-validated change to a physics solver is worse than shipping the
   measurement.
+  **This entry is scoped to its own rock and stays open on that basis.** On
+  table 1's fast sandstone (4878/2601/2160) the defect was measured against
+  the digitised Schmitt & Cheng fig 2(a) curve at **36.79 % RMS** — and then
+  A.7/A.8 landed and the same comparison came back at **0.37 %**. So that
+  configuration is fixed. The rock this item is written against
+  (4000/2300/2500) is a different one, its three tests still pass, and
+  nothing here has been measured on it since; do not read the fig 2(a)
+  result as closing the item.
   Slow formations are unaffected — this is the fast-formation path only.
   **This corrects the item's own diagnosis**, which said "a fix means
   complex-plane root tracking". Neither defect above involves complex `k_z` at
@@ -986,6 +994,71 @@ the project uses [Semantic Versioning](https://semver.org/).
   Stoneley's tie an order of magnitude tighter than the shear modes'.
 
 ### Fixed
+- **The "Schmitt (1988) eqs. 24-26" pointer in `_n1_isotropic.py` is
+  withdrawn.** Three places said those equations give the high-frequency
+  reduction of the dipole modal determinant to the Rayleigh secular
+  equation. In the companion ERL report (Schmitt & Cheng 1987, pp. 220-221)
+  they are the Thomson-Haskell propagator product (24), the 6x6 `H` assembly
+  (25) and the borehole-wall boundary conditions (26) — layer propagation
+  and matrix assembly, with no Rayleigh secular equation anywhere near them.
+  That report is the document every other "fig N" in this repository turned
+  out to mean, and this pointer arrived carrying the same wrong page range,
+  so the likeliest reading is that the equation numbers are mis-sourced the
+  same way.
+  **Not proven, and deliberately not "corrected".** The JASA article is
+  paywalled and its own numbering is unverified, so the numbers are dropped
+  rather than replaced with a guess. The reduction itself is not in doubt —
+  Paillet & Cheng (1991) sect. 4.2 carries it and remains the pointer. This
+  was the last item the earlier citation fix had to leave open.
+- **Validation-notebook section 2 cited a figure that is not a dispersion
+  curve, and a geometry that does not exist.** It named "Schmitt 1988
+  fig 4" and quoted parameters attributed to that paper's table 1 — a
+  "shale" at 2740/1280/2400 and a "limestone" at 4900/2840/2700. Opening
+  the reference: **fig 4 is a time-domain shot gather** (dipole, fast
+  sandstone, 1 kHz and 6 kHz source centre frequency), and table 1 has no
+  shale row at all. Its rocks are fast sandstone 4878/2601/2160, slow
+  sandstone 2751/1201/2100, limestone 5081/2771/2160 and granite
+  5881/3750/2160 — so both quoted formations were approximations of rows
+  that were already there, off by up to 8 % in `V_S` and 25 % in density.
+  The flexural dispersion curves are **fig 2(a)** (fast sandstone) and
+  **fig 8(a)** (slow sandstone). Section 2 now uses those, under table 1's
+  own numbers, and is named for the document actually consulted —
+  Schmitt & Cheng (1987) — since the 1988 JASA numbering is paywalled and
+  remains unverified.
+  **The notebook had already drifted from the roadmap on this.** A.1 knew
+  fig 4 was a shot gather and had identified fig 2a; section 2 carried the
+  first half of that ("the overlay it asks for cannot exist") and not the
+  second, telling the reader "which Schmitt (1988) figure carries the
+  flexural dispersion curves is **not known**" and keeping the invented
+  geometry underneath it. Two documents, opposite answers, same repository.
+  Corrected in the notebook, in
+  `docs/notebooks/_data/README.md` and in `docs/plans/cylindrical_biot.md`
+  (both the plan-B validation bullet and the plan-I reference list).
+  The plan-B bullet also predicted "the leaky bend just above the geometric
+  cutoff" in that figure. There is no bend and no cutoff; see the Added
+  entry above.
+- **The Schmitt (1988) citation carried another paper's page range.** Every
+  reference to "Shear wave logging in elastic formations" outside
+  `fwap/validation.py` gave it as *J. Acoust. Soc. Am.* 84(6), **2230-2244**.
+  That is a different article: JASA 84(6) carries three Schmitt papers back to
+  back — 2200-2214 *Effects of radial layering when logging in saturated porous
+  formations* (Schmitt), **2215-2229 *Shear wave logging in elastic
+  formations*** (Schmitt, the one this package builds on, DOI 10.1121/1.397015),
+  and 2230-2244 *Shear wave logging in semi-infinite saturated porous
+  formations* (Schmitt, Zhu & Cheng). So the citation paired the elastic paper's
+  title and author with the porous paper's pages, pointing anyone chasing the
+  `n=1` modal determinant at a Biot two-phase paper instead.
+  Corrected in all thirteen places (`fwap/synthetic.py`, `fwap/dispersion.py`,
+  `fwap/cylindrical.py`, `fwap/cylindrical_solver/{__init__,_n1_isotropic,`
+  `_leaky}.py`, `scripts/gen_surrogate_dataset.py`, `plans/roadmap.md`,
+  `docs/plans/cylindrical_biot_G_prime.md`); `fwap/validation.py` was already
+  right. The title is also unhyphenated as published ("Shear wave logging", not
+  "Shear-wave logging") so all fourteen sites now read identically.
+  **Not verified:** `_n1_isotropic.py` attributes the high-frequency Rayleigh
+  reduction to "Eqs. 24-26" of that paper. The paper is paywalled and
+  unavailable here, so the equation numbers stand as they were — if they were
+  copied from the same source as the page range they may point into the wrong
+  article too.
 - **The flexural high-frequency test was anchored to the wrong reference**
   (roadmap A.1). `test_flexural_high_f_slowness_above_inverse_rayleigh` compared
   the modal `n=1` slowness against `rayleigh_speed` with `rel=0.10`. The
@@ -1001,6 +1074,62 @@ the project uses [Semantic Versioning](https://semver.org/).
   did not exist yet.
 
 ### Added
+- **The validation notebook's overlay path has reference data in it for the
+  first time.** A.1 digitised figures 1a, 2a, 7a, 8a, 12, 20 and 21 into
+  test constants; none of them reached `docs/notebooks/_data/`, so
+  `check_overlay` had still never scored anything. Two curves now live
+  there, traced independently at 400 dpi from Schmitt & Cheng (1987) 1987.8
+  ([DSpace](https://dspace.mit.edu/handle/1721.1/121148)), geometry from
+  that report's table 1 verbatim:
+  - `schmitt_cheng_1987_fig8a_flexural_slow.csv` — slow sandstone
+    (2751/1201/2100), 55 points over 1.25-14.75 kHz. **PASS at 0.04 % RMS**,
+    worst point 0.15 %, 55/55 points scored.
+  - `schmitt_cheng_1987_fig2_flexural_fast.csv` — fast sandstone
+    (4878/2601/2160), 89 points over 2.5-24.5 kHz. **PASS at 0.37 % RMS**,
+    worst point 1.37 %, over 2.75-17.75 kHz. Above 17.75 kHz the solver
+    returns `NaN` rather than a wrong root, which leaves 28 of the 89
+    reference points unscored — the overlay is silent there, not green.
+  Both are **independent of A.1's reads**, which is the point of shipping
+  them rather than exporting the test constants: different session,
+  different resolution, different tracer. They agree — this trace puts fig
+  2(a) at 1494 m/s at 24.5 kHz against A.1's 1493 at 24.9 kHz.
+  Tracing was calibrated on the plot frame and axis ticks alone, and both
+  curves' low-frequency limits then landed on table 1's `V_S` to **+0.01 %**
+  (fast) and **+0.06 %** (slow) — an independent check, since `V_S` was not
+  used in the tracing. That the slow curve also matches with the borehole
+  radius left at `a` = 0.10 m corroborates the geometry, which the figure
+  captions give only in passing.
+- **What Schmitt & Cheng fig 2(a) adds to A.2's settled question.** A.1
+  established from fig 4 — the shot gather — that a fast formation carries a
+  strong coherent dipole arrival at 1 kHz where `flexural_dispersion`
+  returned `NaN`. Fig 2(a) says the same thing in the frequency domain and
+  more sharply: the fundamental flexural branch has **no cutoff**, running
+  continuously from 2.4 kHz (the lowest frequency plotted) at `V_S` = 1.734
+  `V_f` down to 0.996 `V_f` at 24.5 kHz, while the *first trapped* mode,
+  curve (2), is the one that begins abruptly at ~8 kHz. The alternative an
+  earlier entry floated — "possibly there is no pole at all, the mode
+  existing only above its cutoff with the low-frequency dipole energy
+  travelling as a shear head wave" — is **wrong**.
+  Still not settled: whether the pole leaves the real axis. Every layer in
+  table 1 carries a finite `Q`, so the published attenuation mixes intrinsic
+  with radiation loss and cannot separate them. Suggestive only — flexural
+  attenuation sits at the `Q_beta` = 60 intrinsic floor (1/Q x 100 = 1.67)
+  at low frequency and rises to ~5.3 near 5 kHz, roughly 3x the floor. And
+  the curve is truncated at 2.4 kHz rather than continuing to zero; whether
+  that is Schmitt's plotting choice or his own root-finder's limit is not
+  visible from the figure.
+- **A `known_defect=` marker was added to `check_overlay` and removed again
+  in the same branch, having done its job.** The fast overlay shipped marked
+  as an expected failure: at the time it missed fig 2(a) by 36.79 % RMS,
+  which was roadmap A.2 measured against published data instead of against
+  itself. The marker *inverted* the budget assertion rather than relaxing
+  it — the cell failed if the curve started passing — on the reasoning that
+  raising the budget to 40 % would hide the eventual fix as effectively as
+  it hides the bug. Merging A.7/A.8 fixed that configuration, the marker
+  tripped exactly as designed, and it is gone along with the exemption.
+  Recorded because the alternative would have left a stale 40 % budget
+  sitting in the notebook, quietly passing, for however long it took anyone
+  to re-check.
 - **The flexural mode is tied to the plane Scholte speed** (roadmap A.1). The
   argument the `n=2` block already rests on — at short wavelength the borehole
   wall looks flat to *every* azimuthal order — had never been applied to `n=1`,
