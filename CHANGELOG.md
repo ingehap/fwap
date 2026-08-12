@@ -159,6 +159,15 @@ the project uses [Semantic Versioning](https://semver.org/).
   - **"figs 3.7 / 3.10 — quadrupole slow + fast"**: both figures exist and
     neither is a dispersion curve. **Fig 3.7 is waveform matching, fig 3.10
     is acoustic time delay**, and chapter 3 is a *processing* chapter.
+  **The nearest candidate for the quadrupole section has since been located
+  and is not usable either.** Chapter 2 carries **fig 2.11, "Analysis of
+  dipole and quadrupole waves in the logging-while-drilling
+  configuration"** — a **figure of principle**, schematic rather than a
+  quantitative dispersion curve, so nothing in the
+  `freq_hz, slowness_s_per_m` schema can come out of it. Quadrupole
+  dispersion therefore needs a source outside Tang & Cheng (2004)
+  entirely; that search is closed rather than merely open. For cased-hole
+  Stoneley no candidate has been identified in that book at all.
   Withdrawn in nineteen places across `fwap/cylindrical_solver/`
   (`_cased.py`, `_n0_layered.py`, `_n1_layered.py`, `_n2_quadrupole.py`),
   `tests/test_cylindrical_solver.py`, `plans/roadmap.md`, four

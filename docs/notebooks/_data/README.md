@@ -146,9 +146,18 @@ shale at `V_Sv` 1768 > `V_f` 1500. That curve waits in
   neither is a dispersion curve. Fig 3.7 is waveform matching, fig 3.10 is
   acoustic time delay; chapter 3 is a *processing* chapter.
 
-Both were confirmed against a physical copy. No replacement figure numbers
-are asserted, because nobody has read the relevant chapters — inventing a
-plausible-looking pointer is how this started.
+Both were confirmed against a physical copy.
+
+**The nearest candidate for the quadrupole section has since been located,
+and it is not usable either**: fig 2.11, *"Analysis of dipole and
+quadrupole waves in the logging-while-drilling configuration"*, in
+chapter 2. It is a **figure of principle** — schematic, not a quantitative
+dispersion curve — so nothing in the `freq_hz, slowness_s_per_m` schema can
+come out of it. Quadrupole dispersion needs a source other than Tang &
+Cheng (2004). For cased-hole Stoneley no candidate has been identified at
+all. Beyond those two, no replacement figure numbers are asserted, because
+nobody has read the remaining chapters — inventing a plausible-looking
+pointer is how this started.
 
 The repository already contained the correct chapter list, in
 [`docs/ideas/Tang2004.md`](../../ideas/Tang2004.md): *"The book is
