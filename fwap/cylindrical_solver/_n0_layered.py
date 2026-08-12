@@ -408,9 +408,13 @@ from fwap.cylindrical_solver._n0_isotropic import (
 # transcription is implementation-correct iff both pass.
 #
 # References for the layered derivation: Cheng & Toksoz (1981) Sect.
-# IV, Schmitt (1988) Appendix A, Tang & Cheng (2004) Sect. 7.1
-# (cased-hole) -- the latter generalises the same I_n + K_n
-# annulus to N stacked layers and feeds plan item G.
+# IV, Schmitt (1988) Appendix A, and Tang & Cheng (2004), which
+# generalises the same I_n + K_n annulus to N stacked layers and
+# feeds plan item G. The section number is dropped deliberately:
+# this cited "Sect. 7.1", and that book has six chapters. Its
+# multilayered cased-hole treatment is in ch. 2 by the repository's
+# own summary (docs/ideas/Tang2004.md), which is not the same as
+# having checked the book, so no replacement number is asserted.
 
 
 # =====================================================================

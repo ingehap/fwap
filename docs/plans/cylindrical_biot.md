@@ -185,8 +185,10 @@ public API exists).
 ## D. Quadrupole bound-mode dispersion (n=2) — ✅ DONE
 
 **Status.** Shipped in `c383f50`. `_modal_determinant_n2` plus
-public `quadrupole_dispersion` exported from `fwap`. Tang &
-Cheng 2004 fig 3.7 LWD-slow-formation regression validated.
+public `quadrupole_dispersion` exported from `fwap`.
+LWD-slow-formation regression validated against an internal
+oracle (this said "Tang & Cheng 2004 fig 3.7", which is a
+waveform-matching figure).
 
 
 
@@ -207,7 +209,9 @@ the phenomenological `lwd_quadrupole_priors` already in
 
 **Validation.**
 
-- Tang & Cheng 2004 fig 3.7 LWD slow formation: low-frequency
+- LWD slow formation (source withdrawn -- this named "Tang &
+  Cheng 2004 fig 3.7", which is a waveform-matching figure):
+  low-frequency
   limit `s → 1/V_S`; geometric cutoff at the Scholte-speed
   intercept.
 - Closed-form check at the long-wavelength limit
@@ -224,7 +228,9 @@ demo. Two days.
 
 **Status.** Shipped in `338684f`. `_modal_determinant_n2_complex`
 plus auto-regime dispatch in `quadrupole_dispersion`. Fast-
-formation Tang & Cheng 2004 fig 3.10 regression validated;
+formation regression validated (against an internal oracle; the
+"Tang & Cheng 2004 fig 3.10" named here is an acoustic-time-delay
+figure, not a dispersion curve);
 slow-formation bit-equivalence with the n=2 bound solver
 preserved.
 
@@ -242,8 +248,9 @@ real determinant to complex with leaky flags, reuse
 
 **Validation.**
 
-- Fast-formation quadrupole regression against Tang & Cheng 2004
-  fig 3.10.
+- Fast-formation quadrupole regression (internal oracle; this
+  named "Tang & Cheng 2004 fig 3.10", an acoustic-time-delay
+  figure).
 - Slow-formation bit-equivalence with subtheme D output.
 
 **Scope.** ~150 lines + 5 tests. One day.
@@ -351,7 +358,8 @@ constraint (`layer.vs >= vs`) at validation time.
 
 **Deferred follow-ups** (separate plans, not yet scheduled):
 
-- **Tang & Cheng 2004 fig 7.1 digitised reproduction**:
+- **An external cased-hole reference, still unidentified**
+  (this named "Tang & Cheng 2004 fig 7.1"; six chapters):
   flagged in the G.e / G'.e / G''.e plans; deferred to
   per-figure CSV ingestion work (one figure per landed
   solver, n=0 / n=1 / n=2).
@@ -445,9 +453,11 @@ References to reproduce, in order of effort:
    fig 4" until the reference was opened; in the ERL report that
    is a time-domain shot gather, and the dispersion curves are
    figs 2(a) and 8(a).
-3. Tang & Cheng 2004 fig 3.7, 3.10 — quadrupole slow + fast
-   (covers D and E).
-4. Tang & Cheng 2004 fig 7.1 — cased-hole Stoneley (covers G).
+3. Quadrupole slow + fast — **no reference identified**. This
+   named "Tang & Cheng 2004 fig 3.7, 3.10"; those figures are
+   waveform matching and acoustic time delay respectively.
+4. Cased-hole Stoneley — **no reference identified**. This named
+   "Tang & Cheng 2004 fig 7.1"; that book has six chapters.
 5. Ellefsen, Cheng & Schmitt 1988 figs 2/4 — elastic VTI flexural
    (covers H). **Done for three of the four branches**: soft TI
    0.30 %, soft equivalent-isotropic 0.17 %, hard

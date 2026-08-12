@@ -41,9 +41,9 @@ at three frequencies), and the cross-cutting docs sweep that
 closes the plan.
 
 **Deferred to a separate plan** (not blocking on G''):
-Tang & Cheng 2004 fig 7 / 8 reproduction (digitised CSV;
-deferred from G''.e analogous to the G.e / G'.e fig 7.1
-deferrals), and an optional F.3 (single-extra-layer
+an external cased-quadrupole reference (digitised CSV;
+deferred from G''.e). The "Tang & Cheng 2004 fig 7 / 8" named
+here is unverified, and the related "fig 7.1" does not exist, and an optional F.3 (single-extra-layer
 hand-coded n=2 with
 per-element oracles for G''.b.1).
 
@@ -772,9 +772,11 @@ Risk concentrated in:
   tests). Optional prerequisite that adds per-element oracles
   for G''.b.1; only needed if G''.b.1's structural-only oracle
   proves insufficient. Mirrors F.2.
-- **Tang & Cheng 2004 fig 7 / 8 quadrupole reproduction** for
-  cased-hole LWD-quadrupole regression (digitised CSV; deferred
-  from G''.e analogous to G.e / G'.e fig 7.1 deferral).
+- **An external cased-quadrupole reference** for cased-hole
+  LWD-quadrupole regression (digitised CSV; deferred from G''.e).
+  Named "Tang & Cheng 2004 fig 7 / 8" here -- unverified, and the
+  related "fig 7.1" does not exist. Superseded in part: A.1 tied
+  cased screw to Schmitt & Cheng 1987 fig 21.
 - **Fast-formation cased-hole quadrupole** — ✅ shipped as a
   follow-up. ``quadrupole_dispersion_layered`` now dispatches
   ``V_S > V_f`` to ``_modal_determinant_n2_cased_complex``

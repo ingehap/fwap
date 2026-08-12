@@ -14,7 +14,8 @@ style propagator-matrix.
 - ✅ G.b — n=0 per-layer propagator helper (G.b.1 + G.b.2)
 - ✅ G.c — n=0 stacked modal determinant (assembly + collapse oracles)
 - ✅ G.d — n=0 public API + cement-bond regression
-- ✅ G.e — n=0 hardening (Tang & Cheng 2004 fig 7.1 deferred)
+- ✅ G.e — n=0 hardening (external cased-Stoneley reference still
+  wanted; the "Tang & Cheng 2004 fig 7.1" named here does not exist)
 - ✅ G.f — cross-cutting docs
 
 Plan G is independent of plans A-E (leaky-mode chain) and H (VTI).
@@ -147,7 +148,8 @@ geometry and pins sign conventions and Bessel-function selectors.
     The naive propagator works.
   - **Thick layers / high f**: defer the Knopoff / Kennett delta-
     matrix re-formulation (composes minor determinants instead of
-    full propagators; Tang & Cheng 2004 sect. 7.2). Out of scope
+    full propagators; Tang & Cheng 2004 sect. 7.2 -- withdrawn,
+    that book has six chapters). Out of scope
     for G's first pass; substep block flags it.
 * **G.a.6** — Single-layer collapse identity (G.b → F.1 oracle).
   When ``len(layers) == 1`` the propagator-matrix determinant
@@ -301,8 +303,9 @@ floor — both well-defined for arbitrary layer counts).
 Mirror of F.2.e / H.e: tighter validation against the propagator
 chain's self-consistency.
 
-* **Tang & Cheng 2004 fig 7.1**: digitised reference curve for a
-  classical free-pipe vs well-bonded cement-bond synthetic.
+* **An external cased-Stoneley reference** for a classical free-pipe
+  vs well-bonded cement-bond synthetic. (This named "Tang & Cheng
+  2004 fig 7.1"; no such figure -- six chapters. None identified.)
   Match within 2-3 % across 1-10 kHz. The hardest of the G
   tests; defer to a digitised CSV in `tests/data/` if needed.
 * **Multi-frequency det-at-root self-consistency**: at every
@@ -367,7 +370,8 @@ Risk concentrated in:
   fixed bracket may converge to the wrong root. Mitigation:
   bracket from below (slower than V_f) where only Stoneley
   exists, and verify the root sits in the slow-Stoneley window.
-- **G.e Tang & Cheng fig 7.1**: digitising published figures
+- **G.e external cased-Stoneley curve** (not "Tang & Cheng fig 7.1",
+  which does not exist): digitising published figures
   is per-pixel work; budget a half-day for the CSV. The other
   three G.e tests are self-consistency / cross-validation,
   cheap to write.
@@ -402,7 +406,8 @@ Risk concentrated in:
   propagator matrix for cased-hole synthetics.
 - Tang, X. M., & Cheng, C. H. (2004). *Quantitative Borehole
   Acoustic Methods*. Elsevier. Ch. 7 (cased-hole and cement-
-  bond logging) — fig 7.1 is the validation target for G.e.
+  bond logging). *The "fig 7.1" named here as G.e's validation
+  target does not exist; the book has six chapters.*
 - Knopoff, L. (1964). A matrix method for elastic wave problems.
   *Bull. Seismol. Soc. Am.* 54(1), 431-438. Delta-matrix
   formulation referenced in G.a.5 conditioning notes.
@@ -424,7 +429,8 @@ Risk concentrated in:
 5. **G.d** (public API + cement-bond regression) — first
    physically-meaningful G output; free-pipe / well-bonded
    distinction is the cement-bond logging signature.
-6. **G.e** (hardening + Tang & Cheng fig 7.1) — full external
+6. **G.e** (hardening + an external cased-Stoneley curve, still
+   unidentified) — full external
    validation.
 7. **G.f** (docs) — close out plan G; G' / G'' follow-ups
    subsequently shipped.

@@ -64,9 +64,8 @@ Suggested filenames (matching the notebook section titles):
 | `paillet_cheng_1991_fig4_5_pseudo_rayleigh.csv` | Paillet & Cheng 1991 fig 4.5                     | pseudo-Rayleigh, limestone |
 | `schmitt_cheng_1987_fig8a_flexural_slow.csv` | Schmitt & Cheng 1987 fig 8(a) *(shipped)*             | flexural, slow sandstone   |
 | `schmitt_cheng_1987_fig2_flexural_fast.csv` | Schmitt & Cheng 1987 fig 2(a) *(shipped)*             | flexural, fast sandstone   |
-| `tang_cheng_2004_fig3_7_quadrupole_slow.csv` | Tang & Cheng 2004 fig 3.7                             | quadrupole, slow formation |
-| `tang_cheng_2004_fig3_10_quadrupole_fast.csv` | Tang & Cheng 2004 fig 3.10                           | quadrupole, fast formation |
-| `tang_cheng_2004_fig7_1_stoneley_cased.csv` | Tang & Cheng 2004 fig 7.1                              | cased-hole Stoneley        |
+| *(none — reference withdrawn)*        | quadrupole slow + fast                                       | see note below             |
+| *(none — reference withdrawn)*        | cased-hole Stoneley                                          | see note below             |
 | `ellefsen_cheng_schmitt_1988_fig2_flexural_vti_hard.csv` | Ellefsen/Cheng/Schmitt 1988 fig 2 | elastic VTI flexural, hard |
 | `ellefsen_cheng_schmitt_1988_fig2_flexural_iso_hard.csv` | Ellefsen/Cheng/Schmitt 1988 fig 2 | equivalent isotropic, hard |
 | `ellefsen_cheng_schmitt_1988_fig4_flexural_vti_soft.csv` | Ellefsen/Cheng/Schmitt 1988 fig 4 | elastic VTI flexural, soft |
@@ -132,6 +131,37 @@ solver rather than the reference: `flexural_dispersion_vti` raises
 `NotImplementedError` for fast-formation TI, which is exactly Green River
 shale at `V_Sv` 1768 > `V_f` 1500. That curve waits in
 [`pending/`](pending/README.md) with its geometry already verified.
+
+**The Tang & Cheng 2004 rows are withdrawn, not renamed.** Sections 3 and
+4 cited that book for figures it does not contain:
+
+* **"fig 7.1 — cased-hole Stoneley"** and the geometry quoted from
+  **"sect. 7.2"** cannot exist: the book has **six chapters** (1 Overview,
+  2 Elastic Wave Propagation in Boreholes, 3 Velocity and Attenuation
+  Estimation, 4 Permeability Estimation, 5 Anisotropic Formations,
+  6 Summary). So section 4's formation, casing, cement and radius are all
+  unsourced — and its casing (5860/3140/7800) matches neither real casing
+  row in the Schmitt ERL reports (6098/3354/7500, 6096/3352/7500).
+* **"figs 3.7 / 3.10 — quadrupole slow + fast"**: both figures exist and
+  neither is a dispersion curve. Fig 3.7 is waveform matching, fig 3.10 is
+  acoustic time delay; chapter 3 is a *processing* chapter.
+
+Both were confirmed against a physical copy. No replacement figure numbers
+are asserted, because nobody has read the relevant chapters — inventing a
+plausible-looking pointer is how this started.
+
+The repository already contained the correct chapter list, in
+[`docs/ideas/Tang2004.md`](../../ideas/Tang2004.md): *"The book is
+organized into six chapters."* That is the second time the right answer was
+already in the tree while several other files carried a wrong one — the
+Schmitt 1988 page range was the first, correct in `fwap/validation.py` and
+wrong in thirteen other places.
+
+**Cased-hole Stoneley is now the one cased mode with no external tie.**
+Roadmap A.1 tied cased flexural and screw from Schmitt & Cheng figs 20/21;
+the monopole case is not in that report, and the cased Stoneley figures in
+Schmitt 1988.13 (figs 59, 66) are transversely isotropic *poroelastic*,
+which `stoneley_dispersion_layered` cannot reproduce.
 
 ## Workflow for adding an overlay
 

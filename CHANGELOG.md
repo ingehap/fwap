@@ -141,6 +141,57 @@ the project uses [Semantic Versioning](https://semver.org/).
   scored just as thinly.
 
 ### Fixed
+- **The Tang & Cheng (2004) figure numbers are withdrawn: that book has six
+  chapters, so "fig 7.1" never existed.** Confirmed against a physical copy.
+  The book is *Quantitative Borehole Acoustic Methods*, Handbook of
+  Geophysical Exploration vol. 24, Elsevier, 274 pp., and its contents are
+  1 Overview, 2 Elastic Wave Propagation in Boreholes, 3 Velocity and
+  Attenuation Estimation from Array Acoustic Waveform Data, 4 Permeability
+  Estimation, 5 Anisotropic Formations, 6 Summary. Two separate claims fail:
+  - **"fig 7.1 — cased-hole Stoneley"** and the geometry quoted from
+    **"sect. 7.2"** cannot exist. Validation-notebook section 4's formation,
+    casing, cement and radius are therefore *entirely unsourced* — and its
+    casing (5860/3140/7800) matches neither real casing row in the Schmitt
+    ERL reports (6098/3354/7500, 6096/3352/7500). That is the **third**
+    invented geometry found in this notebook, after the "shale at
+    2740/1280/2400" of section 2 and the "Schmitt 1989 sect. 4 example" of
+    section 5.
+  - **"figs 3.7 / 3.10 — quadrupole slow + fast"**: both figures exist and
+    neither is a dispersion curve. **Fig 3.7 is waveform matching, fig 3.10
+    is acoustic time delay**, and chapter 3 is a *processing* chapter.
+  Withdrawn in nineteen places across `fwap/cylindrical_solver/`
+  (`_cased.py`, `_n0_layered.py`, `_n1_layered.py`, `_n2_quadrupole.py`),
+  `tests/test_cylindrical_solver.py`, `plans/roadmap.md`, four
+  `docs/plans/cylindrical_biot*.md`, `docs/notebooks/_data/README.md` and
+  the notebook. **No replacement figure numbers are asserted**, because
+  nobody has read the relevant chapters — inventing a plausible pointer is
+  how this started.
+  **The correct chapter list was already in the tree.** `docs/ideas/Tang2004.md`
+  says "The book is organized into six chapters" and lists them accurately.
+  That is the second time the right answer was already present while other
+  files carried a wrong one; the Schmitt 1988 page range was the first,
+  correct in `fwap/validation.py` and wrong in thirteen other places.
+  **And the discrepancy had already been noticed once, then resolved the
+  wrong way.** `plans/roadmap.md` recorded that the roadmap said "Fig. 3.4"
+  while the notebook said "figs 3.7 / 3.10 ... 7.1", and concluded "the
+  notebook is the accurate list". Both were guesses; the disagreement was
+  the signal and it was spent on picking a side instead of opening the book.
+  That note now says so.
+  **Consequence for coverage.** Cased-hole Stoneley is the one cased mode
+  with no external tie: roadmap A.1 tied cased flexural and screw from
+  Schmitt & Cheng 1987 figs 20/21, the monopole case is not in that report,
+  and the cased Stoneley figures in Schmitt 1988.13 (figs 59, 66) are
+  transversely isotropic *poroelastic*, which `stoneley_dispersion_layered`
+  cannot reproduce. Section 3's quadrupole geometry is likewise unverified.
+  Neither section scores anything today, so no published number moves.
+  **Still unchecked, and left alone deliberately**: references to chapters
+  that do exist — `sect. 2.4-2.5` (LWD, in `fwap/__init__.py`, `lwd.py`,
+  `demos/_extensions.py`, `docs/index.rst`, `docs/chapter_map.rst`),
+  `sect. 5.3-5.4` (anisotropy, in `anisotropy/_thomsen.py`,
+  `_vti_inversion.py`, `dispersion.py`), `ch. 3`, `fig 3.4` and `fig 5.3`.
+  These are plausible but unverified, and are not being mass-edited on
+  suspicion.
+
 - **"Schmitt 1989 fig 5" is a monopole shot gather, and three other things
   the VTI validation section claimed are also untrue.** Checked against the
   open-access ERL precursor (Schmitt, 1988.13, *Transversely Isotropic

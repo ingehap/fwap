@@ -10846,8 +10846,9 @@ def test_stoneley_dispersion_layered_three_layer_runs_smoke():
 # =====================================================================
 #
 # Mirror of F.2.e / H.e for the propagator-matrix Stoneley path.
-# The Tang & Cheng 2004 fig 7.1 reproduction (digitised CSV) is
-# deferred to a follow-up; the four tests below are the cheap
+# An external cased-Stoneley reference is still wanted; this block
+# named "Tang & Cheng 2004 fig 7.1", which does not exist -- that
+# book has six chapters. The four tests below are the cheap
 # self-consistency / collapse oracles that the propagator chain
 # can satisfy without external reference data.
 
@@ -11013,7 +11014,9 @@ def test_stoneley_dispersion_layered_stiffer_cement_speeds_up_stoneley():
 
     Direct test of the qualitative cement-bond logging
     signature without committing to digitised reference data
-    (Tang & Cheng 2004 fig 7.1, deferred). Quantitative: the
+    (no external cased-Stoneley curve is available; the
+    "Tang & Cheng 2004 fig 7.1" this named does not exist).
+    Quantitative: the
     speedup is on the order of a few percent for typical
     cement-stiffness contrasts."""
     g = _typical_cased_geometry()
