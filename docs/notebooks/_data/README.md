@@ -81,8 +81,8 @@ Suggested filenames (matching the notebook section titles):
 
 | File                                  | Reference                                                    | Mode                       |
 |---------------------------------------|--------------------------------------------------------------|----------------------------|
-| `paillet_cheng_1991_fig4_5_stoneley.csv`   | Paillet & Cheng 1991 fig 4.5                          | Stoneley, limestone        |
-| `paillet_cheng_1991_fig4_5_pseudo_rayleigh.csv` | Paillet & Cheng 1991 fig 4.5                     | pseudo-Rayleigh, limestone |
+| `paillet_cheng_1991_fig4_5_stoneley.csv`   | Paillet & Cheng 1991 fig 4.5 *(pointer unverified)*   | Stoneley, limestone        |
+| `paillet_cheng_1991_fig4_5_pseudo_rayleigh.csv` | Paillet & Cheng 1991 fig 4.5 *(pointer unverified)* | pseudo-Rayleigh, limestone |
 | `schmitt_cheng_1987_fig8a_flexural_slow.csv` | Schmitt & Cheng 1987 fig 8(a) *(shipped)*             | flexural, slow sandstone   |
 | `schmitt_cheng_1987_fig2_flexural_fast.csv` | Schmitt & Cheng 1987 fig 2(a) *(shipped)*             | flexural, fast sandstone   |
 | *(none — reference withdrawn)*        | quadrupole slow + fast                                       | see note below             |
@@ -214,6 +214,28 @@ RMS. Four candidates were checked and rejected first — Schmitt 1988.13 figs
 native) and Karpfinger 2010 (no casing or cement in it at all). Tubman's
 figure is a 986x583 px panel in a 300 dpi scan, and its table 1 is indexed
 by figure with rows tagged `4a` / `4b`.
+
+**Paillet & Cheng 1991 fig 4.5 is the last un-digitised reference, and it
+is blocked on the source.** *Acoustic Waves in Boreholes* (CRC/Telford
+Press 1991, reissued by Routledge) is a copyrighted book still in print;
+no accessible copy was found, and the publisher, bookseller and
+library-catalogue hosts that might carry a preview are refused by this
+environment's egress proxy. So the figure has not been seen.
+
+That leaves section 1 in a specific state worth naming, because it is the
+state three other sections were in before their figures were obtained:
+**its figure number and its geometry are both inherited, not checked.**
+Sections 2, 3 and 4 each shipped with a geometry that turned out to be
+invented — a "shale" row absent from the source table, an unsourced
+slow/fast pair, and a casing that matched no real casing row — and each
+was caught only by reading the actual parameter table. Section 1's
+limestone (4880 / 2820 / 2700, `a` = 0.10 m, attributed to "sect. 4.4")
+has had no such check. It is flagged in the notebook rather than quietly
+trusted.
+
+What is needed is a scan of fig 4.5 and of whatever table or text gives
+its formation and fluid parameters. With those, the trace is routine —
+the same tooling that produced the other nine curves.
 
 ## Workflow for adding an overlay
 

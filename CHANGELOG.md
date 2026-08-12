@@ -7,6 +7,35 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **The validation notebook's own status text was stale.** Its intro still
+  announced "the reference CSVs are not shipped" and "until then each section
+  prints what is missing" after nine curves had been digitised, scored and
+  shipped; the reference list still called cased-hole Stoneley "no reference
+  identified" while section 4 was scoring it at 2.34 %; and the closing
+  checklist still said cased-hole Stoneley and VTI flexural had "no external
+  tie at all" when both had one. A validation document that understates its
+  coverage misleads in the same way as one that overstates it, so the intro,
+  the reference list, the status table and the closing notes now match what
+  the notebook actually computes.
+
+- **Section 1 plots the real pseudo-Rayleigh instead of a placeholder.** It
+  substituted `flexural_dispersion` with a comment calling pseudo-Rayleigh "a
+  future extension"; `trapped_pseudo_rayleigh_dispersion` has existed since
+  the Tubman work. Both branches converge on that limestone (94 and 75 of 121
+  points, cutoff at 8.3 and 12.7 kHz) and are asserted to lie in
+  `(V_f, V_S)` — a bound that holds whatever the geometry turns out to be,
+  so it is worth checking even while the reference is unverified.
+
+- **Section 1's geometry is now marked unverified rather than presented as
+  sourced.** Its limestone (4880 / 2820 / 2700, `a` = 0.10 m) and its
+  "Paillet & Cheng 1991 fig 4.5 / sect. 4.4" pointer are both inherited from
+  the seeding plan and have never been checked against the book. That is the
+  same state sections 2, 3 and 4 were in before their figures were obtained
+  — and all three turned out to carry an invented geometry. The section is
+  the last un-digitised reference, blocked on the source: *Acoustic Waves in
+  Boreholes* is in-print and copyrighted, and every host that might carry a
+  preview is refused by the egress proxy.
+
 - **Tang & Cheng (2004) permeability content is chapter 4, not chapter 5.**
   Ten citations across `fwap/stoneley.py`, `tests/test_rockphysics.py` and
   `docs/possible_extensions.md` attributed the simplified Biot-Rosenbaum
