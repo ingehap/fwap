@@ -140,6 +140,57 @@ the project uses [Semantic Versioning](https://semver.org/).
   points on the same rock — so a TI path inheriting that behaviour would be
   scored just as thinly.
 
+### Added
+- **Cased-hole Stoneley is tied, and `pseudo_rayleigh_dispersion` fails its
+  first external check.** Six curves traced from one figure — Tubman, K. M.,
+  Cheng, C. H., & Toksoz, M. N. (1984), *Synthetic full waveform acoustic
+  logs in cased boreholes*, *Geophysics* **49**(7), 1051-1059,
+  [10.1190/1.1441720](https://doi.org/10.1190/1.1441720), fig 4: phase
+  velocity for the open and cased geometries, Stoneley plus two
+  pseudo-Rayleigh modes each.
+  - `..._fig4a_stoneley_open.csv` — **2.23 % RMS**, 67/67 pts, against
+    `stoneley_dispersion`.
+  - `..._fig4b_stoneley_cased.csv` — **2.34 % RMS**, 43/43 pts, against
+    `stoneley_dispersion_layered`. **This closes the last cased mode with no
+    external tie.**
+  - `..._fig4a_pseudo_rayleigh{1,2}_open.csv` — **FAIL at 35.96 % and
+    50.99 %**, marked `known_defect=`.
+  - The two cased pseudo-Rayleigh curves are traced and parked in
+    `_data/pending/`; the package exposes no cased pseudo-Rayleigh API.
+  **The pseudo-Rayleigh failure is unambiguous and is the solver.** For this
+  geometry `pseudo_rayleigh_dispersion` returns phase velocities of
+  **1.65-2.24 `V_f` against a `V_S / V_f` = 1.551 bound** — a
+  pseudo-Rayleigh mode is trapped between the fluid and shear speeds by
+  definition, so a root above `V_S` is not a guided mode at all. Both
+  branches also return the same value at 10 kHz, so branch selection is
+  suspect too. **The control is that both Stoneley overlays pass on exactly
+  the same parameters**, which rules out the geometry. The `known_defect=`
+  marker is back, and still inverts the assertion rather than relaxing it.
+  **The ~2.3 % on the Stoneley ties is expected, not slack digitising.**
+  Tubman's table 1 carries `Q`, the fluid at `Q_alpha` = 20, so the published
+  curves include intrinsic attenuation while these solvers are elastic. An
+  elastic solver runs faster than a `Q` = 20 medium here, and both overlays
+  come in ~2.3 % high with the same sign.
+  **Four candidate references were checked and rejected before this one** —
+  Schmitt 1988.13 figs 59/66 (TI *poroelastic*), Xie 2018 (right geometry
+  and a full parameter table, but the figure is 256x237 px native, so
+  tracing error would rival the 5 % budget) and Karpfinger 2010 (no casing
+  or cement anywhere in it). Tubman's panel is 986x583 px in a 300 dpi scan.
+  **It also settles two things the withdrawn Tang & Cheng citation had left
+  wrong.** The radius convention: the fluid "thickness" *is* the fluid
+  radius, and the cased layers stack outward to the same 4.0 in formation
+  contact as the open hole (1.85 + 0.4 + 1.75 = 4.0), where the withdrawn
+  geometry had put `a` = 0.10 m *inside* the casing and cement. And the
+  casing values: Tubman's steel (6096/3352.8/7500) and cement
+  (2822.4/1728.2/1920) are Schmitt 1988.13 table 8 to the digit, and the
+  formation (4876.8/2599.9/2160) is Schmitt & Cheng 1987's fast sandstone —
+  so the withdrawn 5860/3140/7800 casing disagreed with three independent
+  sources.
+  **One trim worth recording**: below ~13.5 kHz the open and cased Stoneley
+  curves overlap within line width in the printed figure, and the traced
+  values agree to within +-3 m/s there. The cased CSV therefore starts at
+  14 kHz rather than carrying open-hole values under a cased label.
+
 ### Fixed
 - **The Tang & Cheng (2004) figure numbers are withdrawn: that book has six
   chapters, so "fig 7.1" never existed.** Confirmed against a physical copy.

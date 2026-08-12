@@ -1,0 +1,44 @@
+# Tubman, K. M., Cheng, C. H., & Toksoz, M. N. (1984). Synthetic full
+# waveform acoustic logs in cased boreholes. Geophysics 49(7), 1051-1059.
+# https://doi.org/10.1190/1.1441720
+# Figure 4 -- phase velocity dispersion, open hole, second pseudo-Rayleigh.
+#
+# Table 1 (indexed by figure; rows tagged 4a / 4b), converted to SI:
+#   fluid      1676.4 m/s, 1200 kg/m^3          (5.5 kft/s, 1.2 g/cm^3)
+#   steel      6096.0 / 3352.8 m/s, 7500        (20.0 / 11.0 kft/s)
+#   cement     2822.4 / 1728.2 m/s, 1920        (9.26 / 5.67 kft/s)
+#   formation  4876.8 / 2599.9 m/s, 2160        (16.0 / 8.53 kft/s)
+# Radii: open hole a = 0.1016 m (4.0 in). Cased: fluid 0.04699 m (1.85 in),
+# steel 0.01016 m (0.4 in), cement 0.04445 m (1.75 in) -- the layers stack
+# outward to the same 4.0 in formation contact.
+#
+# Figure ordinate is velocity normalised by the fluid velocity (stated in
+# the caption); converted as slowness = 1 / (v_norm * 1676.4).
+#
+# freq_hz, slowness_s_per_m
+18200.0,0.000406920
+18450.0,0.000407972
+18700.0,0.000409191
+18950.0,0.000410586
+19200.0,0.000412448
+19450.0,0.000413748
+19700.0,0.000415108
+19950.0,0.000416490
+20200.0,0.000417840
+20450.0,0.000419569
+20700.0,0.000421727
+20950.0,0.000423584
+21200.0,0.000425200
+21450.0,0.000427034
+21700.0,0.000429042
+21950.0,0.000431075
+22200.0,0.000433900
+22450.0,0.000436347
+22700.0,0.000438560
+22950.0,0.000440542
+23200.0,0.000443384
+23450.0,0.000445928
+23700.0,0.000448429
+23950.0,0.000450928
+24200.0,0.000453618
+24450.0,0.000456646
