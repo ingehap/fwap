@@ -141,8 +141,8 @@ the project uses [Semantic Versioning](https://semver.org/).
   scored just as thinly.
 
 ### Added
-- **Cased-hole Stoneley is tied, and `pseudo_rayleigh_dispersion` fails its
-  first external check.** Six curves traced from one figure — Tubman, K. M.,
+- **Cased-hole Stoneley and both trapped pseudo-Rayleigh modes are tied.**
+  Six curves traced from one figure — Tubman, K. M.,
   Cheng, C. H., & Toksoz, M. N. (1984), *Synthetic full waveform acoustic
   logs in cased boreholes*, *Geophysics* **49**(7), 1051-1059,
   [10.1190/1.1441720](https://doi.org/10.1190/1.1441720), fig 4: phase
@@ -153,20 +153,31 @@ the project uses [Semantic Versioning](https://semver.org/).
   - `..._fig4b_stoneley_cased.csv` — **2.34 % RMS**, 43/43 pts, against
     `stoneley_dispersion_layered`. **This closes the last cased mode with no
     external tie.**
-  - `..._fig4a_pseudo_rayleigh{1,2}_open.csv` — **FAIL at 35.96 % and
-    50.99 %**, marked `known_defect=`.
+  - `..._fig4a_pseudo_rayleigh1_open.csv` — **2.81 % RMS**, 59/59 pts,
+    against `trapped_pseudo_rayleigh_dispersion` branch 0.
+  - `..._fig4a_pseudo_rayleigh2_open.csv` — **3.20 % RMS**, 26/26 pts,
+    branch 1.
   - The two cased pseudo-Rayleigh curves are traced and parked in
     `_data/pending/`; the package exposes no cased pseudo-Rayleigh API.
-  **The pseudo-Rayleigh failure is unambiguous and is the solver.** For this
-  geometry `pseudo_rayleigh_dispersion` returns phase velocities of
-  **1.65-2.24 `V_f` against a `V_S / V_f` = 1.551 bound** — a
-  pseudo-Rayleigh mode is trapped between the fluid and shear speeds by
-  definition, so a root above `V_S` is not a guided mode at all. Both
-  branches also return the same value at 10 kHz, so branch selection is
-  suspect too. **The control is that both Stoneley overlays pass on exactly
-  the same parameters**, which rules out the geometry. The `known_defect=`
-  marker is back, and still inverts the assertion rather than relaxing it.
-  **The ~2.3 % on the Stoneley ties is expected, not slack digitising.**
+  **Branch identity is measured, not assumed.** Pairing figure curve 1 with
+  branch 1, or curve 2 with branch 0, scores 25.9 % and 27.3 % against the
+  2.81 % and 3.20 % of the correct pairing.
+  **A withdrawn claim, recorded because it was nearly shipped.** (The
+  `known_defect=` marker added to `check_overlay` for it was removed again
+  with the claim; nothing uses it.) These
+  overlays were first scored against `pseudo_rayleigh_dispersion` and failed
+  at 36 % and 51 %, and that was written up as a solver defect —
+  "returns roots above `V_S`, which is not a guided mode". It is not a
+  defect. The package has **two** pseudo-Rayleigh functions:
+  `pseudo_rayleigh_dispersion` tracks the **leaky** n=0 root, whose phase
+  velocity lies between `V_S` and `V_P` by construction — its own module
+  header and its regime validator both say so — while
+  `trapped_pseudo_rayleigh_dispersion` tracks the classical trapped mode,
+  `V_f < c < V_S`, which is what Tubman plots. The comparison was a category
+  error. The claim survived a full CI gate and reached an open pull request
+  before the function's docstring was read; it was caught only when that
+  pull request's follow-up work started. Both overlays now pass.
+  **The 2-3 % on all four ties is expected, not slack digitising.**
   Tubman's table 1 carries `Q`, the fluid at `Q_alpha` = 20, so the published
   curves include intrinsic attenuation while these solvers are elastic. An
   elastic solver runs faster than a `Q` = 20 medium here, and both overlays

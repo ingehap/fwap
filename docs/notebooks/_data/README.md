@@ -6,8 +6,7 @@ live in this directory.
 
 ## Status
 
-**Nine curves are shipped.** Seven pass; two are marked as an expected
-failure against a solver defect they exposed.
+**Nine curves are shipped, and all nine pass.**
 
 | File | Solver | Score |
 |------|--------|-------|
@@ -18,8 +17,8 @@ failure against a solver defect they exposed.
 | `ellefsen_cheng_schmitt_1988_fig2_flexural_iso_hard.csv` | `flexural_dispersion` | **0.45 %** RMS, 17/73 pts |
 | `tubman_cheng_toksoz_1984_fig4a_stoneley_open.csv` | `stoneley_dispersion` | **2.23 %** RMS, 67/67 pts |
 | `tubman_cheng_toksoz_1984_fig4b_stoneley_cased.csv` | `stoneley_dispersion_layered` | **2.34 %** RMS, 43/43 pts |
-| `tubman_cheng_toksoz_1984_fig4a_pseudo_rayleigh1_open.csv` | `pseudo_rayleigh_dispersion` | **FAIL 35.96 %** — see below |
-| `tubman_cheng_toksoz_1984_fig4a_pseudo_rayleigh2_open.csv` | `pseudo_rayleigh_dispersion` | **FAIL 50.99 %** — see below |
+| `tubman_cheng_toksoz_1984_fig4a_pseudo_rayleigh1_open.csv` | `trapped_pseudo_rayleigh_dispersion` (branch 0) | **2.81 %** RMS, 59/59 pts |
+| `tubman_cheng_toksoz_1984_fig4a_pseudo_rayleigh2_open.csv` | `trapped_pseudo_rayleigh_dispersion` (branch 1) | **3.20 %** RMS, 26/26 pts |
 
 **Two of the passes are scored thinly** and say so: the fast-formation
 flexural path returns `NaN` outside a narrow band rather than a wrong root,
@@ -27,24 +26,26 @@ so `..._fig2_flexural_iso_hard.csv` covers 17 of 73 points and
 `schmitt_cheng_1987_fig2_flexural_fast.csv` 61 of 89. Outside those bands
 **the overlay is silent, not green**.
 
-**The two Tubman Stoneley ties sit near 2 %, not near 0.1 %, and that is
-expected.** Tubman's table 1 carries `Q` — the fluid is `Q_alpha` = 20 —
-so the published curves include intrinsic attenuation while these solvers
-are elastic. An elastic solver runs faster than a `Q` = 20 medium at these
-frequencies, and both overlays come in ~2.3 % high with the same sign. Read
-them as ties with a physical floor, not as loose digitising.
+**The package has two pseudo-Rayleigh functions and they are different
+modes.** `pseudo_rayleigh_dispersion` tracks the **leaky** n=0 root, phase
+velocity between `V_S` and `V_P` (slowness in `(1/V_P, 1/V_S)`), formation
+S wave radiating outward. `trapped_pseudo_rayleigh_dispersion` tracks the
+classical **trapped** mode, `V_f < c < V_S`. Tubman's figure plots the
+trapped mode — its curves run from `V_S` at cutoff down toward `V_f` — so
+these overlays use the trapped function. Scoring the figure against the
+leaky one gives 36 % and 51 %, which is a category error rather than a
+solver defect; that mistake was made and corrected in this branch.
 
-**`pseudo_rayleigh_dispersion` fails its first external check, and the
-failure is unambiguous.** For Tubman's open-hole geometry it returns phase
-velocities of 1.65-2.24 `V_f` against a `V_S / V_f` = 1.551 bound. A
-pseudo-Rayleigh mode is trapped between the fluid and shear speeds by
-definition, so a root above `V_S` is not a guided mode at all. Both
-branches also return the same value at 10 kHz, so branch selection is
-suspect too. **The control is that the two Stoneley overlays pass on the
-same parameters** — this is the solver, not the geometry. Both overlays are
-marked `known_defect=` in the notebook, which *inverts* the assertion:
-the cells fail if those curves start passing, so a fix trips the marker
-instead of leaving a stale exemption behind.
+**Branch identity is measured, not assumed.** Pairing figure curve 1 with
+branch 1, or curve 2 with branch 0, scores **25.9 %** and **27.3 %** against
+the 2.81 % and 3.20 % of the correct pairing. The match picks out the
+branch.
+
+**The 2-3 % on all four Tubman ties is expected, not slack digitising.**
+Table 1 carries `Q` — the fluid is `Q_alpha` = 20 — so the published curves
+include intrinsic attenuation while these solvers are elastic. An elastic
+solver runs faster than a `Q` = 20 medium here, and all four overlays come
+in 2-3 % high with the same sign. Read them as ties with a physical floor.
 
 These are deliberately *independent* of the reads recorded under roadmap
 A.1, which live as constants in `tests/test_cylindrical_solver.py` rather
