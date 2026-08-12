@@ -7,6 +7,45 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Tang & Cheng (2004) permeability content is chapter 4, not chapter 5.**
+  Ten citations across `fwap/stoneley.py`, `tests/test_rockphysics.py` and
+  `docs/possible_extensions.md` attributed the simplified Biot-Rosenbaum
+  Stoneley-permeability model, the matrix-permeability transmission loss and
+  the mudcake/eccentricity corrections to "sect. 5.1" / "sect. 5.2" of
+  *Quantitative Borehole Acoustic Methods*. That book's chapter 4 is
+  *Permeability Estimation -- Theory, Methods, and Field Examples*; chapter 5
+  is *Acoustic Logging in Anisotropic Formations*. The pointers named the
+  anisotropy chapter for permeability physics.
+
+  The repo's own summary in `docs/ideas/Tang2004.md` had it right the whole
+  time ("Chapter 4 treats Stoneley-wave permeability logging... The physical
+  basis is Biot-Rosenbaum theory"), and the chapter list is confirmed
+  independently by the publisher's and cataloguers' tables of contents. The
+  citations are corrected to chapter level only: the section numbering inside
+  chapter 4 could not be verified from an accessible source, so no `4.x`
+  pointer is asserted in its place.
+
+  The eleven `sect. 5.3` / `sect. 5.4` anisotropy pointers (cross-dipole
+  crossover, finite-formation-impedance correction) are *unaffected* --
+  chapter 5 is the right chapter for those.
+
+- **"Tang & Cheng (2004) fig 5.3" does not underwrite the permeability
+  round-trip test.** `stoneley_permeability_tang_cheng` and its tests cited a
+  figure 5.3 as the validation example. The tight/permeable/tight profile the
+  test uses is *constructed by the test*, not digitised from any figure, and
+  the figure number is in the anisotropy chapter. The docstrings now say what
+  the test actually does; `test_tc_recovers_tang_cheng_fig_5_3_orders_of_
+  magnitude` is renamed to `test_tc_recovers_darcy_orders_of_magnitude`. The
+  assertions are unchanged -- only the provenance claim was wrong.
+
+- **"Tang & Cheng (2004) fig. 3.4" withdrawn** from the `_n1_isotropic.py`
+  cross-check notes, where it was cited alongside Paillet & Cheng (1991) fig
+  4.5 as showing fast-formation dipole-flexural dispersion. Chapter 3 is
+  array-waveform velocity/attenuation *estimation*, not modal modelling
+  (consistent with figs 3.7 and 3.10 being waveform matching and acoustic
+  time delay). Unverifiable, so removed rather than renumbered; the Paillet &
+  Cheng pointer in the same sentence stands and carries the cross-check.
+
 - **The crack-wave ceiling is 84 kHz, not ~240** (roadmap A.5 residue). The 240
   figure came from arithmetic on a constant — `_BESSEL_ARG_MAX * V_f / (2 pi r)`
   — rather than from running the solver, and the test that recorded it asserted
