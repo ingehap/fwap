@@ -1851,7 +1851,10 @@ from fwap.cylindrical_solver._dataclasses import BoreholeMode
 #     (``cylindrical.py`` line 109) -- a smoothed-step rise
 #     from ``s_low`` to ``s_high``.
 #   * The fast-formation dipole-flexural curves in Paillet &
-#     Cheng (1991) fig. 4.5 and Tang & Cheng (2004) fig. 3.4.
+#     Cheng (1991) fig. 4.5. (A "Tang & Cheng (2004) fig. 3.4"
+#     was cited here too; that book's ch. 3 is array-waveform
+#     velocity/attenuation estimation, not modal modelling, and
+#     the pointer could not be verified -- withdrawn.)
 #
 # A non-monotonic dispersion would indicate a sign error somewhere
 # in the 1.3.c / 1.3.d / 1.3.e / 1.5 chain. The two endpoints

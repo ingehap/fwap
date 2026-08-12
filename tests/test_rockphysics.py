@@ -276,17 +276,17 @@ def _tc_forward(
     return A * x2 / (1.0 + x2)
 
 
-# Round-trip recovery (the validation that anchors against
-# Tang & Cheng 2004 fig 5.3)
+# Round-trip recovery over a synthetic tight/permeable/tight
+# profile of the kind Tang & Cheng (2004), ch. 4 work through
 # ---------------------------------------------------------------------
 
 
 def test_tc_round_trip_recovers_known_permeability():
     """Forward-model alpha_ST from a known kappa profile, synthesise
     observed slowness, run the inversion, and confirm round-trip
-    recovery to high precision. Profile mimics Tang & Cheng (2004)
-    fig 5.3: tight limestone (~0.01-0.1 mD) bracketing a permeable
-    bed (~1-2 darcy)."""
+    recovery to high precision. Profile is a tight limestone
+    (~0.01-0.1 mD) bracketing a permeable bed (~1-2 darcy), the
+    setting Tang & Cheng (2004), ch. 4 treat."""
     from fwap.stoneley import stoneley_permeability_tang_cheng
 
     s_ref = 1.0 / 1500.0
@@ -320,9 +320,9 @@ def test_tc_round_trip_recovers_known_permeability():
     assert np.all(rel_err < 1.0e-3)
 
 
-def test_tc_recovers_tang_cheng_fig_5_3_orders_of_magnitude():
-    """Recovered permeabilities span the expected darcy ranges from
-    Tang & Cheng (2004) fig 5.3: tight ~0.01-0.1 mD, permeable
+def test_tc_recovers_darcy_orders_of_magnitude():
+    """Recovered permeabilities span the expected darcy ranges for
+    a tight/permeable/tight profile: tight ~0.01-0.1 mD, permeable
     ~1-2 darcy."""
     from fwap.stoneley import stoneley_permeability_tang_cheng
 

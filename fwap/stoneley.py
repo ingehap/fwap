@@ -45,7 +45,7 @@ References
   permeability from Stoneley wave logs using a simplified Biot-
   Rosenbaum model. *Geophysics* 61(3), 639-645.
 * Tang, X. M., & Cheng, C. H. (2004). *Quantitative Borehole Acoustic
-  Methods*. Elsevier (Section 5).
+  Methods*. Elsevier (Chapter 4, permeability estimation).
 * Mari, J.-L., Coppens, F., Gavin, P., & Wicquart, E. (1994).
   *Full Waveform Acoustic Data Processing*. Editions Technip.
 """
@@ -74,7 +74,7 @@ def stoneley_permeability_indicator(
     Darcy flow in a permeable formation, which slows its phase
     velocity (increases its slowness). At low frequencies the
     fractional shift scales linearly with formation permeability
-    (Tang & Cheng 2004, Section 5.1), so this indicator rank-orders
+    (Tang & Cheng 2004, ch. 4), so this indicator rank-orders
     zones by permeability.
 
     Important: this is an **uncalibrated, dimensionless** indicator,
@@ -113,7 +113,7 @@ def stoneley_permeability_indicator(
     References
     ----------
     * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole Acoustic
-      Methods.* Elsevier, Section 5.1.
+      Methods.* Elsevier, ch. 4.
     * Kostek, S., & Johnson, D. L. (1992). The interaction of tube
       waves with borehole fractures, Part I: Numerical models.
       *Geophysics* 57(6), 784-795.
@@ -152,7 +152,7 @@ def stoneley_permeability_tang_cheng(
     Model
     -----
     The simplified Biot-Rosenbaum closed form (Tang, Cheng & Toksoz
-    1991, eq. 36; Tang & Cheng 2004, sect. 5.1) at angular frequency
+    1991, eq. 36; Tang & Cheng 2004, ch. 4) at angular frequency
     :math:`\omega` well below the Biot characteristic frequency
     relates the dispersive part of the fractional Stoneley slowness
     shift :math:`\alpha_\mathrm{ST}` to the Biot characteristic
@@ -289,10 +289,12 @@ def stoneley_permeability_tang_cheng(
     * Anisotropic permeability (each depth gets a single scalar).
     * Open fractures (use ``hornby_fracture_aperture`` for those).
 
-    Validation against Tang & Cheng (2004) Figure 5.3 (synthetic
-    permeable bed of 1-2 darcy bracketed by tight limestone of
-    0.01-0.1 mD) is in the test suite as a round-trip check on
-    the forward / inverse pair.
+    A round-trip check on the forward / inverse pair is in the
+    test suite, over a synthetic profile of the kind Tang & Cheng
+    (2004), ch. 4 work through: a permeable bed of 1-2 darcy
+    bracketed by tight limestone of 0.01-0.1 mD. The profile is
+    constructed by the test, not digitised from a published
+    figure.
 
     References
     ----------
@@ -301,9 +303,8 @@ def stoneley_permeability_tang_cheng(
       Biot-Rosenbaum model. *J. Acoust. Soc. Am.* 90(3),
       1632-1646.
     * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
-      Acoustic Methods.* Elsevier, Section 5.1 (the closed-form
-      inversion as implemented here, plus the Figure 5.3
-      validation example).
+      Acoustic Methods.* Elsevier, ch. 4 (the closed-form
+      inversion as implemented here).
     * Kostek, S., & Johnson, D. L. (1992). The interaction of
       tube waves with borehole fractures, Part I: Numerical
       models. *Geophysics* 57(6), 784-795.
@@ -383,7 +384,7 @@ def stoneley_amplitude_fracture_indicator(
     interval -- energy radiates into the formation through Darcy flow
     in the rock matrix and through fracture-pumping (oscillatory fluid
     motion in and out of fracture apertures) at fractures intersecting
-    the borehole wall (Tang & Cheng 2004, sect. 5.2; Hornby, Johnson,
+    the borehole wall (Tang & Cheng 2004, ch. 4; Hornby, Johnson,
     Winkler & Plumb 1989, *Geophysics* 54(10), 1274-1288). The
     fractional amplitude deficit therefore flags the same fractures
     and permeable zones as :func:`stoneley_permeability_indicator`,
@@ -405,7 +406,7 @@ def stoneley_amplitude_fracture_indicator(
     (image log, core, mudlog) rather than computed from first
     principles. The closed-form low-frequency expressions are in
     Hornby et al. (1989), eqs. (3)-(7) (single-fracture reflection
-    / transmission) and Tang & Cheng (2004), sect. 5.2 (matrix-
+    / transmission) and Tang & Cheng (2004), ch. 4 (matrix-
     permeability transmission loss).
 
     Parameters
@@ -451,7 +452,7 @@ def stoneley_amplitude_fracture_indicator(
       (1989). Fracture evaluation using reflected Stoneley-wave
       arrivals. *Geophysics* 54(10), 1274-1288.
     * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
-      Acoustic Methods.* Elsevier, Section 5.2.
+      Acoustic Methods.* Elsevier, ch. 4.
     * Mari, J.-L., Coppens, F., Gavin, P., & Wicquart, E. (1994).
       *Full Waveform Acoustic Data Processing*, Part 1 (Stoneley
       amplitude as permeability / fracture proxy). Editions Technip.
@@ -820,7 +821,7 @@ def stoneley_fracture_density(
     References
     ----------
     * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
-      Acoustic Methods*, Section 5.2 (joint slowness-amplitude
+      Acoustic Methods*, ch. 4 (joint slowness-amplitude
       Stoneley analysis as a permeable-zone discriminator).
     * Hornby, B. E., Johnson, D. L., Winkler, K. W., & Plumb,
       R. A. (1989). Fracture evaluation using reflected
@@ -965,7 +966,7 @@ def vs_from_stoneley_slow_formation(
       band.
     * Inviscid borehole fluid; centred tool; circular borehole
       cross-section. Tool-eccentricity and mudcake corrections
-      (Tang & Cheng 2004, sect. 5.2) are not applied.
+      (Tang & Cheng 2004, ch. 4) are not applied.
     * Isotropic formation. For VTI shales the inverted modulus is
       :math:`C_{66}`, not :math:`\mu`; the function will then
       systematically under- or over-estimate the *vertical*
@@ -1023,7 +1024,7 @@ def vs_from_stoneley_slow_formation(
     * Norris, A. N. (1990). The speed of a tube wave. *J. Acoust.
       Soc. Am.* 87(1), 414-417.
     * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
-      Acoustic Methods.* Elsevier, Section 5.2.
+      Acoustic Methods.* Elsevier, ch. 4.
     """
     if rho_fluid <= 0.0:
         raise ValueError("rho_fluid must be strictly positive")

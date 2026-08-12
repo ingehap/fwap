@@ -190,6 +190,23 @@ already in the tree while several other files carried a wrong one — the
 Schmitt 1988 page range was the first, correct in `fwap/validation.py` and
 wrong in thirteen other places.
 
+**A sweep of the rest of the tree found a third instance of the same
+pattern.** Ten citations in `fwap/stoneley.py`,
+`tests/test_rockphysics.py` and `docs/possible_extensions.md` put the
+Stoneley-permeability physics — simplified Biot-Rosenbaum, matrix
+transmission loss, mudcake corrections — in "sect. 5.1" / "sect. 5.2",
+i.e. in the *anisotropy* chapter. Permeability is chapter 4. Again
+`docs/ideas/Tang2004.md` had it right (*"Chapter 4 treats Stoneley-wave
+permeability logging… The physical basis is Biot–Rosenbaum theory"*).
+They are corrected to **chapter level only**: the section numbering
+*inside* chapter 4 could not be verified from any accessible source, and
+asserting a `4.x` that merely looks right is the mistake this file
+exists to record. Two more unverifiable figure pointers — "fig 5.3" for
+the permeability round-trip test and "fig. 3.4" for fast-formation
+dipole flexural — were removed rather than renumbered. The `sect. 5.3` /
+`sect. 5.4` anisotropy citations elsewhere in the package are correct and
+were left alone.
+
 ~~**Cased-hole Stoneley is now the one cased mode with no external tie.**~~
 *Closed.* It is tied by **Tubman, Cheng & Toksoz (1984) fig 4b**, at 2.34 %
 RMS. Four candidates were checked and rejected first — Schmitt 1988.13 figs
