@@ -140,6 +140,68 @@ the project uses [Semantic Versioning](https://semver.org/).
   points on the same rock — so a TI path inheriting that behaviour would be
   scored just as thinly.
 
+### Added
+- **Cased-hole Stoneley and both trapped pseudo-Rayleigh modes are tied.**
+  Six curves traced from one figure — Tubman, K. M.,
+  Cheng, C. H., & Toksoz, M. N. (1984), *Synthetic full waveform acoustic
+  logs in cased boreholes*, *Geophysics* **49**(7), 1051-1059,
+  [10.1190/1.1441720](https://doi.org/10.1190/1.1441720), fig 4: phase
+  velocity for the open and cased geometries, Stoneley plus two
+  pseudo-Rayleigh modes each.
+  - `..._fig4a_stoneley_open.csv` — **2.23 % RMS**, 67/67 pts, against
+    `stoneley_dispersion`.
+  - `..._fig4b_stoneley_cased.csv` — **2.34 % RMS**, 43/43 pts, against
+    `stoneley_dispersion_layered`. **This closes the last cased mode with no
+    external tie.**
+  - `..._fig4a_pseudo_rayleigh1_open.csv` — **2.81 % RMS**, 59/59 pts,
+    against `trapped_pseudo_rayleigh_dispersion` branch 0.
+  - `..._fig4a_pseudo_rayleigh2_open.csv` — **3.20 % RMS**, 26/26 pts,
+    branch 1.
+  - The two cased pseudo-Rayleigh curves are traced and parked in
+    `_data/pending/`; the package exposes no cased pseudo-Rayleigh API.
+  **Branch identity is measured, not assumed.** Pairing figure curve 1 with
+  branch 1, or curve 2 with branch 0, scores 25.9 % and 27.3 % against the
+  2.81 % and 3.20 % of the correct pairing.
+  **A withdrawn claim, recorded because it was nearly shipped.** (The
+  `known_defect=` marker added to `check_overlay` for it was removed again
+  with the claim; nothing uses it.) These
+  overlays were first scored against `pseudo_rayleigh_dispersion` and failed
+  at 36 % and 51 %, and that was written up as a solver defect —
+  "returns roots above `V_S`, which is not a guided mode". It is not a
+  defect. The package has **two** pseudo-Rayleigh functions:
+  `pseudo_rayleigh_dispersion` tracks the **leaky** n=0 root, whose phase
+  velocity lies between `V_S` and `V_P` by construction — its own module
+  header and its regime validator both say so — while
+  `trapped_pseudo_rayleigh_dispersion` tracks the classical trapped mode,
+  `V_f < c < V_S`, which is what Tubman plots. The comparison was a category
+  error. The claim survived a full CI gate and reached an open pull request
+  before the function's docstring was read; it was caught only when that
+  pull request's follow-up work started. Both overlays now pass.
+  **The 2-3 % on all four ties is expected, not slack digitising.**
+  Tubman's table 1 carries `Q`, the fluid at `Q_alpha` = 20, so the published
+  curves include intrinsic attenuation while these solvers are elastic. An
+  elastic solver runs faster than a `Q` = 20 medium here, and both overlays
+  come in ~2.3 % high with the same sign.
+  **Four candidate references were checked and rejected before this one** —
+  Schmitt 1988.13 figs 59/66 (TI *poroelastic*), Xie 2018 (right geometry
+  and a full parameter table, but the figure is 256x237 px native, so
+  tracing error would rival the 5 % budget) and Karpfinger 2010 (no casing
+  or cement anywhere in it). Tubman's panel is 986x583 px in a 300 dpi scan.
+  **It also settles two things the withdrawn Tang & Cheng citation had left
+  wrong.** The radius convention: the fluid "thickness" *is* the fluid
+  radius, and the cased layers stack outward to the same 4.0 in formation
+  contact as the open hole (1.85 + 0.4 + 1.75 = 4.0), where the withdrawn
+  geometry had put `a` = 0.10 m *inside* the casing and cement. And the
+  casing values: Tubman's steel (6096/3352.8/7500) and cement
+  (2822.4/1728.2/1920) are Schmitt 1988.13 table 8 to the digit, and the
+  formation (4876.8/2599.9/2160) is Schmitt & Cheng 1987's fast sandstone —
+  so the withdrawn 5860/3140/7800 casing disagreed with three independent
+  sources.
+  **One trim worth recording**: below ~13.5 kHz the open and cased Stoneley
+  curves overlap within line width in the printed figure, and the traced
+  values agree to within +-3 m/s there. The cased CSV therefore starts at
+  14 kHz rather than carrying open-hole values under a cased label.
+
 ### Fixed
 - **The Tang & Cheng (2004) figure numbers are withdrawn: that book has six
   chapters, so "fig 7.1" never existed.** Confirmed against a physical copy.

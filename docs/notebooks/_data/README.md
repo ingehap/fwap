@@ -6,25 +6,46 @@ live in this directory.
 
 ## Status
 
-**Five curves are shipped** and all five pass, every one at the
-digitisation floor:
+**Nine curves are shipped, and all nine pass.**
 
 | File | Solver | Score |
 |------|--------|-------|
-| `schmitt_cheng_1987_fig8a_flexural_slow.csv` | `flexural_dispersion` | **0.04 %** RMS, worst 0.15 %, 55/55 pts |
-| `schmitt_cheng_1987_fig2_flexural_fast.csv`  | `flexural_dispersion` | **0.37 %** RMS, worst 1.37 %, 61/89 pts |
-| `ellefsen_cheng_schmitt_1988_fig4_flexural_vti_soft.csv` | `flexural_dispersion_vti` | **0.30 %** RMS, worst 1.29 %, 70/73 pts |
-| `ellefsen_cheng_schmitt_1988_fig4_flexural_iso_soft.csv` | `flexural_dispersion` | **0.17 %** RMS, worst 0.34 %, 73/73 pts |
-| `ellefsen_cheng_schmitt_1988_fig2_flexural_iso_hard.csv` | `flexural_dispersion` | **0.45 %** RMS, worst 0.91 %, 17/73 pts |
+| `schmitt_cheng_1987_fig8a_flexural_slow.csv` | `flexural_dispersion` | **0.04 %** RMS, 55/55 pts |
+| `schmitt_cheng_1987_fig2_flexural_fast.csv`  | `flexural_dispersion` | **0.37 %** RMS, 61/89 pts |
+| `ellefsen_cheng_schmitt_1988_fig4_flexural_vti_soft.csv` | `flexural_dispersion_vti` | **0.30 %** RMS, 70/73 pts |
+| `ellefsen_cheng_schmitt_1988_fig4_flexural_iso_soft.csv` | `flexural_dispersion` | **0.17 %** RMS, 73/73 pts |
+| `ellefsen_cheng_schmitt_1988_fig2_flexural_iso_hard.csv` | `flexural_dispersion` | **0.45 %** RMS, 17/73 pts |
+| `tubman_cheng_toksoz_1984_fig4a_stoneley_open.csv` | `stoneley_dispersion` | **2.23 %** RMS, 67/67 pts |
+| `tubman_cheng_toksoz_1984_fig4b_stoneley_cased.csv` | `stoneley_dispersion_layered` | **2.34 %** RMS, 43/43 pts |
+| `tubman_cheng_toksoz_1984_fig4a_pseudo_rayleigh1_open.csv` | `trapped_pseudo_rayleigh_dispersion` (branch 0) | **2.81 %** RMS, 59/59 pts |
+| `tubman_cheng_toksoz_1984_fig4a_pseudo_rayleigh2_open.csv` | `trapped_pseudo_rayleigh_dispersion` (branch 1) | **3.20 %** RMS, 26/26 pts |
 
-The third row is the **first external check `flexural_dispersion_vti` has
-ever had**.
+**Two of the passes are scored thinly** and say so: the fast-formation
+flexural path returns `NaN` outside a narrow band rather than a wrong root,
+so `..._fig2_flexural_iso_hard.csv` covers 17 of 73 points and
+`schmitt_cheng_1987_fig2_flexural_fast.csv` 61 of 89. Outside those bands
+**the overlay is silent, not green**.
 
-**Two of them are scored thinly, and say so.** The fast-formation path
-returns `NaN` outside a narrow band rather than a wrong root, so
-`..._fig2_flexural_iso_hard.csv` is scored over only 2.0-6.0 kHz (17 of 73
-points) and `schmitt_cheng_1987_fig2_flexural_fast.csv` over 2.75-17.75 kHz
-(61 of 89). Outside those bands **the overlay is silent, not green**.
+**The package has two pseudo-Rayleigh functions and they are different
+modes.** `pseudo_rayleigh_dispersion` tracks the **leaky** n=0 root, phase
+velocity between `V_S` and `V_P` (slowness in `(1/V_P, 1/V_S)`), formation
+S wave radiating outward. `trapped_pseudo_rayleigh_dispersion` tracks the
+classical **trapped** mode, `V_f < c < V_S`. Tubman's figure plots the
+trapped mode — its curves run from `V_S` at cutoff down toward `V_f` — so
+these overlays use the trapped function. Scoring the figure against the
+leaky one gives 36 % and 51 %, which is a category error rather than a
+solver defect; that mistake was made and corrected in this branch.
+
+**Branch identity is measured, not assumed.** Pairing figure curve 1 with
+branch 1, or curve 2 with branch 0, scores **25.9 %** and **27.3 %** against
+the 2.81 % and 3.20 % of the correct pairing. The match picks out the
+branch.
+
+**The 2-3 % on all four Tubman ties is expected, not slack digitising.**
+Table 1 carries `Q` — the fluid is `Q_alpha` = 20 — so the published curves
+include intrinsic attenuation while these solvers are elastic. An elastic
+solver runs faster than a `Q` = 20 medium here, and all four overlays come
+in 2-3 % high with the same sign. Read them as ties with a physical floor.
 
 These are deliberately *independent* of the reads recorded under roadmap
 A.1, which live as constants in `tests/test_cylindrical_solver.py` rather
@@ -65,7 +86,10 @@ Suggested filenames (matching the notebook section titles):
 | `schmitt_cheng_1987_fig8a_flexural_slow.csv` | Schmitt & Cheng 1987 fig 8(a) *(shipped)*             | flexural, slow sandstone   |
 | `schmitt_cheng_1987_fig2_flexural_fast.csv` | Schmitt & Cheng 1987 fig 2(a) *(shipped)*             | flexural, fast sandstone   |
 | *(none — reference withdrawn)*        | quadrupole slow + fast                                       | see note below             |
-| *(none — reference withdrawn)*        | cased-hole Stoneley                                          | see note below             |
+| `tubman_cheng_toksoz_1984_fig4a_stoneley_open.csv` | Tubman/Cheng/Toksoz 1984 fig 4a *(shipped)*     | Stoneley, open hole        |
+| `tubman_cheng_toksoz_1984_fig4b_stoneley_cased.csv` | Tubman/Cheng/Toksoz 1984 fig 4b *(shipped)*    | Stoneley, cased hole       |
+| `tubman_cheng_toksoz_1984_fig4a_pseudo_rayleigh1_open.csv` | Tubman/Cheng/Toksoz 1984 fig 4a *(shipped)* | pseudo-Rayleigh 1, open |
+| `tubman_cheng_toksoz_1984_fig4a_pseudo_rayleigh2_open.csv` | Tubman/Cheng/Toksoz 1984 fig 4a *(shipped)* | pseudo-Rayleigh 2, open |
 | `ellefsen_cheng_schmitt_1988_fig2_flexural_vti_hard.csv` | Ellefsen/Cheng/Schmitt 1988 fig 2 | elastic VTI flexural, hard |
 | `ellefsen_cheng_schmitt_1988_fig2_flexural_iso_hard.csv` | Ellefsen/Cheng/Schmitt 1988 fig 2 | equivalent isotropic, hard |
 | `ellefsen_cheng_schmitt_1988_fig4_flexural_vti_soft.csv` | Ellefsen/Cheng/Schmitt 1988 fig 4 | elastic VTI flexural, soft |
@@ -166,11 +190,13 @@ already in the tree while several other files carried a wrong one — the
 Schmitt 1988 page range was the first, correct in `fwap/validation.py` and
 wrong in thirteen other places.
 
-**Cased-hole Stoneley is now the one cased mode with no external tie.**
-Roadmap A.1 tied cased flexural and screw from Schmitt & Cheng figs 20/21;
-the monopole case is not in that report, and the cased Stoneley figures in
-Schmitt 1988.13 (figs 59, 66) are transversely isotropic *poroelastic*,
-which `stoneley_dispersion_layered` cannot reproduce.
+~~**Cased-hole Stoneley is now the one cased mode with no external tie.**~~
+*Closed.* It is tied by **Tubman, Cheng & Toksoz (1984) fig 4b**, at 2.34 %
+RMS. Four candidates were checked and rejected first — Schmitt 1988.13 figs
+59/66 (TI poroelastic), Xie 2018 (right geometry, figure only 256x237 px
+native) and Karpfinger 2010 (no casing or cement in it at all). Tubman's
+figure is a 986x583 px panel in a 300 dpi scan, and its table 1 is indexed
+by figure with rows tagged `4a` / `4b`.
 
 ## Workflow for adding an overlay
 
