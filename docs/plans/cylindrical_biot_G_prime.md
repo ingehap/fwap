@@ -363,8 +363,10 @@ Risk concentrated in:
   pinning: at `layer = formation`, the multi-layer brentq
   path returns the unlayered `quadrupole_dispersion` slowness
   to `rtol=1e-6` (master-plan G'' validation bullet).
-- **Tang & Cheng 2004 fig 7.1 reproduction** for the cased-
-  hole flexural (digitised CSV; deferred from G.e).
+- **An external cased-hole flexural reference** (digitised CSV;
+  deferred from G.e). This named "Tang & Cheng 2004 fig 7.1",
+  which does not exist. Since superseded anyway: roadmap A.1
+  tied cased flexural to Schmitt & Cheng 1987 figs 20/21.
 
 ## References
 

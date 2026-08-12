@@ -356,8 +356,10 @@ from fwap.cylindrical_solver._dataclasses import BoreholeLayer
 # (f) Order-matters at N=2 (G.c / G.d): swapping (L_a, L_b) ->
 #     (L_b, L_a) gives a different slowness curve.
 # (g) Cement-bond regression (G.d): well-bonded vs free-pipe
-#     synthetic produces distinct Stoneley dispersion curves
-#     (Tang & Cheng 2004 fig 7.1).
+#     synthetic produces distinct Stoneley dispersion curves.
+#     (This cited "Tang & Cheng 2004 fig 7.1". That book has six
+#     chapters -- there is no chapter 7, so no such figure. The
+#     regression stands on its own; the pointer did not.)
 
 
 # =====================================================================

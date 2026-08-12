@@ -416,16 +416,23 @@ the `n=2` block already records.
 **What is genuinely left, and it does need the books.** Three overlays, none
 of which any analytic oracle reaches: the **pseudo-Rayleigh curve** (Paillet &
 Cheng 1991 fig 4.5 — its cutoff has a `1/a` scaling check, the dispersion does
-not), **cased-hole Stoneley** (Tang & Cheng 2004 fig 7.1) and **VTI flexural**
-(Schmitt 1989 fig 5). Cased Stoneley may yield to White's tube-wave formula
+not), **cased-hole Stoneley** (no reference identified -- this said "Tang & Cheng
+2004 fig 7.1", and that book has six chapters) and **VTI flexural**
+(now tied: Ellefsen/Cheng/Schmitt 1988 fig 4, 0.30 % RMS). Cased Stoneley may yield to White's tube-wave formula
 generalised with the casing and cement compliances in series, which would be a
 derivation rather than a lookup; nothing comparable suggests itself for the
 other two. Once a CSV lands in `docs/notebooks/_data/` under the documented
 name, no code changes: the section scores and gates automatically.
 
 Note the figure numbering: this list previously cited "Tang & Cheng 2004
-Fig. 3.4", which does not match the notebook's sections (figs 3.7 and 3.10 for
-quadrupole, 7.1 for cased Stoneley). The notebook is the accurate list.
+Fig. 3.4", disagreed with the notebook's "figs 3.7 and 3.10 for quadrupole,
+7.1 for cased Stoneley", and resolved the conflict by declaring the notebook
+accurate. **That was the wrong call, and the discrepancy was the signal.**
+Checked against a physical copy: the book has **six chapters**, so fig 7.1
+cannot exist; figs 3.7 and 3.10 do exist but are waveform matching and
+acoustic time delay, not dispersion curves. Both notebook sections have since
+had their references withdrawn. No Tang & Cheng figure number in this
+repository should be trusted without opening the book.
 
 ### A.2 — measured, and it is two defects rather than one
 

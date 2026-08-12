@@ -1292,8 +1292,9 @@ def _fill_slow_cased_leaky_n1(
 #
 # References for the layered n=1 derivation: same as the n=1
 # single-interface set (Schmitt 1988, Kurkjian & Chang 1986,
-# Paillet & Cheng 1991 ch. 4) plus Tang & Cheng 2004 sect. 7.1
-# for the layered generalisation that feeds plan item G.
+# Paillet & Cheng 1991 ch. 4) plus Tang & Cheng 2004 for the
+# layered generalisation that feeds plan item G. Section number
+# dropped: this said "sect. 7.1" and the book has six chapters.
 
 
 # =====================================================================

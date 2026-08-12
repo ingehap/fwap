@@ -547,8 +547,10 @@ def quadrupole_dispersion(
     References
     ----------
     * Tang, X.-M., & Cheng, A. (2004). *Quantitative Borehole
-      Acoustic Methods.* Elsevier, sect. 2.5 and fig 3.7
-      (LWD quadrupole dispersion).
+      Acoustic Methods.* Elsevier, sect. 2.5 (LWD quadrupole).
+      *The "fig 3.7" formerly cited here is a waveform-matching
+      figure, not a quadrupole dispersion curve, and has been
+      dropped; sect. 2.5 is unverified.*
     * Kurkjian, A. L., & Chang, S.-K. (1986). Acoustic multipole
       sources in fluid-filled boreholes. *Geophysics* 51(1),
       148-163.
