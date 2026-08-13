@@ -328,6 +328,43 @@ Cheng's limestone. The solvers and the physics are unchanged.
 **Nothing in this notebook now depends on a source that cannot be
 obtained.**
 
+**`pseudo_rayleigh_dispersion` (the leaky n=0 root) still has no external
+tie, and two on-topic papers were checked and rejected.** What it needs is
+a phase-velocity dispersion curve for an **n=0 leaky mode in a fast
+formation (`V_S` > `V_f`), open hole, no logging tool**, with velocity
+between `V_S` and `V_P`. That combination is rarer in print than it looks:
+
+* **Paillet & Cheng (1986)**, *A numerical investigation of head waves and
+  leaky modes in fluid-filled boreholes*, Geophysics 51(7), 1438-1449 — the
+  obvious candidate, and it does treat exactly this mode. But its
+  fast-formation figures are complex-plane singularity trajectories (figs
+  1-3), pressure-function amplitudes against wavenumber (figs 4, 5) and
+  head-wave spectra (figs 6, 7) — no velocity-against-frequency plot. The
+  only phase-velocity figures, 12 and 13, are **slow** formations
+  (shales A/B/C, `V_S` 800-1100 m/s) **with a 5 cm logging tool**, which is
+  neither the regime nor the geometry this solver models.
+* **Zhang, Zhang & Wang (2009)**, *Leaky modes and their contributions to
+  the compressional head wave in a borehole excited by a dipole source* — a
+  **dipole (n=1)** study of **slow** formations (`V_P` 2000, `V_S` 800-900
+  m/s) plotting complex poles rather than phase velocity. Wrong azimuthal
+  order and wrong regime.
+
+**Sinha & Asvadurov does not tie it either, and the near miss is worth
+recording.** Fig 2(a)'s m=3 branch sits in the right slowness window,
+`(1/V_P, 1/V_S)`, and scoring `pseudo_rayleigh_dispersion` against it gives
+**11.3 %** RMS — which looks like a solver defect until the paper's own text
+is read: *"it shows the presence of two cut-off modes (m = 3 and 4)"*. It is
+an anharmonic cut-off mode, not a leaky one. That is the same
+right-window-wrong-mode trap as the trapped-versus-leaky error above, caught
+this time before anything was claimed. **The 11.3 % is not evidence about
+the solver.**
+
+One open question this search did not settle: the docstring says the mode's
+low-frequency cutoff approaches `1/V_S`, while the solver trends toward
+`1/V_P` at low frequency and returns roots down to a few hundred Hz. That is
+recorded as a question, not a defect — adjudicating it is precisely what an
+external tie would do.
+
 ## Workflow for adding an overlay
 
 1. Digitise the figure (e.g. WebPlotDigitizer) into a CSV with the
