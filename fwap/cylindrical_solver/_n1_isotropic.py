@@ -1174,8 +1174,11 @@ from fwap.cylindrical_solver._dataclasses import BoreholeMode
 # verify the leading roots reduce to ``k_z = omega / V_S`` and
 # ``k_z = omega / V_R`` respectively. Those are the only checks
 # possible without numerical evaluation; the published-curve match
-# (Paillet & Cheng 1991 fig. 4.5) waits for substep 1.7 + 1.8 +
-# Step 4's validation tests.
+# waits for substep 1.7 + 1.8 + Step 4's validation tests. (That
+# match was planned against "Paillet & Cheng 1991 fig. 4.5", a
+# pointer nobody ever checked against the book; it is withdrawn.
+# The flexural curves are tied by Schmitt & Cheng 1987 figs 2(a)
+# and 8(a) instead -- see docs/notebooks/_data/README.md.)
 
 # =====================================================================
 # Substep 1.6.a -- small-x Bessel asymptotics + low-f entry table
@@ -1769,7 +1772,8 @@ from fwap.cylindrical_solver._dataclasses import BoreholeMode
 #     alongside it, which is withdrawn -- see References.
 #   * Quantitative reproduction of any specific dispersion-curve
 #     value. That belongs to substep 1.8 + Step 4's published-
-#     curve match against Paillet & Cheng 1991 fig. 4.5.
+#     curve match, now against Schmitt & Cheng 1987 figs 2(a) and
+#     8(a) rather than the withdrawn "Paillet & Cheng fig. 4.5".
 #
 # References
 # ----------
@@ -1953,7 +1957,8 @@ from fwap.cylindrical_solver._dataclasses import BoreholeMode
 # Validation (substep 1.8 + Step 4): bound-mode bracket scan
 # starting from the existing ``flexural_dispersion_physical``
 # anchor ``s_low = 1 / vs`` at f = 200 Hz; published-curve match
-# against Paillet & Cheng 1991 fig. 4.5 in Step 4.
+# in Step 4 (Schmitt & Cheng 1987 figs 2(a) / 8(a); the
+# "Paillet & Cheng fig. 4.5" once named here is withdrawn).
 #
 # Status
 # ------

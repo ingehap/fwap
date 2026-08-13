@@ -7,6 +7,59 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Section 1 is tied, and Paillet & Cheng 1991 fig 4.5 is retired.** The
+  validation notebook's Stoneley section now points at Sinha & Asvadurov
+  (2004) **fig 2(a)** — axisymmetric waves in a fast formation — which plots
+  the same two modes the withdrawn reference was meant to supply.
+  `stoneley_dispersion` matches the m=1 Stoneley branch at **0.01 %** RMS
+  over 245/245 points from 40 Hz to 15 kHz, and
+  `trapped_pseudo_rayleigh_dispersion` matches the m=2 branch at **0.01 %**
+  over 161/162 points. The m=3 and m=4 branches sit below the shear line,
+  radiate into the formation, and are not traced.
+
+  Same paper and same verified Table 1 geometry as the quadrupole ties, so
+  no new parameters were introduced. The figure carries its own anchor: the
+  pseudo-Rayleigh branch begins at 492.1 us/m against the 1e6/2032 = 492.13
+  Table 1 implies, so the cut-off lands on the shear line to three digits
+  with nothing fitted to make it.
+
+  **The retirement is on provenance, not just access.** *Acoustic Waves in
+  Boreholes* is in-print and copyrighted and unreachable from this
+  environment, but the deciding reason is that **neither the figure number
+  nor the geometry attributed to it had ever been checked against the
+  book** — both were inherited from the seeding plan, the same provenance
+  that produced three invented geometries and two shot-gather-for-dispersion
+  mix-ups elsewhere in this notebook. Carrying an unverifiable pointer for a
+  mode a verifiable source can tie is the habit the notebook exists to
+  break.
+
+  Thirteen curves now ship and all thirteen pass. **Nothing in the notebook
+  depends on a source that cannot be obtained.**
+
+### Fixed
+- **A "validated" claim that pointed at a test which does not exist.** Plan
+  item A in `docs/plans/cylindrical_biot.md` recorded "Cutoff regression and
+  Paillet & Cheng 1991 fig 4.5 match validated in
+  `tests/test_cylindrical_solver.py`". The cutoff regression is real; the
+  published-curve match is not, and never was — the only occurrence of that
+  string in the suite is a fixture *label* in `tests/test_validation.py`.
+  `pseudo_rayleigh_dispersion` (the **leaky** root) still has no external
+  tie, and the entry now says so.
+
+- **Two different limestones under one figure number.** Plan A's validation
+  step named `V_P` 5500 / `V_S` 3100 for "Paillet & Cheng 1991 fig 4.5"
+  while the validation notebook attributed 4880 / 2820 / 2700 to the same
+  figure. Neither was ever compared against the book. The step is struck
+  through with the conflict recorded rather than one of the two picked.
+
+- Three forward-looking "curve match against Paillet & Cheng 1991 fig. 4.5"
+  comments in `_n1_isotropic.py`, and the same pointer in
+  `docs/possible_extensions.md`, now name the reference that actually ties
+  those curves (Schmitt & Cheng 1987 figs 2(a) / 8(a)). The many Paillet &
+  Cheng citations for *textbook derivations* — ch. 4, sect. 4.2 — are
+  untouched; nothing suggests those are wrong, and only the figure-match
+  claims were unverifiable.
+
 - **Quadrupole dispersion has an external tie for the first time**, from
   Sinha, B. K., & Asvadurov, S. (2004), *Dispersion and radial depth of
   investigation of borehole modes*, Geophysical Prospecting 52(4), 271-286
