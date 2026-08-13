@@ -7,6 +7,61 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`flexural_dispersion_vti` supports fast-formation TI** (`V_Sv > V_f`).
+  It raised `NotImplementedError` there from the day it shipped; the
+  deferred complex-determinant mirror of
+  `_flexural_dispersion_fast_formation` now exists, and the curve that was
+  waiting for it scores.
+
+  Ellefsen, Cheng & Schmitt (1988) fig 2's TI branch — Green River shale,
+  `V_Sv` 1768 m/s against a 1500 m/s fluid — now ties at **0.55 % RMS**
+  over 20 of 73 points, and moves from `_data/pending/` to `_data/`.
+  Seventeen curves ship. It is the only overlay that exercises the VTI
+  determinant with an **oscillatory** fluid field; every other VTI tie is
+  slow-formation, where the fluid Bessels decay.
+
+  New internals: `_fluid_bessels_n1_vti` (regime-dispatching fluid
+  wavenumber and Bessels), `_modal_matrix_n1_vti` (shared 4x4 assembly),
+  `_modal_determinant_n1_vti_complex`, and
+  `_flexural_dispersion_fast_formation_vti`. No public-API change.
+
+  **Only the fluid goes complex.** For a bound flexural mode the phase
+  velocity stays under `V_Sv`, so the formation qP / qSV / SH radial
+  wavenumbers remain real and `k_z` remains real; the root is a genuine
+  bound mode. What turns imaginary is `F_f = sqrt(k_z^2 - (omega/V_f)^2)`,
+  and only where the phase velocity exceeds `V_f` — the low-frequency part
+  of the band in a fast formation. `scipy.special.iv` performs the
+  analytic continuation `I_n(i y) = i^n J_n(y)` on a complex argument
+  directly, so no separate `J_n` branch was needed.
+
+  **The bound path is bit-preserved.** Complex-argument `iv` differs from
+  the real call by a few ULP, so routing the slow-formation branch through
+  complex arithmetic would have perturbed the Ellefsen fig 4 tie (0.30 %
+  RMS) for no benefit. `_fluid_bessels_n1_vti` keeps the original real
+  calls when `F_f^2 >= 0`, and a test asserts bit-identity rather than
+  closeness. `_modal_determinant_n1_vti` keeps its documented contract of
+  returning NaN outside the bound regime — now via an explicit guard,
+  since its rows can be genuinely complex and `M.real` would otherwise be
+  finite and meaningless.
+
+  **Which shear velocity bounds the search matters.** The marcher uses
+  `V_Sv = sqrt(C44/rho)`, the qSV branch the dipole mode is built on, not
+  `V_Sh = sqrt(C66/rho)`. For Green River shale the two differ by 18 %,
+  enough that the wrong choice loses the branch rather than shifting it.
+
+  The isotropic marcher and signal-part measurement (`_real_root_function`,
+  `_march_fast_flexural_branch`) are **reused rather than reimplemented**,
+  so the two paths cannot disagree about which root is the fundamental —
+  the thing roadmap A.2 got wrong. A collapse test pins that: with
+  `gamma -> 0` the TI path tracks `flexural_dispersion` to better than
+  0.5 % across the overlapping band.
+
+  Coverage is thin — 20 of 73 points, 2.6-7.7 kHz — for the same reason
+  its equivalent-isotropic sibling covers 17 of 73: the fast-formation
+  marcher returns `NaN` outside a narrow band rather than a wrong root.
+  `_data/pending/README.md` predicted exactly that before the solver
+  existed, and it held.
+
 - **Paillet & Cheng (1986) fig 12(a) digitised into `_data/pending/`** — the
   leaky compressional-mode phase velocities for shale B, fundamental (170
   points, 1.5-24.9 kHz) and first mode (84 points, 13.3-24.8 kHz). Both lie

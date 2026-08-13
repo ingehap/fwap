@@ -6,7 +6,7 @@ live in this directory.
 
 ## Status
 
-**Sixteen curves are shipped, and all sixteen pass.**
+**Seventeen curves are shipped, and all seventeen pass.**
 
 | File | Solver | Score |
 |------|--------|-------|
@@ -15,6 +15,7 @@ live in this directory.
 | `ellefsen_cheng_schmitt_1988_fig4_flexural_vti_soft.csv` | `flexural_dispersion_vti` | **0.30 %** RMS, 70/73 pts |
 | `ellefsen_cheng_schmitt_1988_fig4_flexural_iso_soft.csv` | `flexural_dispersion` | **0.17 %** RMS, 73/73 pts |
 | `ellefsen_cheng_schmitt_1988_fig2_flexural_iso_hard.csv` | `flexural_dispersion` | **0.45 %** RMS, 17/73 pts |
+| `ellefsen_cheng_schmitt_1988_fig2_flexural_vti_hard.csv` | `flexural_dispersion_vti` (fast-formation TI) | **0.55 %** RMS, 20/73 pts |
 | `tubman_cheng_toksoz_1984_fig4a_stoneley_open.csv` | `stoneley_dispersion` | **2.23 %** RMS, 67/67 pts |
 | `tubman_cheng_toksoz_1984_fig4b_stoneley_cased.csv` | `stoneley_dispersion_layered` | **2.34 %** RMS, 43/43 pts |
 | `tubman_cheng_toksoz_1984_fig4a_pseudo_rayleigh1_open.csv` | `trapped_pseudo_rayleigh_dispersion` (branch 0) | **2.81 %** RMS, 59/59 pts |
@@ -64,14 +65,27 @@ common layout is exactly what produced the 0.9 % error before it was
 caught. **Calibrate each panel, check it, and do not carry an assumption
 between panels of the same figure.**
 
-**Three of the passes are scored thinly** and say so: the fast-formation
+**Fast-formation TI is implemented, and the curve that was waiting for it
+is now scored.** `flexural_dispersion_vti` raised `NotImplementedError`
+above `V_Sv > V_f` from the day it shipped, so
+`..._fig2_flexural_vti_hard.csv` sat in `pending/` unusable. The complex
+VTI determinant now covers that regime and the curve scores **0.55 %**
+over 20 of 73 points. It is the only overlay here that exercises the VTI
+determinant with an *oscillatory* fluid field — every other VTI tie is
+slow-formation, where the fluid Bessels decay.
+
+**Four of the passes are scored thinly** and say so: the fast-formation
 flexural path returns `NaN` outside a narrow band rather than a wrong root,
 so `..._fig2_flexural_iso_hard.csv` covers 17 of 73 points,
 `schmitt_cheng_1987_fig2_flexural_fast.csv` 61 of 89, and
 `sinha_asvadurov_2004_fig6a_flexural_fast.csv` 64 of 114 (NaN above
-9.65 kHz). Outside those bands **the overlay is silent, not green**. The
-three together bracket where that band limit falls across three different
-fast geometries.
+9.65 kHz), and `..._fig2_flexural_vti_hard.csv` 20 of 73 (2.6-7.7 kHz).
+Outside those bands **the overlay is silent, not green**. The four
+together bracket where that band limit falls across four different fast
+geometries — and the TI one lands in the same place as its
+equivalent-isotropic sibling, which is the expected behaviour rather than
+a coincidence: the limit is a property of the fast-formation marcher, not
+of the anisotropy.
 
 **Fig 11(a)'s coverage gap is a mode boundary, exactly.** Its published
 m=1 branch runs to `f` -> 0 and ends at 1527.8 us/m — *faster* than `V_S`

@@ -7311,30 +7311,161 @@ def test_flexural_dispersion_vti_isotropic_collapse_bit_matches_unlayered():
     assert res_vti.azimuthal_order == 1
 
 
-def test_flexural_dispersion_vti_fast_formation_genuine_TI_raises_not_implemented():
-    """``flexural_dispersion_vti`` for FAST-formation genuine-TI
-    (``V_Sv > V_f``) still raises ``NotImplementedError`` -- the
-    real-valued VTI modal determinant requires ``F_f^2 > 0``,
-    which fails for fast formations. The complex-determinant
-    follow-up is deferred (see plan H.d). Slow-formation genuine
-    TI ships in H.d.6 and is exercised in the integration tests
-    below."""
+def _green_river_shale_stiffness() -> dict[str, float]:
+    """Thomsen (1986) table 1 Green River shale -> the five VTI
+    stiffnesses. ``V_Sv`` = 1768 m/s against a 1500 m/s fluid, so this
+    is the fast-formation TI regime; ``V_Sh`` = 2062 m/s."""
+    vp0, vs0, rho = 3292.0, 1768.0, 2075.0
+    eps, delta, gamma = 0.195, -0.220, 0.180
+    c33, c44 = rho * vp0**2, rho * vs0**2
+    c13 = np.sqrt(2 * c33 * (c33 - c44) * delta + (c33 - c44) ** 2) - c44
+    return dict(
+        c11=c33 * (1.0 + 2.0 * eps),
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c44 * (1.0 + 2.0 * gamma),
+        rho=rho,
+    )
+
+
+def test_fluid_bessels_n1_vti_bound_regime_is_bit_identical():
+    """The regime-dispatching fluid helper must reproduce the
+    pre-existing real path **bit-exactly** in the bound regime.
+
+    Complex-argument ``iv`` differs from the real call by a few ULP, so
+    routing the bound branch through complex arithmetic would perturb
+    the slow-formation VTI curve that is tied to Ellefsen fig 4 at
+    0.30 % RMS. The helper therefore keeps the real calls; this test is
+    what stops a later 'simplification' from collapsing the two."""
+    from scipy import special
+
+    from fwap.cylindrical_solver._vti import _fluid_bessels_n1_vti
+
+    vf, a = 1500.0, 0.10
+    for f_hz, velocity in ((2000.0, 1200.0), (8000.0, 1000.0), (15000.0, 900.0)):
+        omega = 2.0 * np.pi * f_hz
+        kz = omega / velocity
+        assert kz * kz - (omega / vf) ** 2 > 0.0
+        F_f, i0, i1 = _fluid_bessels_n1_vti(kz, omega, vf, a)
+        F_ref = float(np.sqrt(kz * kz - (omega / vf) ** 2))
+        assert F_f == F_ref
+        assert i0 == float(special.iv(0, F_ref * a))
+        assert i1 == float(special.iv(1, F_ref * a))
+
+
+def test_fluid_bessels_n1_vti_fast_regime_is_the_oscillatory_continuation():
+    """Below ``F_f^2 = 0`` the helper must continue analytically to the
+    oscillatory branch: ``I_n(i y) = i^n J_n(y)``. That identity is what
+    makes a single ``iv`` call correct in both regimes."""
+    from scipy import special
+
+    from fwap.cylindrical_solver._vti import _fluid_bessels_n1_vti
+
+    vf, a = 1500.0, 0.10
+    omega = 2.0 * np.pi * 4000.0
+    kz = omega / 1700.0  # phase velocity above V_f -> F_f^2 < 0
+    assert kz * kz - (omega / vf) ** 2 < 0.0
+    F_f, i0, i1 = _fluid_bessels_n1_vti(kz, omega, vf, a)
+    y = abs(F_f.imag if isinstance(F_f, complex) else 0.0) * a
+    assert abs(complex(F_f).real) < 1e-12
+    np.testing.assert_allclose(complex(i0).real, special.jv(0, y), rtol=1e-12)
+    np.testing.assert_allclose(complex(i1).imag, special.jv(1, y), rtol=1e-12)
+
+
+def test_modal_determinant_n1_vti_complex_matches_real_in_bound_regime():
+    """The complex determinant is the same object as the real one where
+    both are defined -- same matrix builder, so they cannot drift."""
+    from fwap.cylindrical_solver._vti import (
+        _modal_determinant_n1_vti,
+        _modal_determinant_n1_vti_complex,
+    )
+
+    # Slow-formation TI: V_Sv < V_f.
+    cij = _green_river_shale_stiffness()
+    cij = dict(cij, c44=cij["c44"] * 0.5, c66=cij["c66"] * 0.5)
+    kw = dict(**cij, vf=1500.0, rho_f=1000.0, a=0.10)
+    omega = 2.0 * np.pi * 8000.0
+    kz = omega / 1150.0
+    real = _modal_determinant_n1_vti(kz, omega, **kw)
+    comp = _modal_determinant_n1_vti_complex(kz, omega, **kw)
+    assert np.isfinite(real)
+    assert real == comp.real
+    assert comp.imag == 0.0
+
+
+def test_modal_determinant_n1_vti_real_returns_nan_outside_bound_regime():
+    """The real determinant keeps its documented contract: NaN where the
+    fluid Bessels turn oscillatory, rather than a finite-but-meaningless
+    ``M.real`` now that the rows can be genuinely complex."""
+    from fwap.cylindrical_solver._vti import _modal_determinant_n1_vti
+
+    kw = dict(**_green_river_shale_stiffness(), vf=1500.0, rho_f=1000.0, a=0.10)
+    omega = 2.0 * np.pi * 4000.0
+    kz = omega / 1700.0
+    assert kz * kz - (omega / 1500.0) ** 2 < 0.0
+    assert np.isnan(_modal_determinant_n1_vti(kz, omega, **kw))
+
+
+def test_flexural_dispersion_vti_fast_formation_genuine_TI_is_implemented():
+    """Fast-formation genuine TI no longer raises. It dispatches to the
+    complex-determinant path and returns a bound branch.
+
+    Replaces the H.d ``NotImplementedError`` sentinel."""
     vp, vs, rho = 4500.0, 2500.0, 2400.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
-    f = np.array([5000.0])
+    f = np.linspace(4000.0, 12000.0, 25)
     cij = _isotropic_stiffness_from_lame(vp, vs, rho)
-    # Thomsen-gamma: C44 != C66. V_Sv = 2500 > V_f = 1500.
     cij_gam = dict(cij, c66=cij["c66"] * 1.10)
     assert cij_gam["c11"] > cij_gam["c66"]
-    with pytest.raises(NotImplementedError, match="fast-formation"):
-        flexural_dispersion_vti(
-            f,
-            **cij_gam,
-            rho=rho,
-            vf=vf,
-            rho_f=rho_f,
-            a=a,
-        )
+    res = flexural_dispersion_vti(f, **cij_gam, rho=rho, vf=vf, rho_f=rho_f, a=a)
+    assert res.name == "flexural"
+    assert res.azimuthal_order == 1
+    ok = np.isfinite(res.slowness)
+    assert ok.any(), "fast-formation TI returned an all-NaN branch"
+    # Bound-mode ordering: slower than V_Sv, and the branch never runs
+    # faster than the formation shear speed it descends from.
+    assert np.all(res.slowness[ok] > 1.0 / vs)
+
+
+def test_flexural_dispersion_vti_fast_formation_bound_and_monotone():
+    """On the Green River shale of Ellefsen fig 2 the recovered branch
+    must lie between the Scholte-like floor and ``V_Sv``, and phase
+    slowness must increase with frequency -- flexural dispersion is
+    monotone, and a non-monotone result means the marcher hopped
+    branches (roadmap A.2)."""
+    cij = _green_river_shale_stiffness()
+    vsv = float(np.sqrt(cij["c44"] / cij["rho"]))
+    assert vsv > 1500.0, "fixture must be fast-formation"
+    f = np.linspace(1500.0, 19500.0, 217)
+    res = flexural_dispersion_vti(f, **cij, vf=1500.0, rho_f=1000.0, a=0.10)
+    ok = np.isfinite(res.slowness)
+    assert ok.sum() >= 15
+    s = res.slowness[ok]
+    assert np.all(s > 1.0 / vsv), "branch faster than V_Sv is not bound"
+    assert np.all(np.diff(s) >= -1.0e-9), "flexural slowness must not decrease"
+
+
+def test_flexural_dispersion_vti_fast_formation_isotropic_collapse():
+    """With ``gamma -> 0`` the fast-formation TI path must agree with the
+    isotropic fast-formation solver on the overlap. This is the check
+    that the complex VTI determinant is the *same* physics as the
+    isotropic one, not merely a plausible-looking curve."""
+    vp, vs, rho = 3292.0, 1768.0, 2075.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.10
+    f = np.linspace(2000.0, 9000.0, 60)
+    cij = _isotropic_stiffness_from_lame(vp, vs, rho)
+    # Nudge C66 by 0.01 % so the isotropy gate does not short-circuit to
+    # flexural_dispersion; physically this is still isotropic.
+    cij_near = dict(cij, c66=cij["c66"] * 1.0001)
+    res_vti = flexural_dispersion_vti(f, **cij_near, rho=rho, vf=vf, rho_f=rho_f, a=a)
+    res_iso = flexural_dispersion(f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a)
+    both = np.isfinite(res_vti.slowness) & np.isfinite(res_iso.slowness)
+    assert both.sum() >= 10, "no overlapping band to compare"
+    rel = (
+        np.abs(res_vti.slowness[both] - res_iso.slowness[both]) / res_iso.slowness[both]
+    )
+    assert rel.max() < 5.0e-3, f"max rel deviation {rel.max():.2e}"
 
 
 def test_dispersion_vti_returns_borehole_mode():

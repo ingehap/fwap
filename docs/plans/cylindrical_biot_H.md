@@ -13,9 +13,13 @@ isotropic scaffolding in `fwap.cylindrical_solver`.
 - ✅ H.b — radial-wavenumber helper (Christoffel-equation roots)
 - ✅ H.c — n=0 (Stoneley) VTI modal determinant + public API
 - ✅ H.d — n=1 (flexural) VTI modal determinant + public API
-   (slow-formation; fast-formation TI deferred — needs the
+   (slow-formation)
+- ✅ H.d follow-up — **fast-formation TI**, the deferred
    complex-determinant mirror of
-   `_flexural_dispersion_fast_formation`)
+   `_flexural_dispersion_fast_formation`. `flexural_dispersion_vti`
+   no longer raises above `V_Sv > V_f`. Tied to Ellefsen fig 2's TI
+   branch at **0.55 % RMS**, the reference that had been parked in
+   `docs/notebooks/_data/pending/` since the day it was traced.
 - ✅ H.e — validation hardening
 - ✅ H.f — cross-cutting docs
 
