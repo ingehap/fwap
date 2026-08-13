@@ -6,7 +6,7 @@ live in this directory.
 
 ## Status
 
-**Eleven curves are shipped, and all eleven pass.**
+**Thirteen curves are shipped, and all thirteen pass.**
 
 | File | Solver | Score |
 |------|--------|-------|
@@ -21,8 +21,10 @@ live in this directory.
 | `tubman_cheng_toksoz_1984_fig4a_pseudo_rayleigh2_open.csv` | `trapped_pseudo_rayleigh_dispersion` (branch 1) | **3.20 %** RMS, 26/26 pts |
 | `sinha_asvadurov_2004_fig10a_quadrupole_fast.csv` | `quadrupole_dispersion` | **0.01 %** RMS, 223/257 pts |
 | `sinha_asvadurov_2004_fig19a_quadrupole_slow.csv` | `quadrupole_dispersion` | **0.01 %** RMS, 267/299 pts |
+| `sinha_asvadurov_2004_fig2a_stoneley_fast.csv` | `stoneley_dispersion` | **0.01 %** RMS, 245/245 pts |
+| `sinha_asvadurov_2004_fig2a_pseudo_rayleigh_fast.csv` | `trapped_pseudo_rayleigh_dispersion` (branch 0) | **0.01 %** RMS, 161/162 pts |
 
-**The two quadrupole rows are extracted, not traced**, and that is why
+**The four Sinha & Asvadurov rows are extracted, not traced**, and that is why
 they score two orders of magnitude tighter than everything else here.
 Sinha & Asvadurov's figures are *vector* artwork, so the curve
 coordinates come out of the PDF drawing operators exactly; there is no
@@ -30,9 +32,12 @@ pixel-tracing error to speak of. The calibration was checked against the
 figures' own dashed reference lines before any curve was read -- fig
 10(a) puts L / S / C at 666.75 / 492.08 / 273.31 us/m against the
 1e6/1500 = 666.67, 1e6/2032 = 492.13 and 1e6/3658 = 273.37 the paper's
-own Table 1 implies, agreeing to 0.02 %. For these two rows the 5 %
+own Table 1 implies, agreeing to 0.02 %. For these four rows the 5 %
 budget is therefore measuring the solver rather than the digitising,
-which is not true of the raster-traced rows above.
+which is not true of the raster-traced rows above. Fig 2(a) carries its
+own anchor: the trapped pseudo-Rayleigh branch begins at 492.1 us/m
+against the 1e6/2032 = 492.13 Table 1 implies, so the cut-off lands on
+the shear line to three digits with nothing fitted to make it.
 
 Their coverage gaps are the reference overhanging the solver, not the
 solver failing. Fig 10(a)'s m=1 curve is drawn from 3.2 kHz, and its
@@ -78,9 +83,11 @@ different tracer. They agree: this trace puts fig 2(a) at 1494 m/s at
 into this directory instead would have made the overlay a restatement of
 a check that already exists.
 
-The rest are still wanted. Each un-digitised section of the validation
-notebook ships with the `fwap` curve only and prints a clearly-marked
-`TODO: digitise <FIGURE>` line.
+**Nothing is outstanding.** Every section of the validation notebook now
+has a reference. The `TODO: digitise <FIGURE>` path in `check_overlay`
+still exists and still fires for a missing CSV — it is how a deleted or
+renamed reference announces itself rather than silently passing — but no
+section reaches it today.
 
 **The scoring is already wired.** Dropping a CSV here needs no notebook
 edit: the section's `check_overlay(...)` call switches from printing
@@ -104,8 +111,8 @@ Suggested filenames (matching the notebook section titles):
 
 | File                                  | Reference                                                    | Mode                       |
 |---------------------------------------|--------------------------------------------------------------|----------------------------|
-| `paillet_cheng_1991_fig4_5_stoneley.csv`   | Paillet & Cheng 1991 fig 4.5 *(pointer unverified)*   | Stoneley, limestone        |
-| `paillet_cheng_1991_fig4_5_pseudo_rayleigh.csv` | Paillet & Cheng 1991 fig 4.5 *(pointer unverified)* | pseudo-Rayleigh, limestone |
+| `sinha_asvadurov_2004_fig2a_stoneley_fast.csv` | Sinha & Asvadurov 2004 fig 2(a) *(shipped)* | Stoneley, fast formation |
+| `sinha_asvadurov_2004_fig2a_pseudo_rayleigh_fast.csv` | Sinha & Asvadurov 2004 fig 2(a) *(shipped)* | trapped pseudo-Rayleigh, fast |
 | `schmitt_cheng_1987_fig8a_flexural_slow.csv` | Schmitt & Cheng 1987 fig 8(a) *(shipped)*             | flexural, slow sandstone   |
 | `schmitt_cheng_1987_fig2_flexural_fast.csv` | Schmitt & Cheng 1987 fig 2(a) *(shipped)*             | flexural, fast sandstone   |
 | `sinha_asvadurov_2004_fig10a_quadrupole_fast.csv` | Sinha & Asvadurov 2004 fig 10(a) *(shipped)* | quadrupole, fast formation |
@@ -249,27 +256,26 @@ native) and Karpfinger 2010 (no casing or cement in it at all). Tubman's
 figure is a 986x583 px panel in a 300 dpi scan, and its table 1 is indexed
 by figure with rows tagged `4a` / `4b`.
 
-**Paillet & Cheng 1991 fig 4.5 is the last un-digitised reference, and it
-is blocked on the source.** *Acoustic Waves in Boreholes* (CRC/Telford
-Press 1991, reissued by Routledge) is a copyrighted book still in print;
-no accessible copy was found, and the publisher, bookseller and
-library-catalogue hosts that might carry a preview are refused by this
-environment's egress proxy. So the figure has not been seen.
+**Paillet & Cheng 1991 fig 4.5 is retired, not merely unfulfilled.**
+*Acoustic Waves in Boreholes* (CRC/Telford 1991, Routledge reissue) is
+in-print and copyrighted; no accessible copy was found and every host
+that might carry a preview is refused by this environment's egress
+proxy. But the deciding reason is not access: **neither the figure
+number nor the geometry attributed to it had ever been checked against
+the book.** Both were inherited from the plan that seeded this notebook,
+which is the same provenance that produced three invented geometries and
+two shot-gather-for-dispersion mix-ups elsewhere in this file.
 
-That leaves section 1 in a specific state worth naming, because it is the
-state three other sections were in before their figures were obtained:
-**its figure number and its geometry are both inherited, not checked.**
-Sections 2, 3 and 4 each shipped with a geometry that turned out to be
-invented — a "shale" row absent from the source table, an unsourced
-slow/fast pair, and a casing that matched no real casing row — and each
-was caught only by reading the actual parameter table. Section 1's
-limestone (4880 / 2820 / 2700, `a` = 0.10 m, attributed to "sect. 4.4")
-has had no such check. It is flagged in the notebook rather than quietly
-trusted.
+Section 1 now points at **Sinha & Asvadurov (2004) fig 2(a)**, which
+plots the same two modes — Stoneley and trapped pseudo-Rayleigh — on a
+fast formation, from a source whose parameters come from its own Table 1
+and whose calibration is checkable against its own dashed reference
+lines. Both curves land at 0.01 % RMS with full coverage. The only thing
+given up is the rock: Sinha's fast formation instead of Paillet &
+Cheng's limestone. The solvers and the physics are unchanged.
 
-What is needed is a scan of fig 4.5 and of whatever table or text gives
-its formation and fluid parameters. With those, the trace is routine —
-the same tooling that produced the other nine curves.
+**Nothing in this notebook now depends on a source that cannot be
+obtained.**
 
 ## Workflow for adding an overlay
 

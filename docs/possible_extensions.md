@@ -308,7 +308,7 @@ the package handle the majority of real production logs:
   Sphinx build could regenerate these on every commit so the docs
   cannot drift from the implementation.
 - **Cross-validation against published curves**: notebook that
-  reproduces Paillet & Cheng 1991 fig 4.5; would double as the
+  reproduces published dispersion figures; would double as the
   acceptance test for the leaky-mode solver work. (Largely
   delivered by `docs/notebooks/cylindrical_biot_validation.ipynb`.
   The "Schmitt 1988 fig 4" and "Tang & Cheng 2004 figs 3.4 and

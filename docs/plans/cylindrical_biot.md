@@ -48,14 +48,23 @@ is retained for historical context.
 
 **Status.** Shipped in `d79bd69`. Public
 `pseudo_rayleigh_dispersion` exported from `fwap`. Cutoff
-regression and Paillet & Cheng 1991 fig 4.5 match validated in
-`tests/test_cylindrical_solver.py`.
+regression validated in `tests/test_cylindrical_solver.py`.
+
+⚠ **This entry used to claim a "Paillet & Cheng 1991 fig 4.5 match
+validated" in that file. There is no such test and never was** — the
+only occurrence of the string in the suite is a fixture *label* in
+`tests/test_validation.py`. The cutoff regression is real; the
+published-curve match was not. `pseudo_rayleigh_dispersion` tracks the
+**leaky** n=0 root and still has no external tie; the **trapped** mode
+is tied, by Tubman fig 4(a) and Sinha & Asvadurov fig 2(a).
 
 
 
 **Why tractable.** All four pieces of the n=0 complex pipeline
 exist as private helpers. The work is wiring a public function and
-proving the answer matches Paillet & Cheng 1991 fig 4.5.
+proving the answer against a published curve. (This said "matches
+Paillet & Cheng 1991 fig 4.5"; that pointer is withdrawn — see the
+status note above.)
 
 **What to build.**
 
@@ -79,9 +88,14 @@ fwap.cylindrical_solver.pseudo_rayleigh_dispersion(
 
 1. Pure-bound limit check: at `f → ∞`, slowness → `1/V_S` to
    plotting accuracy.
-2. Reproduce Paillet & Cheng 1991 fig 4.5 (limestone formation:
+2. ~~Reproduce Paillet & Cheng 1991 fig 4.5 (limestone formation:
    `V_P=5.5 km/s`, `V_S=3.1 km/s`, `V_f=1.5 km/s`, `a=0.1 m`)
-   within ~2% of the published curve.
+   within ~2% of the published curve.~~ **Withdrawn.** Never
+   performed, and the geometry here contradicts the one the
+   validation notebook attributed to the same figure (4880 / 2820 /
+   2700) — two different limestones under one figure number, which
+   is what an unchecked pointer looks like. Neither was ever
+   compared against the book.
 3. Cutoff regression: cutoff frequency matches the closed form
    `f_c = (j_{1,1} V_f V_S) / (2π a sqrt(V_S² − V_f²))`.
 
@@ -445,8 +459,12 @@ two-row figure per published reference:
 
 References to reproduce, in order of effort:
 
-1. Paillet & Cheng 1991 fig 4.5 — Stoneley + pseudo-Rayleigh on
-   limestone (covers A and the existing `stoneley_dispersion`).
+1. Sinha & Asvadurov 2004 fig 2(a) — Stoneley + trapped
+   pseudo-Rayleigh on a fast formation (covers `stoneley_dispersion`
+   and `trapped_pseudo_rayleigh_dispersion`). **Done**: both
+   extracted and shipped at 0.01 % RMS. This item named "Paillet &
+   Cheng 1991 fig 4.5" until it was retired — unobtainable here, and
+   its figure number and geometry had never been checked.
 2. Schmitt & Cheng 1987 figs 2(a) + 8(a) — flexural in fast and
    slow sandstone (covers B and `flexural_dispersion`). **Done**:
    both digitised and shipped. This item named "Schmitt 1988
