@@ -7,6 +7,35 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Slow-formation Stoneley is tied**, from Sinha & Asvadurov (2004) **fig
+  11(a)** — axisymmetric waves in a slow formation. `stoneley_dispersion`
+  matches the m=1 branch at **0.01 %** RMS over 204/257 points. Notebook
+  section 1 is now 1a (fig 2(a), fast) and 1b (fig 11(a), slow). This
+  exhausts the paper's six phase-slowness panels.
+
+  **The 53 unscored points are exactly the 53 lying faster than `V_S`.** The
+  published branch runs to `f` -> 0 and ends at 1527.8 us/m against a
+  1968.5 us/m shear line; above `V_S` it radiates shear into the formation
+  and is leaky rather than bound. `stoneley_dispersion` returns bound roots
+  only and declines there. Sinha plots leaky branches — panel (c) of that
+  figure gives their radiation attenuation.
+
+### Changed
+- **`tube_wave_speed`'s below-floor error message no longer claims the wave
+  "ceases to exist at low frequency".** Fig 11(a) shows the n=0 branch
+  continuing below the validity floor as a leaky mode, and the White
+  expression still predicts its low-frequency asymptote: evaluated for that
+  formation *before* the figure was opened it gives 1526.8 us/m against a
+  traced 1527.8, agreeing to 0.07 %. The guard and the raise are unchanged
+  and remain correct — a speed above `V_S` is not a bound mode — but the
+  message now says the branch continues as a leaky one whose speeds are out
+  of scope, and cites the figure.
+
+  The surrounding docstrings in `cylindrical.py` and `stoneley.py` are
+  **untouched**: they already scope the claim to *bound* roots, and the
+  modal-determinant scan behind them is a real measurement that fig 11(a)
+  does not contradict. Only the one error message dropped the qualifier.
+
 - **`flexural_dispersion` has a second, independent external tie**, from Sinha
   & Asvadurov (2004) **figs 6(a) and 15(a)** — flexural waves in a fast and a
   slow formation. Both match the m=1 branch at **0.01 %** RMS: 64/114 points
