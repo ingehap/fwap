@@ -7,6 +7,42 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Paillet & Cheng (1986) fig 12(a) digitised into `_data/pending/`** — the
+  leaky compressional-mode phase velocities for shale B, fundamental (170
+  points, 1.5-24.9 kHz) and first mode (84 points, 13.3-24.8 kHz). Both lie
+  between the figure's own C and L lines (1/V_P = 500.0, 1/V_f = 666.7
+  us/m), the window a leaky compressional mode occupies.
+
+  **It is doubly unscoreable, and that was known before the work started.**
+  Shale B is a *slow* formation (`V_S` 1000 < `V_f` 1500), so
+  `pseudo_rayleigh_dispersion` — which requires `V_S > V_f` and tracks a
+  different, fast-formation mode — cannot run on it. And Table 1 gives shale
+  B a **5 cm centralised logging tool**, which fwap models nowhere:
+  `BoreholeLayer` stacks outward from the fluid and `FluidAnnulus` is a
+  casing/cement debonding gap, neither of which is an inner cylinder.
+
+  **The phase/group pairing was verified without a score.** Fig 12(a) draws
+  four crossing curves. Every other curve in the repository has its identity
+  confirmed by its overlay score; with no score available, the check used
+  was that differentiating a phase curve must reproduce its group partner.
+  `v_g = v_p / (1 - (omega/v_p) dv_p/domega)` on the traced fundamental
+  gives an Airy minimum of **1.207 km/s at 12.1 kHz** against the traced
+  group curve's **1.235 km/s at 10.7 kHz** — dip reproduced in depth and
+  position. Above ~15 kHz the derivative is dominated by trace noise (the
+  phase curve moves ~2 px over 18-25 kHz), so it confirms the assignment
+  without being quantitative there. The group curves were traced only for
+  this check and are not shipped.
+
+  **Fidelity is recorded as lower than anything else parked.** The y axis
+  checks out to 0.25 % against the figure's dotted `V_P` and `V_f` lines,
+  and each curve reproduces six independently-read columns to 0.8 m/s — but
+  the x axis has unevenly spaced ticks (256-302 px apart) leaving **0.36 kHz
+  of residual** after a least-squares fit, roughly 1.4 % of full scale. That
+  is scan distortion in a 1986 raster and is not removable by re-tracing.
+  The fundamental's fastest point reads 0.5 % faster than `1/V_P`, which is
+  calibration and line-width error at cut-off rather than physics; **the CSV
+  ships as traced rather than clipped to the physical bound.**
+
 - **A negative result recorded for `pseudo_rayleigh_dispersion`**, the one
   public dispersion function with no external tie. It needs a phase-velocity
   curve for an n=0 leaky mode in a **fast** formation, open hole, **no
