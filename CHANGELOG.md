@@ -7,6 +7,52 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **A negative result recorded for `pseudo_rayleigh_dispersion`**, the one
+  public dispersion function with no external tie. It needs a phase-velocity
+  curve for an n=0 leaky mode in a **fast** formation, open hole, **no
+  logging tool**, with velocity between `V_S` and `V_P`. Two on-topic papers
+  were obtained and checked; neither supplies one:
+
+  * **Paillet & Cheng (1986)**, Geophysics 51(7), 1438-1449 — treats exactly
+    this mode, but its fast-formation figures are complex-plane trajectories,
+    pressure-function amplitudes against wavenumber, and head-wave spectra.
+    Its only phase-velocity plots (figs 12, 13) are **slow** formations with
+    a 5 cm logging tool.
+  * **Zhang, Zhang & Wang (2009)** — a **dipole (n=1)** study of **slow**
+    formations plotting complex poles. Wrong azimuthal order and regime.
+
+  Written up in `docs/notebooks/_data/README.md` so the search is not
+  repeated.
+
+- **`_data/pending/` gains a fourth curve**: Sinha & Asvadurov 2004 fig
+  11(a) curve 3, the slow-formation **leaky compressional mode**, 107 points
+  extracted from vector paths. The paper identifies it directly ("between
+  the formation compressional and borehole-liquid slownesses") and the
+  traced curve sits inside that window throughout, 529.0-639.1 us/m against
+  a C line at 529.1 and an L line at 666.7. No fwap function computes this
+  mode, so it is parked rather than scored.
+
+### Fixed
+- **`_data/pending/README.md` documented one curve while the directory held
+  three.** The two Tubman cased pseudo-Rayleigh curves had been parked with
+  no record of what they were or what blocked them. The README now covers
+  all four entries with a source-and-blocker table, and states plainly that
+  in every case the reference is finished and the solver is what is missing.
+
+- **A near-miss that was *not* a defect, recorded so it is not
+  re-discovered.** Sinha fig 2(a)'s m=3 branch lies in
+  `pseudo_rayleigh_dispersion`'s slowness window and scores **11.3 %** RMS
+  against it. The paper's own text resolves it — "it shows the presence of
+  two cut-off modes (m = 3 and 4)" — so m=3 is an anharmonic cut-off mode,
+  not a leaky one. Same right-window-wrong-mode trap as the
+  trapped-versus-leaky error earlier in this branch, caught this time before
+  any claim was made. **The 11.3 % says nothing about the solver.**
+
+  One question is left open rather than answered: the docstring says the
+  mode's low-frequency cutoff approaches `1/V_S`, while the solver trends
+  toward `1/V_P` at low frequency. Recorded as a question; an external tie
+  is what would settle it.
+
 - **Slow-formation Stoneley is tied**, from Sinha & Asvadurov (2004) **fig
   11(a)** — axisymmetric waves in a slow formation. `stoneley_dispersion`
   matches the m=1 branch at **0.01 %** RMS over 204/257 points. Notebook
