@@ -18,6 +18,8 @@ from fwap.cylindrical_solver._n0_isotropic import (
     stoneley_dispersion,
 )
 from fwap.cylindrical_solver._n1_isotropic import (
+    _march_fast_flexural_branch,
+    _real_root_function,
     flexural_dispersion,
 )
 
@@ -378,12 +380,16 @@ def flexural_dispersion_vti(
     Sinha-Norris-Chang-driven bracket
     :func:`_flexural_kz_bracket_vti`.
 
-    Fast-formation TI (``V_Sv > V_f``, where ``F_f^2 < 0`` and the
-    fluid Bessels become oscillatory) requires a complex variant of
-    the VTI modal determinant; that is out of scope for plan H.d
-    and raises ``NotImplementedError``. The mirror of the
-    isotropic ``_flexural_dispersion_fast_formation`` complex path
-    is deferred to a follow-up plan item.
+    Fast-formation TI (``V_Sv > V_f``) dispatches to
+    :func:`_flexural_dispersion_fast_formation_vti`, which runs the
+    complex VTI determinant
+    :func:`_modal_determinant_n1_vti_complex` through the same
+    signal-part measurement and branch marcher the isotropic
+    fast-formation path uses. There ``F_f^2 < 0`` over the part of
+    the band where the phase velocity exceeds ``V_f``, so the fluid
+    Bessels are oscillatory; the formation qP / qSV / SH
+    wavenumbers stay real and ``k_z`` stays real, so the root is a
+    genuine bound mode rather than a leaky one.
 
     Parameters and validation rules: identical to
     :func:`stoneley_dispersion_vti`.
@@ -397,9 +403,6 @@ def flexural_dispersion_vti(
     ------
     ValueError
         Same conditions as :func:`stoneley_dispersion_vti`.
-    NotImplementedError
-        If the stiffness tensor is genuinely anisotropic and
-        ``V_Sv > V_f`` (fast-formation TI).
     """
     _validate_vti_stiffness(c11, c13, c33, c44, c66, rho)
     if vf <= 0 or rho_f <= 0:
@@ -423,17 +426,17 @@ def flexural_dispersion_vti(
         )
     Vsv = float(np.sqrt(c44 / rho))
     if Vsv > vf:
-        raise NotImplementedError(
-            "flexural_dispersion_vti for fast-formation TI "
-            f"(V_Sv = {Vsv:.0f} m/s > V_f = {vf:.0f} m/s) is not "
-            "implemented yet. The real-valued VTI modal determinant "
-            "requires F_f^2 = k_z^2 - (omega/V_f)^2 > 0, i.e. "
-            "V_Sv < V_f. The complex-determinant path mirroring the "
-            "isotropic _flexural_dispersion_fast_formation is "
-            "deferred (see plan item H.d follow-up in "
-            "docs/plans/cylindrical_biot_H.md). Slow-formation TI "
-            "(V_Sv < V_f) and the isotropic-collapse case are "
-            "supported."
+        return _flexural_dispersion_fast_formation_vti(
+            f_arr,
+            c11=c11,
+            c13=c13,
+            c33=c33,
+            c44=c44,
+            c66=c66,
+            rho=rho,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
         )
     # Genuine TI, slow formation: brentq loop on
     # _modal_determinant_n1_vti per H.d.6.
@@ -503,6 +506,99 @@ def flexural_dispersion_vti(
                 exc,
             )
 
+    return BoreholeMode(
+        name="flexural",
+        azimuthal_order=1,
+        freq=f_arr,
+        slowness=slowness,
+    )
+
+
+def _flexural_dispersion_fast_formation_vti(
+    freq: np.ndarray,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> BoreholeMode:
+    r"""
+    Fast-formation (``V_Sv > V_f``) VTI flexural dispersion.
+
+    Anisotropy sister of
+    :func:`_flexural_dispersion_fast_formation`. The structure is
+    deliberately identical -- complex determinant, measured signal
+    part, branch marcher -- because the only thing anisotropy
+    changes is the determinant itself. Reusing the isotropic
+    marcher rather than writing a second one means the two paths
+    cannot disagree about *which* root is the fundamental, which is
+    the part that was historically got wrong (roadmap A.2).
+
+    The shear velocity that bounds the search is ``V_Sv =
+    sqrt(C44/rho)``, the vertically-polarised shear speed. That is
+    the right one for a dipole flexural mode in a vertical borehole:
+    the mode is built on the qSV branch, and ``C44`` is the
+    stiffness that branch samples at ``k_z``-dominated propagation.
+    ``V_Sh = sqrt(C66/rho)`` governs the SH-decoupled floor instead,
+    and for the Green River shale of Ellefsen fig 2 the two differ
+    by 18 % -- large enough that using the wrong one loses the
+    branch rather than merely shifting it.
+
+    Parameters
+    ----------
+    freq : ndarray
+        Frequency grid (Hz), strictly positive.
+    c11, c13, c33, c44, c66 : float
+        VTI stiffness tensor entries (Pa).
+    rho : float
+        Formation density (kg / m^3).
+    vf, rho_f : float
+        Borehole-fluid velocity (m / s) and density (kg / m^3).
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "flexural"``, ``azimuthal_order = 1``. ``NaN`` at
+        frequencies where the branch is not a real-``k_z`` root --
+        the same two unreachable bands the isotropic path documents,
+        below the Rayleigh-like crossing and above the ``V_f``
+        crossing.
+    """
+    f_arr = np.asarray(freq, dtype=float)
+    slowness = np.full(f_arr.size, np.nan, dtype=float)
+    if f_arr.size == 0:
+        return BoreholeMode(
+            name="flexural",
+            azimuthal_order=1,
+            freq=f_arr,
+            slowness=slowness,
+        )
+    Vsv = float(np.sqrt(c44 / rho))
+
+    def _det(kz: float, _omega: float) -> complex:
+        return _modal_determinant_n1_vti_complex(
+            float(kz),
+            _omega,
+            c11=c11,
+            c13=c13,
+            c33=c33,
+            c44=c44,
+            c66=c66,
+            rho=rho,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
+        )
+
+    root_fn = _real_root_function(_det, f_arr, vs=Vsv, vf=vf)
+    slowness = _march_fast_flexural_branch(root_fn, f_arr, vs=Vsv, vf=vf)
     return BoreholeMode(
         name="flexural",
         azimuthal_order=1,
@@ -1587,6 +1683,69 @@ def _modal_determinant_n0_vti(
 # pre-rescale C entry. Columns A and D are not rescaled.
 
 
+def _fluid_bessels_n1_vti(
+    kz: float,
+    omega: float,
+    vf: float,
+    a: float,
+) -> tuple[complex, complex, complex]:
+    r"""
+    Fluid radial wavenumber and its Bessel values, in either regime.
+
+    Returns ``(F_f, I_0(F_f a), I_1(F_f a))`` where
+    ``F_f = sqrt(k_z^2 - (omega / V_f)^2)``.
+
+    **Slow-formation / bound regime** (``F_f^2 > 0``): the fluid field
+    decays in ``r`` and every quantity is real. This branch performs
+    exactly the same three calls the row builders used before this
+    helper existed, in the same order and on the same real arguments,
+    so its results are **bit-identical** to the pre-existing path. That
+    matters: the slow-formation VTI flexural curve is tied to Ellefsen
+    fig 4 at 0.30 % RMS, and routing it through complex arithmetic
+    instead would perturb it at the 1e-15 level for no benefit.
+
+    **Fast-formation regime** (``F_f^2 < 0``): ``F_f`` is purely
+    imaginary, the fluid pressure is oscillatory rather than decaying,
+    and ``I_n(F_f a)`` continues analytically to ``i^n J_n(|F_f| a)``.
+    :func:`scipy.special.iv` performs that continuation directly on a
+    complex argument, so no separate ``J_n`` branch is needed.
+
+    At exactly ``F_f^2 == 0`` the bound branch is taken; ``I_n(0)`` is
+    finite (1 and 0), so this is continuous.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    vf : float
+        Borehole-fluid velocity (m / s).
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    tuple of complex
+        ``(F_f, I_0(F_f a), I_1(F_f a))``. Real-valued (zero imaginary
+        part) in the bound regime; genuinely complex otherwise.
+    """
+    arg2 = kz * kz - (omega / vf) ** 2
+    if arg2 >= 0.0:
+        F_f = float(np.sqrt(arg2))
+        return (
+            F_f,
+            float(special.iv(0, F_f * a)),
+            float(special.iv(1, F_f * a)),
+        )
+    F_f_c = np.sqrt(complex(arg2))
+    return (
+        complex(F_f_c),
+        complex(special.iv(0, F_f_c * a)),
+        complex(special.iv(1, F_f_c * a)),
+    )
+
+
 def _modal_row1_at_a_n1_vti(
     kz: float,
     omega: float,
@@ -1639,7 +1798,7 @@ def _modal_row1_at_a_n1_vti(
         ``(1/r) d_theta psi_z``) and shifts the Bessel index from
         K_0 to K_1 for the qP scalar potential.
     """
-    F_f = float(np.sqrt(kz * kz - (omega / vf) ** 2))
+    F_f, I0_Ff_a, I1_Ff_a = _fluid_bessels_n1_vti(kz, omega, vf, a)
     alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti(
         kz,
         omega,
@@ -1651,8 +1810,6 @@ def _modal_row1_at_a_n1_vti(
         rho=rho,
     )
 
-    I0_Ff_a = float(special.iv(0, F_f * a))
-    I1_Ff_a = float(special.iv(1, F_f * a))
     K0_qP_a = float(special.kv(0, alpha_qP * a))
     K1_qP_a = float(special.kv(1, alpha_qP * a))
     K0_qSV_a = float(special.kv(0, alpha_qSV * a))
@@ -1804,7 +1961,7 @@ def _modal_row2_at_a_n1_vti(
         H.c.1.b. Q_qX formula is the same; n=1 adds the D_SH
         column and the extra K_1/r^2 azimuthal-derivative term.
     """
-    F_f = float(np.sqrt(kz * kz - (omega / vf) ** 2))
+    _F_f, _I0_Ff_a, I1_Ff_a = _fluid_bessels_n1_vti(kz, omega, vf, a)
     alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti(
         kz,
         omega,
@@ -1816,7 +1973,6 @@ def _modal_row2_at_a_n1_vti(
         rho=rho,
     )
 
-    I1_Ff_a = float(special.iv(1, F_f * a))
     K0_qP_a = float(special.kv(0, alpha_qP * a))
     K1_qP_a = float(special.kv(1, alpha_qP * a))
     K0_qSV_a = float(special.kv(0, alpha_qSV * a))
@@ -2236,61 +2392,153 @@ def _modal_determinant_n1_vti(
         ``det(M)`` of the 4x4 VTI flexural modal matrix, real-
         valued in the bound regime. NaN outside the bound regime.
     """
-    rows = [
-        _modal_row1_at_a_n1_vti(
-            kz,
-            omega,
-            c11=c11,
-            c13=c13,
-            c33=c33,
-            c44=c44,
-            c66=c66,
-            rho=rho,
-            vf=vf,
-            rho_f=rho_f,
-            a=a,
-        ),
-        _modal_row2_at_a_n1_vti(
-            kz,
-            omega,
-            c11=c11,
-            c13=c13,
-            c33=c33,
-            c44=c44,
-            c66=c66,
-            rho=rho,
-            vf=vf,
-            rho_f=rho_f,
-            a=a,
-        ),
-        _modal_row3_at_a_n1_vti(
-            kz,
-            omega,
-            c11=c11,
-            c13=c13,
-            c33=c33,
-            c44=c44,
-            c66=c66,
-            rho=rho,
-            vf=vf,
-            rho_f=rho_f,
-            a=a,
-        ),
-        _modal_row4_at_a_n1_vti(
-            kz,
-            omega,
-            c11=c11,
-            c13=c13,
-            c33=c33,
-            c44=c44,
-            c66=c66,
-            rho=rho,
-            vf=vf,
-            rho_f=rho_f,
-            a=a,
-        ),
-    ]
-    M = np.vstack(rows)
+    if kz * kz - (omega / vf) ** 2 < 0.0:
+        # Fast-formation regime: the fluid Bessels are oscillatory and
+        # the rows are genuinely complex, so ``M.real`` would be a
+        # finite but meaningless number rather than the mode function.
+        # The documented contract is NaN outside the bound regime;
+        # :func:`_modal_determinant_n1_vti_complex` is the entry point
+        # that handles this regime properly.
+        return float("nan")
+    M = _modal_matrix_n1_vti(
+        kz,
+        omega,
+        c11=c11,
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c66,
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
+    )
     # Each row is real-valued post-rescale; imaginary parts are
     # zero to floating-point precision in the bound regime.
     return float(np.linalg.det(M.real))
+
+
+def _modal_matrix_n1_vti(
+    kz: float,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> np.ndarray:
+    """
+    Assemble the 4x4 n=1 VTI flexural modal matrix.
+
+    Shared by :func:`_modal_determinant_n1_vti` (bound regime, takes
+    the real part) and :func:`_modal_determinant_n1_vti_complex`
+    (either regime, keeps the full complex determinant), so the two
+    cannot drift apart.
+
+    Returns
+    -------
+    ndarray
+        ``(4, 4)`` complex array.
+    """
+    kw = dict(
+        c11=c11,
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c66,
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
+    )
+    return np.vstack(
+        [
+            _modal_row1_at_a_n1_vti(kz, omega, **kw),
+            _modal_row2_at_a_n1_vti(kz, omega, **kw),
+            _modal_row3_at_a_n1_vti(kz, omega, **kw),
+            _modal_row4_at_a_n1_vti(kz, omega, **kw),
+        ]
+    )
+
+
+def _modal_determinant_n1_vti_complex(
+    kz: float,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> complex:
+    r"""
+    Complex 4x4 n=1 VTI flexural modal determinant, valid in both
+    fluid regimes.
+
+    Sister of :func:`_modal_determinant_n1_complex` along the
+    anisotropy axis, and the fast-formation counterpart of
+    :func:`_modal_determinant_n1_vti`.
+
+    The distinction that matters is **which wavenumbers go complex**.
+    For a bound flexural mode the phase velocity stays below ``V_Sv``,
+    so the formation qP, qSV and SH radial wavenumbers are real in
+    both regimes and the formation fields decay in ``r``. Only the
+    fluid wavenumber ``F_f = sqrt(k_z^2 - (omega/V_f)^2)`` turns
+    imaginary, and only where the phase velocity exceeds ``V_f`` --
+    which in a fast formation is the low-frequency part of the band.
+    So this is not a leaky-mode solver: ``k_z`` stays real, the root
+    is a genuine bound mode, and the determinant is complex only
+    because the fluid pressure oscillates rather than decays.
+
+    Evaluated at real ``k_z`` the result is a real quantity times a
+    fixed phase, exactly as in the isotropic case, so one of
+    ``Re`` and ``Im`` is the mode function and the other is
+    round-off. Which one is **measured** by
+    :func:`_real_root_function` rather than assumed -- see roadmap
+    A.7, where assuming it cost the n=2 path its correctness.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m), real.
+    omega : float
+        Angular frequency (rad / s).
+    c11, c13, c33, c44, c66 : float
+        VTI stiffness tensor entries (Pa).
+    rho : float
+        Formation density (kg / m^3).
+    vf, rho_f : float
+        Borehole-fluid velocity (m / s) and density (kg / m^3).
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    complex
+        ``det(M)``. In the bound regime the imaginary part is zero to
+        floating-point precision and the real part equals
+        :func:`_modal_determinant_n1_vti`.
+    """
+    M = _modal_matrix_n1_vti(
+        kz,
+        omega,
+        c11=c11,
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c66,
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
+    )
+    return complex(np.linalg.det(M))

@@ -9,7 +9,7 @@ record a gap.
 Nothing in the notebook reads this directory.
 
 **In every case here the solver is what is missing, not the digitising.**
-Entries 1-3 are finished references at the fidelity of the rest of the
+Entries 2 and 3 are finished references at the fidelity of the rest of the
 repository. Entry 4 is the exception worth naming: its reference is
 complete, but it is a raster scan whose x-axis calibration carries about
 1.4 % of scan distortion, so it is a lower-grade curve than anything in
@@ -19,52 +19,24 @@ complete, but it is a raster scan whose x-axis calibration carries about
 
 | File | Source | Blocked on |
 |------|--------|------------|
-| `ellefsen_..._fig2_flexural_vti_hard.csv` | Ellefsen/Cheng/Schmitt 1988 fig 2 | fast-formation TI in `flexural_dispersion_vti` |
 | `tubman_..._fig4b_pseudo_rayleigh1_cased.csv` | Tubman/Cheng/Toksoz 1984 fig 4(b) | no cased pseudo-Rayleigh API |
 | `tubman_..._fig4b_pseudo_rayleigh2_cased.csv` | Tubman/Cheng/Toksoz 1984 fig 4(b) | no cased pseudo-Rayleigh API |
 | `sinha_..._fig11a_leaky_compressional_slow.csv` | Sinha & Asvadurov 2004 fig 11(a) | no slow-formation leaky-compressional solver |
 | `paillet_cheng_1986_fig12a_..._fundamental.csv` | Paillet & Cheng 1986 fig 12(a) | same, **and** no logging-tool geometry |
 | `paillet_cheng_1986_fig12a_..._first.csv` | Paillet & Cheng 1986 fig 12(a) | same, **and** no logging-tool geometry |
 
-## 1. Fast-formation TI flexural
+## 1. ~~Fast-formation TI flexural~~ — promoted
 
-From Ellefsen, K. J., Cheng, C. H., & Schmitt, D. P. (1988), *Acoustic
-Logging Guided Waves In Transversely Isotropic Formations*, MIT Earth
-Resources Laboratory ([DSpace](https://dspace.mit.edu/handle/1721.1/75100)).
+*Closed.* `flexural_dispersion_vti` now implements the fast-formation TI
+regime, so `ellefsen_cheng_schmitt_1988_fig2_flexural_vti_hard.csv` moved
+up to `_data/` and scores **0.55 % RMS over 20 of 73 points**. It was
+parked here from the day it was traced; nothing about the reference
+changed, only the solver.
 
-73 points, 1.5-19.5 kHz, traced at 400 dpi. Its three siblings — fig 2's
-equivalent-isotropic branch and both of fig 4's — were promoted to `_data/`
-and now score at 0.45 %, 0.17 % and 0.30 % RMS.
-
-**The reference is complete and verified.** The formation is Green River
-shale, from Thomsen (1986) table 1 (Schock et al. 1974 row): `V_P0` 3292,
-`V_S0` 1768 m/s, `rho` 2075 kg/m^3, `eps` 0.195, `delta` -0.220,
-`gamma` 0.180; water at 1500 m/s and 1000 kg/m^3; `a` = 0.10 m. That
-geometry is confirmed — the three sibling curves score under 0.5 % with it.
-
-What blocks it is that **`flexural_dispersion_vti` raises
-`NotImplementedError` for fast-formation TI**:
-
-> `flexural_dispersion_vti` for fast-formation TI (`V_Sv` = 1768 m/s >
-> `V_f` = 1500 m/s) is not implemented yet. The real-valued VTI modal
-> determinant requires `F_f^2 = k_z^2 - (omega/V_f)^2 > 0`, i.e.
-> `V_Sv < V_f`. The complex-determinant path mirroring the isotropic
-> `_flexural_dispersion_fast_formation` is deferred.
-
-Green River shale is fast at 1768 m/s against a 1500 m/s borehole fluid, so
-this figure lands squarely on the unimplemented path. It is tracked as the
-H.d follow-up in `docs/plans/cylindrical_biot_H.md`.
-
-**To promote it:** move the CSV up one directory and add a fourth
-`check_overlay` call to section 5 with `flexural_dispersion_vti` on the hard
-rock. No new digitising, no new reference hunting.
-
-Worth knowing before that work starts: the *isotropic* fast-formation path
-is itself sparse. Fig 2's equivalent-isotropic branch scores 0.45 % RMS but
-over only **17 of 73** points, 2.0-6.0 kHz, because `flexural_dispersion`
-returns `NaN` outside that band for this rock. A fast-formation TI path that
-inherits the same behaviour would be scored just as thinly, and that is a
-property of the solver rather than of the figure.
+Its coverage is thin for the same reason its equivalent-isotropic sibling
+is (17 of 73): the fast-formation marcher returns `NaN` outside a narrow
+band rather than a wrong root. That was predicted in this file before the
+solver existed, and it held.
 
 ## 2. Cased-hole pseudo-Rayleigh, two branches
 
