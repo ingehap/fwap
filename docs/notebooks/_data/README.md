@@ -6,7 +6,7 @@ live in this directory.
 
 ## Status
 
-**Fifteen curves are shipped, and all fifteen pass.**
+**Sixteen curves are shipped, and all sixteen pass.**
 
 | File | Solver | Score |
 |------|--------|-------|
@@ -25,8 +25,9 @@ live in this directory.
 | `sinha_asvadurov_2004_fig2a_pseudo_rayleigh_fast.csv` | `trapped_pseudo_rayleigh_dispersion` (branch 0) | **0.01 %** RMS, 161/162 pts |
 | `sinha_asvadurov_2004_fig6a_flexural_fast.csv` | `flexural_dispersion` | **0.01 %** RMS, 64/114 pts |
 | `sinha_asvadurov_2004_fig15a_flexural_slow.csv` | `flexural_dispersion` | **0.01 %** RMS, 238/238 pts |
+| `sinha_asvadurov_2004_fig11a_stoneley_slow.csv` | `stoneley_dispersion` | **0.01 %** RMS, 204/257 pts |
 
-**The six Sinha & Asvadurov rows are extracted, not traced**, and that is why
+**The seven Sinha & Asvadurov rows are extracted, not traced**, and that is why
 they score two orders of magnitude tighter than everything else here.
 Sinha & Asvadurov's figures are *vector* artwork, so the curve
 coordinates come out of the PDF drawing operators exactly; there is no
@@ -34,7 +35,7 @@ pixel-tracing error to speak of. The calibration was checked against the
 figures' own dashed reference lines before any curve was read -- fig
 10(a) puts L / S / C at 666.75 / 492.08 / 273.31 us/m against the
 1e6/1500 = 666.67, 1e6/2032 = 492.13 and 1e6/3658 = 273.37 the paper's
-own Table 1 implies, agreeing to 0.02 %. For these six rows the 5 %
+own Table 1 implies, agreeing to 0.02 %. For these seven rows the 5 %
 budget is therefore measuring the solver rather than the digitising,
 which is not true of the raster-traced rows above. Fig 2(a) carries its
 own anchor: the trapped pseudo-Rayleigh branch begins at 492.1 us/m
@@ -71,6 +72,28 @@ so `..._fig2_flexural_iso_hard.csv` covers 17 of 73 points,
 9.65 kHz). Outside those bands **the overlay is silent, not green**. The
 three together bracket where that band limit falls across three different
 fast geometries.
+
+**Fig 11(a)'s coverage gap is a mode boundary, exactly.** Its published
+m=1 branch runs to `f` -> 0 and ends at 1527.8 us/m — *faster* than `V_S`
+(1968.5). `stoneley_dispersion` scores 204 of 257 points, and the 53 it
+skips are precisely the 53 lying faster than `V_S`. Above `V_S` the mode
+radiates shear into the formation: it is leaky, not bound, and Sinha plots
+leaky branches (panel (c) of that figure gives their radiation
+attenuation). The solver returns bound roots only and declines there.
+
+**That figure also supplies external evidence for a regime the package
+previously only called invalid.** The White tube-wave expression
+`V_f / sqrt(1 + rho_f V_f^2 / (rho V_S^2))` was evaluated for formation B
+*before* the figure was opened and gave 1526.8 us/m; the traced curve's
+`f` -> 0 end reads 1527.8, agreeing to **0.07 %**. So below the validity
+floor the formula still predicts the branch's low-frequency asymptote —
+what changes is that the branch is leaky rather than bound.
+`fwap.tube_wave_speed` still raises there, correctly, since a speed above
+`V_S` is not a bound mode; its message no longer says the wave "ceases to
+exist at low frequency", which that figure contradicts. The surrounding
+docstrings were already precise — they scope the claim to *bound* roots,
+and the modal-determinant scan behind it is a real measurement — so they
+are unchanged.
 
 **`flexural_dispersion` now has two independent ties.** Sections 2a and 5
 both rest on raster traces of Schmitt-lineage figures; a systematic bias in
@@ -140,6 +163,7 @@ Suggested filenames (matching the notebook section titles):
 | `sinha_asvadurov_2004_fig2a_pseudo_rayleigh_fast.csv` | Sinha & Asvadurov 2004 fig 2(a) *(shipped)* | trapped pseudo-Rayleigh, fast |
 | `schmitt_cheng_1987_fig8a_flexural_slow.csv` | Schmitt & Cheng 1987 fig 8(a) *(shipped)*             | flexural, slow sandstone   |
 | `schmitt_cheng_1987_fig2_flexural_fast.csv` | Schmitt & Cheng 1987 fig 2(a) *(shipped)*             | flexural, fast sandstone   |
+| `sinha_asvadurov_2004_fig11a_stoneley_slow.csv` | Sinha & Asvadurov 2004 fig 11(a) *(shipped)* | Stoneley, slow formation |
 | `sinha_asvadurov_2004_fig6a_flexural_fast.csv` | Sinha & Asvadurov 2004 fig 6(a) *(shipped)* | flexural, fast formation |
 | `sinha_asvadurov_2004_fig15a_flexural_slow.csv` | Sinha & Asvadurov 2004 fig 15(a) *(shipped)* | flexural, slow formation |
 | `sinha_asvadurov_2004_fig10a_quadrupole_fast.csv` | Sinha & Asvadurov 2004 fig 10(a) *(shipped)* | quadrupole, fast formation |

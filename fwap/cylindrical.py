@@ -346,9 +346,13 @@ def tube_wave_speed(
         raise ValueError(
             f"vs={vs} is at or below the tube-wave validity floor "
             f"vf*sqrt(1 - rho_f/rho) = {floor:.4g} m/s. Below it the White "
-            "formula returns a speed above vs, which is not a bound mode; "
-            "the borehole Stoneley wave ceases to exist at low frequency "
-            "in such formations."
+            "formula returns a speed above vs, which is not a bound mode, "
+            "so this function refuses rather than returning it. The n=0 "
+            "branch does continue below the floor as a leaky, radiating "
+            "mode, and this formula remains its low-frequency asymptote: "
+            "Sinha & Asvadurov (2004) fig 11(a) plots one whose f -> 0 "
+            "limit matches this expression to 0.07 %. Leaky-mode speeds "
+            "are out of scope here."
         )
 
     return float(1.0 / np.sqrt(1.0 / vf**2 + rho_f / (rho * vs**2)))
