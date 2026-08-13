@@ -6,7 +6,7 @@ live in this directory.
 
 ## Status
 
-**Thirteen curves are shipped, and all thirteen pass.**
+**Fifteen curves are shipped, and all fifteen pass.**
 
 | File | Solver | Score |
 |------|--------|-------|
@@ -23,8 +23,10 @@ live in this directory.
 | `sinha_asvadurov_2004_fig19a_quadrupole_slow.csv` | `quadrupole_dispersion` | **0.01 %** RMS, 267/299 pts |
 | `sinha_asvadurov_2004_fig2a_stoneley_fast.csv` | `stoneley_dispersion` | **0.01 %** RMS, 245/245 pts |
 | `sinha_asvadurov_2004_fig2a_pseudo_rayleigh_fast.csv` | `trapped_pseudo_rayleigh_dispersion` (branch 0) | **0.01 %** RMS, 161/162 pts |
+| `sinha_asvadurov_2004_fig6a_flexural_fast.csv` | `flexural_dispersion` | **0.01 %** RMS, 64/114 pts |
+| `sinha_asvadurov_2004_fig15a_flexural_slow.csv` | `flexural_dispersion` | **0.01 %** RMS, 238/238 pts |
 
-**The four Sinha & Asvadurov rows are extracted, not traced**, and that is why
+**The six Sinha & Asvadurov rows are extracted, not traced**, and that is why
 they score two orders of magnitude tighter than everything else here.
 Sinha & Asvadurov's figures are *vector* artwork, so the curve
 coordinates come out of the PDF drawing operators exactly; there is no
@@ -32,7 +34,7 @@ pixel-tracing error to speak of. The calibration was checked against the
 figures' own dashed reference lines before any curve was read -- fig
 10(a) puts L / S / C at 666.75 / 492.08 / 273.31 us/m against the
 1e6/1500 = 666.67, 1e6/2032 = 492.13 and 1e6/3658 = 273.37 the paper's
-own Table 1 implies, agreeing to 0.02 %. For these four rows the 5 %
+own Table 1 implies, agreeing to 0.02 %. For these six rows the 5 %
 budget is therefore measuring the solver rather than the digitising,
 which is not true of the raster-traced rows above. Fig 2(a) carries its
 own anchor: the trapped pseudo-Rayleigh branch begins at 492.1 us/m
@@ -48,11 +50,34 @@ V_S, so `quadrupole_dispersion` returns `NaN` there rather than a wrong
 root. The CSVs ship whole; they are not trimmed to the band the solver
 likes.
 
-**Two of the passes are scored thinly** and say so: the fast-formation
+**One panel needed a different calibration method, and finding out why
+matters.** Deriving the axis scale from the panel's frame rectangle works
+to 0.02 % on figs 2(a), 10(a) and 6(a), but puts fig 15(a)'s C reference
+line **0.9 % low** — that panel's frame rect is not exactly its axes box.
+Fig 15(a) is therefore calibrated from its **gridlines**, which are
+independent of Table 1, and checked afterwards against its dashed lines:
+1968.7 / 666.45 / 528.91 us/m against the 1968.5 / 666.67 / 529.13 Table 1
+implies, agreeing to 0.04 %. Note the gridline layouts differ — fig 6(a)
+runs nine lines over 0-800, fig 15(a) five over 500-2500 — and assuming a
+common layout is exactly what produced the 0.9 % error before it was
+caught. **Calibrate each panel, check it, and do not carry an assumption
+between panels of the same figure.**
+
+**Three of the passes are scored thinly** and say so: the fast-formation
 flexural path returns `NaN` outside a narrow band rather than a wrong root,
-so `..._fig2_flexural_iso_hard.csv` covers 17 of 73 points and
-`schmitt_cheng_1987_fig2_flexural_fast.csv` 61 of 89. Outside those bands
-**the overlay is silent, not green**.
+so `..._fig2_flexural_iso_hard.csv` covers 17 of 73 points,
+`schmitt_cheng_1987_fig2_flexural_fast.csv` 61 of 89, and
+`sinha_asvadurov_2004_fig6a_flexural_fast.csv` 64 of 114 (NaN above
+9.65 kHz). Outside those bands **the overlay is silent, not green**. The
+three together bracket where that band limit falls across three different
+fast geometries.
+
+**`flexural_dispersion` now has two independent ties.** Sections 2a and 5
+both rest on raster traces of Schmitt-lineage figures; a systematic bias in
+that lineage would not show up by agreeing with it twice. Sinha & Asvadurov
+figs 6(a) and 15(a) come from different artwork, a different group and a
+different decade, and are extracted from vector paths rather than traced.
+They agree at 0.01 %.
 
 **The package has two pseudo-Rayleigh functions and they are different
 modes.** `pseudo_rayleigh_dispersion` tracks the **leaky** n=0 root, phase
@@ -115,6 +140,8 @@ Suggested filenames (matching the notebook section titles):
 | `sinha_asvadurov_2004_fig2a_pseudo_rayleigh_fast.csv` | Sinha & Asvadurov 2004 fig 2(a) *(shipped)* | trapped pseudo-Rayleigh, fast |
 | `schmitt_cheng_1987_fig8a_flexural_slow.csv` | Schmitt & Cheng 1987 fig 8(a) *(shipped)*             | flexural, slow sandstone   |
 | `schmitt_cheng_1987_fig2_flexural_fast.csv` | Schmitt & Cheng 1987 fig 2(a) *(shipped)*             | flexural, fast sandstone   |
+| `sinha_asvadurov_2004_fig6a_flexural_fast.csv` | Sinha & Asvadurov 2004 fig 6(a) *(shipped)* | flexural, fast formation |
+| `sinha_asvadurov_2004_fig15a_flexural_slow.csv` | Sinha & Asvadurov 2004 fig 15(a) *(shipped)* | flexural, slow formation |
 | `sinha_asvadurov_2004_fig10a_quadrupole_fast.csv` | Sinha & Asvadurov 2004 fig 10(a) *(shipped)* | quadrupole, fast formation |
 | `sinha_asvadurov_2004_fig19a_quadrupole_slow.csv` | Sinha & Asvadurov 2004 fig 19(a) *(shipped)* | quadrupole, slow formation |
 | `tubman_cheng_toksoz_1984_fig4a_stoneley_open.csv` | Tubman/Cheng/Toksoz 1984 fig 4a *(shipped)*     | Stoneley, open hole        |

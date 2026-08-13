@@ -7,6 +7,44 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`flexural_dispersion` has a second, independent external tie**, from Sinha
+  & Asvadurov (2004) **figs 6(a) and 15(a)** — flexural waves in a fast and a
+  slow formation. Both match the m=1 branch at **0.01 %** RMS: 64/114 points
+  (2.86-9.65 kHz) on the fast formation, and **238/238** on the slow.
+  Notebook section 2 is now 2a (Schmitt & Cheng) and 2b (Sinha & Asvadurov).
+
+  Independence is the point. Sections 2a and 5 both rest on raster traces of
+  Schmitt-lineage figures, so a systematic tracing bias in that lineage would
+  not be revealed by agreeing with it twice. These come from different
+  artwork, a different research group and a different decade, and are
+  extracted from vector paths rather than traced. Geometry is the Table 1
+  already verified for sections 1 and 3, so no new parameters enter.
+
+  Fig 6(a)'s coverage gap is the solver, not the reference:
+  `flexural_dispersion` returns `NaN` above 9.65 kHz on that fast formation
+  rather than a wrong root. Together with the 61/89 of section 2a and the
+  17/73 of section 5's hard rock, it brackets where that fast-formation band
+  limit falls across three different geometries.
+
+### Fixed
+- **A calibration assumption that would have shipped a 0.9 %-wrong reference.**
+  Deriving a panel's axis scale from its frame rectangle works to 0.02 % on
+  Sinha & Asvadurov figs 2(a), 10(a) and 6(a), but fig 15(a)'s frame rect is
+  not its axes box, and the same method put that panel's C reference line
+  0.9 % low. Fig 15(a) is calibrated from its **gridlines** instead —
+  independent of Table 1 — and checked afterwards against its own dashed
+  lines, agreeing to 0.04 %. The gridline layouts genuinely differ between
+  panels of the same paper (fig 6(a): nine lines over 0-800; fig 15(a): five
+  over 500-2500), and carrying the assumption across panels is what produced
+  the error. Recorded in `docs/notebooks/_data/README.md` as a method note.
+
+- **Shadowed geometry names in the validation notebook.** Section 3 bound
+  `fast` / `slow` to the Sinha formations while section 2 binds the same
+  names to the Schmitt & Cheng sandstones. Running the cells in order was
+  correct, but re-running a single cell out of order would silently compute
+  the right-looking curve from the wrong rock. Section 3's are now
+  `fast_n2` / `slow_n2`, section 2b's `fast_n1` / `slow_n1`.
+
 - **Section 1 is tied, and Paillet & Cheng 1991 fig 4.5 is retired.** The
   validation notebook's Stoneley section now points at Sinha & Asvadurov
   (2004) **fig 2(a)** — axisymmetric waves in a fast formation — which plots
