@@ -6,7 +6,7 @@ live in this directory.
 
 ## Status
 
-**Nine curves are shipped, and all nine pass.**
+**Eleven curves are shipped, and all eleven pass.**
 
 | File | Solver | Score |
 |------|--------|-------|
@@ -19,6 +19,29 @@ live in this directory.
 | `tubman_cheng_toksoz_1984_fig4b_stoneley_cased.csv` | `stoneley_dispersion_layered` | **2.34 %** RMS, 43/43 pts |
 | `tubman_cheng_toksoz_1984_fig4a_pseudo_rayleigh1_open.csv` | `trapped_pseudo_rayleigh_dispersion` (branch 0) | **2.81 %** RMS, 59/59 pts |
 | `tubman_cheng_toksoz_1984_fig4a_pseudo_rayleigh2_open.csv` | `trapped_pseudo_rayleigh_dispersion` (branch 1) | **3.20 %** RMS, 26/26 pts |
+| `sinha_asvadurov_2004_fig10a_quadrupole_fast.csv` | `quadrupole_dispersion` | **0.01 %** RMS, 223/257 pts |
+| `sinha_asvadurov_2004_fig19a_quadrupole_slow.csv` | `quadrupole_dispersion` | **0.01 %** RMS, 267/299 pts |
+
+**The two quadrupole rows are extracted, not traced**, and that is why
+they score two orders of magnitude tighter than everything else here.
+Sinha & Asvadurov's figures are *vector* artwork, so the curve
+coordinates come out of the PDF drawing operators exactly; there is no
+pixel-tracing error to speak of. The calibration was checked against the
+figures' own dashed reference lines before any curve was read -- fig
+10(a) puts L / S / C at 666.75 / 492.08 / 273.31 us/m against the
+1e6/1500 = 666.67, 1e6/2032 = 492.13 and 1e6/3658 = 273.37 the paper's
+own Table 1 implies, agreeing to 0.02 %. For these two rows the 5 %
+budget is therefore measuring the solver rather than the digitising,
+which is not true of the raster-traced rows above.
+
+Their coverage gaps are the reference overhanging the solver, not the
+solver failing. Fig 10(a)'s m=1 curve is drawn from 3.2 kHz, and its
+first couple of kilohertz sit marginally *faster* than V_S (483 us/m
+against the 492 us/m S line -- a real feature of the published curve at
+that calibration accuracy). A bound quadrupole cannot be faster than
+V_S, so `quadrupole_dispersion` returns `NaN` there rather than a wrong
+root. The CSVs ship whole; they are not trimmed to the band the solver
+likes.
 
 **Two of the passes are scored thinly** and say so: the fast-formation
 flexural path returns `NaN` outside a narrow band rather than a wrong root,
@@ -85,7 +108,8 @@ Suggested filenames (matching the notebook section titles):
 | `paillet_cheng_1991_fig4_5_pseudo_rayleigh.csv` | Paillet & Cheng 1991 fig 4.5 *(pointer unverified)* | pseudo-Rayleigh, limestone |
 | `schmitt_cheng_1987_fig8a_flexural_slow.csv` | Schmitt & Cheng 1987 fig 8(a) *(shipped)*             | flexural, slow sandstone   |
 | `schmitt_cheng_1987_fig2_flexural_fast.csv` | Schmitt & Cheng 1987 fig 2(a) *(shipped)*             | flexural, fast sandstone   |
-| *(none — reference withdrawn)*        | quadrupole slow + fast                                       | see note below             |
+| `sinha_asvadurov_2004_fig10a_quadrupole_fast.csv` | Sinha & Asvadurov 2004 fig 10(a) *(shipped)* | quadrupole, fast formation |
+| `sinha_asvadurov_2004_fig19a_quadrupole_slow.csv` | Sinha & Asvadurov 2004 fig 19(a) *(shipped)* | quadrupole, slow formation |
 | `tubman_cheng_toksoz_1984_fig4a_stoneley_open.csv` | Tubman/Cheng/Toksoz 1984 fig 4a *(shipped)*     | Stoneley, open hole        |
 | `tubman_cheng_toksoz_1984_fig4b_stoneley_cased.csv` | Tubman/Cheng/Toksoz 1984 fig 4b *(shipped)*    | Stoneley, cased hole       |
 | `tubman_cheng_toksoz_1984_fig4a_pseudo_rayleigh1_open.csv` | Tubman/Cheng/Toksoz 1984 fig 4a *(shipped)* | pseudo-Rayleigh 1, open |
@@ -178,10 +202,20 @@ quadrupole waves in the logging-while-drilling configuration"*, in
 chapter 2. It is a **figure of principle** — schematic, not a quantitative
 dispersion curve — so nothing in the `freq_hz, slowness_s_per_m` schema can
 come out of it. Quadrupole dispersion needs a source other than Tang &
-Cheng (2004). For cased-hole Stoneley no candidate has been identified at
-all. Beyond those two, no replacement figure numbers are asserted, because
-nobody has read the remaining chapters — inventing a plausible-looking
-pointer is how this started.
+Cheng (2004). Beyond that, no replacement figure numbers are asserted,
+because nobody has read the remaining chapters — inventing a
+plausible-looking pointer is how this started.
+
+~~**Quadrupole dispersion needs a source other than Tang & Cheng.**~~
+*Closed.* It is tied by **Sinha & Asvadurov (2004) figs 10(a) and
+19(a)**, both at 0.01 % RMS — a fast and a slow formation from one
+paper, which is exactly the pair section 3 needs. What made it usable
+where most of the quadrupole literature is not: `quadrupole_dispersion`
+models **no drill collar**, and quadrupole is *the* LWD shear mode, so
+nearly every candidate figure includes one. Sinha & Asvadurov compute an
+open hole with no tool, and say so. Rejected on the collar for that
+reason: Zheng, Huang & Toksöz (2004); Chi, Zhu & Rao (2005); Ji & Wang
+(2024); and Sinha's own *Influence of a pipe tool on borehole modes*.
 
 The repository already contained the correct chapter list, in
 [`docs/ideas/Tang2004.md`](../../ideas/Tang2004.md): *"The book is

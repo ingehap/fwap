@@ -6,7 +6,48 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Quadrupole dispersion has an external tie for the first time**, from
+  Sinha, B. K., & Asvadurov, S. (2004), *Dispersion and radial depth of
+  investigation of borehole modes*, Geophysical Prospecting 52(4), 271-286
+  ([10.1111/j.1365-2478.2004.00415.x](https://doi.org/10.1111/j.1365-2478.2004.00415.x)).
+  Figures 10(a) and 19(a) give phase-slowness dispersion for the n=2 family
+  in a fast and a slow formation — one paper covering both of section 3's
+  curves. `quadrupole_dispersion` matches the m=1 branch at **0.01 % RMS**
+  on each, worst point 0.02 %, over 223/257 and 267/299 points.
+
+  These are the two tightest overlays in the notebook by two orders of
+  magnitude, because they are **extracted rather than traced**: the figures
+  are vector artwork, so the curve coordinates come out of the PDF drawing
+  operators exactly. Calibration was verified against the figures' own
+  dashed reference lines before any curve was read — fig 10(a) puts L/S/C
+  at 666.75 / 492.08 / 273.31 us/m against the 666.67 / 492.13 / 273.37
+  implied by the paper's Table 1, agreeing to 0.02 %. For these two rows
+  the 5 % budget measures the solver, not the digitising.
+
+  Geometry is Table 1 verbatim (fast A: 3658 / 2032 / 2350; slow B: 1890 /
+  508 / 2054) with the fluid and radius from the text (water 1500 m/s,
+  1000 kg/m^3; 8 in. diameter, `a` = 0.1016 m). The paper computes an
+  **open hole with no tool**, which is what makes it usable —
+  `quadrupole_dispersion` models no drill collar, and quadrupole is the
+  LWD shear mode, so most candidate figures include one.
+
+  The coverage gaps are the reference overhanging the solver. Fig 10(a)'s
+  m=1 curve is drawn from 3.2 kHz and its first ~2 kHz sit marginally
+  faster than V_S (483 us/m against the 492 us/m S line, a real feature of
+  the published curve at that calibration accuracy). A bound quadrupole
+  cannot be faster than V_S, so the solver returns `NaN` there rather than
+  a wrong root; the CSVs ship whole rather than trimmed to the band the
+  solver likes.
+
 ### Changed
+- **Section 3's withdrawn reference is replaced, not merely removed.** It
+  had cited "Tang & Cheng 2004 figs 3.7 / 3.10" (waveform matching and
+  acoustic time delay) and carried an invented slow/fast geometry. Both are
+  gone; the notebook, `docs/notebooks/_data/README.md` and the status
+  checklist now record eleven shipped curves rather than nine, and Paillet
+  & Cheng 1991 fig 4.5 is the only reference still wanted.
+
 - **The validation notebook's own status text was stale.** Its intro still
   announced "the reference CSVs are not shipped" and "until then each section
   prints what is missing" after nine curves had been digitised, scored and
