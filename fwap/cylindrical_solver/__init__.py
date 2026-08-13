@@ -267,6 +267,9 @@ from fwap.cylindrical_solver._leaky import (
 from fwap.cylindrical_solver._leaky import (
     trapped_pseudo_rayleigh_dispersion as trapped_pseudo_rayleigh_dispersion,
 )
+from fwap.cylindrical_solver._leaky import (
+    trapped_pseudo_rayleigh_dispersion_layered as trapped_pseudo_rayleigh_dispersion_layered,
+)
 
 # Re-exports for the n=0 isotropic (Stoneley) helpers extracted to
 # ``_n0_isotropic`` in Phase 1 step 3 of the package split. Same

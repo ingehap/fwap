@@ -303,6 +303,7 @@ from fwap.cylindrical_solver import (
 from fwap.cylindrical_solver import (
     pseudo_rayleigh_dispersion as pseudo_rayleigh_modal_dispersion,
     trapped_pseudo_rayleigh_dispersion,
+    trapped_pseudo_rayleigh_dispersion_layered,
 )
 
 # LWD (logging-while-drilling) phenomenological layer
@@ -487,6 +488,7 @@ __all__ = [
     "flexural_dispersion_vti",
     "pseudo_rayleigh_modal_dispersion",
     "trapped_pseudo_rayleigh_dispersion",
+    "trapped_pseudo_rayleigh_dispersion_layered",
     "quadrupole_dispersion",
     "quadrupole_dispersion_layered",
     "segments_from_kz_curve",

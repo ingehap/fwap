@@ -16,7 +16,13 @@ from fwap.cylindrical_solver._bessel import (
     _k_or_hankel,
     _radial_wavenumber,
 )
-from fwap.cylindrical_solver._dataclasses import BoreholeMode, BranchSegment
+from fwap.cylindrical_solver._cased import _modal_determinant_n0_cased_complex
+from fwap.cylindrical_solver._dataclasses import (
+    BoreholeLayer,
+    BoreholeMode,
+    BranchSegment,
+)
+from fwap.cylindrical_solver._n1_isotropic import _real_root_function
 
 # =====================================================================
 # Leaky-mode extension (Roadmap A continuation, phases L1 + L2)
@@ -1458,6 +1464,187 @@ def trapped_pseudo_rayleigh_dispersion(
             return _modal_determinant_n0_complex(
                 kz, omega, vp, vs, rho, vf, rho_f, a, leaky_p=False, leaky_s=False
             ).real
+
+        roots = _scan_bound_roots(
+            det, omega / vs * (1.0 + 1.0e-9), omega / vf * (1.0 - 1.0e-9)
+        )
+        if branch < len(roots):
+            slowness.ravel()[i] = roots[branch] / omega
+
+    return BoreholeMode(
+        name="trapped_pseudo_rayleigh",
+        azimuthal_order=0,
+        freq=f_arr,
+        slowness=slowness,
+        attenuation_per_meter=None,
+    )
+
+
+def trapped_pseudo_rayleigh_dispersion_layered(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...] = (),
+    branch: int = 0,
+) -> BoreholeMode:
+    r"""
+    Trapped pseudo-Rayleigh dispersion for a cased borehole.
+
+    Cased-hole sister of
+    :func:`trapped_pseudo_rayleigh_dispersion`, and the n=0
+    pseudo-Rayleigh counterpart of
+    :func:`stoneley_dispersion_layered`. With ``layers=()`` it
+    dispatches to the open-hole function and is bit-equivalent to
+    it.
+
+    **What "trapped" means once there are layers.** In an open
+    hole the mode is bound when ``V_f < c < V_S``: the fluid
+    oscillates radially and the formation P and S waves are both
+    evanescent. Adding annuli does not change what boundedness
+    requires -- only the **formation half-space** has to be
+    evanescent, because only it extends to infinity. An
+    intermediate layer of finite thickness may oscillate freely,
+    and in realistic geometries it does: for Tubman, Cheng &
+    Toksoz (1984) fig 4(b) the cement has ``V_S`` = 1728 m/s while
+    the two modes run at 1906-2464 m/s, so the cement is
+    oscillatory across the whole band while steel and formation
+    stay evanescent. The search window is therefore
+    ``V_f < c < V_S`` on the **formation**, exactly as in the open
+    hole, and the layers are free to do what they like inside it.
+
+    This is why the mode needs
+    :func:`_modal_determinant_n0_cased_complex` rather than the
+    real cased determinant: the latter returns NaN both for
+    ``F_f^2 <= 0`` (every phase velocity above ``V_f``) and for any
+    layer with ``s^2 <= 0`` (the cement, here). Neither refusal
+    means the mode is unbound -- ``k_z`` is real and nothing
+    radiates.
+
+    Parameters
+    ----------
+    freq : ndarray
+        Frequency grid (Hz), shape ``(n_freq,)``, strictly
+        positive. Frequencies are solved independently, so the
+        grid need not be ordered or evenly spaced and the result
+        does not depend on it.
+    vp, vs, rho : float
+        Formation P-wave velocity (m / s), S-wave velocity (m / s)
+        and bulk density (kg / m^3). Require ``vp > vs > 0`` and
+        ``rho > 0``.
+    vf, rho_f : float
+        Borehole-fluid velocity (m / s) and density (kg / m^3).
+        Require ``vs > vf > 0``: a slow formation has no trapped
+        window.
+    a : float
+        Fluid-column radius (m), positive. With layers this is the
+        *inner* radius -- the fluid/casing contact, not the
+        formation contact.
+    layers : tuple of BoreholeLayer, default ()
+        Annular layers between fluid and formation, ordered
+        radially outward. ``()`` dispatches to the open-hole
+        solver.
+    branch : int, default 0
+        Radial order, ``0`` being the fundamental. Roots are
+        ordered by descending ``k_z``, matching
+        :func:`trapped_pseudo_rayleigh_dispersion`.
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "trapped_pseudo_rayleigh"``,
+        ``azimuthal_order = 0``, ``attenuation_per_meter = None``.
+        ``NaN`` at frequencies where the requested branch has no
+        root -- below its cutoff, for instance.
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive, ``vp <= vs``, ``vs <= vf``,
+        ``branch`` is negative, or ``freq`` contains a
+        non-positive entry.
+
+    Notes
+    -----
+    Each frequency is scanned independently for sign changes and
+    polished with :func:`scipy.optimize.brentq`, exactly as in the
+    open-hole case; there is no frequency marching and so no
+    branch-continuity machinery.
+
+    Which part of the complex determinant carries the signal is
+    **measured** by :func:`_real_root_function` rather than
+    assumed. It is ``Re`` at n=0 -- the imaginary part runs about
+    15 orders of magnitude smaller -- but assuming that parity is
+    how the n=2 open-hole path was wrong for as long as it existed
+    (roadmap A.7), so it is measured here too.
+
+    See Also
+    --------
+    trapped_pseudo_rayleigh_dispersion : The open-hole original.
+    stoneley_dispersion_layered : The other bound cased n=0 mode,
+        ``c < V_f``.
+
+    References
+    ----------
+    * Tubman, K. M., Cheng, C. H., & Toksoz, M. N. (1984).
+      Synthetic full waveform acoustic logs in cased boreholes.
+      *Geophysics* 49(7), 1051-1059.
+    """
+    if vp <= 0 or vs <= 0 or rho <= 0:
+        raise ValueError("vp, vs, rho must all be positive")
+    if vf <= 0 or rho_f <= 0:
+        raise ValueError("vf and rho_f must be positive")
+    if a <= 0:
+        raise ValueError("a must be positive")
+    if vp <= vs:
+        raise ValueError("require vp > vs")
+    if vs <= vf:
+        raise ValueError(
+            f"trapped pseudo-Rayleigh modes require a fast formation "
+            f"(vs > vf); got vs={vs}, vf={vf}"
+        )
+    if branch < 0:
+        raise ValueError(f"branch must be non-negative, got {branch}")
+    f_arr = np.asarray(freq, dtype=float)
+    if np.any(f_arr <= 0):
+        raise ValueError("freq must be strictly positive")
+
+    if not layers:
+        return trapped_pseudo_rayleigh_dispersion(
+            f_arr,
+            vp=vp,
+            vs=vs,
+            rho=rho,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
+            branch=branch,
+        )
+
+    def _det(kz: float, omega: float) -> complex:
+        return _modal_determinant_n0_cased_complex(
+            complex(kz, 0.0),
+            omega,
+            vp=vp,
+            vs=vs,
+            rho=rho,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
+            layers=layers,
+        )
+
+    root_fn = _real_root_function(_det, f_arr, vs=vs, vf=vf)
+    slowness = np.full(f_arr.shape, np.nan, dtype=float)
+    for i, f in enumerate(f_arr.ravel()):
+        omega = 2.0 * np.pi * float(f)
+
+        def det(kz: float, omega: float = omega) -> float:
+            return root_fn(kz, omega)
 
         roots = _scan_bound_roots(
             det, omega / vs * (1.0 + 1.0e-9), omega / vf * (1.0 - 1.0e-9)
