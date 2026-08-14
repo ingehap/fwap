@@ -6,7 +6,7 @@ live in this directory.
 
 ## Status
 
-**Nineteen curves are shipped, and all nineteen pass.**
+**Thirty-two curves are shipped, and all thirty-two pass.**
 
 | File | Solver | Score |
 |------|--------|-------|
@@ -36,6 +36,12 @@ live in this directory.
 | `sinha_asvadurov_2004_fig11c_leaky_compressional_attenuation_slow.csv` | `leaky_compressional_dispersion` (**attenuation**) | **0.32 %** RMS, 93/99 pts |
 | `sinha_asvadurov_2004_fig2a_leaky_compressional_fast.csv` | `pseudo_rayleigh_dispersion` (branch 1) | **1.06 %** RMS, 154/161 pts |
 | `sinha_asvadurov_2004_fig2c_leaky_compressional_attenuation_fast.csv` | `pseudo_rayleigh_dispersion` (**attenuation**, branch 1) | **4.51 %** RMS, 153/160 pts |
+| `schmitt_cheng_1987_fig20a_flexural_cased_cement1_1cm.csv` | `flexural_dispersion_layered` | **0.39 %** RMS, 82/93 pts |
+| `schmitt_cheng_1987_fig20a_flexural_cased_cement1_3cm.csv` | `flexural_dispersion_layered` | **0.52 %** RMS, 82/93 pts |
+| `schmitt_cheng_1987_fig20b_flexural_cased_cement2_3cm.csv` | `flexural_dispersion_layered` | **0.55 %** RMS, 83/93 pts |
+| `schmitt_cheng_1987_fig21a_screw_cased_cement1_1cm.csv` | `quadrupole_dispersion_layered` | **0.86 %** RMS, 89/93 pts |
+| `schmitt_cheng_1987_fig21b_screw_cased_cement1_3cm.csv` | `quadrupole_dispersion_layered` | **0.18 %** RMS, 89/94 pts |
+| `schmitt_cheng_1987_fig21b_screw_cased_cement2_3cm.csv` | `quadrupole_dispersion_layered` | **0.26 %** RMS, 92/94 pts |
 
 **The twelve Sinha & Asvadurov rows are extracted, not traced**, and that is why
 they score two orders of magnitude tighter than everything else here.
@@ -255,6 +261,74 @@ different tracer. They agree: this trace puts fig 2(a) at 1494 m/s at
 into this directory instead would have made the overlay a restatement of
 a check that already exists.
 
+**The cased dipole and quadrupole are tied for the first time**, by
+Schmitt & Cheng figs 20 and 21 — six curves, 0.18-0.86 % RMS. Until
+these, `flexural_dispersion_layered` and `quadrupole_dispersion_layered`
+had only internal consistency checks behind them: N=1 agreeing with the
+single-interface determinant, two half-thickness layers agreeing with
+one, layer order mattering. All true, none of it evidence that the
+curve is the published one.
+
+Three things about that set are worth recording.
+
+**The digitising floor is measured rather than assumed.** Cement 1 at
+3 cm is plotted in *both* panels of both figures, so it was traced twice
+from independent artwork with independent calibration. The two fig 20
+renderings agree to **0.23 % RMS** and the two fig 21 renderings to
+**0.55 %** over 7.2-13.5 kHz, above which the panel-(a) copy runs into
+the figure's own "/phase" annotation and stops being traceable. Only the
+cleaner panel is shipped for that case. Read the 0.18-0.86 % scores
+against those numbers: most of the residual is the 1987 scan.
+
+**One traced curve was rejected rather than shipped.** Each panel also
+carries the open hole as curve (1). Fig 20's copy crosses case (3)'s
+*group* branch inside its steep segment and the trace hops there,
+reading **3.8 % RMS** against the already-shipped fig 2(a) rendering of
+the identical curve — which `flexural_dispersion` matches at 0.37 %. A
+trace that disagrees with its own sibling rendering by ten times the
+solver's error is a digitising failure; shipping it would have scored
+the tracer. Fig 21's open-hole copy traces cleanly (0.71 %) but is
+redundant with fig 2(a), so neither open-hole curve is in the table.
+
+**The attenuation panels are deliberately not scored.** Figs 20 and 21
+plot `(1/Q) x 100`, and that `Q` is table 1's *intrinsic* attenuation
+(casing 1000, cement `Q_beta` = 30, sandstone 60). These solvers are
+elastic and return no intrinsic loss, so the lower panels are a
+category mismatch rather than a failing overlay — unlike Sinha fig
+11(c), where the attenuation being scored is radiation damping.
+
+**The cased *leaky* dipole still has no curve, and now has a citation.**
+The same report states the behaviour outright on p. 231: behind casing
+in a slow formation "the high frequency part of the fundamental modes
+excited either by a dipole or a quadrupole source will then also be
+leaky", travelling "with a velocity higher than that of the formation
+shear wave". Schmitt & Cheng illustrate that case with **waveforms**
+(figs 24 and 25), not a dispersion curve, so there is nothing to trace.
+`tests/test_cylindrical_solver.py` carries the claim as a test instead,
+and scanning the real cased determinant over the whole bound window at
+their parameters finds no sign change at any frequency from 0.5 to
+14 kHz — to within 1e-9 of `V_S`, so not a resolution artefact.
+
+That geometry also exposes a search-window limit worth a number.
+`_march_leaky_cased_branch` looks in `(V_S, min(V_f, min layer V_S))`.
+For Schmitt & Cheng's slow sandstone behind 1.02 cm of steel and 3 cm of
+cement 1 that ceiling is the *fluid*, 1500 m/s, and the branch runs
+above it — leaving `V_S` near 1.4 kHz, peaking near 1710 m/s at 5.5 kHz
+just under the cement's 1729, and coming back down through `V_f` near
+13.8 kHz. So `flexural_dispersion_layered` returns `NaN` across the
+whole band and resolves the mode only at the top, around 1487 m/s. An
+argument-principle contour counts exactly one root inside a box around
+it at 3.0, 5.5 and 8.0 kHz, so the mode is there and the marcher is not
+looking.
+
+**Two failures, not one.** Above 3 kHz the root is outside the window.
+At 1.5 and 2 kHz it is *inside* it — a winding count over the whole
+`(V_S, V_f)` box returns 1 — and is missed anyway, which is seeding
+rather than the ceiling; below 1 kHz the window is genuinely empty. So
+raising the ceiling alone would not close the gap, and it would still
+need seeding that does not rely on a real-axis scan: above `V_f` there
+is no real-axis minimum to seed from.
+
 **Nothing is outstanding.** Every section of the validation notebook now
 has a reference. The `TODO: digitise <FIGURE>` path in `check_overlay`
 still exists and still fires for a missing CSV — it is how a deleted or
@@ -289,6 +363,12 @@ Suggested filenames (matching the notebook section titles):
 | `sinha_asvadurov_2004_fig2c_leaky_compressional_attenuation_fast.csv` | Sinha & Asvadurov 2004 fig 2(c) *(shipped)* | same mode's attenuation, **dB/m** |
 | `schmitt_cheng_1987_fig8a_flexural_slow.csv` | Schmitt & Cheng 1987 fig 8(a) *(shipped)*             | flexural, slow sandstone   |
 | `schmitt_cheng_1987_fig2_flexural_fast.csv` | Schmitt & Cheng 1987 fig 2(a) *(shipped)*             | flexural, fast sandstone   |
+| `schmitt_cheng_1987_fig20a_flexural_cased_cement1_1cm.csv` | Schmitt & Cheng 1987 fig 20(a) *(shipped)* | cased flexural, 1 cm cement 1 |
+| `schmitt_cheng_1987_fig20a_flexural_cased_cement1_3cm.csv` | Schmitt & Cheng 1987 fig 20(a) *(shipped)* | cased flexural, 3 cm cement 1 |
+| `schmitt_cheng_1987_fig20b_flexural_cased_cement2_3cm.csv` | Schmitt & Cheng 1987 fig 20(b) *(shipped)* | cased flexural, 3 cm cement 2 |
+| `schmitt_cheng_1987_fig21a_screw_cased_cement1_1cm.csv` | Schmitt & Cheng 1987 fig 21(a) *(shipped)* | cased screw, 1 cm cement 1 |
+| `schmitt_cheng_1987_fig21b_screw_cased_cement1_3cm.csv` | Schmitt & Cheng 1987 fig 21(b) *(shipped)* | cased screw, 3 cm cement 1 |
+| `schmitt_cheng_1987_fig21b_screw_cased_cement2_3cm.csv` | Schmitt & Cheng 1987 fig 21(b) *(shipped)* | cased screw, 3 cm cement 2 |
 | `sinha_asvadurov_2004_fig11a_stoneley_slow.csv` | Sinha & Asvadurov 2004 fig 11(a) *(shipped)* | Stoneley, slow formation |
 | `sinha_asvadurov_2004_fig11a_leaky_compressional_slow.csv` | Sinha & Asvadurov 2004 fig 11(a) *(shipped)* | leaky compressional m=3, slow |
 | `sinha_asvadurov_2004_fig11b_leaky_compressional_group_slow.csv` | Sinha & Asvadurov 2004 fig 11(b) *(shipped)* | same mode's group slowness |
@@ -318,12 +398,12 @@ sandstone). The 1988 JASA article is paywalled and was not consulted, so
 its own figure numbering is unverified — hence filenames that name the
 document actually traced.
 
-Two further figures in that report are worth digitising and are not in
-the table above because no notebook section covers them yet: **fig 7**
-(flexural and screw for granite, limestone and fast sandstone — three
-fast formations in one figure) and **figs 20/21** (well-bonded cased-hole
-flexural and screw, which would give section 4 a cased-hole reference
-without needing Tang & Cheng).
+**Figs 20 and 21 of that report are now shipped**, six curves, and they
+are the first external evidence `flexural_dispersion_layered` and
+`quadrupole_dispersion_layered` have ever had. One further figure in it
+is still worth digitising and is not in the table above because no
+notebook section covers it: **fig 7** (flexural and screw for granite,
+limestone and fast sandstone — three fast formations in one figure).
 
 The VTI rows were `schmitt_1989_fig5_flexural_vti_{qP,qSV}.csv` until the
 reference was opened. In the open-access ERL precursor (Schmitt 1988.13)

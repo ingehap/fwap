@@ -23681,3 +23681,318 @@ def test_stoneley_dispersion_tool_slows_the_mode_at_every_frequency():
     ok = np.isfinite(s_open) & np.isfinite(s_tool)
     assert ok.sum() >= 15
     assert np.all(s_tool[ok] > s_open[ok])
+
+
+# ======================================================================
+# Schmitt & Cheng (1987) figs 20 + 21 -- the cased hole gets a dipole
+# and a quadrupole
+# ======================================================================
+#
+# ``flexural_dispersion_layered`` and ``quadrupole_dispersion_layered``
+# had no external tie of any kind before these. The cased *monopole*
+# modes are tied by Tubman fig 4(b); the cased n=1 and n=2 ones rested
+# entirely on internal consistency checks -- N=1 agreeing with the
+# single-interface determinant, two half-thickness layers agreeing with
+# one, layer order mattering. All true, none of them evidence that the
+# curve is the published one.
+#
+# The reference is the same MIT ERL report, and the same table 1, that
+# already supplies the open-hole flexural ties (figs 2(a) and 8(a)):
+#
+#   Schmitt, D. P., & Cheng, C. H. (1987), *Shear wave logging in
+#   (multilayered) elastic formations: an overview*, MIT Earth Resources
+#   Laboratory, 213-268.
+#
+# Fig 20 is the dipole (flexural) mode and fig 21 the quadrupole (which
+# the report calls the *screw* mode), each in a well-bonded cased hole
+# around the fast sandstone, each with a cement-thickness panel (a) and
+# a cement-stiffness panel (b).
+#
+# The geometry needs one sentence of the report to read correctly: "the
+# inner borehole radius is decreased by the amount of the casing and
+# cement thickness ... The original borehole radius is 10 cm". So the
+# annulus eats inward and the formation contact stays at 0.10 m -- the
+# same convention Tubman's table 1 fixes from a different direction.
+
+_SC87_FAST = dict(vp=4878.0, vs=2601.0, rho=2160.0, vf=1500.0, rho_f=1000.0)
+_SC87_SLOW = dict(vp=2751.0, vs=1201.0, rho=2100.0, vf=1500.0, rho_f=1000.0)
+_SC87_CASING = BoreholeLayer(vp=6098.0, vs=3354.0, rho=7500.0, thickness=0.0102)
+_SC87_HOLE = 0.10
+
+
+def _sc87_cement(vs: float, rho: float, thickness: float) -> BoreholeLayer:
+    return BoreholeLayer(vp=2823.0, vs=vs, rho=rho, thickness=thickness)
+
+
+def _sc87_stack(vs: float, rho: float, thickness: float):
+    """``(radius, layers)`` for one cement, inside a 10 cm original hole."""
+    radius = _SC87_HOLE - _SC87_CASING.thickness - thickness
+    return radius, (_SC87_CASING, _sc87_cement(vs, rho, thickness))
+
+
+#: ``csv stem -> (cement V_S, cement rho, cement thickness)``. Cement 1
+#: is the report's reference cement and cement 2 its softer variant.
+_SC87_CASED_CASES = {
+    "fig20a_flexural_cased_cement1_1cm": (1729.0, 1920.0, 0.01),
+    "fig20a_flexural_cased_cement1_3cm": (1729.0, 1920.0, 0.03),
+    "fig20b_flexural_cased_cement2_3cm": (1555.0, 1730.0, 0.03),
+    "fig21a_screw_cased_cement1_1cm": (1729.0, 1920.0, 0.01),
+    "fig21b_screw_cased_cement1_3cm": (1729.0, 1920.0, 0.03),
+    "fig21b_screw_cased_cement2_3cm": (1555.0, 1730.0, 0.03),
+}
+
+
+def _sc87_reference(stem: str) -> np.ndarray:
+    data = Path(__file__).resolve().parents[1] / "docs" / "notebooks" / "_data"
+    return np.loadtxt(data / f"schmitt_cheng_1987_{stem}.csv", delimiter=",")
+
+
+def _sc87_score(stem: str, freq: np.ndarray, slowness: np.ndarray):
+    """RMS and worst relative deviation of fwap from a traced curve."""
+    reference = _sc87_reference(stem)
+    live = np.isfinite(slowness)
+    inside = (reference[:, 0] >= freq[live].min()) & (
+        reference[:, 0] <= freq[live].max()
+    )
+    ours = np.interp(reference[inside, 0], freq[live], slowness[live])
+    residual = (ours - reference[inside, 1]) / reference[inside, 1]
+    return (
+        float(np.sqrt(np.mean(residual**2))),
+        float(np.max(np.abs(residual))),
+        int(inside.sum()),
+        int(reference.shape[0]),
+    )
+
+
+def test_cased_flexural_matches_schmitt_cheng_fig20():
+    """The cased dipole's first external tie, three cement stacks.
+
+    Fig 20 varies the cement two ways: (a) thickness, 1 cm against 3 cm
+    of the reference cement, and (b) stiffness, cement 2 (V_S 1555)
+    against cement 1 (V_S 1729) at a fixed 3 cm. Both effects are in the
+    scored band, so this is not one curve checked three times -- a
+    solver that got the annulus propagator right but the radius
+    convention wrong would match one thickness and miss the other.
+
+    **What the 0.5 % is.** Cement 1 at 3 cm appears in *both* panels and
+    was therefore traced twice from independent artwork; the two
+    renderings agree to 0.23 % RMS. That is the floor a 1987 raster scan
+    can support, so most of the residual here is the scan.
+    """
+    freq = np.linspace(2200.0, 15000.0, 257)
+    for stem in [s for s in _SC87_CASED_CASES if s.startswith("fig20")]:
+        radius, layers = _sc87_stack(*_SC87_CASED_CASES[stem])
+        mode = flexural_dispersion_layered(freq, **_SC87_FAST, a=radius, layers=layers)
+        rms, worst, scored, total = _sc87_score(stem, freq, mode.slowness)
+        assert scored >= 80, f"{stem}: only {scored} of {total} points scored"
+        assert rms < 0.01, f"{stem}: RMS {100 * rms:.2f}%"
+        assert worst < 0.02, f"{stem}: worst point {100 * worst:.2f}%"
+
+
+def test_cased_screw_matches_schmitt_cheng_fig21():
+    """The same for the quadrupole -- fig 21, "same as Figure 20 for the
+    screw mode".
+
+    Its band is 6-20 kHz rather than 2-15: the screw mode's useful
+    energy sits higher than the flexural one's, which is the report's
+    own reason for saying the cement effects "occur closer to its useful
+    energy due to the higher frequencies involved".
+    """
+    freq = np.linspace(6300.0, 20000.0, 275)
+    from fwap.cylindrical_solver import quadrupole_dispersion_layered
+
+    for stem in [s for s in _SC87_CASED_CASES if s.startswith("fig21")]:
+        radius, layers = _sc87_stack(*_SC87_CASED_CASES[stem])
+        mode = quadrupole_dispersion_layered(
+            freq, **_SC87_FAST, a=radius, layers=layers
+        )
+        rms, worst, scored, total = _sc87_score(stem, freq, mode.slowness)
+        assert scored >= 85, f"{stem}: only {scored} of {total} points scored"
+        assert rms < 0.01, f"{stem}: RMS {100 * rms:.2f}%"
+        assert worst < 0.02, f"{stem}: worst point {100 * worst:.2f}%"
+
+
+def test_the_cased_traces_low_frequency_ends_land_on_the_formation_shear():
+    """A calibration check on the tracing that owes nothing to fwap.
+
+    Every curve in figs 20 and 21 starts at the formation shear speed,
+    and the tracing was calibrated on the panel frames and tick marks
+    only. So the fastest point of each traced curve reproducing table
+    1's V_S = 2601 m/s is an independent statement about the
+    digitising -- if the y-axis calibration were off by a percent, this
+    would say so before any solver is involved.
+    """
+    for stem in _SC87_CASED_CASES:
+        fastest = 1.0 / _sc87_reference(stem)[:, 1].min()
+        error = abs(fastest - _SC87_FAST["vs"]) / _SC87_FAST["vs"]
+        assert error < 0.005, f"{stem}: {fastest:.0f} m/s against V_S = 2601"
+
+
+# ----------------------------------------------------------------------
+# Schmitt & Cheng p. 231 -- the cased *leaky* dipole of a slow formation
+# ----------------------------------------------------------------------
+#
+# The cased leaky branch (roadmap A.9, ``_march_leaky_cased_branch``) is
+# the one cased mode with no published *curve* anywhere reachable. What
+# it does have is a published *claim*, in the same report, under "Slow
+# formation" on p. 231:
+#
+#   "The high frequency part of the fundamental modes excited either by
+#   a dipole or a quadrupole source will then also be leaky. ... it is
+#   only with a low source center frequency that the multipole tool will
+#   be capable of logging the slow formation shear wave velocity behind
+#   casing." ... "The flexural mode is seen to travel with a velocity
+#   higher than that of the formation shear wave."
+#
+# Schmitt & Cheng illustrate that case with waveforms (figs 24 and 25),
+# not a dispersion curve, so there is nothing to score. These two tests
+# carry the claim instead, at their table 1 parameters.
+
+
+def _sc87_slow_cased_determinant(kz: complex, omega: float) -> complex:
+    from fwap.cylindrical_solver import _modal_determinant_n1_cased_complex
+    from fwap.cylindrical_solver._leaky import _detect_leaky_branches
+
+    radius, layers = _sc87_stack(1729.0, 1920.0, 0.03)
+    _, leaky_p, leaky_s = _detect_leaky_branches(
+        kz, omega, _SC87_SLOW["vp"], _SC87_SLOW["vs"], _SC87_SLOW["vf"]
+    )
+    return _modal_determinant_n1_cased_complex(
+        kz,
+        omega,
+        **_SC87_SLOW,
+        a=radius,
+        layers=layers,
+        leaky_p=leaky_p,
+        leaky_s=leaky_s,
+    )
+
+
+def test_the_cased_dipole_of_a_slow_formation_has_no_bound_root_at_all():
+    """Schmitt & Cheng's claim, in its falsifiable direction.
+
+    A bound flexural mode is slower than the formation shear speed, so
+    "the flexural mode travels with a velocity higher than that of the
+    formation shear wave" is the statement that no bound root exists.
+    Scanning the real cased determinant over the whole bound window
+    finds no sign change at any frequency from 0.5 to 14 kHz -- and the
+    scan reaches to within 1e-9 of ``V_S``, so this is not a resolution
+    artefact near the branch point.
+
+    The report's own hedge is preserved: it says the *high frequency*
+    part is leaky and that a low-frequency source can still log the
+    formation shear. Both are consistent with this -- the low-frequency
+    limit approaches ``V_S`` from above rather than crossing it, so a
+    low-frequency measurement still reads the formation shear speed even
+    though the root never becomes bound.
+    """
+    radius, layers = _sc87_stack(1729.0, 1920.0, 0.03)
+    grid = np.concatenate(
+        [
+            np.linspace(300.0, 1200.0, 140),
+            _SC87_SLOW["vs"] * (1.0 - np.logspace(-1.0, -9.0, 40)),
+        ]
+    )
+    for freq in (500.0, 1000.0, 2000.0, 4000.0, 8000.0, 14000.0):
+        omega = 2.0 * np.pi * freq
+        values = np.array(
+            [
+                _modal_determinant_n1_cased(
+                    omega / c, omega, **_SC87_SLOW, a=radius, layers=layers
+                )
+                for c in grid
+            ],
+            dtype=float,
+        )
+        live = np.isfinite(values)
+        assert live.sum() > 100, f"{freq} Hz: determinant mostly NaN"
+        signs = np.sign(values[live])
+        crossings = int((signs[:-1] * signs[1:] < 0).sum())
+        assert crossings == 0, f"{freq} Hz: {crossings} bound roots below V_S"
+
+
+def test_the_cased_leaky_dipole_can_outrun_the_borehole_fluid():
+    """The gap Schmitt & Cheng's slow geometry exposes, with numbers.
+
+    ``_march_leaky_cased_branch`` searches ``(V_S, min(V_f, min layer
+    V_S))``. For the ``_A2`` stack that ceiling is the cement's 1300 m/s
+    and the branch sits under it, which is why that test passes. For
+    Schmitt & Cheng's slow sandstone behind 1.02 cm of steel and 3 cm of
+    cement 1 the ceiling is the *fluid*, 1500 m/s, and the branch is
+    above it across the middle of the band: it leaves ``V_S`` near
+    1.4 kHz, climbs to about 1710 m/s at 5.5 kHz -- just under the
+    cement's 1729 -- and comes back down through ``V_f`` near 13.8 kHz.
+
+    So ``flexural_dispersion_layered`` returns ``NaN`` across the band
+    and resolves the mode only near the top, at about 1487 m/s. Exactly
+    where it starts resolving is grid-dependent -- 14 kHz on a 500 Hz
+    ladder, 13.5 kHz on a sparse one -- which is why the probe below
+    stops at 12 kHz rather than pretending the edge is sharp. An
+    argument-principle contour says the root is genuinely there in
+    between: exactly one zero inside a box around it at each of 3, 5.5
+    and 8 kHz.
+
+    **Two different failures are being pinned here, not one.** Above
+    3 kHz the root is outside the search window and the marcher is right
+    not to find it. At 1.5 and 2 kHz it is *inside* the window -- a
+    winding count over the whole ``(V_S, V_f)`` box returns 1 -- and the
+    marcher misses it anyway, so that part is seeding rather than the
+    ceiling. Below 1 kHz the window is genuinely empty. Raising the
+    ceiling alone would therefore not close the gap, and it would still
+    need seeding that does not rest on a real-axis scan of ``Im(det)``:
+    above ``V_f`` the fluid field is oscillatory and there is no
+    real-axis minimum to seed from.
+
+    This test fails, correctly, the day either half is fixed.
+    """
+    radius, layers = _sc87_stack(1729.0, 1920.0, 0.03)
+    freq = np.array([500.0, 1500.0, 3000.0, 5500.0, 8000.0, 10000.0, 12000.0])
+    mode = flexural_dispersion_layered(freq, **_SC87_SLOW, a=radius, layers=layers)
+    assert not np.isfinite(mode.slowness).any(), 1.0 / mode.slowness
+    # ... and it does resolve once the branch has slowed below V_f.
+    above = flexural_dispersion_layered(
+        np.array([14000.0, 15000.0]), **_SC87_SLOW, a=radius, layers=layers
+    )
+    assert np.isfinite(above.slowness).all()
+    assert np.all(1.0 / above.slowness < _SC87_SLOW["vf"])
+    assert np.all(1.0 / above.slowness > _SC87_SLOW["vs"])
+
+    # Where the marcher stops looking, and where the root actually is.
+    ceiling = min(_SC87_SLOW["vf"], min(layer.vs for layer in layers))
+    assert ceiling == _SC87_SLOW["vf"]
+    for freq_hz, velocity in ((3000.0, 1545.1), (5500.0, 1710.5), (8000.0, 1646.7)):
+        assert velocity > ceiling
+        omega = 2.0 * np.pi * freq_hz
+        centre = omega / velocity
+        n = 60
+        contour = (
+            [complex(x, 0.05) for x in np.linspace(0.9 * centre, 1.1 * centre, n)]
+            + [complex(1.1 * centre, y) for y in np.linspace(0.05, 6.0, n)]
+            + [complex(x, 6.0) for x in np.linspace(1.1 * centre, 0.9 * centre, n)]
+            + [complex(0.9 * centre, y) for y in np.linspace(6.0, 0.05, n)]
+        )
+        phase = np.unwrap(
+            [np.angle(_sc87_slow_cased_determinant(p, omega)) for p in contour]
+        )
+        winding = (phase[-1] - phase[0]) / (2.0 * np.pi)
+        assert abs(winding - 1.0) < 0.05, f"{freq_hz} Hz: winding {winding:.3f}"
+
+    # The other half: at 1.5 and 2 kHz the root is inside the window the
+    # marcher already searches, and it is still missed.
+    for freq_hz, expected in ((500.0, 0), (1000.0, 0), (1500.0, 1), (2000.0, 1)):
+        omega = 2.0 * np.pi * freq_hz
+        lo, hi = omega / (ceiling - 0.5), omega / (_SC87_SLOW["vs"] + 0.5)
+        n = 80
+        contour = (
+            [complex(x, 0.02) for x in np.linspace(lo, hi, n)]
+            + [complex(hi, y) for y in np.linspace(0.02, 8.0, n)]
+            + [complex(x, 8.0) for x in np.linspace(hi, lo, n)]
+            + [complex(lo, y) for y in np.linspace(8.0, 0.02, n)]
+        )
+        phase = np.unwrap(
+            [np.angle(_sc87_slow_cased_determinant(p, omega)) for p in contour]
+        )
+        winding = (phase[-1] - phase[0]) / (2.0 * np.pi)
+        assert abs(winding - expected) < 0.05, (
+            f"{freq_hz} Hz: {winding:.3f} roots in (V_S, V_f), expected {expected}"
+        )

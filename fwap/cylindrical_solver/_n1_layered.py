@@ -540,6 +540,24 @@ def flexural_dispersion_layered(
     brentq on ``Im(det)`` along the real axis, because the fluid
     radial wavenumber turns imaginary once the phase velocity
     exceeds ``V_f``.
+
+    **External validation.** Schmitt & Cheng (1987) fig 20 plots this
+    mode for a fast sandstone behind a well-bonded steel casing, varying
+    the cement thickness (1 cm against 3 cm) in panel (a) and the cement
+    shear velocity (their cement 2 against cement 1) in panel (b). Three
+    traced curves ship in ``docs/notebooks/_data/`` and score 0.39 %,
+    0.52 % and 0.55 % RMS; the two independent renderings of the shared
+    3 cm case agree with each other to 0.23 %, which is the floor a 1987
+    raster scan supports. Note the radius convention that figure fixes:
+    the annulus eats *inward* from a 10 cm original hole, so ``a`` is
+    ``0.10 - t_casing - t_cement`` and the formation contact stays at
+    0.10 m.
+
+    References
+    ----------
+    * Schmitt, D. P., & Cheng, C. H. (1987). Shear wave logging in
+      (multilayered) elastic formations: an overview. *MIT Earth
+      Resources Laboratory*, 213-268.
     """
     layers_tuple = tuple(layers)
     _validate_borehole_layers(layers_tuple)
@@ -751,6 +769,49 @@ def _fill_slow_cased_leaky_n1(
     --------
     ~fwap.cylindrical_solver._leaky._march_leaky_cased_branch :
         The shared marcher, and the n=2 sister's entry point.
+
+    Notes
+    -----
+    **The published statement behind this branch**, and the only
+    external evidence it has, is Schmitt & Cheng (1987) p. 231: behind
+    casing in a slow formation "the high frequency part of the
+    fundamental modes excited either by a dipole or a quadrupole source
+    will then also be leaky", travelling "with a velocity higher than
+    that of the formation shear wave". They illustrate it with
+    *waveforms* (their figs 24 and 25), not with a dispersion curve, so
+    unlike the bound cased branch -- tied by their figs 20 and 21 at
+    0.4-0.6 % -- this one cannot be scored against a figure. It is
+    covered by tests instead; see
+    ``test_the_cased_dipole_of_a_slow_formation_has_no_bound_root_at_all``.
+
+    **The ceiling is a real limit, with a measured example.** The window
+    stops at ``min(V_f, min layer V_S)``, and for Schmitt & Cheng's own
+    slow sandstone (2751 / 1201 / 2100) behind 1.02 cm of steel and 3 cm
+    of their cement 1 the binding term is the *fluid*: the branch leaves
+    ``V_S`` near 1.4 kHz, climbs to about 1710 m/s at 5.5 kHz -- just
+    under the cement's 1729 -- and comes back down through ``V_f`` near
+    13.8 kHz. So this function returns ``NaN`` across the whole band and
+    picks the mode up only at the top, around 1487 m/s; where exactly it
+    starts is grid-dependent (14 kHz on a 500 Hz ladder, 13.5 kHz on a
+    sparse one). An argument-principle contour counts exactly one root
+    inside a box around it at 3.0, 5.5 and 8.0 kHz, so the mode is
+    present and the marcher is not looking for it there.
+
+    **Two failures, not one.** Above 3 kHz the root is outside the
+    window and the marcher is right not to find it; at 1.5 and 2 kHz it
+    is *inside* the window -- a winding count over the whole
+    ``(V_S, V_f)`` box returns 1 -- and is missed anyway, which is
+    seeding rather than the ceiling. Below 1 kHz the window is genuinely
+    empty. Raising the ceiling alone would therefore not close the gap,
+    and it would still need seeding that does not rest on a real-axis
+    scan of ``Im(det)``: above ``V_f`` the fluid field is oscillatory
+    and there is no real-axis minimum to seed from.
+
+    References
+    ----------
+    * Schmitt, D. P., & Cheng, C. H. (1987). Shear wave logging in
+      (multilayered) elastic formations: an overview. *MIT Earth
+      Resources Laboratory*, 213-268.
     """
     missing = ~np.isfinite(slowness)
     if not layers or not missing.any():

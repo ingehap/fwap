@@ -849,6 +849,19 @@ def quadrupole_dispersion_layered(
     The correction does not touch the mode's onset, which remains
     late by the near-cutoff margin recorded for the slow screw mode
     (fwap 5.6 kHz against a published 3.4 kHz for the 8 cm model).
+
+    **External validation of the cased-hole path.** Schmitt & Cheng
+    (1987) fig 21 -- "same as Figure 20 for the screw mode" -- plots this
+    mode for a fast sandstone behind a well-bonded steel casing, over
+    the same three cement stacks as the dipole. All three traced curves
+    ship in ``docs/notebooks/_data/`` and score 0.86 %, 0.18 % and
+    0.26 % RMS. The band is 6-20 kHz rather than the dipole's 2-15: the
+    screw mode's useful energy sits higher, which is the report's own
+    reason for saying the cement effects "occur closer to its useful
+    energy due to the higher frequencies involved". As in
+    :func:`flexural_dispersion_layered`, ``a`` is
+    ``0.10 - t_casing - t_cement`` -- the annulus eats inward from the
+    original 10 cm hole.
     """
     layers_tuple = tuple(layers)
     _validate_borehole_layers(layers_tuple)
