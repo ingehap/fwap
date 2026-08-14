@@ -2006,41 +2006,55 @@ def pseudo_rayleigh_dispersion(
     slowness, the two curves differ by **0.8 % at 280 us/m, 1.2 % at
     300, and 0.3 % from 380 upward**.
 
-    What is left is a genuine but local **curvature** difference. It
-    lives entirely below about 295 us/m -- the first ~0.35 kHz above the
-    crossing -- and it is not a shift: the two curves *cross* near
-    9.3 kHz. fwap leaves the C line at a near-constant 70 us/m per kHz,
-    while Sinha's curve hugs the line at 29 and steepens to 76 by
-    300 us/m, after which the two slopes agree to about 10 %.
+    What is left is **not a feature of the C line at all**, which is
+    what two earlier readings of it assumed. The residual against
+    Sinha tracks the *damping* of the root, and the damping happens to
+    be largest at the low-frequency end:
 
-    Three explanations were tested and eliminated:
+    ========================  =================  ================
+    curve                     ``Im(k_z)``        mean |residual|
+    ========================  =================  ================
+    fig 11(a), slow           0.0005-0.19 rad/m  0.025 %
+    fig 2(a) fast, Im 2.0-2.5                    0.49 %
+    fig 2(a) fast, Im 3.0-3.3                    0.79 %
+    fig 2(a) fast, Im 3.3-3.5                    1.80 %
+    fig 2(a) fast, Im 3.5-3.7                    2.23 %
+    ========================  =================  ================
 
-    * **Not calibration.** The m=2 trapped branch on the *same panel*,
-      read with the same gridlines, scores 0.01 % RMS over 161 of 162
-      points.
+    Same code, same paper, same branch machinery: agreement degrades by
+    a factor of about 30 across two decades of ``Im(k_z)``. That is a
+    coherent story rather than a local anomaly -- a strongly damped
+    "mode" is a pole far from the real axis, where which pole you get
+    depends on branch-cut placement and on how the radiation condition
+    is imposed, so two independent implementations can legitimately
+    land on slightly different roots. Near the real axis the answer is
+    essentially unique, and there the two agree to 0.03 %.
+
+    Everything cheaper than that was tested and eliminated:
+
+    * **Not the digitising.** Fig 2(a) and fig 2(d) are independent
+      renderings of these modes on different axes with different
+      gridlines; converted to a common (f, slowness) they agree to
+      **0.03 % RMS over 156 points**.
+    * **Not calibration.** The m=2 trapped branch on the same panel
+      scores 0.01 % RMS over 161 of 162 points.
     * **Not the root finder.** The argument principle counts exactly
-      one root in the window at every frequency, and continuing the
-      root by hand at 20 Hz steps reproduces the same locus the
-      marcher returns.
-    * **Not the P sheet.** There is no ``leaky_p=True`` root anywhere
-      in the window below 10 kHz, so the disagreement is not fwap
-      solving on the wrong side of the compressional branch cut.
+      one root in the window at every frequency, and hand continuation
+      at 20 Hz steps reproduces the marcher's locus.
+    * **Not conditioning.** The raw matrix has a condition number of
+      5e26 here, but the minimum singular value of the *equilibrated*
+      matrix sits on fwap's root to 0.07 us/m, not on Sinha's.
+    * **Not the sheets.** No ``leaky_p=True`` root exists in the window
+      below 10 kHz, and no ``leaky_s=False`` root exists anywhere in
+      it, so this is not fwap solving on the wrong side of either
+      branch cut.
 
-    What is known about the reference there is that its extreme low end
-    is not trustworthy at the 0.1 % level: its first point sits 0.08 %
-    *faster* than ``V_P``, which this branch cannot be. That covers the
-    first point, not the 0.35 kHz stretch.
-
-    So the open question is narrow and specific: **why does Sinha's m=3
-    hug the C line for ~0.35 kHz where fwap's leaves it at constant
-    slope?** In slowness it costs about a percent, which is why fig 2(a)
-    still scores 1.06 %. In the *derivative* it costs far more, and that
-    is what keeps fig 2(b)'s group slowness out of ``_data/``: the
-    residual runs +56 % at 9.29 kHz, +36 % at 9.49, -2 % by 9.81 and a
-    few percent above 10 kHz, for 11.3 % RMS over the full band against
-    4.3 % from 10 kHz up. It is parked in
-    ``docs/notebooks/_data/pending/`` rather than scored over a range
-    chosen by where the disagreement stops.
+    Practically: trust this routine's slowness to about 0.5 % while
+    ``Im(k_z)`` stays below ~3 rad/m, and treat it as indicative above
+    that. The group slowness inherits the same limit far more sharply,
+    which is why fig 2(b) sits in ``docs/notebooks/_data/pending/``
+    rather than in ``_data/`` -- its residual runs +56 % at 9.29 kHz,
+    where the damping is greatest, and a few percent above 10 kHz.
 
     Accuracy of the attenuation
     ---------------------------

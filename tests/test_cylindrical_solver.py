@@ -15917,6 +15917,76 @@ def test_the_pseudo_rayleigh_low_frequency_end_is_a_window_edge_not_a_cutoff():
     assert abs(p_edge) > 5.0, p_edge
 
 
+def test_agreement_with_sinha_degrades_with_the_mode_damping():
+    """Why the fast curve scores 1.06 % and the slow one 0.03 %.
+
+    Two earlier readings of that gap blamed the C line -- first "a 2.5 %
+    cut-on offset", then "fwap's curve is 2.6x steeper there". Both were
+    replaced. The residual is not a feature of the C line: it tracks
+    ``Im(k_z)``, and the damping simply happens to be largest at this
+    branch's low-frequency end.
+
+    Same solver, same paper, same branch machinery, two decades of
+    damping apart:
+
+    * fig 11(a), slow formation, ``Im(k_z)`` <= 0.19 rad/m -> 0.025 %
+    * fig 2(a), fast formation, ``Im(k_z)`` up to 3.6 rad/m -> 0.79 %
+
+    and within the fast curve the residual rises with ``Im(k_z)`` too.
+    That is coherent: a strongly damped mode is a pole far from the real
+    axis, where which pole you get depends on branch-cut placement and
+    on how the radiation condition is imposed, so two implementations
+    can legitimately differ. Near the real axis the answer is
+    essentially unique.
+
+    Asserted as an ordering rather than as fitted coefficients, so it
+    pins the finding without pinning noise.
+    """
+    from fwap.cylindrical_solver import (
+        leaky_compressional_dispersion,
+        pseudo_rayleigh_dispersion,
+    )
+
+    fast_ref = _sinha_fig2_reference(
+        "sinha_asvadurov_2004_fig2a_leaky_compressional_fast.csv"
+    )
+    freq = np.arange(9100.0, 15300.0, 5.0)
+    fast = pseudo_rayleigh_dispersion(freq, **_PR_SINHA_FAST, branch=1)
+    live = np.isfinite(fast.slowness)
+    inside = (fast_ref[:, 0] >= freq[live].min()) & (fast_ref[:, 0] <= freq[live].max())
+    got = np.interp(fast_ref[inside, 0], freq[live], fast.slowness[live])
+    damping = np.interp(
+        fast_ref[inside, 0], freq[live], fast.attenuation_per_meter[live]
+    )
+    residual = np.abs(got - fast_ref[inside, 1]) / fast_ref[inside, 1]
+
+    # Within the fast curve: the more damped half misses by more.
+    split = float(np.median(damping))
+    low, high = residual[damping < split], residual[damping >= split]
+    assert low.size > 40 and high.size > 40
+    assert high.mean() > 2.0 * low.mean(), (low.mean(), high.mean())
+
+    # And the weakly damped slow-formation mode does far better still.
+    slow_ref = _sinha_fig2_reference(
+        "sinha_asvadurov_2004_fig11a_leaky_compressional_slow.csv"
+    )
+    slow_freq = np.arange(2200.0, 15100.0, 5.0)
+    slow = leaky_compressional_dispersion(slow_freq, **_LC_SLOW)
+    slow_live = np.isfinite(slow.slowness)
+    slow_got = np.interp(slow_ref[:, 0], slow_freq[slow_live], slow.slowness[slow_live])
+    slow_damping = np.interp(
+        slow_ref[:, 0], slow_freq[slow_live], slow.attenuation_per_meter[slow_live]
+    )
+    slow_residual = np.abs(slow_got - slow_ref[:, 1]) / slow_ref[:, 1]
+
+    assert slow_damping.max() < 0.5, slow_damping.max()
+    assert damping.max() > 3.0, damping.max()
+    assert slow_residual.mean() < 0.1 * residual.mean(), (
+        slow_residual.mean(),
+        residual.mean(),
+    )
+
+
 def test_the_sinha_fig2_m3_branch_is_the_only_root_in_its_window():
     """No ambiguity about *which* root is being scored.
 

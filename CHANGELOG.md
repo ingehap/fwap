@@ -64,143 +64,34 @@ the project uses [Semantic Versioning](https://semver.org/).
   fixed slowness the curves differ by 0.8 % at 280 µs/m, 1.2 % at 300
   and 0.3 % from 380 upward.
 
-  What is real is a local **curvature** difference below about
-  295 µs/m — the first ~0.35 kHz above the crossing — and it is not a
-  shift, since the two curves *cross* near 9.3 kHz. fwap leaves the C
-  line at a near-constant 70 µs/m per kHz; Sinha's hugs it at 29 and
-  steepens to 76 by 300 µs/m, after which the slopes agree to ~10 %.
-  Three explanations were tested and eliminated: **not calibration**
-  (the m=2 branch on the same panel scores 0.01 % over 161/162), **not
-  the root finder** (the argument principle counts one root, and hand
-  continuation at 20 Hz reproduces the locus), **not the P sheet** (no
-  `leaky_p=True` root exists in the window below 10 kHz). About a
-  percent in slowness; the group residual runs +56 % at 9.29 kHz,
-  +36 % at 9.49, −2 % by 9.81 and a few percent above 10 kHz. The open
-  question is now narrow: why does Sinha's m=3 hug the C line for
-  ~0.35 kHz where fwap's leaves it at constant slope?
+  **The cause is now understood, and it is not the C line.** Two
+  earlier readings blamed it — "a 2.5 % cut-on offset", then "2.6×
+  steeper there" — and both were replaced. The residual tracks the
+  mode's **damping**, which simply happens to peak at this branch's
+  low-frequency end: fig 11(a) with `Im(k_z)` ≤ 0.19 rad/m agrees to
+  **0.025 %**, while fig 2(a) with `Im(k_z)` up to 3.6 misses by
+  **0.79 %** on average — 0.49 % in its `Im` 2.0–2.5 band rising to
+  2.23 % above 3.5. Same solver, same paper, ~30× degradation across
+  two decades of damping.
 
-- **Sinha & Asvadurov (2004) figs 11(b) and 11(c) digitised and scored** —
-  the group slowness and the **radiation attenuation** of the same
-  leaky compressional mode figs 11(a) already ties. Group slowness
-  **0.59 %** RMS over 51/51 points; attenuation **0.32 %** RMS over 93 of
-  99. The attenuation row is the **first reference in the repository that
-  scores an imaginary part** — every other tie, traced figure or analytic
-  oracle, looks at a phase slowness.
+  That is coherent rather than anomalous: a strongly damped mode is a
+  pole far from the real axis, where which pole you get depends on
+  branch-cut placement and on how the radiation condition is imposed,
+  so two independent implementations can legitimately differ. Near the
+  real axis the answer is essentially unique.
 
-  **The dB convention had to be recovered, because the paper states
-  none.** All six of Sinha's attenuation panels are labelled only
-  "Attenuation (dB/m)" with no defining equation. Read naively as
-  `8.686 * Im(k_z)`, fwap comes out ~2.2x high and the factor drifts
-  (2.30 at 4 kHz to 2.14 at 14 kHz). The relation that fits is
+  Everything cheaper was tested and eliminated: **not the digitising**
+  (figs 2(a) and 2(d) are independent renderings on different axes and
+  agree to 0.03 % RMS over 156 points), **not calibration** (m=2 on the
+  same panel scores 0.01 % over 161/162), **not the root finder** (the
+  argument principle counts one root; hand continuation at 20 Hz
+  reproduces the locus), **not conditioning** (raw condition number
+  5×10²⁶, but the equilibrated matrix's smallest singular value sits on
+  fwap's root to 0.07 µs/m), **not the sheets** (no `leaky_p=True` root
+  below 10 kHz, no `leaky_s=False` root at all).
 
-      Sinha dB/m = 8.686 * Im(k_z) * (V_g / V_p) / 2
-
-  — a `10*log10` where `20*log10` was assumed, and the loss quoted per
-  metre of energy transport rather than of phase advance.
-
-  It was confirmed the falsifiable way rather than fitted. Inverting the
-  ratio implies a group slowness of about 681 µs/m, nearly flat above
-  8 kHz, and that prediction was written down **before** fig 11(b) was
-  opened; that panel, calibrated independently on its own gridlines,
-  reads 681.7 — agreement to **0.65 % RMS over 21 points** against a
-  curve that played no part in deriving the relation. The fig 11(c)
-  score itself uses fwap's *own* group velocity, so the two references
-  stay independent.
-
-  That cross-check doubles as fig 11(c)'s calibration check, which it
-  cannot otherwise have — attenuation panels carry no dashed reference
-  lines. Fig 11(b) gets its own from fig 11(a): the Stoneley mode is
-  nearly non-dispersive at the top of the band, and its group-to-phase
-  gap closes 1.04 % → 0.42 % from 8 to 15 kHz.
-
-- **`load_reference_curve` takes `quantity="slowness" | "attenuation"`**,
-  selecting which unit guard runs so a dB/m column goes through the same
-  loader and scorer as everything else. **No new public names**, so the
-  API guard is unchanged at 188.
-
-  The attenuation guard is deliberately much weaker than its slowness
-  sibling, and the asymmetry is asserted rather than left implicit: it
-  cannot tell dB/m from nepers/m — the factor 8.686 the convention
-  question above turns on — and it cannot reject a slowness column,
-  because the two plausible bands overlap and fig 11(c)'s own values
-  start at 0.0025 dB/m. `quantity` is a **declaration, not a
-  detection**.
-
-- **`leaky_compressional_dispersion`** — the n=0 leaky compressional mode
-  of a **slow** formation (`V_S < V_f < V_P`), between the formation
-  compressional and borehole-fluid slownesses. Takes `branch` and
-  `tool_radius`. The API guard goes 187 -> 188.
-
-  Scored against **Sinha & Asvadurov (2004) fig 11(a)** curve m=3 at
-  **0.03 % RMS over 107 of 107 points**, the tightest tie in the
-  repository, and against **Paillet & Cheng (1986) fig 12(a)** shale B
-  with its 5 cm centralised tool at **1.81 %** (fundamental, 136/170) and
-  **0.35 %** (first mode, 65/84). The Paillet pair is the first external
-  evidence the `tool_radius` geometry has: the same fundamental scores
-  **10.66 %** with the tool left out.
-
-  `attenuation_per_meter` is **not** externally validated. Sinha fig 11(c)
-  plots a radiation attenuation for this mode and the shape is reproduced
-  — zero at cut-off, broad maximum near 9-10 kHz, slow decline — but the
-  magnitudes differ by a near-constant factor of about 2.2 and the paper
-  states no dB convention, so it is left unscored rather than fitted.
-
-- **Rigid centralised logging-tool geometry.** `stoneley_dispersion` and
-  `trapped_pseudo_rayleigh_dispersion` take a `tool_radius` (default
-  `0.0`), as do the n=0 determinants via `r_tool`, and `tube_wave_speed`
-  gains `tool_radius` plus the `a` it then needs. **No new public names**,
-  so the API guard was unchanged at 187 by this entry (it moves to 188
-  with `leaky_compressional_dispersion` above).
-
-  It now has an external tie, which it did not when it landed: Paillet &
-  Cheng (1986) fig 12(a), scored in the entry above.
-
-  This is the White & Zechman (1968) model that Paillet & Cheng (1986) use
-  — confirmed from that paper rather than assumed: it says the theory was
-  *"extended to the borehole with a centralized logging tool by White and
-  Zechman (1968)"*, measures pressure *"at the surface of the logging tool
-  (r = R)"*, and its table 1 gives a tool **radius** with no tool elastic
-  properties.
-
-  **The change is one column wide.** A rigid tool is immovable, so
-  `u_r(r_tool) = 0`. The fluid becomes an annulus, the axis leaves the
-  domain, `K_0` becomes admissible, and the fluid solution is
-  `P = A [I_0(F r) + beta K_0(F r)]` with
-  `beta = I_1(F r_tool) / K_1(F r_tool)`. Substituting the resulting pair
-  for `I_0(F a)` / `I_1(F a)` is the **entire** modification to the n=0
-  determinant — every solid row is untouched, because the tool changes the
-  fluid's radial basis and nothing else. `_rigid_tool_fluid_factors`
-  carries it.
-
-  **`tool_radius = 0` is bit-identical, not merely close.** The helper
-  short-circuits rather than relying on `beta -> 0` numerically, so every
-  curve in the validation notebook is untouched by this geometry existing.
-  A test asserts bit-identity; another asserts the quadratic convergence
-  `beta ~ (F r_tool)^2 / 2` predicts.
-
-- **Notebook section 9: an analytic oracle for the tool.** The
-  tool-corrected low-frequency tube wave has a closed form, derived from
-  the same quasi-static argument as White's:
-
-      1 / V_T^2 = rho_f [ 1/K_f + a^2 / (mu (a^2 - R^2)) ]
-
-  The wall still gains `pi a^2 P / mu` of volume per unit length, but that
-  gain is now shared over a fluid area of `pi (a^2 - R^2)`, so the
-  compliance term is scaled by `a^2 / (a^2 - R^2)`.
-
-  It agrees with the `f -> 0` limit of `stoneley_dispersion` to **1.4-1.8
-  x 10^-8** for tool radii from 0 to 60 % of the borehole. That is a
-  genuine cross-check: the closed form has no Bessel functions, no modal
-  determinant and no root finding, while the solver is nothing but those,
-  and the tool enters the two through completely different doors. Unlike
-  section 8 it carries **no self-confirmation caveat** — the solver's
-  bracket uses the *open-hole* White formula, which knows nothing about
-  `R`.
-
-  The validity floor moves with the tool and now does so in the guard:
-  `V_S > V_f sqrt(1 - (rho_f/rho) a^2/(a^2 - R^2))`. A tool lowers the
-  floor, so it widens the range of formations supporting a bound tube
-  wave.
+  Practically: trust the slowness to ~0.5 % while `Im(k_z)` stays below
+  ~3 rad/m, and treat it as indicative above that.
 
 ### Fixed
 - **`semblance` and `stc` broke at extreme amplitude scales.** Both form
