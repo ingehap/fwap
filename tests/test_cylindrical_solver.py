@@ -15356,6 +15356,204 @@ def _lowest_converged(a: float) -> float:
     return float(_PR_GRID[finite].min())
 
 
+# =====================================================================
+# Slow-formation leaky compressional (n = 0).
+# =====================================================================
+#
+# Sinha & Asvadurov (2004) Table 1 slow formation (B) -- the geometry
+# the solver is scored on in the validation notebook, at 0.03 % RMS
+# over 107 of 107 points of fig 11(a) curve m=3.
+
+_LC_SLOW = dict(vp=1890.0, vs=508.0, rho=2054.0, vf=1500.0, rho_f=1000.0, a=0.1016)
+
+# Paillet & Cheng (1986) Table 1 shale B, which carries a 5 cm tool.
+_LC_SHALE_B = dict(vp=2000.0, vs=1000.0, rho=2300.0, vf=1500.0, rho_f=1380.0, a=0.125)
+
+
+def test_leaky_compressional_sits_in_its_window_and_decays():
+    """The two properties that define the mode, neither of which needs
+    a digitised figure.
+
+    Between ``1/V_P`` and ``1/V_f`` the fluid is oscillatory, the
+    formation P wave is evanescent and the formation S wave radiates.
+    The last of those is what makes ``Im(k_z)`` non-zero, and its
+    *sign* is the assertion: the mode must decay along +z. The
+    radiation branch of :func:`_k_or_hankel` returned the incoming
+    wave until it was corrected against Sinha & Asvadurov fig 11(a),
+    and under it this root came out with ``Im(k_z) < 0`` -- a mode
+    growing along the borehole.
+    """
+    from fwap.cylindrical_solver import leaky_compressional_dispersion
+
+    freq = np.linspace(2500.0, 15000.0, 40)
+    mode = leaky_compressional_dispersion(freq, **_LC_SLOW)
+
+    assert mode.name == "leaky_compressional"
+    assert mode.azimuthal_order == 0
+    ok = np.isfinite(mode.slowness)
+    assert ok.sum() > 35
+
+    assert np.all(mode.slowness[ok] > 1.0 / _LC_SLOW["vp"])
+    assert np.all(mode.slowness[ok] < 1.0 / _LC_SLOW["vf"])
+    assert np.all(mode.attenuation_per_meter[ok] > 0.0)
+
+    # Slower with frequency, toward the fluid slowness -- the paper's
+    # own description of the high-frequency asymptote.
+    assert np.all(np.diff(mode.slowness[ok]) > 0.0)
+
+
+def test_leaky_compressional_roots_are_roots():
+    """Each returned value solves the determinant it claims to.
+
+    Checked against the determinant's own magnitude nearby, because the
+    absolute value spans many orders across the window and an absolute
+    threshold would mean nothing.
+    """
+    from fwap.cylindrical_solver import (
+        _modal_determinant_n0_complex,
+        leaky_compressional_dispersion,
+    )
+
+    freq = np.linspace(4000.0, 12000.0, 6)
+    mode = leaky_compressional_dispersion(freq, **_LC_SLOW)
+    for f, s, att in zip(freq, mode.slowness, mode.attenuation_per_meter):
+        assert np.isfinite(s), f
+        omega = 2.0 * np.pi * f
+        kz = complex(s * omega, att)
+
+        def det(z, omega=omega):
+            return _modal_determinant_n0_complex(
+                z, omega, **_LC_SLOW, leaky_p=False, leaky_s=True
+            )
+
+        radius = 0.001 * abs(kz)
+        ring = float(
+            np.median(
+                [
+                    abs(det(kz + radius * np.exp(1j * t)))
+                    for t in np.linspace(0.0, 2.0 * np.pi, 8, endpoint=False)
+                ]
+            )
+        )
+        assert abs(det(kz)) < 1.0e-9 * ring, f
+
+
+def test_leaky_compressional_has_no_low_frequency_cutoff():
+    """The fundamental approaches ``1/V_P`` asymptotically, not at a
+    cut-off, and the difference is worth pinning.
+
+    The function's docstring asserted a cut-off near 2.2 kHz on this
+    formation, taken from where Sinha's fig 11(a) starts drawing the
+    curve and from the paper's "cuts in around 3 kHz". Both are
+    statements about detectability. Measured, the branch runs
+    continuously below them: the slowness closes on ``1/V_P`` like a
+    limit, with the attenuation vanishing alongside it, and never
+    terminates.
+
+    Below ~2 kHz that limit is what it looks like -- a wave at the
+    formation compressional speed radiating essentially nothing, which
+    no receiver would separate from the P head wave. It is returned
+    anyway, because trimming it would mean inventing a threshold.
+    """
+    from fwap.cylindrical_solver import leaky_compressional_dispersion
+
+    freq = np.linspace(1300.0, 6000.0, 60)
+    mode = leaky_compressional_dispersion(freq, **_LC_SLOW)
+    ok = np.isfinite(mode.slowness)
+
+    # No gap: one unbroken run down to the bottom of the grid.
+    assert ok.all(), np.flatnonzero(~ok)
+
+    excess = mode.slowness / (1.0 / _LC_SLOW["vp"]) - 1.0
+    assert np.all(excess > 0.0), excess.min()
+    assert np.all(np.diff(excess) > 0.0), "the approach is not monotone"
+    # Six orders of magnitude of approach across the band, and the
+    # attenuation tracks it down.
+    assert excess[0] < 1.0e-8, excess[0]
+    assert excess[-1] > 1.0e-2, excess[-1]
+    assert mode.attenuation_per_meter[0] < 1.0e-7
+    assert np.all(np.diff(mode.attenuation_per_meter) > 0.0)
+
+
+def test_leaky_compressional_grid_independence():
+    """The curve is a property of the medium, not of the request."""
+    from fwap.cylindrical_solver import leaky_compressional_dispersion
+
+    coarse_grid = np.arange(3000.0, 14000.0, 250.0)
+    fine_grid = np.arange(3000.0, 14000.0, 125.0)
+    coarse = leaky_compressional_dispersion(coarse_grid, **_LC_SLOW)
+    fine = leaky_compressional_dispersion(fine_grid, **_LC_SLOW)
+    shared = np.searchsorted(fine_grid, coarse_grid)
+
+    ok = np.isfinite(coarse.slowness) & np.isfinite(fine.slowness[shared])
+    assert ok.sum() > 40
+    assert coarse.slowness[ok] == pytest.approx(fine.slowness[shared][ok], rel=1.0e-9)
+
+
+def test_leaky_compressional_tool_radius_moves_the_answer():
+    """The rigid tool is load-bearing on Paillet & Cheng's shale B.
+
+    Not a smoke test: the same fundamental scores 1.81 % against fig
+    12(a) with the 5 cm tool and 10.66 % without it, so the two curves
+    have to be well separated. Asserted as a lower bound on the shift
+    rather than against a stored curve.
+    """
+    from fwap.cylindrical_solver import leaky_compressional_dispersion
+
+    freq = np.linspace(8000.0, 24000.0, 30)
+    with_tool = leaky_compressional_dispersion(freq, **_LC_SHALE_B, tool_radius=0.05)
+    open_hole = leaky_compressional_dispersion(freq, **_LC_SHALE_B)
+
+    both = np.isfinite(with_tool.slowness) & np.isfinite(open_hole.slowness)
+    assert both.sum() > 20
+    shift = np.abs(open_hole.slowness[both] / with_tool.slowness[both] - 1.0)
+    assert shift.max() > 0.03, shift.max()
+
+
+def test_leaky_compressional_branches_are_distinct():
+    """Higher radial orders exist and are addressable.
+
+    Shale B carries three roots at 24.8 kHz, and the middle one is a
+    cut-off mode two orders more attenuated than its neighbours -- so
+    the paper's "first mode" is ``branch=2``. That ordering trap is
+    documented on the function and pinned here.
+    """
+    from fwap.cylindrical_solver import leaky_compressional_dispersion
+
+    freq = np.array([24800.0])
+    slownesses, attenuations = [], []
+    for branch in (0, 1, 2):
+        mode = leaky_compressional_dispersion(
+            freq, **_LC_SHALE_B, branch=branch, tool_radius=0.05
+        )
+        assert np.isfinite(mode.slowness[0]), branch
+        slownesses.append(float(mode.slowness[0]) * 1e6)
+        attenuations.append(float(mode.attenuation_per_meter[0]))
+
+    # Ordered by descending Re(k_z), i.e. descending slowness.
+    assert slownesses == sorted(slownesses, reverse=True), slownesses
+    # ...and branch 1 is the heavily damped one sitting between the two
+    # propagating branches in slowness, which is the trap.
+    assert attenuations[1] > 10.0 * attenuations[0], attenuations
+    assert attenuations[1] > 5.0 * attenuations[2], attenuations
+
+
+def test_leaky_compressional_rejects_a_fast_formation():
+    """A fast formation has no such window; say which function to use."""
+    from fwap.cylindrical_solver import leaky_compressional_dispersion
+
+    fast = dict(vp=4000.0, vs=2300.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.10)
+    with pytest.raises(ValueError, match="pseudo_rayleigh_dispersion"):
+        leaky_compressional_dispersion(np.array([8000.0]), **fast)
+
+    with pytest.raises(ValueError, match="tool_radius must be smaller"):
+        leaky_compressional_dispersion(
+            np.array([8000.0]), **_LC_SHALE_B, tool_radius=0.2
+        )
+    with pytest.raises(ValueError, match="branch must be non-negative"):
+        leaky_compressional_dispersion(np.array([8000.0]), **_LC_SLOW, branch=-1)
+
+
 def test_the_leaky_branch_joins_the_trapped_one_at_its_cutoff():
     """Below a trapped branch's cut-off the same mode continues as a
     leaky root, leaving ``1/V_S`` with ``Im(k_z) -> 0^+``.

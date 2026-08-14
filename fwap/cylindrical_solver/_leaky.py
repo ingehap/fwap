@@ -2282,12 +2282,26 @@ def leaky_compressional_dispersion(
     not be resolved and the attenuation is *not* scored. Treat
     ``attenuation_per_meter`` as ``Im(k_z)`` in 1/m and nothing more.
 
-    **Cut-off.** The mode cuts on where its phase velocity reaches
-    ``V_P`` and ``Im(k_z) -> 0``; below that the marcher returns NaN.
-    On Sinha's formation B that is about 2.2 kHz, against the paper's
-    text "cuts in around 3 kHz". At the high-frequency end the mode
-    approaches the borehole-fluid slowness ``1/V_f``, as the same
-    text says.
+    **There is no low-frequency cut-off on the fundamental**, and this
+    docstring claimed one until it was measured. The branch approaches
+    ``1/V_P`` *asymptotically* as the frequency falls, with
+    ``Im(k_z) -> 0`` alongside it and no termination: on Sinha's
+    formation B the slowness is within 3e-2 of ``1/V_P`` at 4 kHz,
+    3e-5 at 2 kHz and 7e-12 at 1.25 kHz, smoothly and with no step
+    anywhere. Sinha's fig 11(a) begins drawing the curve at 2.2 kHz
+    and the paper says it "cuts in around 3 kHz", but those are
+    statements about where the mode is *detectable*, not about where
+    it exists -- below them it is a wave that travels at the formation
+    compressional speed and radiates almost nothing, which is
+    indistinguishable from the P head wave and carries no energy of
+    its own.
+
+    Higher branches do have genuine cut-offs. Paillet & Cheng's first
+    mode reaches ``V_P`` at a finite frequency near 16 kHz and the
+    marcher stops there.
+
+    At the high-frequency end the mode approaches the borehole-fluid
+    slowness ``1/V_f``, as Sinha's text says.
 
     See Also
     --------
