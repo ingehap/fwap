@@ -19,11 +19,12 @@ code lands.
 
 Entry 5 breaks that pattern and is the more interesting case. Its solver
 exists and its two sibling curves are scored; this one misses the budget
-because of a small, real, still-unexplained *curvature* difference over
-a 0.35 kHz stretch at the fast end of the mode's window, which
-differentiating turns into a large one. It is parked rather than scored
-over a hand-picked frequency range, because choosing the range by where
-the disagreement stops is the one move this directory exists to avoid.
+because it is the **derivative** of a curve whose own accuracy against
+the reference degrades with the mode's damping. That is now understood
+rather than open -- see the entry -- and it is still parked, because
+scoring it would need either a frequency floor chosen by where the
+disagreement stops or a budget set by the damping, and neither is a
+property of the reference.
 
 ## Contents
 
@@ -148,42 +149,45 @@ survives:
   **0.8 % at 280 µs/m, 1.2 % at 300, and 0.3 % from 380 upward** — not
   2.5 %.
 
-What is real is a **local curvature difference**, narrower than the
-first pass suggested. It lives entirely below about 295 µs/m — the first
-~0.35 kHz above the crossing — and it is not a shift, because the two
-curves **cross** near 9.3 kHz. fwap leaves the C line at a near-constant
-70 µs/m per kHz; Sinha's hugs the line at 29 and steepens to 76 by
-300 µs/m, after which the slopes agree to ~10 %. (An earlier note here
-called it "2.6× steeper", which is the ratio at one slowness only —
-2.40 at 278 µs/m, 1.09 at 300, ~1.0 above.)
+**What is real is not a C-line effect at all.** Two earlier readings
+here assumed it was — first "a 2.5 % cut-on offset", then "fwap's curve
+is 2.6× steeper" — and both were replaced. The residual against Sinha
+tracks the **damping** of the root, and the damping is largest at the
+low-frequency end, which is what made it look local:
 
-Three explanations were tested and eliminated:
+| curve | `Im(k_z)` | mean \|residual\| |
+|---|---|---|
+| fig 11(a), slow formation | 0.0005–0.19 rad/m | **0.025 %** |
+| fig 2(a) fast, `Im` 2.0–2.5 | | 0.49 % |
+| fig 2(a) fast, `Im` 3.0–3.3 | | 0.79 % |
+| fig 2(a) fast, `Im` 3.3–3.5 | | 1.80 % |
+| fig 2(a) fast, `Im` 3.5–3.7 | | 2.23 % |
 
-* **Not calibration.** The m=2 trapped branch on the *same panel*, read
-  with the same gridlines, scores 0.01 % RMS over 161 of 162 points.
-* **Not the root finder.** The argument principle counts exactly one
-  root in the window at every frequency, and continuing it by hand at
-  20 Hz steps reproduces the locus the marcher returns.
-* **Not the P sheet.** There is no `leaky_p=True` root anywhere in the
-  window below 10 kHz, so this is not fwap solving on the wrong side of
-  the compressional branch cut.
+Same solver, same paper, same branch machinery: agreement degrades by a
+factor of ~30 across two decades of `Im(k_z)`. A strongly damped mode is
+a pole far from the real axis, where which pole you get depends on
+branch-cut placement and on how the radiation condition is imposed; two
+independent implementations can legitimately differ there. Near the real
+axis the answer is essentially unique and the two agree to 0.03 %.
 
-In slowness the difference costs about a percent, which is why fig 2(a)
-still scores 1.06 %. In the derivative it costs far more: the group
-residual runs **+56 % at 9.29 kHz, +36 % at 9.49, −2 % by 9.81**, then a
-few percent, giving 11.3 % RMS over the full band against 4.3 % from
-10 kHz up.
+Everything cheaper was tested and eliminated:
 
-It is parked rather than scored over a restricted band because the band
-that would make it pass is chosen by where the disagreement stops, not
-by anything physical. Shipping it that way would be selecting the range
-to fit the budget, which is the one move this directory exists to avoid.
+* **Not the digitising.** Fig 2(a) and fig 2(d) are independent
+  renderings on different axes with separate calibration; converted to a
+  common (f, slowness) they agree to **0.03 % RMS over 156 points**.
+* **Not calibration.** The m=2 branch on the same panel scores 0.01 %
+  over 161/162.
+* **Not the root finder.** The argument principle counts one root at
+  every frequency; hand continuation at 20 Hz reproduces the locus.
+* **Not conditioning.** Raw condition number 5×10²⁶, but the
+  equilibrated matrix's smallest singular value sits on fwap's root to
+  0.07 µs/m.
+* **Not the sheets.** No `leaky_p=True` root below 10 kHz, no
+  `leaky_s=False` root at all.
 
-**What would close it** is answering one narrow question: why does
-Sinha's m=3 hug the C line for ~0.35 kHz where fwap's leaves it at
-constant slope? What is known about the reference there is that its
-extreme low end is untrustworthy at the 0.1 % level — its first point is
-0.08 % faster than `V_P`, which this branch cannot be — but that covers
-one point, not the stretch. It is not sampling: Sinha's points there are
-spaced uniformly in slowness at 1.66 µs/m, so the region is finely
-resolved in frequency rather than chorded across.
+So this curve stays parked, and for a reason that is now understood
+rather than open: the group slowness is the derivative of a curve whose
+own accuracy degrades with damping, and its residual is +56 % at
+9.29 kHz where `Im(k_z)` peaks. Scoring it would require either a
+frequency floor chosen by where the disagreement stops, or a budget set
+by the damping — neither of which is a property of the reference.
