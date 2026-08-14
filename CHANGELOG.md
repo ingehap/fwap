@@ -64,12 +64,20 @@ the project uses [Semantic Versioning](https://semver.org/).
   fixed slowness the curves differ by 0.8 % at 280 µs/m, 1.2 % at 300
   and 0.3 % from 380 upward.
 
-  What is real is a local shape difference over the first ~0.3 kHz
-  above the crossing, where fwap's curve is ~2.6× steeper — about a
-  percent in slowness, but the group residual runs +56 % at 9.29 kHz,
-  +36 % at 9.49, −2 % by 9.81 and a few percent above 10 kHz. Not
-  digitising error: Sinha's points there are spaced uniformly in
-  slowness at 1.66 µs/m, so the region is finely sampled in frequency.
+  What is real is a local **curvature** difference below about
+  295 µs/m — the first ~0.35 kHz above the crossing — and it is not a
+  shift, since the two curves *cross* near 9.3 kHz. fwap leaves the C
+  line at a near-constant 70 µs/m per kHz; Sinha's hugs it at 29 and
+  steepens to 76 by 300 µs/m, after which the slopes agree to ~10 %.
+  Three explanations were tested and eliminated: **not calibration**
+  (the m=2 branch on the same panel scores 0.01 % over 161/162), **not
+  the root finder** (the argument principle counts one root, and hand
+  continuation at 20 Hz reproduces the locus), **not the P sheet** (no
+  `leaky_p=True` root exists in the window below 10 kHz). About a
+  percent in slowness; the group residual runs +56 % at 9.29 kHz,
+  +36 % at 9.49, −2 % by 9.81 and a few percent above 10 kHz. The open
+  question is now narrow: why does Sinha's m=3 hug the C line for
+  ~0.35 kHz where fwap's leaves it at constant slope?
 
 - **Sinha & Asvadurov (2004) figs 11(b) and 11(c) digitised and scored** —
   the group slowness and the **radiation attenuation** of the same

@@ -2006,13 +2006,39 @@ def pseudo_rayleigh_dispersion(
     slowness, the two curves differ by **0.8 % at 280 us/m, 1.2 % at
     300, and 0.3 % from 380 upward**.
 
-    What is left is a genuine but local shape difference over the first
-    ~0.3 kHz above the crossing, where fwap's curve is about 2.6x
-    steeper. In slowness it costs about a percent; in the *derivative*
-    it costs far more, and that is what keeps fig 2(b)'s group slowness
-    out of ``_data/``: the residual runs +56 % at 9.29 kHz, +36 % at
-    9.49, -2 % by 9.81 and a few percent above 10 kHz, for 11.3 % RMS
-    over the full band against 4.3 % from 10 kHz up. It is parked in
+    What is left is a genuine but local **curvature** difference. It
+    lives entirely below about 295 us/m -- the first ~0.35 kHz above the
+    crossing -- and it is not a shift: the two curves *cross* near
+    9.3 kHz. fwap leaves the C line at a near-constant 70 us/m per kHz,
+    while Sinha's curve hugs the line at 29 and steepens to 76 by
+    300 us/m, after which the two slopes agree to about 10 %.
+
+    Three explanations were tested and eliminated:
+
+    * **Not calibration.** The m=2 trapped branch on the *same panel*,
+      read with the same gridlines, scores 0.01 % RMS over 161 of 162
+      points.
+    * **Not the root finder.** The argument principle counts exactly
+      one root in the window at every frequency, and continuing the
+      root by hand at 20 Hz steps reproduces the same locus the
+      marcher returns.
+    * **Not the P sheet.** There is no ``leaky_p=True`` root anywhere
+      in the window below 10 kHz, so the disagreement is not fwap
+      solving on the wrong side of the compressional branch cut.
+
+    What is known about the reference there is that its extreme low end
+    is not trustworthy at the 0.1 % level: its first point sits 0.08 %
+    *faster* than ``V_P``, which this branch cannot be. That covers the
+    first point, not the 0.35 kHz stretch.
+
+    So the open question is narrow and specific: **why does Sinha's m=3
+    hug the C line for ~0.35 kHz where fwap's leaves it at constant
+    slope?** In slowness it costs about a percent, which is why fig 2(a)
+    still scores 1.06 %. In the *derivative* it costs far more, and that
+    is what keeps fig 2(b)'s group slowness out of ``_data/``: the
+    residual runs +56 % at 9.29 kHz, +36 % at 9.49, -2 % by 9.81 and a
+    few percent above 10 kHz, for 11.3 % RMS over the full band against
+    4.3 % from 10 kHz up. It is parked in
     ``docs/notebooks/_data/pending/`` rather than scored over a range
     chosen by where the disagreement stops.
 
