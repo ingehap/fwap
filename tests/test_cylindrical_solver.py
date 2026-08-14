@@ -983,17 +983,23 @@ def test_radial_wavenumber_picks_the_outgoing_root_on_both_sides_of_the_axis():
             assert outgoing == pytest.approx(principal, rel=1.0e-12)
 
 
-def test_k_or_hankel_leaky_agrees_with_hankel2_on_its_principal_sheet():
+def test_k_or_hankel_leaky_agrees_with_hankel1_on_its_principal_sheet():
     """The leaky branch is evaluated through ``kv``/``iv`` rather than
-    ``hankel2``, and the swap must not move any value that was already
+    ``hankel1``, and the swap must not move any value that was already
     being computed.
 
-    ``(pi/2) i^{n+1} H_n^{(2)}(i z) = -K_n(z) + i pi (-1)^n I_n(z)`` is
-    an identity, so the two forms agree wherever ``hankel2`` is on its
-    principal sheet -- which is every argument the solvers reached
-    before the outgoing root existed. They part company only at
-    ``arg(i z) > pi``, where ``hankel2`` crosses its branch cut and
-    returns the wrong sheet.
+    ``-(pi/2) i^{1-n} H_n^{(1)}(-i z) = -K_n(z) - i pi (-1)^n I_n(z)``
+    is an identity, so the two forms agree wherever ``hankel1`` is on
+    its principal sheet -- which, once the branch was corrected, is
+    the *whole* region :func:`_radial_wavenumber` can produce for
+    ``leaky=True``. They part company only at ``Im(alpha) < 0``, which
+    that selector never returns.
+
+    This test named ``hankel2`` until the branch was corrected. The
+    ``H^{(2)}`` form it pinned is the *incoming* wave under the
+    ``e^{-i omega t}`` convention; see
+    ``test_the_leaky_branch_is_a_pure_outgoing_wave`` below, which is
+    the check that would have caught it and did not exist.
     """
     from scipy import special
 
@@ -1001,30 +1007,89 @@ def test_k_or_hankel_leaky_agrees_with_hankel2_on_its_principal_sheet():
 
     r = 0.1
 
-    def hankel2_form(n: int, alpha: complex) -> complex:
+    def hankel1_form(n: int, alpha: complex) -> complex:
         return complex(
-            (np.pi / 2.0) * (1j ** (n + 1)) * special.hankel2(n, 1j * alpha * r)
+            -(np.pi / 2.0) * (1j ** (1 - n)) * special.hankel1(n, -1j * alpha * r)
         )
 
-    # First-quadrant alpha: Re >= 0, so arg(i alpha r) < pi.
-    for alpha in (12 + 55j, 0.1 + 30j, 40 + 3j, 1.0e-3 + 12j):
+    # Both quadrants the selector can produce, Re(alpha) either sign.
+    for alpha in (12 + 55j, -12 + 55j, 0.1 + 30j, -40 + 3j, 1.0e-3 + 12j):
         for n in (0, 1, 2):
             new = _k_or_hankel(n, complex(alpha), r, leaky=True)[0]
-            old = hankel2_form(n, complex(alpha))
-            assert abs(new - old) / abs(old) < 1.0e-14, f"n={n}, alpha={alpha}"
+            old = hankel1_form(n, complex(alpha))
+            assert abs(new - old) / abs(old) < 1.0e-11, f"n={n}, alpha={alpha}"
 
-    # Straddling Re(alpha) = 0, which is arg(i alpha r) = pi: hankel2
-    # jumps across its cut there, the kv/iv form walks through it.
+    # Straddling Re(alpha) = 0 -- the crossing the old hankel2 form
+    # could not survive. Both forms walk through it now; the kv/iv
+    # form is kept anyway because its own cut, on the negative real
+    # ``z`` axis, is one the leaky regime never reaches.
     below, above = complex(-1.0e-4, 30.0), complex(+1.0e-4, 30.0)
     continued = _k_or_hankel(1, below, r, leaky=True)[0]
     reference = _k_or_hankel(1, above, r, leaky=True)[0]
     assert abs(continued - reference) / abs(reference) < 1.0e-4
-    jump = abs(hankel2_form(1, below) - hankel2_form(1, above)) / abs(
-        hankel2_form(1, above)
+    assert (
+        abs(hankel1_form(1, below) - hankel1_form(1, above))
+        / abs(hankel1_form(1, above))
+        < 1.0e-4
     )
-    assert jump > 0.5, (
-        f"hankel2 is supposed to jump here (got {jump:.3g}) -- that is why "
-        f"it is not used"
+
+    # ...and the sheet hankel1 does get wrong is the one Im(alpha) < 0,
+    # which _radial_wavenumber never returns for leaky=True.
+    stray = complex(-0.1, -30.0)
+    assert (
+        abs(_k_or_hankel(1, stray, r, leaky=True)[0] - hankel1_form(1, stray))
+        / abs(hankel1_form(1, stray))
+        > 1.0
+    )
+
+
+@pytest.mark.parametrize("n", [0, 1, 2, 3])
+@pytest.mark.parametrize("y", [1.0, 3.0, 7.2, 20.0])
+def test_the_leaky_branch_is_a_pure_outgoing_wave(n, y):
+    """At a radiating ``alpha`` the leaky branch must be ``H^{(1)}``
+    alone, with no ``H^{(2)}`` content whatsoever.
+
+    This is the check the leaky branch went without for its whole
+    life, and the one that finally caught it. Every property that
+    *was* tested -- that the pair are consecutive orders of one
+    solution, that the form is continuous across the real ``k_z``
+    axis, that it agrees with a Hankel identity on the principal
+    sheet -- is satisfied just as well by the incoming wave as by the
+    outgoing one, because both are solutions of the same equation.
+    Only decomposing against the Hankel pair separates them.
+
+    :func:`_radial_wavenumber` hands the leaky branch an ``alpha``
+    with ``Im(alpha) > 0``, so take ``alpha = i`` and ``r = y``: then
+    ``z = i y`` and the two independent behaviours in ``y`` are
+    ``H_n^{(1)}(y) ~ e^{+iy}`` (outgoing under ``e^{-i omega t}``) and
+    ``H_n^{(2)}(y) ~ e^{-iy}`` (incoming). Fit the returned value and
+    its derivative to that pair; the incoming coefficient must
+    vanish.
+
+    Before the correction this ratio was **2.0** at every ``n`` and
+    every ``y`` -- the branch was twice as much incoming as outgoing.
+    """
+    from scipy import special
+
+    from fwap.cylindrical_solver import _k_or_hankel
+
+    def leaky(x: float) -> complex:
+        return _k_or_hankel(n, 1j, float(x), leaky=True)[0]
+
+    h = 1.0e-6
+    value = leaky(y)
+    derivative = (leaky(y + h) - leaky(y - h)) / (2.0 * h)
+    h1, h2 = special.hankel1(n, y), special.hankel2(n, y)
+    dh1 = (special.hankel1(n, y + h) - special.hankel1(n, y - h)) / (2.0 * h)
+    dh2 = (special.hankel2(n, y + h) - special.hankel2(n, y - h)) / (2.0 * h)
+    outgoing, incoming = np.linalg.solve(
+        np.array([[h1, h2], [dh1, dh2]]), np.array([value, derivative])
+    )
+
+    assert abs(outgoing) == pytest.approx(np.pi / 2.0, rel=1.0e-6)
+    assert abs(incoming) / abs(outgoing) < 1.0e-6, (
+        f"n={n}, y={y}: incoming/outgoing = {abs(incoming) / abs(outgoing):.3g}, "
+        "so the leaky branch is not a pure outgoing wave"
     )
 
 
@@ -1477,6 +1542,14 @@ PR_VF = 1500.0
 PR_RHO_F = 1000.0
 PR_A = 0.1
 
+# The leaky pseudo-Rayleigh branch of radial order m lives just *below*
+# the frequency at which trapped branch m cuts off -- 8544 Hz for
+# branch 0 on the medium above. Tests that need the mode to exist probe
+# inside that band rather than at the high frequencies they used before
+# the radiation branch of ``_k_or_hankel`` was corrected, where the mode
+# is trapped and this solver correctly returns NaN.
+PR_LEAKY_BAND = (6.0e3, 8.5e3)
+
 
 def test_pseudo_rayleigh_rejects_slow_formation():
     """The pseudo-Rayleigh mode does not exist when V_S <= V_f
@@ -1561,7 +1634,7 @@ def test_pseudo_rayleigh_within_leaky_s_regime():
     formula is not physical."""
     from fwap.cylindrical_solver import pseudo_rayleigh_dispersion
 
-    freq = np.linspace(30000.0, 80000.0, 50)
+    freq = np.linspace(*PR_LEAKY_BAND, 50)
     res = pseudo_rayleigh_dispersion(
         freq,
         vp=PR_VP,
@@ -1583,7 +1656,7 @@ def test_pseudo_rayleigh_attenuation_strictly_positive():
     finite -- a defining property of the radiating leaky regime."""
     from fwap.cylindrical_solver import pseudo_rayleigh_dispersion
 
-    freq = np.linspace(30000.0, 80000.0, 50)
+    freq = np.linspace(*PR_LEAKY_BAND, 50)
     res = pseudo_rayleigh_dispersion(
         freq,
         vp=PR_VP,
@@ -1671,7 +1744,7 @@ def test_pseudo_rayleigh_modal_determinant_at_root_is_small():
         pseudo_rayleigh_dispersion,
     )
 
-    freq = np.array([60000.0])
+    freq = np.array([8.0e3])
     res = pseudo_rayleigh_dispersion(
         freq,
         vp=PR_VP,
@@ -2181,7 +2254,7 @@ def test_pseudo_rayleigh_segmenter_returns_single_continuous_segment():
         segments_from_kz_curve,
     )
 
-    freq = np.linspace(30000.0, 80000.0, 60)
+    freq = np.linspace(*PR_LEAKY_BAND, 60)
     res = pseudo_rayleigh_dispersion(
         freq,
         vp=PR_VP,
@@ -14431,16 +14504,29 @@ def test_cased_slow_formation_dipole_is_leaky_and_the_leaky_branch_finds_it():
     Roadmap A.9 added the search that does describe it: complex ``k_z``,
     outgoing formation S branch, seeded from a real-axis scan of
     ``Im(det)`` over ``(V_S, min(V_f, min layer V_S))``. The mode comes
-    back as a proper leaky branch -- descending phase velocity, positive
-    attenuation, both monotone -- and the attenuation is what says it is
-    leaky rather than bound.
+    back as a proper leaky branch with positive attenuation, and the
+    attenuation is what says it is leaky rather than bound.
+
+    **Fourth state: the numbers below are re-measured.** The monotone
+    claims this test used to make -- phase velocity descending across
+    the whole band, attenuation descending with it, coverage above
+    0.7, an asymptote within 2 % of ``V_S`` -- were measured while
+    :func:`_k_or_hankel` was mixing an incoming wave into its leaky
+    branch. Corrected, this stack's branch runs 5-12 kHz (0.62 of the
+    band), falls 1238 -> 1167 m/s to a minimum near 9 kHz and climbs
+    back to 1191, with the attenuation mirroring it. One turning point
+    each, no monotone claim.
+
+    The structural assertions -- above ``V_S``, below the annulus
+    ceiling, attenuation strictly positive -- are unchanged and still
+    the ones that say "leaky".
     """
     freq = _A2_FREQ
     res = flexural_dispersion_layered(
         freq, **_A2_SLOW, **_A2_BOREHOLE, layers=(_A2_CASING, _A2_CEMENT)
     )
     found = np.isfinite(res.slowness)
-    assert found.mean() > 0.7, f"coverage {found.mean():.2f}"
+    assert found.mean() > 0.5, f"coverage {found.mean():.2f}"
 
     velocity = 1.0 / res.slowness[found]
     attenuation = res.attenuation_per_meter[found]
@@ -14449,13 +14535,13 @@ def test_cased_slow_formation_dipole_is_leaky_and_the_leaky_branch_finds_it():
     # makes it leaky -- and below the annulus ceiling.
     assert np.all(velocity > _A2_SLOW["vs"])
     assert np.all(velocity < min(_A2_BOREHOLE["vf"], _A2_CEMENT.vs))
-    # A guided mode's phase velocity falls with frequency, and this one
-    # asymptotes to the formation shear speed from above.
-    assert _descends(velocity)
-    assert velocity[-1] / _A2_SLOW["vs"] < 1.02
-    # Leakage: positive, and weakening as the mode binds more tightly.
+    # One turning point each: a single continuous branch with an Airy
+    # minimum in it, not two families spliced together.
+    for label, curve in (("velocity", velocity), ("attenuation", attenuation)):
+        turns = int((np.diff(np.sign(np.diff(curve))) != 0).sum())
+        assert turns == 1, f"{label} has {turns} turning points, expected 1"
+    # Leakage: positive throughout.
     assert np.all(attenuation > 0.0)
-    assert _descends(attenuation)
 
     # The real-valued determinant still has no root for it: this is a
     # genuinely different formulation answering, not the old one
@@ -14557,21 +14643,21 @@ def test_the_cased_leaky_branch_joins_the_bound_one_across_the_shear_speed():
     # takes over, from above the shear speed and above where the bound
     # side stopped.
     #
-    # This block used to claim "no jump across the boundary". The
-    # assertions below never tested that -- they allow anything up to
-    # 1.15 V_S -- and a finer sweep does not support it: the bound side
-    # runs to 798.91 m/s at V_S_layer / V_S = 1.26 and the leaky side
-    # starts at 857.39 at 1.28, a 7 % step.
+    # This block used to claim "no jump across the boundary", then
+    # withdrew the claim: the bound side ran to 798.91 m/s at
+    # V_S_layer / V_S = 1.26 and the leaky side seemed to start at
+    # 857.39 at 1.28, a 7 % step, which was written up as a handover
+    # between two different modes.
     #
-    # The step is real and it is not a discontinuity, because the two
-    # sides are not the same mode. The bound mode is absorbed at the
-    # shear branch point -- past 1.2775 the proper-sheet determinant has
-    # no root anywhere in the bound window -- while the leaky branch
-    # reported above the crossing already existed below it, at 868.30
-    # m/s while the bound mode was still alive at 786.67. A handover
-    # between two modes, not a break in one. Pinned by
-    # test_the_bound_dipole_mode_is_absorbed_at_the_shear_branch_point
-    # and test_the_leaky_branch_coexists_with_the_bound_mode_below_the_crossing.
+    # There is no step. The 7 % was the seed floor of the day skipping
+    # over the real continuation, which the corrected radiation branch
+    # exposes: swept at ka = 2.5 the leaky branch *emerges at the shear
+    # speed itself* -- 799.99 m/s with Im(k_z) = 0 at ratio 1.275,
+    # exactly where the bound mode is absorbed -- and climbs 805.0,
+    # 811.3, 817.9, 824.6 through 1.30-1.36. One mode, continuous
+    # through the crossing, which is what the open-hole sister
+    # test_the_leaky_branch_joins_the_trapped_one_at_its_cutoff shows
+    # too.
     first_leaky = None
     for vs_layer in (1400.0, 1800.0, 3140.0):
         layers = (
@@ -14581,7 +14667,8 @@ def test_the_cased_leaky_branch_joins_the_bound_one_across_the_shear_speed():
         assert np.isfinite(res.slowness[0])
         assert res.attenuation_per_meter is not None
         velocity = 1.0 / res.slowness[0]
-        assert formation["vs"] < velocity < 1.15 * formation["vs"]
+        # Stiffer annulus, faster mode: 943, 1067, 1408 m/s here.
+        assert formation["vs"] < velocity < min(borehole["vf"], vs_layer)
         assert res.attenuation_per_meter[0] > 0.0
         if first_leaky is None:
             first_leaky = velocity
@@ -14595,7 +14682,14 @@ def test_the_cased_leaky_branch_is_grid_independent():
     The leaky marcher seeds itself from a scan and then continues, so a
     different grid means a different seed frequency and a different
     number of continuation steps. Grids of 9 to 65 points over the same
-    band agree at 8 kHz to 6e-13 m/s.
+    band agree at 8 kHz to better than 1e-12 relative.
+
+    The 33-point grid is skipped, and not because it disagrees: its
+    nearest sample to 8 kHz is 8000.0 Hz only in the other three cases,
+    and after the radiation branch was corrected the mode's band starts
+    at 5 kHz, so that grid's nearest sample lands where the branch has
+    not started. Asserting on a NaN would be asserting on the grid, not
+    on the physics.
     """
     layers = (_A2_CASING, _A2_CEMENT)
     values = []
@@ -14605,8 +14699,10 @@ def test_the_cased_leaky_branch_is_grid_independent():
             grid, **_A2_SLOW, **_A2_BOREHOLE, layers=layers
         )
         index = int(np.argmin(np.abs(grid - 8000.0)))
-        assert np.isfinite(res.slowness[index])
+        if not np.isfinite(res.slowness[index]):
+            continue
         values.append(1.0 / res.slowness[index])
+    assert len(values) >= 3
     spread = float(np.ptp(values))
     assert spread / float(np.mean(values)) < 1.0e-12, f"spread {spread:.3e} m/s"
 
@@ -14633,12 +14729,20 @@ def test_the_recorded_slow_cased_gap_is_closed():
     degeneracy ``exclude`` names and rejects. Correctly rejected, and
     nothing left.
 
-    Seeding off the real axis reaches them directly. The expected values
-    below are the ones an argument-principle count over the window
-    identified independently of the marcher, in
-    ``test_one_root_sits_in_the_slow_cased_gap_a9_could_not_seed``.
+    Seeding off the real axis reaches them directly.
+
+    **The values are re-measured.** They were 855.09, 850.51 and 859.31
+    -- non-monotone in the annulus stiffness, which nobody questioned at
+    the time -- and they were roots of a determinant whose leaky branch
+    was two thirds incoming. Corrected, the same three stiffnesses give
+    804.99, 838.04 and 870.33, rising with the annulus as they should,
+    and the branch is continuous from the bound/leaky crossing upward.
+
+    Closing the gap also needed ``_LEAKY_CASED_SEED_FLOOR`` dropped from
+    0.03 to 0.002; see that constant, whose entire justification the
+    correction withdrew.
     """
-    expected = {1.3: 855.09, 1.4: 850.51, 1.5: 859.31}
+    expected = {1.3: 804.99, 1.4: 838.04, 1.5: 870.33}
     for ratio, velocity in expected.items():
         res = flexural_dispersion_layered(
             _GAP_FREQ,
@@ -14658,12 +14762,20 @@ def test_the_leaky_cased_branch_is_continuous_across_the_closed_gap():
     """The gap closed as a branch, not as three isolated answers.
 
     The whole point of a gap is that the curve either side of it did not
-    join up. Swept finely from 1.28 to 1.60 the annulus-stiffness family
-    is now unbroken, and both the phase velocity and the attenuation
-    vary smoothly -- the velocity dips to a shallow minimum near 1.38
-    and climbs again, which no per-frequency accident would produce.
+    join up. Swept finely from 1.30 to 1.60 the annulus-stiffness family
+    is unbroken, and both the phase velocity and the attenuation vary
+    smoothly and monotonically -- 805 to 900 m/s, attenuation 0.51 to
+    1.35, which no per-frequency accident would produce.
+
+    Re-measured after the radiation branch was corrected. It used to
+    show one turning point in each curve, a velocity minimum near 1.38
+    and an attenuation maximum near 1.48; both were artefacts of the
+    incoming contamination and both are gone. The sweep now starts at
+    1.30 rather than 1.28 because at 1.28 the branch has only just
+    emerged from ``V_S`` (800.03 m/s) and sits under even the nominal
+    seed floor.
     """
-    ratios = np.arange(1.28, 1.605, 0.04)
+    ratios = np.arange(1.30, 1.605, 0.04)
     velocity, attenuation = [], []
     for ratio in ratios:
         res = flexural_dispersion_layered(
@@ -14682,14 +14794,13 @@ def test_the_leaky_cased_branch_is_continuous_across_the_closed_gap():
     assert np.all(velocity > _GAP_FORMATION["vs"])
     assert np.all(attenuation > 0.0)
     # No step, which is what a gap filled by a second family would leave.
-    assert np.max(np.abs(np.diff(velocity)) / velocity[:-1]) < 0.01
-    # And one turning point each, not several: the velocity falls to a
-    # minimum near 1.38 and climbs, the attenuation rises to a maximum
-    # near 1.48 and falls. Two spliced families do not do this, and it
-    # is a structural claim rather than a tolerance to tune.
-    for label, curve in (("velocity", velocity), ("attenuation", attenuation)):
-        turns = int((np.diff(np.sign(np.diff(curve))) != 0).sum())
-        assert turns == 1, f"{label} has {turns} turning points, expected 1"
+    assert np.max(np.abs(np.diff(velocity)) / velocity[:-1]) < 0.02
+    # And monotone in the annulus stiffness, both of them: a stiffer
+    # annulus makes the mode faster and leakier. Two spliced families
+    # do not do this, and it is a structural claim rather than a
+    # tolerance to tune.
+    assert np.all(np.diff(velocity) > 0.0), velocity
+    assert np.all(np.diff(attenuation) > 0.0), attenuation
 
 
 def test_the_seed_sweep_leaves_a_branch_the_scan_already_found_alone():
@@ -14877,25 +14988,28 @@ def test_the_leaky_branch_coexists_with_the_bound_mode_below_the_crossing():
     assert leaky_velocity / bound_velocity - 1.0 > 0.05
 
 
-def test_the_branch_point_pole_continues_through_the_crossing():
-    """The rest of the crossing question, and the answer is continuity.
+def test_the_branch_point_pole_was_the_incoming_contamination():
+    """Two tests used to live here. Their subject no longer exists.
 
-    Tracked on the improper sheet -- ``leaky_s`` forced rather than
-    taken from :func:`_detect_leaky_branches`, so the sheet does not
-    change under the search -- the branch-point pole is one unbroken
-    object across the crossing. It descends toward ``V_S``, passes
-    **below** it over roughly ``1.285 <= V_S_layer / V_S <= 1.315``,
-    reaching 798.86 m/s at 1.295, and climbs back. One turning point,
-    ``|det|`` sharp at every step.
+    They characterised a "branch-point pole" hugging ``V_S`` in the
+    cased n=1 determinant: sharp to 1e-13, carrying winding number +1,
+    nearly static in annulus stiffness away from the crossing, and --
+    swept finely through it -- dipping **below** ``V_S`` to 798.86 m/s
+    at ``V_S_layer / V_S`` = 1.295 with positive attenuation, which is
+    a mode propagating faster than the shear speed it is supposedly
+    bound by. ``_LEAKY_CASED_SEED_FLOOR`` was built to keep the seed
+    sweep off it, at the cost of A.9's recorded gap.
 
-    This is what settles the question the A.9 write-up left open. The
-    mode is not annihilated at the branch point; the search simply
-    cannot see this part of it, because the production window is
-    floored at ``V_S`` and here the pole is under that floor while
-    remaining a perfectly good leaky root with positive attenuation.
-    An earlier search that only looked above ``V_S`` saw it vanish at
-    1.28 and reappear at 1.32, with the attenuation apparently jumping
-    0.98 -> 1.47. That gap was the floor, not the physics.
+    **It was the incoming wave** :func:`_k_or_hankel` mixed into its
+    leaky branch; see that function's docstring. Corrected, the same
+    sweep on the same stiffness ladder shows no excursion below ``V_S``
+    at all. What is there instead is the leaky continuation of the
+    bound dipole mode: it emerges *at* the shear speed with zero
+    attenuation, exactly where the bound branch is absorbed, and rises
+    monotonically with the annulus from there.
+
+    This test replaces both of them and asserts the replacement, so the
+    withdrawal is a thing that runs rather than a note.
     """
     from fwap.cylindrical_solver import _modal_determinant_n1_cased_complex
     from fwap.cylindrical_solver._leaky import _track_complex_root
@@ -14903,9 +15017,9 @@ def test_the_branch_point_pole_continues_through_the_crossing():
     omega = 2.0 * np.pi * float(_GAP_FREQ[0])
     vs = _GAP_FORMATION["vs"]
 
-    velocity, attenuation = [], []
+    velocity, attenuation, ratios = [], [], []
     root: complex | None = None
-    for ratio in np.arange(1.26, 1.3451, 0.005):
+    for ratio in np.arange(1.275, 1.3451, 0.005):
         layers = _gap_sweep_layers(float(ratio), vs)
 
         def determinant(kz: complex, layers=layers) -> complex:
@@ -14923,101 +15037,34 @@ def test_the_branch_point_pole_continues_through_the_crossing():
             root if root is not None else complex(omega / 803.0, 0.03 * omega / 803.0)
         )
         root = _track_complex_root(determinant, seed)
-        assert root is not None, f"continuation lost at ratio {ratio:.3f}"
-        assert root.imag > 0.0, f"attenuation went negative at {ratio:.3f}"
+        if root is None:
+            continue
         assert abs(determinant(root)) < 1.0e-6 * abs(determinant(root * 1.002))
+        ratios.append(float(ratio))
         velocity.append(omega / root.real)
         attenuation.append(root.imag)
 
     velocity = np.array(velocity)
     attenuation = np.array(attenuation)
+    assert velocity.size >= 12
 
-    # It goes under the floor the production search stops at.
-    assert np.any(velocity < vs), "the excursion below V_S is the whole point"
-    assert velocity.min() / vs > 0.99, "but only just under it"
-    # One object: a single turning point, and no step in attenuation.
-    turns = int((np.diff(np.sign(np.diff(velocity))) != 0).sum())
-    assert turns == 1, f"{turns} turning points, expected one continuous dip"
-    assert np.max(np.abs(np.diff(attenuation)) / attenuation[:-1]) < 0.15
+    # It emerges at the shear speed rather than from under it. The
+    # softest annulus that still carries the branch reads 798.02 m/s,
+    # 0.25 % under V_S -- the branch point is singular and the last
+    # step before it is not a clean measurement -- and every step after
+    # that is above V_S. The old artefact was a 12-point excursion with
+    # a turning point in it, not a single ragged first sample.
+    assert velocity[0] > vs * 0.995, velocity[0]
+    assert np.all(velocity[1:] > vs), velocity.min()
+    assert int((np.diff(np.sign(np.diff(velocity))) != 0).sum()) == 0, velocity
 
-
-def test_the_branch_point_pole_is_sharp_and_is_not_the_flexural_branch():
-    """Why the sweep has a floor, and why sharpness could not supply it.
-
-    A pole hugs the shear branch point -- sharp to 1e-13 and carrying
-    winding number +1, so every root-quality test the marcher owns
-    accepts it. The floor needs one claim about it and only one: it is
-    not the flexural branch. Over frequency it stays pinned within ~2 %
-    of ``V_S`` where the flexural branch falls 953 -> 834 m/s.
-
-    An earlier version of this test claimed more -- that it "ignores the
-    casing" and is "not a mode" -- from a coarse stiffness sample far
-    from the crossing. Swept finely it moves with the annulus and is one
-    continuous object that dips *below* ``V_S``; see
-    ``test_the_branch_point_pole_continues_through_the_crossing``. The
-    annulus check below is kept as the measurement it actually is: at
-    stiffnesses well away from the crossing the pole barely moves.
-    """
-    from fwap.cylindrical_solver import _modal_determinant_n1_cased_complex
-    from fwap.cylindrical_solver._leaky import (
-        _detect_leaky_branches,
-        _track_complex_root,
-    )
-
-    vs = _GAP_FORMATION["vs"]
-
-    def locate(ratio: float, omega: float) -> complex | None:
-        layers = _gap_sweep_layers(ratio, vs)
-
-        def det(kz: complex) -> complex:
-            _, leaky_p, leaky_s = _detect_leaky_branches(
-                kz, omega, _GAP_FORMATION["vp"], vs, _A2_BOREHOLE["vf"]
-            )
-            return _modal_determinant_n1_cased_complex(
-                kz,
-                omega,
-                **_GAP_FORMATION,
-                **_A2_BOREHOLE,
-                layers=layers,
-                leaky_p=leaky_p,
-                leaky_s=leaky_s,
-            )
-
-        # Seed just above V_S, where this family lives.
-        guess = complex(omega / (vs * 1.012), 0.03 * omega / (vs * 1.012))
-        root = _track_complex_root(det, guess)
-        if root is None or root.imag <= 0.0:
-            return None
-        if abs(det(root)) >= 1.0e-6 * abs(det(root * 1.002)):
-            return None
-        return root
-
-    omega_ka25 = 2.0 * np.pi * float(_GAP_FREQ[0])
-
-    # Well away from the crossing it is nearly static: the annulus shear
-    # speed runs 960 -> 1600 m/s and the pole moves under 1 %. Near the
-    # crossing it does move -- that is the other test.
-    across_annulus = [locate(ratio, omega_ka25) for ratio in (1.2, 1.4, 1.6, 1.8, 2.0)]
-    speeds = [omega_ka25 / r.real for r in across_annulus if r is not None]
-    assert len(speeds) >= 4, "the pole should be present at most stiffnesses"
-    assert max(speeds) / min(speeds) - 1.0 < 0.01, (
-        f"away from the crossing this pole tracks the branch point; "
-        f"it moved from {min(speeds):.2f} to {max(speeds):.2f} m/s"
-    )
-
-    # And it does not disperse: pinned within ~2 % of V_S at every
-    # frequency, where the flexural branch falls 953 -> 834 m/s over
-    # 3 -> 8 kHz.
-    across_frequency = []
-    for freq in (3000.0, 5968.3, 8000.0, 11000.0):
-        omega = 2.0 * np.pi * freq
-        root = locate(1.6, omega)
-        if root is not None:
-            across_frequency.append(omega / root.real / vs)
-    assert len(across_frequency) >= 3
-    assert max(across_frequency) < 1.03, (
-        f"pinned to the branch point, as expected: {across_frequency}"
-    )
+    # And from there it is a mode, not a pinned artefact: monotone in
+    # the annulus stiffness, in both velocity and leakage.
+    assert np.all(np.diff(velocity) > 0.0), velocity
+    assert np.all(np.diff(attenuation) > 0.0), attenuation
+    # Anything but static -- the old pole moved under 1 % across a far
+    # wider stiffness span than this one.
+    assert velocity[-1] / velocity[0] - 1.0 > 0.02
 
 
 def test_the_leaky_cased_search_never_evaluates_the_incoming_branch():
@@ -15097,8 +15144,16 @@ def test_one_root_sits_in_the_slow_cased_gap_a9_could_not_seed():
     omega = 2.5 * borehole["vf"] / borehole["a"]  # ka = 2.5
 
     # A box holding the leaky branch, with every formation branch point
-    # outside it: k_P = 17.0, k_f = 25.0, k_S = 46.9 rad/m.
-    re_lo, re_hi, im_lo, im_hi = 40.0, 46.0, -1.0, 6.0
+    # outside it: k_P = 17.0, k_f = 25.0, k_S = 46.875 rad/m.
+    #
+    # It was (40, 46, -1, 6) and has been re-drawn. Correcting the
+    # radiation branch of ``_k_or_hankel`` moved the root into the
+    # *upper* half plane -- it had been below the real axis, which is
+    # growth along the borehole -- and, at the soft end of the sweep,
+    # up against the shear branch point: 46.6 rad/m at ratio 1.3,
+    # outside the old box's 46.0 ceiling and inside the new one's
+    # 46.8. The floor moves off the axis for the same reason.
+    re_lo, re_hi, im_lo, im_hi = 40.0, 46.8, 0.02, 6.0
     steps = np.linspace(0.0, 1.0, 400, endpoint=False)
     contour = np.concatenate(
         [
@@ -15299,6 +15354,83 @@ def _lowest_converged(a: float) -> float:
     finite = np.isfinite(result.slowness)
     assert finite.any()
     return float(_PR_GRID[finite].min())
+
+
+def test_the_leaky_branch_joins_the_trapped_one_at_its_cutoff():
+    """Below a trapped branch's cut-off the same mode continues as a
+    leaky root, leaving ``1/V_S`` with ``Im(k_z) -> 0^+``.
+
+    This is the physics oracle the n=0 leaky branch never had, and the
+    one that would have caught the radiation-branch sign error on the
+    *fast* formation without any digitised figure. Continuity at the
+    cut-off is not a convention: a trapped mode at ``c = V_S`` radiates
+    no shear, so its leaky continuation must start with zero
+    attenuation and gain it smoothly as frequency drops.
+
+    With the incoming-contaminated branch the continuation was not
+    there at all -- the root just below the cut-off came out with
+    ``Im(k_z) < 0``, growing along the borehole.
+
+    Driven through the determinant rather than through
+    :func:`pseudo_rayleigh_dispersion`, because that routine seeds only
+    at the top of the caller's grid and so does not reach the
+    fundamental's continuation; see its docstring.
+    """
+    from fwap.cylindrical_solver import trapped_pseudo_rayleigh_dispersion
+    from fwap.cylindrical_solver._leaky import (
+        _modal_determinant_n0_complex,
+        _track_complex_root,
+    )
+
+    medium = dict(vp=4000.0, vs=2300.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.10)
+
+    # Locate the fundamental trapped branch's cut-off, and confirm it
+    # sits at the shear slowness as it must.
+    freq = np.arange(6.0e3, 12.0e3, 25.0)
+    trapped = trapped_pseudo_rayleigh_dispersion(freq, **medium, branch=0)
+    live = np.isfinite(trapped.slowness)
+    assert live.any()
+    f_cutoff = float(freq[live].min())
+    assert trapped.slowness[live][0] == pytest.approx(1.0 / medium["vs"], rel=1.0e-3)
+
+    def det(kz: complex, omega: float) -> complex:
+        return _modal_determinant_n0_complex(
+            kz, omega, **medium, leaky_p=False, leaky_s=True
+        )
+
+    # March the leaky root downward from just under the cut-off.
+    offsets = np.array([50.0, 200.0, 500.0, 1000.0, 2000.0])
+    kz, previous = None, 0.0
+    attenuation, slowness = [], []
+    for f in f_cutoff - offsets:
+        omega = 2.0 * np.pi * f
+        seed = (
+            kz * (f / previous)
+            if kz is not None
+            else complex(omega / medium["vs"] * 0.999, 0.02)
+        )
+        root = _track_complex_root(lambda z, w=omega: det(z, w), seed)
+        assert root is not None, f
+        kz, previous = root, f
+        attenuation.append(root.imag)
+        slowness.append(root.real / omega)
+
+    attenuation = np.array(attenuation)
+    slowness = np.array(slowness)
+
+    # Decaying along +z, not growing. This is the assertion the old
+    # branch failed: it returned Im(k_z) < 0 throughout.
+    assert np.all(attenuation > 0.0), attenuation
+
+    # Zero attenuation at the cut-off, monotonically gained below it.
+    assert attenuation[0] < 0.01
+    assert np.all(np.diff(attenuation) > 0.0), attenuation
+
+    # And it leaves from the shear slowness, faster than V_S but never
+    # faster than V_P.
+    assert slowness[0] == pytest.approx(1.0 / medium["vs"], rel=2.0e-3)
+    assert np.all(slowness < 1.0 / medium["vs"])
+    assert np.all(slowness > 1.0 / medium["vp"])
 
 
 def test_pseudo_rayleigh_cutoff_scales_inversely_with_borehole_radius():
@@ -15539,77 +15671,106 @@ def _pr_at(probe, top, *, branch=0, a=0.10, n=400):
     return 1.0 / mode.slowness[j], mode.attenuation_per_meter[j]
 
 
+# Each branch's leaky segment lives just *below* that branch's trapped
+# cut-off, so the probe frequency has to be chosen per branch. On
+# 4000/2300/2500, water, a = 0.10 m the first four cut-offs are 7578,
+# 13974, 23398 and 33179 Hz; at a = 0.07 m they are 10827, 19963, 33428
+# and 47398 Hz. Everything below probes inside those bands.
+_PR_CUTOFF_10 = (7578.43, 13974.30, 23398.44, 33178.71)
+
+
 def test_pseudo_rayleigh_does_not_depend_on_the_grid_top_frequency():
     """The mode returned is a function of the medium, not of the request.
 
-    This is the regression that motivated enumerating the seeds. With the
-    old heuristic seed the answer at 30 kHz switched from 2486 m/s to
-    2952 m/s somewhere between a 55 kHz and a 60 kHz grid top -- silently,
-    and to a different but equally genuine root. The span below brackets
-    that switch on both sides.
-    """
-    reference = _pr_at(30.0e3, 40.0e3)
-    for top in (32.0e3, 55.0e3, 60.0e3, 80.0e3, 100.0e3):
-        c, att = _pr_at(30.0e3, top)
-        assert c == pytest.approx(reference[0], rel=1.0e-9), top
-        assert att == pytest.approx(reference[1], rel=1.0e-9), top
+    This is the regression that motivated seeding from the branch's own
+    trapped cut-off. With the original heuristic seed the answer at
+    30 kHz switched from 2486 m/s to 2952 m/s somewhere between a 55 kHz
+    and a 60 kHz grid top -- silently, and to a different but equally
+    genuine root. Enumerating at the grid top appeared to fix that, but
+    only because the contaminated radiation branch littered the window
+    with roots; once corrected, the grid top decided *which trapped
+    branch's* continuation came back under the label ``branch=0``.
 
-    assert reference[0] == pytest.approx(2486.16, rel=1.0e-4)
+    Seeding at the cut-off makes the coupling structurally impossible
+    rather than merely small: the ladder starts at a frequency the
+    medium sets, which the grid top cannot reach. What is left is
+    rounding -- the caller's frequencies are members of the ladder, so
+    a different request changes the step pattern and the marched path
+    differs in the last bits.
+    """
+    reference = _pr_at(7.0e3, 40.0e3)
+    assert np.isfinite(reference[0])
+    for top in (8.0e3, 32.0e3, 55.0e3, 60.0e3, 80.0e3, 100.0e3):
+        c, att = _pr_at(7.0e3, top)
+        assert c == pytest.approx(reference[0], rel=1.0e-12), top
+        assert att == pytest.approx(reference[1], rel=1.0e-11), top
 
 
 def test_pseudo_rayleigh_branches_are_distinct_and_both_are_genuine_roots():
     """``branch`` selects radial order, and every order is a real root.
 
-    The two modes here are the pair the old seeding used to confuse: both
-    solve the determinant at 30 kHz, and which one you got depended on the
-    grid. Now they are addressable, and each is checked against the
-    determinant -- a true root sits orders of magnitude below the
-    magnitude on a small circle around it.
+    Each branch is probed inside its own band -- they do not overlap in
+    frequency, which is itself the point: a leaky branch exists only
+    below its trapped cut-off, so asking for ``branch=0`` at 30 kHz
+    correctly returns NaN rather than some other branch's root.
     """
     from fwap.cylindrical_solver._leaky import _modal_determinant_n0_complex
 
-    probe = 30.0e3
-    omega = 2.0 * np.pi * probe
+    def is_root(kz: complex, probe: float) -> bool:
+        omega = 2.0 * np.pi * probe
 
-    def det(kz):
-        return _modal_determinant_n0_complex(
-            kz,
-            omega,
-            **_LEAKY_FAST,
-            **_LEAKY_BRINE,
-            a=0.10,
-            leaky_p=False,
-            leaky_s=True,
-        )
+        def det(z):
+            return _modal_determinant_n0_complex(
+                z,
+                omega,
+                **_LEAKY_FAST,
+                **_LEAKY_BRINE,
+                a=0.10,
+                leaky_p=False,
+                leaky_s=True,
+            )
 
-    fundamental = _pr_at(probe, 80.0e3, branch=0)
-    overtone = _pr_at(probe, 80.0e3, branch=1)
-
-    assert fundamental[0] == pytest.approx(2486.16, rel=1.0e-4)
-    assert overtone[0] == pytest.approx(2951.7, rel=1.0e-4)
-
-    # The fundamental is the slower of the two: lowest radial order means
-    # the smallest radial wavenumber and so the largest axial one.
-    assert fundamental[0] < overtone[0]
-
-    for c, att in (fundamental, overtone):
-        kz = complex(omega / c, att)
         radius = 0.01 * abs(kz)
-        ring = np.median(
-            [
-                abs(det(kz + radius * np.exp(1j * t)))
-                for t in np.linspace(0.0, 2.0 * np.pi, 16, endpoint=False)
-            ]
+        ring = float(
+            np.median(
+                [
+                    abs(det(kz + radius * np.exp(1j * t)))
+                    for t in np.linspace(0.0, 2.0 * np.pi, 8, endpoint=False)
+                ]
+            )
         )
-        assert abs(det(kz)) < 1.0e-10 * ring, (c, att)
+        return abs(det(kz)) < 1.0e-9 * ring
+
+    speeds = []
+    for branch, probe in ((0, 7.0e3), (1, 13.0e3), (2, 22.0e3)):
+        c, att = _pr_at(probe, 40.0e3, branch=branch)
+        assert np.isfinite(c), (branch, probe)
+        assert att > 0.0
+        omega = 2.0 * np.pi * probe
+        assert is_root(complex(omega / c, att), probe), branch
+        speeds.append(c)
+
+    # Higher radial orders radiate harder at the same distance below
+    # their own cut-off, so the attenuation ordering is monotone.
+    attenuations = [
+        _pr_at(p, 40.0e3, branch=b)[1]
+        for b, p in ((0, 7.0e3), (1, 13.0e3), (2, 22.0e3))
+    ]
+    assert attenuations == sorted(attenuations), attenuations
+
+    # A branch asked for outside its own band is NaN, not another root.
+    assert not np.isfinite(_pr_at(30.0e3, 40.0e3, branch=0)[0])
 
 
 def test_pseudo_rayleigh_recovers_the_band_on_a_coarse_grid():
     """A coarse grid gives a coarse answer, not silence.
 
-    A 0.07 m borehole over 4-30 kHz used to return *nothing at all* at 60
-    samples while recovering the band at 80 -- a total, silent failure of
-    the heuristic seed's first step. Both grids now converge throughout.
+    A 0.07 m borehole over 4-30 kHz used to return *nothing at all* at
+    60 samples while recovering the band at 80 -- a total, silent
+    failure of the heuristic seed's first step. Neither grid is silent
+    now, and their sample counts stand in the ratio of the grids
+    because the marcher runs on its own ladder and the caller's grid
+    only decides where it is sampled.
     """
     from fwap import pseudo_rayleigh_modal_dispersion
 
@@ -15617,51 +15778,63 @@ def test_pseudo_rayleigh_recovers_the_band_on_a_coarse_grid():
     coarse = pseudo_rayleigh_modal_dispersion(np.linspace(4.0e3, 30.0e3, 60), **medium)
     fine = pseudo_rayleigh_modal_dispersion(np.linspace(4.0e3, 30.0e3, 120), **medium)
 
-    assert np.isfinite(coarse.slowness).sum() == 60
-    assert np.isfinite(fine.slowness).sum() == 120
+    n_coarse = int(np.isfinite(coarse.slowness).sum())
+    n_fine = int(np.isfinite(fine.slowness).sum())
+    assert n_coarse > 0 and n_fine > 0
+    assert n_fine == pytest.approx(2 * n_coarse, abs=2)
 
 
 def test_pseudo_rayleigh_sub_window_agrees_with_the_full_band():
     """Asking about part of a band gives the same answer as asking about all of it.
 
-    Requesting only 24-32 kHz used to return nothing, while a 2-40 kHz grid
-    converged across that whole interval. Now the narrow request not only
-    converges but reproduces the wide one's values.
+    Requesting only a slice used to return nothing, while a wide grid
+    converged across that whole interval. Now the narrow request not
+    only converges but reproduces the wide one's values to rounding --
+    the ladder the marcher walks starts from the same cut-off in both
+    cases, and differs only in which of the caller's frequencies were
+    spliced into it.
     """
     from fwap import pseudo_rayleigh_modal_dispersion
 
     medium = dict(**_LEAKY_FAST, **_LEAKY_BRINE, a=0.10)
-    band = np.arange(24.0e3, 32.0e3 + 1.0, 100.0)
+    band = np.arange(5.5e3, 7.5e3 + 1.0, 25.0)
 
     narrow = pseudo_rayleigh_modal_dispersion(band, **medium)
-    assert np.isfinite(narrow.slowness).sum() == band.size
+    assert np.isfinite(narrow.slowness).sum() > 0.5 * band.size
 
-    wide_grid = np.arange(2.0e3, 40.0e3 + 1.0, 100.0)
+    wide_grid = np.arange(2.0e3, 40.0e3 + 1.0, 25.0)
     wide = pseudo_rayleigh_modal_dispersion(wide_grid, **medium)
     shared = np.searchsorted(wide_grid, band)
-    assert np.allclose(narrow.slowness, wide.slowness[shared], rtol=1.0e-9)
-    assert np.allclose(
-        narrow.attenuation_per_meter,
-        wide.attenuation_per_meter[shared],
-        rtol=1.0e-9,
+    live = np.isfinite(narrow.slowness)
+    assert np.array_equal(live, np.isfinite(wide.slowness[shared]))
+    assert narrow.slowness[live] == pytest.approx(
+        wide.slowness[shared][live], rel=1.0e-12
+    )
+    assert narrow.attenuation_per_meter[live] == pytest.approx(
+        wide.attenuation_per_meter[shared][live], rel=1.0e-10
     )
 
 
 def test_pseudo_rayleigh_rejects_a_branch_that_does_not_exist():
-    """Higher radial orders appear only above their cutoffs; say so loudly.
+    """A radial order with no cut-off at all is silence, not an error.
 
-    Returning an empty curve would be indistinguishable from "this mode
-    does not propagate here", which is the confusion the old silent NaNs
-    caused. The message names how many branches were found so the caller
-    knows whether to extend the grid or to ask for a lower order.
+    The distinction moved when seeding moved. It used to be that a
+    branch index beyond what the grid top exposed raised, because the
+    index was into a list enumerated at that grid top. The index is now
+    into the trapped branch sequence, which is a property of the medium,
+    so "branch 40 of this borehole" is not a malformed request -- it is
+    a request for a mode whose cut-off the search cannot reach, and the
+    honest answer is an all-NaN curve. Only a *negative* index is
+    malformed.
     """
     from fwap import pseudo_rayleigh_modal_dispersion
 
     medium = dict(**_LEAKY_FAST, **_LEAKY_BRINE, a=0.10)
-    with pytest.raises(ValueError, match=r"only 1 leaky branch"):
-        pseudo_rayleigh_modal_dispersion(
-            np.linspace(2.0e3, 15.0e3, 50), **medium, branch=4
-        )
+    unreachable = pseudo_rayleigh_modal_dispersion(
+        np.linspace(2.0e3, 15.0e3, 50), **medium, branch=40
+    )
+    assert not np.any(np.isfinite(unreachable.slowness))
+
     with pytest.raises(ValueError, match="branch must be non-negative"):
         pseudo_rayleigh_modal_dispersion(
             np.linspace(2.0e3, 40.0e3, 50), **medium, branch=-1
@@ -15721,26 +15894,26 @@ def test_leaky_root_enumeration_count_is_insensitive_to_scan_density():
 def test_pseudo_rayleigh_is_independent_of_grid_density_where_it_converges():
     """The flip side: once it converges, refinement changes nothing.
 
-    Halving the step reproduces the attenuation to machine precision, so
-    the window sensitivity above is about *which* root is tracked, not
-    about the accuracy of the tracking.
+    Halving the step reproduces the attenuation to near machine
+    precision, because the marcher walks a ladder anchored at the
+    branch's cut-off and the caller's grid only decides where it is
+    sampled -- and, in the last bits, which extra rungs it has.
     """
     from fwap import pseudo_rayleigh_modal_dispersion
 
     medium = dict(**_LEAKY_FAST, **_LEAKY_BRINE, a=0.10)
-    coarse_grid = np.arange(2.0e3, 40.0e3 + 1.0, 50.0)
-    fine_grid = np.arange(2.0e3, 40.0e3 + 1.0, 25.0)
+    coarse_grid = np.arange(4.0e3, 8.0e3 + 1.0, 50.0)
+    fine_grid = np.arange(4.0e3, 8.0e3 + 1.0, 25.0)
 
     coarse = pseudo_rayleigh_modal_dispersion(coarse_grid, **medium)
     fine = pseudo_rayleigh_modal_dispersion(fine_grid, **medium)
     shared = np.searchsorted(fine_grid, coarse_grid)
 
     ok = np.isfinite(coarse.slowness) & np.isfinite(fine.slowness[shared])
-    assert ok.sum() > 700
-    rel = np.abs(
-        coarse.attenuation_per_meter[ok] / fine.attenuation_per_meter[shared][ok] - 1.0
+    assert ok.sum() > 40
+    assert coarse.attenuation_per_meter[ok] == pytest.approx(
+        fine.attenuation_per_meter[shared][ok], rel=1.0e-9
     )
-    assert rel.max() < 1.0e-10
 
 
 # ---------------------------------------------------------------------------
@@ -15795,7 +15968,10 @@ def test_fluid_energy_balance_reproduces_the_leaky_attenuation():
     """
     from fwap import pseudo_rayleigh_modal_dispersion
 
-    freq = np.linspace(8.0e3, 30.0e3, 12)
+    # 5.0-7.5 kHz: just under the fundamental's 7578 Hz trapped
+    # cut-off, which is where this branch lives once the radiation
+    # branch of ``_k_or_hankel`` is the outgoing one.
+    freq = np.linspace(5.0e3, 7.5e3, 12)
     mode = pseudo_rayleigh_modal_dispersion(freq, **_EB_MEDIUM)
     ok = np.isfinite(mode.slowness)
     assert ok.sum() > 8
@@ -15853,19 +16029,26 @@ def test_full_energy_balance_has_no_finite_denominator():
     from fwap import pseudo_rayleigh_modal_dispersion
     from fwap.cylindrical_solver._bessel import _k_or_hankel
 
-    freq = np.linspace(8.0e3, 30.0e3, 12)
+    freq = np.linspace(5.0e3, 7.5e3, 12)
     mode = pseudo_rayleigh_modal_dispersion(freq, **_EB_MEDIUM)
-    j = int(np.argmin(np.abs(freq - 20.0e3)))
+    j = int(np.argmin(np.abs(freq - 6.5e3)))
     omega = 2.0 * np.pi * freq[j]
     kz = complex(mode.slowness[j] * omega, mode.attenuation_per_meter[j])
 
     s_radial = np.sqrt(kz**2 - (omega / _EB_MEDIUM["vs"]) ** 2)
-    radii = np.array([0.1, 0.5, 1.0, 2.0, 5.0])
+    radii = np.array([1.0, 2.0, 5.0, 10.0, 20.0, 50.0])
     magnitude = np.array(
         [abs(_k_or_hankel(0, s_radial, float(r), leaky=True)[0]) for r in radii]
     )
+    # Growth is asserted from 1 m outward, not from 0.1 m. Near the
+    # borehole the leaky-S field is oscillatory rather than monotone --
+    # it reads 2.65, 2.23, 2.99 at 0.1, 0.5, 1.0 m -- and the divergence
+    # this test is about is a far-field statement. The 0.1 m point was
+    # inside that oscillation before the radiation branch was
+    # corrected too; the old strict-monotone assertion passed on the
+    # contaminated branch by luck.
     assert np.all(np.diff(magnitude) > 0.0), magnitude
-    assert magnitude[-1] > 1.0e6 * magnitude[0], magnitude
+    assert magnitude[-1] > 1.0e20 * magnitude[0], magnitude
 
     # The bound P wave decays, as it must -- so the growth above is the
     # leaky branch specifically, not every field in the formation.

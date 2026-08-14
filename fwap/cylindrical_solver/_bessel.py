@@ -51,10 +51,13 @@ def _radial_wavenumber(alpha_squared: complex, *, leaky: bool) -> complex:
 
     * **Bound** (``leaky=False``, field ``~ K_n(alpha r) ~ e^{-alpha r}``):
       the field must *decay* outward, so ``Re(alpha) > 0``.
-    * **Leaky** (``leaky=True``, field ``~ K_n(alpha r e^{i pi}) ~
-      e^{+alpha r}`` -- see :func:`_k_or_hankel`): the field must
-      *radiate* outward, so with the ``e^{-i omega t}`` time convention
-      the unwrapped phase must grow with ``r``, i.e. ``Im(alpha) > 0``.
+    * **Leaky** (``leaky=True``, field ``~ H_n^{(1)}(-i alpha r)`` --
+      see :func:`_k_or_hankel`): the field must *radiate* outward, so
+      with the ``e^{-i omega t}`` time convention the unwrapped phase
+      must grow with ``r``, i.e. ``Im(alpha) > 0``. The two functions
+      must agree on this: :func:`_k_or_hankel` picks ``H^{(1)}`` rather
+      than ``H^{(2)}`` precisely because the root selected here climbs
+      the positive imaginary axis.
 
     These are different conditions, and ``numpy.sqrt`` implements only
     the first: its principal branch returns ``Re(alpha) >= 0``, with
@@ -115,19 +118,23 @@ def _k_or_hankel(
 
     Leaky branch (``leaky=True``): for outgoing-radiation BCs with
     ``e^{-i omega t}`` time convention, replace ``K_n(alpha r)``
-    with ``(pi / 2) * i^{n+1} * H_n^{(2)}(i alpha r)``. This is
-    ``K_n`` continued one sheet counter-clockwise -- expanding the
-    Hankel function gives, for integer ``n``,
+    with the *pure* outgoing cylindrical wave
 
-        (pi/2) i^{n+1} H_n^{(2)}(i z) = (-1)^{n+1} K_n(z e^{i pi})
-                                      = -K_n(z) + i pi (-1)^n I_n(z)
+        -(pi/2) i^{1-n} H_n^{(1)}(-i z) = -K_n(z) - i pi (-1)^n I_n(z)
 
-    (verified to 1e-17) -- so it is a single solution of the modified
-    Bessel equation, and ``K_n(z e^{i pi}) ~ e^{+z}`` rather than
-    ``e^{-z}``. At a genuinely leaky ``alpha`` that is the outgoing,
-    radially growing field the radiation condition asks for: the
-    unwrapped phase runs at ``+Im(alpha)`` rad/m, against ``-Im(alpha)``
-    for plain ``K_n(alpha r)``.
+    (an identity, verified to 1e-15 at real, imaginary and complex
+    ``z`` alike, and continuous across the real ``k_z`` axis because
+    ``kv``/``iv`` cut on the negative real axis where ``hankel1``
+    would cut at ``arg(-i z) = pi``).
+
+    Why ``H^{(1)}`` and why the minus sign in front of ``i pi I_n``.
+    :func:`_radial_wavenumber` hands this function an ``alpha`` with
+    ``Im(alpha) > 0``, so at a genuinely radiating branch ``z = alpha r``
+    runs up the positive imaginary axis, ``z = i x`` with ``x > 0``.
+    There ``H_n^{(1)}(x) ~ e^{+i x}`` is outgoing under ``e^{-i omega t}``
+    and ``H_n^{(2)}(x) ~ e^{-i x}`` is incoming, and plain ``K_n(i x)``
+    is *exactly* the incoming one, ``(pi/2) (-i)^{n+1} H_n^{(2)}(x)``.
+    Only the sign above cancels that ``H^{(2)}`` content completely.
 
     Returns the same ``(K_n, K_{n+1})`` tuple shape regardless of
     branch, so the matrix-building code is identical in both
@@ -148,28 +155,44 @@ def _k_or_hankel(
 
     This docstring used to claim that the bound limit of the leaky
     formula matches ``K_n``. It does not: at real positive ``alpha``
-    the two differ by factors of 2 to 3e3, because ``K_n(z e^{i pi})``
-    is the other sheet. The property that matters is the order
+    the two differ by factors of 2 to 3e3, because the leaky branch is
+    the other sheet. The property that matters is the order
     consistency above, and it was untested until the claim was checked.
+
+    It then carried ``-K_n(z) + i pi (-1)^n I_n(z)`` -- the *opposite*
+    sign, ``K_n`` continued counter-clockwise instead of clockwise.
+    That is still a single solution of the modified Bessel equation and
+    still passes the order-consistency check, so nothing local caught
+    it; decomposed against the Hankel pair, though, it is
+    ``(pi/2) i [H_n^{(1)} + 2 H_n^{(2)}]`` -- two thirds *incoming*.
+    Three independent checks agreed once the sign was flipped: the
+    ``H^{(2)}`` content above drops from 2.0 to 1e-15, the argument
+    principle moves the n=0 slow-formation leaky-compressional root
+    from ``Im(k_z) < 0`` (growing along the borehole) to
+    ``Im(k_z) > 0``, and that root's slowness against Sinha &
+    Asvadurov (2004) fig 11(a) goes from 0.39 % RMS with a spurious
+    +-0.8 % sawtooth to 0.02 % RMS, smooth.
     """
     z = alpha * r
     if leaky:
         # Evaluated through the right-hand side of
         #
-        #     (pi/2) i^{n+1} H_n^{(2)}(i z) = -K_n(z) + i pi (-1)^n I_n(z)
+        #     -(pi/2) i^{1-n} H_n^{(1)}(-i z) = -K_n(z) - i pi (-1)^n I_n(z)
         #
-        # rather than through ``hankel2`` directly. The two agree to
-        # 1e-16 while ``arg(i z) < pi``, which is every argument the
-        # solvers used to reach; but ``hankel2``'s branch cut sits at
-        # ``arg(i z) = pi``, and the outgoing root selected by
-        # :func:`_radial_wavenumber` crosses it below the real ``k_z``
-        # axis, where ``hankel2`` then returns the wrong sheet. ``kv``
-        # and ``iv`` have their cut on the negative real axis instead,
-        # which ``z`` does not reach in the leaky regime, so this form
-        # continues smoothly across -- roadmap A.10.
+        # rather than through ``hankel1`` directly. ``hankel1``'s cut
+        # at ``arg(-i z) = pi`` is reached only when ``alpha`` drops
+        # into the lower half plane, which :func:`_radial_wavenumber`
+        # never returns for ``leaky=True`` -- so unlike the ``hankel2``
+        # form this branch used to carry, the direct Hankel call would
+        # in fact be safe here, agreeing to 1e-11 or better across the
+        # whole quadrant pair the selector can produce (including
+        # ``Re(alpha) < 0``, which is where the root sits below the
+        # real ``k_z`` axis). ``kv``/``iv`` is kept because it is the
+        # same value and keeps the cut on the negative real ``z`` axis,
+        # which the leaky regime does not reach at all -- roadmap A.10.
         sign = 1.0 if n % 2 == 0 else -1.0
-        val_n = -special.kv(n, z) + 1j * np.pi * sign * special.iv(n, z)
-        val_np1 = -special.kv(n + 1, z) - 1j * np.pi * sign * special.iv(n + 1, z)
+        val_n = -special.kv(n, z) - 1j * np.pi * sign * special.iv(n, z)
+        val_np1 = -special.kv(n + 1, z) + 1j * np.pi * sign * special.iv(n + 1, z)
         return complex(val_n), complex(val_np1)
     return complex(special.kv(n, z)), complex(special.kv(n + 1, z))
 

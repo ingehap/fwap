@@ -542,12 +542,30 @@ def test_leaky_radiation_estimate_brackets_the_cylindrical_solver():
     Nothing is shared between them.
 
     The bounds are wide on purpose, and they are measured rather than
-    chosen. Across borehole radii 0.07-0.15 m and fast formations with
-    ``V_S`` 1700-2800 m/s the ratio stays inside 0.37-1.91, with a median
-    of 0.57-0.71 in *every* case -- a stable systematic offset near 0.6
-    plus a resonance the single-bounce picture does not model. The
-    assertions below pin both facts, and deliberately do not correct the
-    offset away.
+    chosen. **They have been re-measured**, and the comparison is
+    weaker than it looked.
+
+    It used to read: across borehole radii 0.07-0.15 m and fast
+    formations with ``V_S`` 1700-2800 m/s the ratio stays inside
+    0.37-1.91 with a median of 0.57-0.71 in every case. That was
+    measured over 4-30 kHz on a solver whose leaky branch was two
+    thirds incoming; corrected, the mode does not live over 4-30 kHz at
+    all but in a band just under its trapped cut-off, and there the
+    ratio runs 0.11-2.6 with a median near 0.31 (0.72 for the softest
+    formation).
+
+    The spread is not noise, and it is not the solver disagreeing with
+    the oracle either. It is the cut-off, which the single-bounce
+    picture does not have: at the cut-off the mode grazes and radiates
+    nothing, so ``Im(k_z) -> 0`` while the plane-wave estimate stays
+    finite and the ratio collapses. Sampled to the cut-off it reaches
+    0.006. The band below is trimmed to 0.92 ``f_c`` for that reason,
+    which is a limitation of the estimate being named rather than a
+    tolerance being widened.
+
+    What survives is the claim this was always for: two constructions
+    with nothing shared between them agree in *size*, within a factor
+    of a few, across a 2x span of radius and a 1.6x span of ``V_S``.
     """
     from fwap import leaky_radiation_attenuation, pseudo_rayleigh_modal_dispersion
 
@@ -558,17 +576,21 @@ def test_leaky_radiation_estimate_brackets_the_cylindrical_solver():
         dict(vp=4600.0, vs=2800.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.10),
         dict(vp=3200.0, vs=1700.0, rho=2400.0, vf=1500.0, rho_f=1000.0, a=0.10),
     ]
-    freq = np.linspace(4.0e3, 30.0e3, 120)
+    from fwap.cylindrical_solver._leaky import _trapped_branch_cutoff
+
+    freq = np.linspace(1.0e3, 30.0e3, 300)
     for medium in cases:
+        cutoff = _trapped_branch_cutoff(0, **medium, f_hi=40.0e3)
+        assert cutoff is not None, medium
         mode = pseudo_rayleigh_modal_dispersion(freq, **medium)
-        ok = np.isfinite(mode.slowness)
-        assert ok.sum() > 100, medium
+        ok = np.isfinite(mode.slowness) & (freq < 0.92 * cutoff)
+        assert ok.sum() > 10, medium
         estimate = leaky_radiation_attenuation(1.0 / mode.slowness, freq, **medium)
         ratio = mode.attenuation_per_meter[ok] / estimate[ok]
 
-        assert np.all(ratio > 0.25), (medium, ratio.min())
-        assert np.all(ratio < 4.0), (medium, ratio.max())
-        assert 0.45 < float(np.median(ratio)) < 0.90, (medium, np.median(ratio))
+        assert np.all(ratio > 0.10), (medium, ratio.min())
+        assert np.all(ratio < 6.0), (medium, ratio.max())
+        assert 0.25 < float(np.median(ratio)) < 0.80, (medium, np.median(ratio))
 
 
 def test_leaky_estimate_would_catch_a_wrong_radius_scaling():
@@ -579,16 +601,18 @@ def test_leaky_estimate_would_catch_a_wrong_radius_scaling():
     the correct radius satisfies.
     """
     from fwap import leaky_radiation_attenuation, pseudo_rayleigh_modal_dispersion
+    from fwap.cylindrical_solver._leaky import _trapped_branch_cutoff
 
     medium = dict(vp=4000.0, vs=2300.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.10)
-    freq = np.linspace(4.0e3, 30.0e3, 120)
+    freq = np.linspace(1.0e3, 30.0e3, 300)
+    cutoff = _trapped_branch_cutoff(0, **medium, f_hi=40.0e3)
     mode = pseudo_rayleigh_modal_dispersion(freq, **medium)
-    ok = np.isfinite(mode.slowness)
+    ok = np.isfinite(mode.slowness) & (freq < 0.92 * cutoff)
 
     wrong = {**medium, "a": 0.20}
     estimate = leaky_radiation_attenuation(1.0 / mode.slowness, freq, **wrong)
     ratio = mode.attenuation_per_meter[ok] / estimate[ok]
-    assert float(np.median(ratio)) > 0.90
+    assert float(np.median(ratio)) > 0.50
 
 
 # ---------------------------------------------------------------------------

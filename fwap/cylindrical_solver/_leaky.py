@@ -893,38 +893,37 @@ _LEAKY_CASED_SEED_SWEEP_LEVELS = (0.03, 0.07)
 #: Height above the formation shear speed below which the sweep will not
 #: take a *fresh* seed, as a fraction of ``V_S``.
 #:
-#: ``V_S`` is a branch point of the determinant, and there is a pole that
-#: hugs it -- sharp to 1e-13 and carrying winding number +1, so no
-#: sharpness or root-quality test will reject it.
+#: This was 0.03 and its whole justification has since been withdrawn.
 #:
-#: It is not the flexural branch, which is the only claim this floor
-#: needs and the only one that survived measuring. Over 3-15 kHz it sits
-#: at 1.004-1.017 ``V_S`` non-monotonically instead of dispersing, where
-#: the flexural branch falls 953 -> 888 -> 868 -> 834 m/s over 3 -> 8
-#: kHz. Seeded on it, the monotone rule follows it and the production
-#: answer is destroyed -- measured at 17 % at 3.5 kHz.
+#: The floor existed to keep the sweep off a "branch-point pole" that
+#: hugged ``V_S`` -- sharp to 1e-13, carrying winding number +1, and
+#: swept finely it dipped *below* ``V_S`` (798.86 m/s at
+#: ``V_S_layer / V_S`` = 1.295) while remaining a good root with
+#: positive attenuation. Seeded on it, the marcher's monotone rule
+#: followed it and destroyed the production answer, by 17 % at 3.5 kHz.
 #:
-#: An earlier version of this note said it "ignores the casing entirely"
-#: and is "not a mode". Both are overclaimed. Swept finely through the
-#: bound/leaky crossing it moves with the annulus and is one continuous
-#: object: 814.80 m/s at ``V_S_layer / V_S = 1.10``, down through
-#: **798.86 at 1.295 -- below ``V_S``** -- and back to 808.11 at 1.41,
-#: with one turning point and ``|det|`` sharp throughout. It looks static
-#: only when sampled coarsely at stiffnesses far from the crossing.
+#: **That object was the incoming wave that :func:`_k_or_hankel` used to
+#: mix into its leaky branch.** With the branch corrected there is
+#: nothing below ``V_S`` to avoid: the same sweep now shows one
+#: monotonically dispersing object that *emerges* at the shear speed --
+#: 799.99 m/s with ``Im(k_z)`` = 0 at ratio 1.275, exactly where the
+#: bound branch is absorbed -- and climbs from there, 805.0, 811.3,
+#: 819.5 at 1.30, 1.32, 1.345. It is the leaky continuation of the bound
+#: mode, the same join
+#: ``test_the_leaky_branch_joins_the_trapped_one_at_its_cutoff`` pins for
+#: the open hole, and the old floor was rejecting it.
 #:
-#: This is a floor on *seeding*, not on the answer, and the distinction
-#: is the whole design. A fixed dead band cannot separate the two,
-#: because the flexural branch itself descends into that neighbourhood at
-#: the top of the band -- A.9's 12 kHz answer is 810.4 m/s, 1.3 % above
-#: ``V_S``. It gets there by continuation, arriving along a dispersion
-#: curve from above, which is evidence a fresh seed landing in the same
-#: place does not have. So continuation stays unrestricted and only the
-#: sweep is floored.
+#: So the floor is now nominal: enough to keep a fresh seed off the
+#: branch point itself, where the determinant is singular rather than
+#: merely small, and no more. Dropping 0.03 to 0.002 closes A.9's
+#: recorded gap at ``V_S_layer / V_S`` in [1.28, 1.34] with the genuine
+#: branch -- 805, 811, 818, 825 m/s where there had been four NaNs.
 #:
-#: Margins at ``ka = 2.5``: the branch-point pole reaches 1.7 % above
-#: ``V_S``, the seeds actually needed are 6.3-7.4 % above it. A factor of
-#: about two either side of this threshold.
-_LEAKY_CASED_SEED_FLOOR = 0.03
+#: It remains a floor on *seeding*, not on the answer. Continuation
+#: stays unrestricted, because a root arrived at along a dispersion
+#: curve carries evidence a fresh seed landing in the same place does
+#: not.
+_LEAKY_CASED_SEED_FLOOR = 0.002
 
 #: How many frequencies the sweep may be attempted at, spread across the
 #: band, before the pass gives up.
@@ -1211,6 +1210,99 @@ def _march_leaky_cased_branch(
 _J1_FIRST_ZERO = 3.831705970207512
 
 
+def _trapped_branch_cutoff(
+    branch: int,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    f_hi: float,
+    r_tool: float = 0.0,
+    rtol: float = 1.0e-4,
+) -> float | None:
+    """
+    Frequency at which trapped n=0 branch ``branch`` cuts on, or None.
+
+    The cut-off is where the branch's phase velocity reaches ``V_S``
+    and it stops being trapped; below it the same mode continues as
+    the leaky root :func:`pseudo_rayleigh_dispersion` tracks. It is
+    located by bisecting on the *count* of real roots in the trapped
+    window ``(omega/V_S, omega/V_f)``, which steps up by one at each
+    successive branch's cut-off -- a more robust marker than watching
+    a single root approach a window edge.
+
+    Parameters
+    ----------
+    branch : int
+        Radial order, ``0`` for the fundamental.
+    vp, vs, rho, vf, rho_f, a : float
+        Media and geometry, as in
+        :func:`trapped_pseudo_rayleigh_dispersion`.
+    f_hi : float
+        Where to start looking (Hz). If the branch does not yet exist
+        there the search doubles upward, up to 64x, before giving up:
+        a caller asking for a high radial order over a low-frequency
+        grid still gets the cut-off it needs to seed from, since the
+        leaky continuation lives *below* the cut-off and so can sit
+        entirely inside a band that never reaches it.
+    r_tool : float, default 0.0
+        Rigid centralised tool radius (m).
+    rtol : float, default 1e-4
+        Relative width at which the bisection stops.
+
+    Returns
+    -------
+    float or None
+        Cut-off frequency (Hz), or ``None`` if the branch has no
+        cut-off below ``f_hi``.
+    """
+
+    def exists(f: float) -> bool:
+        omega = 2.0 * np.pi * f
+
+        def det(kz: float) -> float:
+            return _modal_determinant_n0_complex(
+                kz,
+                omega,
+                vp,
+                vs,
+                rho,
+                vf,
+                rho_f,
+                a,
+                leaky_p=False,
+                leaky_s=False,
+                r_tool=r_tool,
+            ).real
+
+        roots = _scan_bound_roots(
+            det, omega / vs * (1.0 + 1.0e-9), omega / vf * (1.0 - 1.0e-9)
+        )
+        return len(roots) > branch
+
+    ceiling = f_hi * 64.0
+    while not exists(f_hi):
+        f_hi *= 2.0
+        if f_hi > ceiling:
+            return None
+    lo = f_hi
+    while exists(lo):
+        lo *= 0.5
+        if lo < 1.0:
+            return None
+    hi = f_hi
+    while (hi - lo) > rtol * hi:
+        mid = 0.5 * (lo + hi)
+        if exists(mid):
+            hi = mid
+        else:
+            lo = mid
+    return float(hi)
+
+
 def _enumerate_leaky_roots_n0(
     omega: float,
     *,
@@ -1222,6 +1314,8 @@ def _enumerate_leaky_roots_n0(
     a: float,
     n_re: int = 40,
     n_im: int = 8,
+    v_upper: float | None = None,
+    r_tool: float = 0.0,
 ) -> list[complex]:
     r"""
     Find every n=0 leaky-S root at one frequency, ordered by radial order.
@@ -1251,22 +1345,48 @@ def _enumerate_leaky_roots_n0(
         radii 0.07-0.15 m, formations with ``V_S`` 1700-2800 m/s and
         frequencies 15-60 kHz, so the defaults sit well above the
         density where anything is missed.
+    v_upper : float or None, optional
+        Speed at the slow end of the search window. ``None`` (default)
+        means ``V_S``, the fast-formation pseudo-Rayleigh window
+        ``(1/V_P, 1/V_S)``. Pass ``vf`` for the slow-formation leaky
+        compressional window ``(1/V_P, 1/V_f)``, where ``V_S`` sits
+        *below* the fluid speed and so is not a bound of the window at
+        all.
+    r_tool : float, default 0.0
+        Rigid centralised tool radius (m), forwarded to
+        :func:`_modal_determinant_n0_complex`. ``0.0`` is an open hole.
 
     Returns
     -------
     list of complex
         Converged ``k_z`` values with ``Im(k_z) > 0`` and slowness
-        strictly inside ``(1/V_P, 1/V_S)``, ordered fundamental first.
-        Empty if the frequency is below the lowest branch's cutoff.
+        strictly inside ``(1/V_P, 1/v_upper)``, ordered fundamental
+        first. Empty if the frequency is below the lowest branch's
+        cutoff.
     """
 
     def det(kz: complex) -> complex:
         return _modal_determinant_n0_complex(
-            kz, omega, vp, vs, rho, vf, rho_f, a, leaky_p=False, leaky_s=True
+            kz,
+            omega,
+            vp,
+            vs,
+            rho,
+            vf,
+            rho_f,
+            a,
+            leaky_p=False,
+            leaky_s=True,
+            r_tool=r_tool,
         )
 
     kz_lo = omega / vp
-    kz_hi = omega / vs
+    # The window's fast end is always 1 / V_P. Its slow end is whichever
+    # speed the mode merges with at cutoff: V_S for the fast-formation
+    # pseudo-Rayleigh branch (the default), V_f for the slow-formation
+    # leaky compressional branch, where V_S lies below the fluid speed
+    # and so is not a bound of this window at all.
+    kz_hi = omega / (vs if v_upper is None else v_upper)
     roots: list[complex] = []
     for re_kz in np.linspace(kz_lo * 1.001, kz_hi * 0.999, n_re):
         for im_kz in np.geomspace(0.02, 60.0, n_im):
@@ -1750,11 +1870,15 @@ def pseudo_rayleigh_dispersion(
 
     Notes
     -----
-    Implementation strategy: walk the frequency grid from high to
-    low frequency, seeded at the highest input frequency by the
-    analytic high-frequency asymptote (slowness slightly below
-    ``1/V_S`` with a small positive imaginary part, pushing the
-    s-branch into the leaky regime). At each step the converged
+    Implementation strategy: walk a private frequency ladder from
+    high to low frequency, seeded just under the requested branch's
+    trapped cut-off at the analytic cut-off value (slowness slightly
+    below ``1/V_S`` with a small positive imaginary part, pushing the
+    s-branch into the leaky regime); see **Branch selection** below
+    for why the seed is anchored there and not at the top of the
+    caller's grid. The ladder steps 1 % in frequency and contains the
+    caller's frequencies as exact members, so the returned values are
+    read off it rather than interpolated. At each step the converged
     ``k_z`` from the previous frequency is rescaled by the
     constant-slowness extrapolation ``k_z * (omega / omega_prev)``
     and fed to :func:`scipy.optimize.root` as the seed for the next
@@ -1772,37 +1896,62 @@ def pseudo_rayleigh_dispersion(
     All three stopping conditions leave the remaining low-frequency
     samples as NaN. The implementation does not currently attempt
     branch-stitching across the cutoff; that is plan item C
-    (`docs/plans/cylindrical_biot.md`).
+    (`docs/plans/cylindrical_biot.md`). What it does now do is *start*
+    at the cutoff, so the trapped and leaky curves meet there instead
+    of being computed from unrelated starting points --
+    ``test_the_leaky_branch_joins_the_trapped_one_at_its_cutoff``
+    pins the join.
 
     Branch selection
     ----------------
-    The leaky-S window holds several roots at once -- one per radial
-    order of the fluid column -- and their number grows with frequency
-    as successive orders pass their cutoffs. They are enumerated at the
-    highest requested frequency by :func:`_enumerate_leaky_roots_n0`
-    and selected by ``branch``, so the returned curve is a function of
-    the medium and the requested order alone.
+    Trapped branch ``m`` cuts off at a frequency ``f_c(m)`` set by the
+    medium and the hole radius, and below that frequency the same mode
+    continues as the leaky root this routine tracks: it leaves
+    ``f_c(m)`` at slowness ``1/V_S`` with ``Im(k_z) -> 0^+`` and gets
+    faster and more attenuated as frequency drops. ``branch`` selects
+    ``m``. The cut-off is located by
+    :func:`_trapped_branch_cutoff`, which bisects on the number of
+    real roots in the trapped window, and the marcher then walks a
+    private 1 %-step ladder downward from just under it, so the answer
+    depends on the medium and ``m`` alone.
 
-    **This replaces a heuristic seed that made the answer depend on the
-    caller's grid.** The previous implementation guessed a point near
-    ``1/V_S`` and followed whichever root the hybrid solver fell into,
-    with three measured consequences: a 0.10 m hole in a
-    ``V_P/V_S/rho = 4000/2300/2500`` formation reported ``c = 2486 m/s``
-    at 30 kHz for a grid ending at 40 kHz and ``c = 2952 m/s`` for one
-    ending at 80 kHz (both genuine roots, but a silent switch between
-    them); a 0.07 m hole returned *all-NaN* on a 60-sample 4-30 kHz
-    grid while recovering the band at 80 samples; and a request for
-    24-32 kHz alone returned nothing where a 2-40 kHz grid converged
-    throughout. All three are fixed -- ``branch=0`` now returns the
-    same curve for every grid top from 32 kHz to 100 kHz, and the two
-    silent failures recover their full bands.
+    On ``4000/2300/2500``, water, ``a`` = 0.10 m the first four
+    cut-offs are 7.58, 13.97, 23.40 and 33.18 kHz, and ``branch``
+    0, 1, 2 return curves living at roughly 5.0-7.5, 9.5-13.9 and
+    17.6-23.4 kHz. Requesting frequencies only *above* a branch's
+    cut-off returns all-NaN: the mode is trapped there, and
+    :func:`trapped_pseudo_rayleigh_dispersion` is the routine for it.
 
-    What remains: the march can still terminate early at a genuine
-    cutoff, which is the intended behaviour, and the resulting NaNs
-    mark where the mode ceases to exist rather than where the search
-    gave up. An all-NaN result now means the requested branch has no
-    root at the top of the band -- a physical statement, not a search
-    failure.
+    **This is the second seeding strategy this function has had, and
+    the first one that is stable.** Both replacements were forced by
+    the same underlying defect. The original heuristic guessed a point
+    near ``1/V_S`` and followed whichever root the hybrid solver fell
+    into, so a 2-40 kHz request and a 2-80 kHz request returned
+    different modes at the same frequency. That was replaced by
+    enumerating roots at the top of the caller's grid and indexing
+    them -- which looked stable, and was measured to be, because the
+    contaminated radiation branch of :func:`_k_or_hankel` littered the
+    window with roots at every frequency. With the branch corrected
+    there is generally one leaky root in the window, and *which*
+    branch's continuation it is moves with the grid top: on the
+    geometry above, 4-30, 4-50 and 4-80 kHz grids returned the
+    continuations of three different trapped branches, all labelled
+    ``branch=0``. Seeding from the cut-off removes the coupling by
+    construction rather than by measurement: the ladder starts at a
+    frequency the medium sets, so the grid top cannot reach it.
+
+    The residual grid dependence is rounding, not selection. The
+    caller's frequencies are themselves members of the ladder, so a
+    different request changes the *step pattern* and the marched path
+    differs in the last bits -- ``branch=0`` at 7 kHz agrees to about
+    1e-14 relative across grid tops of 8, 30, 55, 60, 80 and 100 kHz,
+    and to 3e-5 across a tenfold change in grid density. Neither is
+    the silent branch switch the earlier strategies allowed.
+
+    What remains: the march still terminates at a genuine cut-off in
+    the other direction, where the root's attenuation grows until the
+    hybrid solver loses it, and the resulting NaNs mark roughly where
+    the mode stops being observable rather than a search failure.
 
     Accuracy of the attenuation
     ---------------------------
@@ -1890,30 +2039,42 @@ def pseudo_rayleigh_dispersion(
             attenuation_per_meter=attenuation,
         )
 
-    # Sort frequencies descending. The marcher seeds from the
-    # high-f asymptote and walks toward the cutoff.
-    order_desc = np.argsort(-f_arr)
-    f_desc = f_arr[order_desc]
+    if branch < 0:
+        raise ValueError(f"branch must be non-negative, got {branch}")
 
-    # High-frequency seed: enumerate every leaky root at the top of
-    # the grid and take the requested radial order, rather than
-    # guessing a point near 1/V_S and marching whichever root the
-    # hybrid solver happens to fall into. The old heuristic seed
-    # (slowness ~ 0.95 / V_S) made the answer depend on where the
-    # caller's grid stopped -- a 2-40 kHz request and a 2-80 kHz
-    # request returned different modes at the same frequency, both
-    # of them genuine roots. Enumerating removes that coupling: the
-    # branch is now selected by index, and the same index gives the
-    # same curve for any grid that reaches it.
-    omega_max = 2.0 * np.pi * float(f_desc[0])
-    seeds = _enumerate_leaky_roots_n0(
-        omega_max, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a
+    # Seed from the branch's own trapped cut-off, not from the top of
+    # the caller's grid.
+    #
+    # A leaky root of radial order m exists *below* the frequency at
+    # which trapped branch m cuts off, and it leaves that cut-off at
+    # slowness 1/V_S with Im(k_z) -> 0^+. So the cut-off is the one
+    # frequency where the seed is known analytically, and it is a
+    # property of the medium alone -- which makes ``branch`` a stable
+    # label. Enumerating at the grid top instead, as this routine did
+    # before, labels branches by whatever happens to be leaky *there*:
+    # once :func:`_k_or_hankel` stopped mixing an incoming wave into
+    # the radiation branch, that turned out to be a single root whose
+    # identity changed with the grid top -- 4-30, 4-50 and 4-80 kHz
+    # grids returned the continuations of three different trapped
+    # branches, all under the label ``branch=0``.
+    f_cutoff = _trapped_branch_cutoff(
+        branch,
+        vp=vp,
+        vs=vs,
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
+        f_hi=float(f_arr.max()),
     )
-    if not seeds:
-        # No leaky root exists at the top of the requested band, so
-        # there is nothing to march. An all-NaN curve is the honest
-        # answer; it means "no mode at these frequencies", which is
-        # a physical statement here rather than a search failure.
+    below = f_arr < (f_cutoff if f_cutoff is not None else 0.0)
+    if f_cutoff is None or not below.any():
+        # Either the requested radial order has no trapped cut-off at
+        # all, or every requested frequency sits above it, where the
+        # mode is trapped rather than leaky (use
+        # :func:`trapped_pseudo_rayleigh_dispersion` there). An
+        # all-NaN curve is the honest answer: a physical statement
+        # rather than a search failure.
         return BoreholeMode(
             name="pseudo_rayleigh",
             azimuthal_order=0,
@@ -1921,17 +2082,21 @@ def pseudo_rayleigh_dispersion(
             slowness=slowness,
             attenuation_per_meter=attenuation,
         )
-    if branch < 0:
-        raise ValueError(f"branch must be non-negative, got {branch}")
-    if branch >= len(seeds):
-        raise ValueError(
-            f"branch={branch} was requested but only {len(seeds)} leaky "
-            f"branch(es) exist at {f_desc[0]:.6g} Hz, the top of the "
-            "requested band. Higher radial orders appear only above "
-            "their own cutoffs, so extend the frequency grid upward to "
-            "reach them."
-        )
-    kz_seed = seeds[branch]
+
+    # March a private ladder rather than the caller's grid directly,
+    # so the step from the cut-off down to the first requested
+    # frequency is taken in small pieces however coarse or however
+    # far below the cut-off that grid is. The caller's frequencies
+    # are members of the ladder, so their values are read off it
+    # exactly -- nothing is interpolated.
+    f_requested = f_arr[below]
+    ladder = [f_cutoff * (1.0 - 1.0e-4)]
+    while ladder[-1] > f_requested.min():
+        ladder.append(ladder[-1] * 0.99)
+    f_desc = np.unique(np.concatenate([np.array(ladder), f_requested]))[::-1]
+
+    omega_start = 2.0 * np.pi * float(f_desc[0])
+    kz_seed = complex(omega_start / vs * (1.0 - 1.0e-6), 1.0e-3)
 
     # Valid leaky-S regime in slowness terms: open interval
     # (1/V_P, 1/V_S), with a small upper-side numerical slack so
@@ -1981,11 +2146,301 @@ def pseudo_rayleigh_dispersion(
     slowness_desc = np.where(finite_desc, slowness_desc, np.nan)
     attenuation_desc = np.where(finite_desc, attenuation_desc, np.nan)
 
+    # Read the requested frequencies back off the ladder. They are
+    # exact members of it by construction, so this is a lookup and
+    # not an interpolation; ``np.searchsorted`` needs the ascending
+    # view of a ladder the marcher walked downward.
+    f_asc = f_desc[::-1]
+    slot = np.searchsorted(f_asc, f_arr[below])
+    take = f_desc.size - 1 - slot
+    idx = np.flatnonzero(below)
+    slowness[idx] = slowness_desc[take]
+    attenuation[idx] = attenuation_desc[take]
+
+    return BoreholeMode(
+        name="pseudo_rayleigh",
+        azimuthal_order=0,
+        freq=f_arr,
+        slowness=slowness,
+        attenuation_per_meter=attenuation,
+    )
+
+
+# ---------------------------------------------------------------------
+# L5 -- Public n=0 leaky API: slow-formation leaky compressional.
+# ---------------------------------------------------------------------
+#
+# The sister of the L4 pseudo-Rayleigh branch, one velocity ordering
+# over. In a *slow* formation V_S < V_f < V_P, so the window
+# V_f < c < V_P is bounded below by the fluid speed rather than by
+# V_S -- V_S is not a bound of this window at all, it lies underneath
+# it. The branch flags are identical to the fast-formation case
+# (fluid oscillatory, formation P evanescent, formation S radiating);
+# only the window and the formation class differ. That is why nearly
+# all of this routine is the L1-L3 scaffolding again, with the window
+# passed through ``v_upper``.
+#
+# Sinha & Asvadurov (2004) call it out by name: "This mode is also
+# referred to as a leaky compressional mode as it exists between the
+# formation compressional and borehole-liquid slownesses."
+
+
+def leaky_compressional_dispersion(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    branch: int = 0,
+    tool_radius: float = 0.0,
+) -> BoreholeMode:
+    r"""
+    Slow-formation leaky compressional dispersion from the n=0 modal
+    determinant.
+
+    Tracks the n=0 leaky root of a **slow** formation
+    (``V_S < V_f < V_P``), which lives between the formation
+    compressional and borehole-fluid slownesses,
+    ``1/V_P < s < 1/V_f``. There the borehole fluid is oscillatory,
+    the formation P wave is evanescent and bound, and the formation S
+    wave radiates outward -- so the mode leaks energy as shear and is
+    attenuated along the borehole even in a perfectly elastic
+    formation.
+
+    This is the monopole arrival that carries the compressional
+    slowness in a slow formation, where no trapped pseudo-Rayleigh
+    mode can exist (that one needs ``V_S > V_f``).
+
+    Parameters
+    ----------
+    freq : ndarray, shape (n_f,)
+        Frequency grid (Hz). Must be strictly positive. The marcher
+        walks the grid from high to low frequency internally; the
+        return arrays are indexed in input order.
+    vp, vs, rho : float
+        Formation compressional and shear speeds (m/s) and bulk
+        density (kg/m^3). Requires ``vp > vf > vs``.
+    vf, rho_f : float
+        Borehole-fluid speed (m/s) and density (kg/m^3).
+    a : float
+        Borehole radius (m).
+    branch : int, default 0
+        Index into the roots found at the top of ``freq``, ordered by
+        descending ``Re(k_z)`` (see
+        :func:`_enumerate_leaky_roots_n0`); ``0`` is the fundamental.
+        Requesting an index that does not exist there raises
+        ``ValueError``.
+
+        **The index is not the radial order.** Ordering by
+        ``Re(k_z)`` alone puts the heavily damped cut-off modes into
+        the sequence alongside the propagating ones, and a cut-off
+        mode can sit at almost the same phase slowness as a
+        propagating branch while being two orders of magnitude more
+        attenuated. On Paillet & Cheng's shale B at 24.8 kHz the
+        three roots are 648.6 us/m with ``Im(k_z)`` = 1.0, 644.5 with
+        ``Im(k_z)`` = 23.1, and 546.2 with ``Im(k_z)`` = 3.8 -- so
+        the paper's "first mode" is ``branch=2``, not ``branch=1``.
+        Check ``attenuation_per_meter`` before assuming an index is
+        the branch you wanted.
+    tool_radius : float, default 0.0
+        Radius (m) of a rigid centralised logging tool on the borehole
+        axis, ``0.0`` for an open hole. Uses the same White & Zechman
+        (1968) model as :func:`stoneley_dispersion`. Must be smaller
+        than ``a``.
+
+    Returns
+    -------
+    BoreholeMode
+        ``slowness`` in s/m and ``attenuation_per_meter`` = ``Im(k_z)``
+        in 1/m, both ``NaN`` where the marcher found no valid root
+        (below the branch's cutoff, or where it left the window).
+
+    Notes
+    -----
+    **Validation.** Scored against Sinha & Asvadurov (2004) fig 11(a),
+    curve ``m = 3`` -- slow formation B, ``V_P`` 1890, ``V_S`` 508 m/s,
+    ``rho`` 2054 kg/m^3, water 1500 / 1000, ``a`` = 0.1016 m -- at
+    **0.02 % RMS over 127 of 127 points**, 2.2-15 kHz, and against
+    Paillet & Cheng (1986) fig 12(a) shale B with its 5 cm tool at
+    **1.81 % over 136 of 170 points** (fundamental, ``branch=0``) and
+    **0.35 % over 66 of 84** (first mode, ``branch=2``). See
+    ``docs/notebooks/cylindrical_biot_validation.ipynb``.
+
+    The Paillet & Cheng tie is the one that exercises ``tool_radius``:
+    the same curve scores 10.7 % if the tool is left out, so the 5 cm
+    inner boundary is doing real work rather than being a detail.
+
+    **Attenuation is not externally validated.** Sinha & Asvadurov
+    fig 11(c) plots a radiation attenuation for this very mode, and
+    the shape is reproduced -- zero at cut-off, a broad maximum near
+    9-10 kHz, a slow decline after -- but the magnitudes differ by a
+    near-constant factor of about 2.2 (drifting 2.30 to 2.14 across
+    the band). The paper states no dB convention, so the factor could
+    not be resolved and the attenuation is *not* scored. Treat
+    ``attenuation_per_meter`` as ``Im(k_z)`` in 1/m and nothing more.
+
+    **Cut-off.** The mode cuts on where its phase velocity reaches
+    ``V_P`` and ``Im(k_z) -> 0``; below that the marcher returns NaN.
+    On Sinha's formation B that is about 2.2 kHz, against the paper's
+    text "cuts in around 3 kHz". At the high-frequency end the mode
+    approaches the borehole-fluid slowness ``1/V_f``, as the same
+    text says.
+
+    See Also
+    --------
+    pseudo_rayleigh_dispersion : The fast-formation n=0 leaky sister,
+        between ``1/V_P`` and ``1/V_S``.
+    stoneley_dispersion : The fully-bound n=0 mode, slower than the
+        fluid, which coexists with this one in a slow formation.
+
+    References
+    ----------
+    * Sinha, B. K., & Asvadurov, S. (2004). Dispersion and radial
+      depth of investigation of borehole modes. *Geophysical
+      Prospecting*, 52(4), 271-286, fig 11.
+    * Paillet, F. L., & Cheng, C. H. (1986). A numerical
+      investigation of head waves and leaky modes in fluid-filled
+      boreholes. *Geophysics*, 51(7), 1438-1449, fig 12.
+    """
+    if vp <= 0 or vs <= 0 or rho <= 0:
+        raise ValueError("vp, vs, rho must all be positive")
+    if vf <= 0 or rho_f <= 0:
+        raise ValueError("vf and rho_f must be positive")
+    if a <= 0:
+        raise ValueError("a must be positive")
+    if tool_radius < 0.0:
+        raise ValueError("tool_radius must be non-negative")
+    if tool_radius >= a:
+        raise ValueError(
+            f"tool_radius must be smaller than the borehole radius; "
+            f"got tool_radius={tool_radius}, a={a}"
+        )
+    if vp <= vf:
+        raise ValueError(
+            f"the leaky compressional window (1/V_P, 1/V_f) is empty unless "
+            f"vp > vf; got vp={vp}, vf={vf}"
+        )
+    if vs >= vf:
+        raise ValueError(
+            f"leaky compressional requires a slow formation (vs < vf); got "
+            f"vs={vs}, vf={vf}. Use pseudo_rayleigh_dispersion for vs > vf."
+        )
+    if branch < 0:
+        raise ValueError(f"branch must be non-negative, got {branch}")
+
+    f_arr = np.asarray(freq, dtype=float)
+    if np.any(f_arr <= 0):
+        raise ValueError("freq must be strictly positive")
+
+    n_f = f_arr.size
+    slowness = np.full(n_f, np.nan, dtype=float)
+    attenuation = np.full(n_f, np.nan, dtype=float)
+
+    def _empty() -> BoreholeMode:
+        return BoreholeMode(
+            name="leaky_compressional",
+            azimuthal_order=0,
+            freq=f_arr,
+            slowness=slowness,
+            attenuation_per_meter=attenuation,
+        )
+
+    if n_f == 0:
+        return _empty()
+
+    order_desc = np.argsort(-f_arr)
+    f_desc = f_arr[order_desc]
+
+    omega_max = 2.0 * np.pi * float(f_desc[0])
+    seeds = _enumerate_leaky_roots_n0(
+        omega_max,
+        vp=vp,
+        vs=vs,
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
+        v_upper=vf,
+        r_tool=tool_radius,
+    )
+    if not seeds:
+        return _empty()
+    if branch >= len(seeds):
+        raise ValueError(
+            f"branch={branch} was requested but only {len(seeds)} leaky "
+            f"compressional branch(es) exist at {f_desc[0]:.6g} Hz, the top "
+            "of the requested band. Higher radial orders appear only above "
+            "their own cutoffs, so extend the frequency grid upward to "
+            "reach them."
+        )
+    kz_seed = seeds[branch]
+
+    # Window in slowness terms: the open interval (1/V_P, 1/V_f), with
+    # a numerical slack on the slow side so a root converging exactly
+    # onto omega/V_f is still accepted. The fast side is where the
+    # branch cuts off, and rejecting there is what stops the marcher
+    # hopping onto a slower branch below cutoff -- the failure that
+    # sent the Paillet & Cheng first mode to 23 % before the validator
+    # was tightened.
+    slowness_lo = 1.0 / vp
+    slowness_hi = 1.0 / vf
+    slowness_slack = 1.0e-6 * slowness_hi
+
+    def _validator(kz: complex, omega_step: float) -> bool:
+        if kz.imag <= 0.0:
+            return False
+        s = kz.real / omega_step
+        return slowness_lo < s < slowness_hi + slowness_slack
+
+    def _det(kz: complex, omega_step: float) -> complex:
+        return _modal_determinant_n0_complex(
+            kz,
+            omega_step,
+            vp,
+            vs,
+            rho,
+            vf,
+            rho_f,
+            a,
+            leaky_p=False,
+            leaky_s=True,
+            r_tool=tool_radius,
+        )
+
+    # Strict stop at the first rejected step, unlike the tolerant
+    # budget of 3 the pseudo-Rayleigh sister uses. Measured, not
+    # assumed: several branches of this mode coexist inside one
+    # window, so a marcher allowed to skip past a branch's cut-off
+    # lands on a *different* branch that is perfectly valid by the
+    # window test and carries on happily. Against Paillet & Cheng
+    # fig 12(a) the first mode scores 10.5 % with a budget of 3 --
+    # tracking the fundamental below 16 kHz -- and 0.35 % over
+    # 66 of 84 points with the budget at 0, stopping at its cut-off
+    # where it belongs.
+    kz_curve_desc = _march_complex_dispersion_validated(
+        _det,
+        f_desc,
+        kz_seed,
+        validator=_validator,
+        max_consecutive_invalid=0,
+    )
+
+    omega_desc = 2.0 * np.pi * f_desc
+    with np.errstate(invalid="ignore"):
+        slowness_desc = kz_curve_desc.real / omega_desc
+    attenuation_desc = kz_curve_desc.imag
+    finite_desc = np.isfinite(kz_curve_desc.real) & np.isfinite(kz_curve_desc.imag)
+    slowness_desc = np.where(finite_desc, slowness_desc, np.nan)
+    attenuation_desc = np.where(finite_desc, attenuation_desc, np.nan)
+
     slowness[order_desc] = slowness_desc
     attenuation[order_desc] = attenuation_desc
 
     return BoreholeMode(
-        name="pseudo_rayleigh",
+        name="leaky_compressional",
         azimuthal_order=0,
         freq=f_arr,
         slowness=slowness,

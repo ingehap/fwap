@@ -259,6 +259,9 @@ from fwap.cylindrical_solver._leaky import (
     _track_complex_root as _track_complex_root,
 )
 from fwap.cylindrical_solver._leaky import (
+    leaky_compressional_dispersion as leaky_compressional_dispersion,
+)
+from fwap.cylindrical_solver._leaky import (
     pseudo_rayleigh_dispersion as pseudo_rayleigh_dispersion,
 )
 from fwap.cylindrical_solver._leaky import (
