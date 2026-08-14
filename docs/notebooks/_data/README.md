@@ -6,7 +6,7 @@ live in this directory.
 
 ## Status
 
-**Thirty-two curves are shipped, and all thirty-two pass.**
+**Thirty-four curves are shipped, and all thirty-four pass.**
 
 | File | Solver | Score |
 |------|--------|-------|
@@ -42,6 +42,8 @@ live in this directory.
 | `schmitt_cheng_1987_fig21a_screw_cased_cement1_1cm.csv` | `quadrupole_dispersion_layered` | **0.86 %** RMS, 89/93 pts |
 | `schmitt_cheng_1987_fig21b_screw_cased_cement1_3cm.csv` | `quadrupole_dispersion_layered` | **0.18 %** RMS, 89/94 pts |
 | `schmitt_cheng_1987_fig21b_screw_cased_cement2_3cm.csv` | `quadrupole_dispersion_layered` | **0.26 %** RMS, 92/94 pts |
+| `yang_lv_2022_fig2a_flexural_cased_hard.csv` | `flexural_dispersion_layered` | **0.38 %** RMS, 71/105 pts |
+| `yang_lv_2022_fig2b_flexural_cased_soft.csv` | `flexural_dispersion_layered` (**slow formation**) | **0.017 %** RMS, 12/12 pts |
 
 **The twelve Sinha & Asvadurov rows are extracted, not traced**, and that is why
 they score two orders of magnitude tighter than everything else here.
@@ -329,6 +331,38 @@ raising the ceiling alone would not close the gap, and it would still
 need seeding that does not rely on a real-axis scan: above `V_f` there
 is no real-axis minimum to seed from.
 
+**The cased dipole is tied twice, and the second tie reaches a slow
+formation.** Yang et al. (2022) fig 2 plots the same mode from a
+different group, a different decade and *vector* artwork. Its table 1
+gives `V_P` and density for two of the eight formations it sweeps, so two
+curves ship: the hard one at **0.38 %** over 71/105 and the soft one --
+`V_S` = 1450 m/s, below the borehole fluid's 1500 — at **0.017 % over
+12/12**, the tightest cased-hole tie here by two orders of magnitude.
+
+Three things distinguish it from section 4b's traces.
+
+**It is extraction, not tracing.** The source is vector, so the figure is
+rendered at 600 dpi and the curves separated by ink level and mark size:
+the thick grey line by its fill colour, the dotted line by its marks
+being 7×8 px squares where the dashed and dash-dot lines run 16–31 px.
+Two calibration checks fall out of the artwork itself — the gridlines
+recover to **0.0005** in normalised velocity, and the hard curve's flat
+top reads 2999.8 m/s against table 1's 3000, **0.007 %**, with nothing
+fitted.
+
+**It is a modal root, not a semblance pick.** The paper states
+`D₁(k_z, ω) = 0` and `v = ω/k_z`, so it is the same object this solver
+computes — unlike the 3DFD dispersion analyses in the neighbouring
+literature.
+
+**It still does not tie the cased leaky dipole.** Yang et al. stop at
+their mode's cutoff, 15.04 kHz, and the first traced dot sits at 15.13;
+all twelve points are below `V_S/V_f` = 0.9667, so the published branch
+is **bound**. Below the cutoff `fwap` continues the same branch as a
+*leaky* root over 12.10–14.75 kHz, and there is no published curve there.
+What this figure adds is a hard tie on the bound side of a cutoff whose
+leaky side is still cited rather than scored.
+
 **Nothing is outstanding.** Every section of the validation notebook now
 has a reference. The `TODO: digitise <FIGURE>` path in `check_overlay`
 still exists and still fires for a missing CSV — it is how a deleted or
@@ -369,6 +403,8 @@ Suggested filenames (matching the notebook section titles):
 | `schmitt_cheng_1987_fig21a_screw_cased_cement1_1cm.csv` | Schmitt & Cheng 1987 fig 21(a) *(shipped)* | cased screw, 1 cm cement 1 |
 | `schmitt_cheng_1987_fig21b_screw_cased_cement1_3cm.csv` | Schmitt & Cheng 1987 fig 21(b) *(shipped)* | cased screw, 3 cm cement 1 |
 | `schmitt_cheng_1987_fig21b_screw_cased_cement2_3cm.csv` | Schmitt & Cheng 1987 fig 21(b) *(shipped)* | cased screw, 3 cm cement 2 |
+| `yang_lv_2022_fig2a_flexural_cased_hard.csv` | Yang et al. 2022 fig 2(a) *(shipped)* | cased flexural, hard formation |
+| `yang_lv_2022_fig2b_flexural_cased_soft.csv` | Yang et al. 2022 fig 2(b) *(shipped)* | cased flexural, **slow** formation |
 | `sinha_asvadurov_2004_fig11a_stoneley_slow.csv` | Sinha & Asvadurov 2004 fig 11(a) *(shipped)* | Stoneley, slow formation |
 | `sinha_asvadurov_2004_fig11a_leaky_compressional_slow.csv` | Sinha & Asvadurov 2004 fig 11(a) *(shipped)* | leaky compressional m=3, slow |
 | `sinha_asvadurov_2004_fig11b_leaky_compressional_group_slow.csv` | Sinha & Asvadurov 2004 fig 11(b) *(shipped)* | same mode's group slowness |

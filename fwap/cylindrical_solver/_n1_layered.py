@@ -553,11 +553,28 @@ def flexural_dispersion_layered(
     ``0.10 - t_casing - t_cement`` and the formation contact stays at
     0.10 m.
 
+    **A second tie, and a slow formation.** Yang et al. (2022) fig 2
+    plots the same mode from vector artwork, and its table 1 gives
+    ``r_n`` as *outer* radii directly, so nothing has to be subtracted.
+    Two of its eight formations have a stated ``V_P`` and density and
+    both ship: the hard one (``V_S`` = 3000) at 0.38 % over 71 of 105
+    points, and the soft one (``V_S`` = 1450, *below* the borehole
+    fluid's 1500) at **0.017 % over 12 of 12** -- the tightest
+    cased-hole tie in the package. That soft curve is bound throughout,
+    every point below ``V_S / V_f``; below its published 15.04 kHz
+    cutoff this function continues the branch as a leaky root, and there
+    is no published curve there to score. See
+    :func:`_fill_slow_cased_leaky_n1`.
+
     References
     ----------
     * Schmitt, D. P., & Cheng, C. H. (1987). Shear wave logging in
       (multilayered) elastic formations: an overview. *MIT Earth
       Resources Laboratory*, 213-268.
+    * Yang, M.-E., Lv, W.-G., Wu, Y., Cui, Z.-W., & Liu, J.-X. (2022).
+      Numerical study of dispersion characteristics of dipole flexural
+      waves in a cased hole with different cement conditions. *Applied
+      Geophysics* 19(1), 29-40. doi:10.1007/s11770-022-0923-9
     """
     layers_tuple = tuple(layers)
     _validate_borehole_layers(layers_tuple)
@@ -783,6 +800,13 @@ def _fill_slow_cased_leaky_n1(
     0.4-0.6 % -- this one cannot be scored against a figure. It is
     covered by tests instead; see
     ``test_the_cased_dipole_of_a_slow_formation_has_no_bound_root_at_all``.
+
+    Yang et al. (2022) fig 2(b) is the nearest thing to a curve for it,
+    and it stops just short: their slow formation's cased dipole is
+    plotted only down to its 15.04 kHz cutoff, where the branch is still
+    bound. :func:`flexural_dispersion_layered` matches that bound part
+    at 0.017 % and then continues *this* branch below it, over
+    12.10-14.75 kHz, with nothing published to compare against.
 
     **The ceiling is a real limit, with a measured example.** The window
     stops at ``min(V_f, min layer V_S)``, and for Schmitt & Cheng's own

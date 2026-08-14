@@ -7,6 +7,44 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **A second, independent tie for the cased-hole dipole — and the first
+  behind casing in a *slow* formation** — Yang et al. (2022) fig 2, two
+  curves, **0.38 %** and **0.017 %** RMS.
+
+  Different group, different decade, and *vector* artwork rather than a
+  raster scan, so the figure is extracted rather than traced: rendered
+  at 600 dpi and separated by ink level and mark size, with the thick
+  grey line taken by its fill colour and the dotted line by its marks
+  being 7×8 px squares where the dashed and dash-dot lines run 16–31 px.
+  Two calibration checks come out of the artwork itself — the panels'
+  gridlines recover to 0.0005 in normalised velocity, and the hard
+  curve's flat top reads 2999.8 m/s against table 1's 3000 (0.007 %),
+  with nothing fitted.
+
+  It is also the same object the solver computes rather than a semblance
+  pick: the paper states `D₁(k_z, ω) = 0` for the dipole flexural mode
+  and `v = ω/k_z`.
+
+  **Two of eight curves ship, and the paper's own table says why.**
+  Figure 2 sweeps eight formations from `V_S` = 3000 down to 1450 m/s,
+  but table 1 gives `V_P` and density for exactly two of them. Scoring
+  the other six would need a `V_P` and a density invented for each.
+
+  **The soft curve is the one that matters.** `V_S` = 1450 m/s sits below
+  the borehole fluid's 1500, putting a slow formation behind 8 mm of
+  steel and 30 mm of cement — the configuration the Schmitt & Cheng entry
+  above could only cite in prose. All twelve of its points are below
+  `V_S/V_f` = 0.9667, so the published branch is **bound**, and
+  `flexural_dispersion_layered` matches it at 0.017 % over 12 of 12.
+
+  **It does not tie the cased *leaky* dipole.** Yang et al. stop at the
+  mode's cutoff, which they give as 15.04 kHz and the traced dots confirm
+  (the first is at 15.13). Below it `fwap` continues the same branch as a
+  leaky root over 12.10–14.75 kHz, above `V_S` and carrying positive
+  radiation attenuation, and there is still no published curve there. The
+  gap recorded above is unchanged; what this adds is a hard tie on the
+  bound side of that cutoff.
+
 - **The cased-hole dipole and quadrupole get their first external
   ties** — Schmitt & Cheng (1987) figs 20 and 21, six traced curves,
   **0.18–0.86 % RMS**. Before these, `flexural_dispersion_layered` and

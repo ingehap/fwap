@@ -23996,3 +23996,132 @@ def test_the_cased_leaky_dipole_can_outrun_the_borehole_fluid():
         assert abs(winding - expected) < 0.05, (
             f"{freq_hz} Hz: {winding:.3f} roots in (V_S, V_f), expected {expected}"
         )
+
+
+# ======================================================================
+# Yang et al. (2022) fig 2 -- the cased dipole, tied a second time and
+# in a slow formation
+# ======================================================================
+#
+#   Yang Meng-En, Lv Wei-Guo, Wu Yang, Cui Zhi-Wen & Liu Jin-Xia (2022).
+#   Numerical study of dispersion characteristics of dipole flexural
+#   waves in a cased hole with different cement conditions.
+#   *Applied Geophysics* 19(1), 29-40. doi:10.1007/s11770-022-0923-9
+#
+# Different group, different decade, vector artwork rather than a raster
+# scan, and -- crucially -- the same object this solver computes: the
+# paper states ``D_1(k_z, omega) = 0`` for the dipole flexural mode and
+# ``v = omega / k_z``, so these are modal roots, not semblance picks off
+# synthetic waveforms.
+#
+# Its table 1 gives ``r_n`` as *outer* radii directly, so unlike
+# Schmitt & Cheng nothing has to be subtracted: the fluid radius is
+# 0.0635 and the layers stack outward to the 0.1016 formation contact.
+#
+# Figure 2 sweeps eight formations from V_S = 3000 down to 1450 m/s, but
+# table 1 gives V_P and density for exactly two of them, so exactly two
+# are scored. The soft one is the point: V_S = 1450 < V_f = 1500 puts a
+# slow formation behind casing, which nothing else in the repository
+# covers with a published curve.
+
+_YANG_HARD = dict(vp=5081.0, vs=3000.0, rho=2490.0, vf=1500.0, rho_f=1000.0)
+_YANG_SOFT = dict(vp=2200.0, vs=1450.0, rho=2160.0, vf=1500.0, rho_f=1000.0)
+_YANG_A = 0.0635
+_YANG_STACK = (
+    BoreholeLayer(vp=6098.0, vs=3354.0, rho=7500.0, thickness=0.0715 - 0.0635),
+    BoreholeLayer(vp=3000.0, vs=1776.0, rho=1900.0, thickness=0.1016 - 0.0715),
+)
+
+
+def _yang_reference(stem: str) -> np.ndarray:
+    data = Path(__file__).resolve().parents[1] / "docs" / "notebooks" / "_data"
+    return np.loadtxt(data / f"yang_lv_2022_{stem}.csv", delimiter=",")
+
+
+def test_cased_flexural_matches_yang_2022_fig2a_hard():
+    """The fast-formation panel, as a control on the reading of table 1.
+
+    Its flat low-frequency top is table 1's V_S to 0.007 % with nothing
+    fitted -- the calibration came from the panel frame and was checked
+    against the figure's own gridlines -- so a mistake in the radius
+    convention or the layer order would show here before the soft
+    panel is reached.
+    """
+    reference = _yang_reference("fig2a_flexural_cased_hard")
+    freq = np.linspace(3500.0, 20000.0, 331)
+    mode = flexural_dispersion_layered(
+        freq, **_YANG_HARD, a=_YANG_A, layers=_YANG_STACK
+    )
+    live = np.isfinite(mode.slowness)
+    inside = (reference[:, 0] >= freq[live].min()) & (
+        reference[:, 0] <= freq[live].max()
+    )
+    assert inside.sum() >= 65, f"only {int(inside.sum())} of {reference.shape[0]}"
+    ours = np.interp(reference[inside, 0], freq[live], mode.slowness[live])
+    residual = (ours - reference[inside, 1]) / reference[inside, 1]
+    assert float(np.sqrt(np.mean(residual**2))) < 0.008
+    # The reference's own fastest point is V_S, which is a statement
+    # about the extraction rather than about fwap.
+    assert abs(1.0 / reference[:, 1].min() - _YANG_HARD["vs"]) < 1.0
+
+
+def test_cased_flexural_matches_yang_2022_fig2b_slow_formation():
+    """A slow formation behind casing, tied to a published curve.
+
+    Section 4b could only cite Schmitt & Cheng's prose for this
+    configuration. Here it is plotted, and every one of the twelve
+    traced points is matched.
+
+    **The published branch is bound, not leaky.** All twelve sit below
+    ``V_S / V_f`` = 0.9667, which is why the bound cased determinant
+    finds them; the assertion below pins that, so a future change that
+    started answering these frequencies from the complex marcher would
+    fail here rather than pass quietly on a different root.
+    """
+    reference = _yang_reference("fig2b_flexural_cased_soft")
+    assert reference.shape[0] == 12
+    # Bound: every reference point is slower than the formation shear.
+    assert np.all(1.0 / reference[:, 1] < _YANG_SOFT["vs"])
+
+    freq = np.linspace(12000.0, 20000.0, 321)
+    mode = flexural_dispersion_layered(
+        freq, **_YANG_SOFT, a=_YANG_A, layers=_YANG_STACK
+    )
+    live = np.isfinite(mode.slowness)
+    ours = np.interp(reference[:, 0], freq[live], mode.slowness[live])
+    residual = (ours - reference[:, 1]) / reference[:, 1]
+    assert float(np.sqrt(np.mean(residual**2))) < 0.001
+    assert float(np.max(np.abs(residual))) < 0.002
+
+    # And fwap answers them from the bound path, not the leaky fill.
+    bound = ~np.isfinite(mode.attenuation_per_meter) & live
+    assert np.all(np.isin(np.searchsorted(freq, reference[:, 0]), np.where(bound)[0]))
+
+
+def test_fwap_continues_the_yang_branch_below_its_published_cutoff():
+    """Where the published curve stops, and what fwap does instead.
+
+    Yang et al. give this mode's cutoff as 15.04 kHz and plot nothing
+    below it; the first traced dot sits at 15.13. `fwap` continues the
+    same branch downward as a **leaky** root -- above ``V_S`` and
+    carrying a positive radiation attenuation -- for another ~2.7 kHz
+    before it too runs out.
+
+    That continuation has no published curve behind it, here or
+    anywhere else found, so this test asserts its character rather than
+    its values: leaky where it is filled, and faster than the formation
+    shear speed throughout. It is the same branch section 4b's
+    Schmitt & Cheng entry is about, seen from the other side of a
+    cutoff that *is* tied.
+    """
+    freq = np.linspace(12000.0, 20000.0, 321)
+    mode = flexural_dispersion_layered(
+        freq, **_YANG_SOFT, a=_YANG_A, layers=_YANG_STACK
+    )
+    leaky = np.isfinite(mode.attenuation_per_meter)
+    assert leaky.sum() > 50
+    assert freq[leaky].max() < 15040.0, "the leaky fill runs past the published cutoff"
+    velocity = 1.0 / mode.slowness[leaky]
+    assert np.all(velocity > _YANG_SOFT["vs"])
+    assert np.all(velocity < _YANG_SOFT["vf"])
+    assert np.all(mode.attenuation_per_meter[leaky] > 0.0)
