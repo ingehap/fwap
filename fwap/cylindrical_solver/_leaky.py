@@ -1982,16 +1982,39 @@ def pseudo_rayleigh_dispersion(
     was grid-dependent; with all three fixed the same comparison lands
     inside budget.
 
-    **Where it degrades.** fwap reaches ``1/V_P`` at 9.17 kHz against
-    the figure's 8.95 -- a 2.5 % offset in the cut-on frequency. The
-    curve is near-vertical there, so that offset dominates both RMS
-    figures, and a *derivative* of it dominates far harder: the group
-    slowness misses by 11.3 % over the full band against fig 2(b),
-    which is why that curve is parked in ``docs/notebooks/_data/pending/``
-    rather than scored over a frequency range chosen to make it pass.
-    The offset is reported as measured; it is not digitising error,
-    since near cut-on the traced curve's frequency is the
-    well-determined coordinate.
+    **Where it degrades, and what the low-frequency end is not.** This
+    routine's curve stops at 9.17 kHz on this formation. That is the
+    ``slowness > 1/V_P`` floor in the validator, **not a cut-on**: the
+    root sails straight through it and can be tracked to 9.02 kHz at
+    263.5 us/m, faster than ``V_P``, still converging. Below the floor
+    the formation P wave ought to radiate too (``leaky_p=True``), which
+    is a different determinant, so the marcher stops rather than follow
+    a root onto a sheet it is not solving.
+
+    The floor is also not near a branch point, which is easy to assume
+    and wrong. At the crossing the root carries ``Im(k_z)`` = 3.4, so
+    ``p = 6.9 + 7.7i`` -- far from the ``p = 0`` compressional branch
+    point. For a strongly damped root "phase slowness equals ``1/V_P``"
+    is a convention, not a physical boundary.
+
+    So "where each curve reaches ``1/V_P``" is the wrong way to compare
+    the low-frequency ends, and an earlier version of this docstring
+    used it, reporting a "2.5 % cut-on offset". The figure's own first
+    point sits at 273.15 us/m against ``C`` = 273.37 -- 0.08 % *faster*
+    than ``V_P``, i.e. Sinha's solver also ran past the boundary and
+    plotted one point beyond it. Compared the fair way, at fixed
+    slowness, the two curves differ by **0.8 % at 280 us/m, 1.2 % at
+    300, and 0.3 % from 380 upward**.
+
+    What is left is a genuine but local shape difference over the first
+    ~0.3 kHz above the crossing, where fwap's curve is about 2.6x
+    steeper. In slowness it costs about a percent; in the *derivative*
+    it costs far more, and that is what keeps fig 2(b)'s group slowness
+    out of ``_data/``: the residual runs +56 % at 9.29 kHz, +36 % at
+    9.49, -2 % by 9.81 and a few percent above 10 kHz, for 11.3 % RMS
+    over the full band against 4.3 % from 10 kHz up. It is parked in
+    ``docs/notebooks/_data/pending/`` rather than scored over a range
+    chosen by where the disagreement stops.
 
     Accuracy of the attenuation
     ---------------------------

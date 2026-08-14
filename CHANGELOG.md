@@ -11,7 +11,9 @@ the project uses [Semantic Versioning](https://semver.org/).
   Asvadurov (2004) fig 2, curve m = 3, fast formation (A). Phase
   slowness **1.06 % RMS over 154 of 161 points** (fig 2(a)); radiation
   attenuation **4.51 % over 153 of 160** (fig 2(c)). Above 10.5 kHz,
-  0.50 % and 1.41 %.
+  0.50 % and 1.41 %. Compared at fixed slowness rather than fixed
+  frequency — the fair way near the steep low-frequency end — the phase
+  curves differ by 0.3-1.2 % throughout.
 
   This was the last leaky solver in the package with no published curve
   behind it, before or after the radiation-branch correction — which is
@@ -45,13 +47,29 @@ the project uses [Semantic Versioning](https://semver.org/).
 - **Sinha fig 2(b) digitised into `_data/pending/`** — the same mode's
   group slowness, and the first entry in that directory that is *not*
   blocked on a missing solver. It misses at **11.32 %** over the full
-  overlap because fwap reaches `1/V_P` at 9.17 kHz against the figure's
-  8.95, a 2.5 % offset in cut-on frequency that differentiation
-  amplifies from the ~1 % it costs the phase curve into double digits.
-  Parked rather than scored above a hand-picked 10.5 kHz floor, since
-  that range is chosen by where the disagreement stops. The offset is
-  reported as measured and is not digitising error: near cut-on the
-  traced curve's frequency is the well-determined coordinate.
+  overlap and is parked rather than scored above a hand-picked 10.5 kHz
+  floor, since that range is chosen by where the disagreement stops.
+
+  **The low-frequency end is a window boundary, not a cut-on.** An
+  earlier version of this entry called it "a 2.5 % offset in cut-on
+  frequency"; investigating it, almost none of that holds. fwap's curve
+  stops at 9.17 kHz because the validator floors the window at
+  `1/V_P` — the root passes straight through and can be tracked to
+  9.02 kHz at 263.5 µs/m, faster than `V_P` and still converging, at
+  which point the P wave ought to radiate too and the determinant is a
+  different one. Nor is the floor near a branch point: `Im(k_z)` = 3.4
+  there, so `p = 6.9 + 7.7i`, far from `p = 0`. And the figure's own
+  first point sits 0.08 % *faster* than `V_P` (273.15 against
+  C = 273.37), so Sinha's solver ran past the boundary too. Compared at
+  fixed slowness the curves differ by 0.8 % at 280 µs/m, 1.2 % at 300
+  and 0.3 % from 380 upward.
+
+  What is real is a local shape difference over the first ~0.3 kHz
+  above the crossing, where fwap's curve is ~2.6× steeper — about a
+  percent in slowness, but the group residual runs +56 % at 9.29 kHz,
+  +36 % at 9.49, −2 % by 9.81 and a few percent above 10 kHz. Not
+  digitising error: Sinha's points there are spaced uniformly in
+  slowness at 1.66 µs/m, so the region is finely sampled in frequency.
 
 - **Sinha & Asvadurov (2004) figs 11(b) and 11(c) digitised and scored** —
   the group slowness and the **radiation attenuation** of the same

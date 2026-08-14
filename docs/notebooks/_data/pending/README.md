@@ -19,10 +19,11 @@ code lands.
 
 Entry 5 breaks that pattern and is the more interesting case. Its solver
 exists and its two sibling curves are scored; this one misses the budget
-because of a small, real, unexplained disagreement near a cut-on. It is
-parked rather than scored over a hand-picked frequency range, because
-choosing the range by where the disagreement stops is the one move this
-directory exists to avoid.
+because of a small, real, still-unexplained shape difference over a
+0.3 kHz stretch at the fast end of the mode's window, which
+differentiating turns into a large one. It is parked rather than scored
+over a hand-picked frequency range, because choosing the range by where
+the disagreement stops is the one move this directory exists to avoid.
 
 ## Contents
 
@@ -125,21 +126,43 @@ slowness (fig 2(a)) and attenuation (fig 2(c)) both sit in `_data/` at
 1.06 % and 4.51 %. This curve misses at **11.32 %** over the full
 overlap, and 3.83 % above 10.5 kHz.
 
-The cause is one number. fwap's m=3 reaches `1/V_P` at 9.17 kHz against
-the figure's 8.95 — a 2.5 % offset in the cut-on frequency. The phase
-curve is near-vertical there, so the offset already costs about a
-percent on fig 2(a); the group slowness is its *derivative*, and near a
-vertical cut-on a derivative amplifies that into double digits.
+**The cause is not what the first pass said.** That reading was "fwap
+reaches `1/V_P` at 9.17 kHz against the figure's 8.95, a 2.5 % cut-on
+offset amplified by differentiation". Investigated, almost none of that
+survives:
+
+* **9.17 kHz is a window boundary, not a cut-on.** The validator floors
+  the search at `slowness > 1/V_P`. The root passes straight through it
+  and can be tracked to 9.02 kHz at 263.5 µs/m — faster than `V_P` and
+  still converging. Below the floor the formation P wave ought to
+  radiate as well, a different determinant, so the marcher stops rather
+  than follow a root onto a sheet it is not solving.
+* **It is not near a branch point.** At the crossing `Im(k_z)` = 3.4, so
+  `p = 6.9 + 7.7i`, far from `p = 0`. For a strongly damped root the
+  `1/V_P` line is a convention, not a physical edge.
+* **The figure's endpoint is not a cut-on either.** Its first traced
+  point sits at 273.15 µs/m against C = 273.37 — 0.08 % *faster* than
+  `V_P`, so Sinha's solver also ran past the boundary and plotted a
+  point beyond it.
+* Compared the fair way, at fixed slowness, the two curves differ by
+  **0.8 % at 280 µs/m, 1.2 % at 300, and 0.3 % from 380 upward** — not
+  2.5 %.
+
+What is real is a **local shape difference over the first ~0.3 kHz above
+the crossing**, where fwap's curve is about 2.6× steeper. In slowness it
+costs about a percent, which is why fig 2(a) still scores 1.06 %. In the
+derivative it costs far more: the group residual runs **+56 % at
+9.29 kHz, +36 % at 9.49, −2 % by 9.81**, then a few percent, giving
+11.3 % RMS over the full band against 4.3 % from 10 kHz up.
 
 It is parked rather than scored over a restricted band because the band
-that would make it pass — above 10.5 kHz — is chosen by where the
-disagreement stops, not by anything physical. Shipping it that way would
-be selecting the range to fit the budget, which is the one move this
-directory exists to avoid.
+that would make it pass is chosen by where the disagreement stops, not
+by anything physical. Shipping it that way would be selecting the range
+to fit the budget, which is the one move this directory exists to avoid.
 
-**What would close it** is understanding the 2.5 % cut-on offset, not a
-tolerance. It is not digitising error: near cut-on the traced curve's
-frequency is the well-determined coordinate, and the trace starts on the
-C line at 273.1 µs/m against C = 273.4. Whether it is a real modelling
-difference or a convergence limit of the marcher near the branch point
-is open.
+**What would close it** is explaining that 2.6× steepness difference in
+the 0.3 kHz above the C-line crossing — a modelling difference, or a
+convergence limit of the marcher where the root is most strongly damped.
+It is not digitising error: Sinha's points there are spaced uniformly in
+slowness at 1.66 µs/m, so that region is finely sampled in frequency,
+not chorded across.

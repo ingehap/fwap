@@ -15845,6 +15845,78 @@ def test_pseudo_rayleigh_attenuation_matches_sinha_fig2c_m3():
     )
 
 
+def test_the_pseudo_rayleigh_low_frequency_end_is_a_window_edge_not_a_cutoff():
+    """What stops the curve at its fast end, measured rather than assumed.
+
+    On Sinha's fast formation this routine returns nothing below
+    9.17 kHz, and it is tempting to read that as the mode's cut-on --
+    an earlier version of this module's write-up did exactly that, and
+    reported a "2.5 % cut-on offset" against the figure. It is not a
+    cut-on. It is the ``slowness > 1/V_P`` floor in the validator, and
+    the root passes straight through it: continued by hand it reaches
+    9.02 kHz at 263.5 us/m, faster than ``V_P``, still converging.
+
+    The marcher stops there for a good reason -- below the floor the
+    formation P wave ought to radiate as well, which is a different
+    determinant -- but "the mode ends here" is not that reason.
+
+    Nor is the floor near a branch point, which is the other tempting
+    assumption. The root is strongly damped there, so ``p`` stays far
+    from the ``p = 0`` compressional branch point.
+    """
+    from fwap.cylindrical_solver import pseudo_rayleigh_dispersion
+    from fwap.cylindrical_solver._bessel import _radial_wavenumber
+    from fwap.cylindrical_solver._leaky import (
+        _modal_determinant_n0_complex,
+        _track_complex_root,
+    )
+
+    freq = np.arange(9000.0, 15300.0, 5.0)
+    mode = pseudo_rayleigh_dispersion(freq, **_PR_SINHA_FAST, branch=1)
+    live = np.isfinite(mode.slowness)
+    edge = float(freq[live].min())
+    assert 9.1e3 < edge < 9.25e3, edge
+    # It stops *at* the floor, not short of it.
+    assert mode.slowness[live][0] == pytest.approx(
+        1.0 / _PR_SINHA_FAST["vp"], rel=5.0e-4
+    )
+
+    # Continue the same root below the floor by hand: it is still there.
+    kz = complex(
+        2.0 * np.pi * edge * mode.slowness[live][0], mode.attenuation_per_meter[live][0]
+    )
+    previous = edge
+    for f in np.arange(edge - 20.0, 9.00e3, -20.0):
+        omega = 2.0 * np.pi * f
+
+        def det(z, omega=omega):
+            return _modal_determinant_n0_complex(
+                z, omega, **_PR_SINHA_FAST, leaky_p=False, leaky_s=True
+            )
+
+        kz = _track_complex_root(det, kz * (f / previous))
+        assert kz is not None, f
+        previous = f
+
+    omega = 2.0 * np.pi * previous
+    slowness_below = kz.real / omega
+    assert slowness_below < 1.0 / _PR_SINHA_FAST["vp"], "root did not cross the C line"
+    assert slowness_below * 1e6 == pytest.approx(263.5, abs=1.0)
+    assert kz.imag > 0.0
+
+    # And at the crossing the root is nowhere near the compressional
+    # branch point, because it is strongly damped: p = 6.9 + 7.7i.
+    omega_edge = 2.0 * np.pi * edge
+    kz_edge = complex(
+        omega_edge * mode.slowness[live][0], mode.attenuation_per_meter[live][0]
+    )
+    assert kz_edge.imag > 3.0
+    p_edge = _radial_wavenumber(
+        kz_edge * kz_edge - (omega_edge / _PR_SINHA_FAST["vp"]) ** 2, leaky=False
+    )
+    assert abs(p_edge) > 5.0, p_edge
+
+
 def test_the_sinha_fig2_m3_branch_is_the_only_root_in_its_window():
     """No ambiguity about *which* root is being scored.
 
