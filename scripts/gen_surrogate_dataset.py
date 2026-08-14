@@ -54,7 +54,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -770,6 +770,68 @@ def default_freq_grid(
     return np.linspace(f_min, f_max, n_freq)
 
 
+#: Missing samples a curve's support may contain without being treated
+#: as two separate segments.
+#:
+#: A modal curve can drop a sample where the tracker stumbles and pick it
+#: straight back up -- the standard cased slow-formation fixture has done
+#: that at one frequency for as long as it has existed -- and a hole that
+#: narrow should not split a branch. A *wide* gap is different in kind:
+#: it is the mode leaving the search window and coming back, and the two
+#: sides are separate segments of the curve with no root between them.
+_SUPPORT_MAX_GAP = 2
+
+
+def principal_support(
+    slowness: np.ndarray, max_gap: int = _SUPPORT_MAX_GAP
+) -> np.ndarray:
+    """
+    Mask selecting the longest usable segment of a modal curve.
+
+    Parameters
+    ----------
+    slowness : ndarray, shape (n_freq,)
+        Modal phase slowness (s/m), ``NaN`` outside the mode's support.
+    max_gap : int, default 2
+        Missing samples tolerated inside a segment. Runs separated by
+        more than this are separate segments.
+
+    Returns
+    -------
+    ndarray of bool, shape (n_freq,)
+        True on the finite samples of the longest segment, False
+        everywhere else. All-False when nothing is finite.
+
+    Notes
+    -----
+    **This exists because interpolation cannot be trusted across a wide
+    gap.** :func:`dispersion_callable` linearly interpolates the finite
+    support, so a curve whose support is one orphaned sample plus a
+    block far away would have a straight line drawn between them --
+    through a band where the solver found no root at all, and where
+    there is none to find. That became reachable when the leaky cased
+    marcher's seeding was rebuilt: it recovers a genuine second leg of
+    the branch at the bottom of the band, which on a coarse grid can be
+    a single sample.
+
+    Keeping the longest segment rather than merging them is the
+    conservative reading: one continuous stretch of a branch is what an
+    interpolant can describe.
+    """
+    finite = np.isfinite(np.asarray(slowness, dtype=float))
+    index = np.flatnonzero(finite)
+    mask = np.zeros(finite.shape, dtype=bool)
+    if index.size == 0:
+        return mask
+    missing = np.diff(index) - 1
+    breaks = np.flatnonzero(missing > max_gap)
+    starts = np.concatenate(([0], breaks + 1))
+    ends = np.concatenate((breaks, [index.size - 1]))
+    widest = int(np.argmax(ends - starts + 1))
+    mask[index[starts[widest]] : index[ends[widest]] + 1] = True
+    return mask & finite
+
+
 def dispersion_callable(mode: BoreholeMode, min_finite: int) -> SlownessOfF | None:
     """
     Build an interpolating ``slowness(f)`` from a solved mode.
@@ -900,12 +962,17 @@ def generate_sample(
             # Physically invalid draw for this solver/regime; leave the
             # curve NaN and skip injection.
             continue
-        slowness[i] = bm.slowness
+        # Keep one continuous segment of the curve. A mode can leave the
+        # solver's search window and come back -- the cased dipole in a
+        # slow formation does exactly that -- and the stored row has to
+        # agree with the arrival injected from it, which is interpolated.
+        keep = principal_support(bm.slowness)
+        slowness[i] = np.where(keep, bm.slowness, np.nan)
         # Leaky modes (e.g. pseudo-Rayleigh) also carry a spatial attenuation
         # rate; bound modes leave it None -> the row stays NaN.
         if bm.attenuation_per_meter is not None:
-            attenuation[i] = bm.attenuation_per_meter
-        callable_s = dispersion_callable(bm, min_finite)
+            attenuation[i] = np.where(keep, bm.attenuation_per_meter, np.nan)
+        callable_s = dispersion_callable(replace(bm, slowness=slowness[i]), min_finite)
         if callable_s is None or not spec.inject:
             # ``inject=False`` keeps the curve and skips the arrival; see
             # :data:`CRACK_WAVE_MODE`.

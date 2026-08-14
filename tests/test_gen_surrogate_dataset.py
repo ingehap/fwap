@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
+
+from fwap.cylindrical_solver import BoreholeMode
 
 _SCRIPT = (
     Path(__file__).resolve().parent.parent / "scripts" / "gen_surrogate_dataset.py"
@@ -369,9 +372,21 @@ def test_slow_two_mode_cased_dataset_carries_both_modes():
     roadmap-A.8 correction removed a spurious bound branch behind stiff
     annuli, and the cased dipole mode is genuinely leaky against a slow
     formation over the lower part of the band. What is left is the
-    Stoneley everywhere plus a contiguous upper sub-band of flexural,
-    which ``require_all_modes=True`` now guarantees is at least
-    ``min_finite`` points wide.
+    Stoneley everywhere plus an upper sub-band of flexural, which
+    ``require_all_modes=True`` now guarantees is at least ``min_finite``
+    points wide.
+
+    **"Contiguous" is asserted against the generator's own rule rather
+    than as bit-exactness.** It used to demand the finite indices equal
+    ``arange(first, last + 1)`` -- no hole of any width -- which held by
+    luck rather than by contract: a modal curve can drop a sample where
+    the tracker stumbles and pick it straight back up, and the standard
+    cased fixture has had exactly one such hole for as long as it has
+    existed. What the dataset actually needs is that the support be a
+    *single segment*, because :func:`gen.dispersion_callable`
+    interpolates across it -- so the check is that no gap exceeds
+    ``gen._SUPPORT_MAX_GAP``, the same threshold
+    :func:`gen.principal_support` splits on.
     """
     freq = gen.default_freq_grid(n_freq=48)
     samples = gen.generate_slow_two_mode_cased_dataset(6, seed=0, freq=freq)
@@ -387,8 +402,10 @@ def test_slow_two_mode_cased_dataset_carries_both_modes():
     for i in range(len(samples)):
         idx = np.flatnonzero(finite[i, 1, :])
         assert idx.size >= 8, f"sample {i}: {idx.size} finite flexural points"
-        assert np.array_equal(idx, np.arange(idx[0], idx[-1] + 1)), (
-            f"sample {i}: flexural coverage is not contiguous"
+        widest = int((np.diff(idx) - 1).max()) if idx.size > 1 else 0
+        assert widest <= gen._SUPPORT_MAX_GAP, (
+            f"sample {i}: flexural support breaks into segments "
+            f"(widest interior gap {widest} samples)"
         )
         assert idx[-1] == freq.size - 1, f"sample {i}: does not reach the top"
     # both modes injected into every gather
@@ -632,3 +649,66 @@ def test_cli_debonded_flag_selects_the_debonded_generator(monkeypatch, tmp_path)
         gen.main(["--debonded", "--n", "1", "--n-freq", "16", "--out", str(out)]) == 0
     )
     assert seen["freq"].size == 16, "an explicit --n-freq still wins"
+
+
+# ----------------------------------------------------------------------
+# principal_support -- one segment per curve
+# ----------------------------------------------------------------------
+
+
+def test_principal_support_keeps_the_longest_segment():
+    """A wide gap splits a curve; a narrow hole does not."""
+    nan = float("nan")
+    # One orphan, then a block: the orphan goes.
+    curve = np.array([nan, 1.0, nan, nan, nan, nan, 2.0, 3.0, 4.0, 5.0])
+    keep = gen.principal_support(curve)
+    assert list(np.flatnonzero(keep)) == [6, 7, 8, 9]
+    # A one-sample hole is a stumble, not a boundary: the segment spans
+    # it, and the mask still selects only the finite samples in it.
+    curve = np.array([1.0, 2.0, nan, 3.0, 4.0])
+    assert list(np.flatnonzero(gen.principal_support(curve))) == [0, 1, 3, 4]
+    # Two missing samples is still inside the tolerance ...
+    curve = np.array([1.0, 2.0, nan, nan, 3.0, 4.0])
+    keep = gen.principal_support(curve)
+    assert list(np.flatnonzero(keep)) == [0, 1, 4, 5]
+    # ... and three is not.
+    curve = np.array([1.0, 2.0, nan, nan, nan, 3.0, 4.0, 5.0])
+    assert list(np.flatnonzero(gen.principal_support(curve))) == [5, 6, 7]
+    # Degenerate inputs.
+    assert not gen.principal_support(np.array([nan, nan])).any()
+    assert gen.principal_support(np.array([7.0])).all()
+
+
+def test_principal_support_stops_interpolation_across_a_wide_gap():
+    """The defect it exists for, stated as a value.
+
+    ``dispersion_callable`` linearly interpolates a curve's finite
+    support. Without a segment rule, an orphaned sample on the far side
+    of a gap drags a straight line through a band where the solver found
+    no root -- and the injected arrival would follow it. With the rule
+    the callable never sees the orphan.
+    """
+    nan = float("nan")
+    freq = np.linspace(1000.0, 10000.0, 10)
+    slowness = np.array(
+        [nan, 9.0e-4, nan, nan, nan, nan, 3.0e-4, 3.1e-4, 3.2e-4, 3.3e-4]
+    )
+    mode = BoreholeMode(
+        name="flexural",
+        azimuthal_order=1,
+        freq=freq,
+        slowness=slowness,
+        attenuation_per_meter=None,
+    )
+    probe = np.array([4000.0])
+    # Unmasked, the interpolant runs between the orphan and the block.
+    naive = gen.dispersion_callable(mode, min_finite=4)
+    assert naive is not None
+    assert 3.3e-4 < float(naive(probe)[0]) < 9.0e-4
+    # Masked to the principal segment it is edge-clamped to the block.
+    keep = gen.principal_support(slowness)
+    trimmed = gen.dispersion_callable(
+        replace(mode, slowness=np.where(keep, slowness, np.nan)), min_finite=4
+    )
+    assert trimmed is not None
+    assert float(trimmed(probe)[0]) == pytest.approx(3.0e-4)
