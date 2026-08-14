@@ -159,6 +159,7 @@ FROZEN_PUBLIC_API: tuple[str, ...] = (
     "flexural_dispersion_layered",
     "flexural_dispersion_vti",
     "pseudo_rayleigh_modal_dispersion",
+    "leaky_compressional_dispersion",
     "trapped_pseudo_rayleigh_dispersion",
     "trapped_pseudo_rayleigh_dispersion_layered",
     "quadrupole_dispersion",

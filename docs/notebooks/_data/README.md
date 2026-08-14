@@ -29,8 +29,11 @@ live in this directory.
 | `sinha_asvadurov_2004_fig6a_flexural_fast.csv` | `flexural_dispersion` | **0.01 %** RMS, 64/114 pts |
 | `sinha_asvadurov_2004_fig15a_flexural_slow.csv` | `flexural_dispersion` | **0.01 %** RMS, 238/238 pts |
 | `sinha_asvadurov_2004_fig11a_stoneley_slow.csv` | `stoneley_dispersion` | **0.01 %** RMS, 204/257 pts |
+| `sinha_asvadurov_2004_fig11a_leaky_compressional_slow.csv` | `leaky_compressional_dispersion` | **0.03 %** RMS, 107/107 pts |
+| `paillet_cheng_1986_fig12a_leaky_compressional_fundamental.csv` | `leaky_compressional_dispersion` (branch 0, `tool_radius` 0.05) | **1.81 %** RMS, 136/170 pts |
+| `paillet_cheng_1986_fig12a_leaky_compressional_first.csv` | `leaky_compressional_dispersion` (branch 2, `tool_radius` 0.05) | **0.35 %** RMS, 65/84 pts |
 
-**The seven Sinha & Asvadurov rows are extracted, not traced**, and that is why
+**The eight Sinha & Asvadurov rows are extracted, not traced**, and that is why
 they score two orders of magnitude tighter than everything else here.
 Sinha & Asvadurov's figures are *vector* artwork, so the curve
 coordinates come out of the PDF drawing operators exactly; there is no
@@ -38,7 +41,7 @@ pixel-tracing error to speak of. The calibration was checked against the
 figures' own dashed reference lines before any curve was read -- fig
 10(a) puts L / S / C at 666.75 / 492.08 / 273.31 us/m against the
 1e6/1500 = 666.67, 1e6/2032 = 492.13 and 1e6/3658 = 273.37 the paper's
-own Table 1 implies, agreeing to 0.02 %. For these seven rows the 5 %
+own Table 1 implies, agreeing to 0.02 %. For these eight rows the 5 %
 budget is therefore measuring the solver rather than the digitising,
 which is not true of the raster-traced rows above. Fig 2(a) carries its
 own anchor: the trapped pseudo-Rayleigh branch begins at 492.1 us/m
@@ -53,6 +56,28 @@ that calibration accuracy). A bound quadrupole cannot be faster than
 V_S, so `quadrupole_dispersion` returns `NaN` there rather than a wrong
 root. The CSVs ship whole; they are not trimmed to the band the solver
 likes.
+
+**The Paillet & Cheng rows are the exception in the other direction.**
+They are a raster scan of a 1986 journal page. The y axis is good --
+the figure's own dotted lines come out at 2.0011 and 1.5039 km/s against
+Table 1's 2.0 and 1.5 -- but the x axis has six unevenly spaced ticks
+whose least-squares residuals reach 0.36 kHz, about **1.4 % of full
+scale**. That is scan distortion and it is not removable by re-tracing,
+so the fundamental's 1.81 % is close to the floor this reference can
+support. They are shipped because they are the **only** external
+evidence the rigid logging tool has: the same fundamental scores 10.66 %
+with `tool_radius` left out.
+
+**The fig 11(a) leaky compressional row is the one that found a bug**,
+and it is worth saying which kind. It is the first *leaky* mode in this
+table -- every other row is a bound mode, and every analytic oracle in
+the notebook looks at a bound mode's real part. `_k_or_hankel`'s
+radiation branch had been two thirds *incoming* since it was written,
+passing every local test it had because those tests are satisfied by
+the incoming wave too. Scored against this curve it gave 0.39 % RMS
+with a spurious +-0.8 % sawtooth and a root growing along the borehole;
+corrected, 0.02 % and smooth. No amount of adding bound-mode overlays
+would have surfaced it.
 
 **One panel needed a different calibration method, and finding out why
 matters.** Deriving the axis scale from the panel's frame rectangle works
@@ -198,6 +223,9 @@ Suggested filenames (matching the notebook section titles):
 | `schmitt_cheng_1987_fig8a_flexural_slow.csv` | Schmitt & Cheng 1987 fig 8(a) *(shipped)*             | flexural, slow sandstone   |
 | `schmitt_cheng_1987_fig2_flexural_fast.csv` | Schmitt & Cheng 1987 fig 2(a) *(shipped)*             | flexural, fast sandstone   |
 | `sinha_asvadurov_2004_fig11a_stoneley_slow.csv` | Sinha & Asvadurov 2004 fig 11(a) *(shipped)* | Stoneley, slow formation |
+| `sinha_asvadurov_2004_fig11a_leaky_compressional_slow.csv` | Sinha & Asvadurov 2004 fig 11(a) *(shipped)* | leaky compressional m=3, slow |
+| `paillet_cheng_1986_fig12a_leaky_compressional_fundamental.csv` | Paillet & Cheng 1986 fig 12(a) *(shipped)* | leaky compressional, shale B + 5 cm tool |
+| `paillet_cheng_1986_fig12a_leaky_compressional_first.csv` | Paillet & Cheng 1986 fig 12(a) *(shipped)* | leaky compressional first mode, same |
 | `sinha_asvadurov_2004_fig6a_flexural_fast.csv` | Sinha & Asvadurov 2004 fig 6(a) *(shipped)* | flexural, fast formation |
 | `sinha_asvadurov_2004_fig15a_flexural_slow.csv` | Sinha & Asvadurov 2004 fig 15(a) *(shipped)* | flexural, slow formation |
 | `sinha_asvadurov_2004_fig10a_quadrupole_fast.csv` | Sinha & Asvadurov 2004 fig 10(a) *(shipped)* | quadrupole, fast formation |

@@ -7,11 +7,34 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`leaky_compressional_dispersion`** — the n=0 leaky compressional mode
+  of a **slow** formation (`V_S < V_f < V_P`), between the formation
+  compressional and borehole-fluid slownesses. Takes `branch` and
+  `tool_radius`. The API guard goes 187 -> 188.
+
+  Scored against **Sinha & Asvadurov (2004) fig 11(a)** curve m=3 at
+  **0.03 % RMS over 107 of 107 points**, the tightest tie in the
+  repository, and against **Paillet & Cheng (1986) fig 12(a)** shale B
+  with its 5 cm centralised tool at **1.81 %** (fundamental, 136/170) and
+  **0.35 %** (first mode, 65/84). The Paillet pair is the first external
+  evidence the `tool_radius` geometry has: the same fundamental scores
+  **10.66 %** with the tool left out.
+
+  `attenuation_per_meter` is **not** externally validated. Sinha fig 11(c)
+  plots a radiation attenuation for this mode and the shape is reproduced
+  — zero at cut-off, broad maximum near 9-10 kHz, slow decline — but the
+  magnitudes differ by a near-constant factor of about 2.2 and the paper
+  states no dB convention, so it is left unscored rather than fitted.
+
 - **Rigid centralised logging-tool geometry.** `stoneley_dispersion` and
   `trapped_pseudo_rayleigh_dispersion` take a `tool_radius` (default
   `0.0`), as do the n=0 determinants via `r_tool`, and `tube_wave_speed`
   gains `tool_radius` plus the `a` it then needs. **No new public names**,
-  so the API guard is unchanged at 187.
+  so the API guard was unchanged at 187 by this entry (it moves to 188
+  with `leaky_compressional_dispersion` above).
+
+  It now has an external tie, which it did not when it landed: Paillet &
+  Cheng (1986) fig 12(a), scored in the entry above.
 
   This is the White & Zechman (1968) model that Paillet & Cheng (1986) use
   — confirmed from that paper rather than assumed: it says the theory was
@@ -60,10 +83,58 @@ the project uses [Semantic Versioning](https://semver.org/).
   floor, so it widens the range of formations supporting a bound tube
   wave.
 
+### Fixed
+- **The leaky radiation branch was two thirds incoming.**
+  `_k_or_hankel(..., leaky=True)` returned
+  `-K_n(z) + i pi (-1)^n I_n(z)`. That *is* a solution of the modified
+  Bessel equation, and it satisfied every property the branch was tested
+  for — consecutive orders of one solution, continuity across the real
+  `k_z` axis, agreement with a Hankel identity on its principal sheet —
+  because the incoming wave satisfies all of them too. Decomposed against
+  the Hankel pair it is `(pi/2) i [H1 + 2 H2]`. The outgoing branch is the
+  same expression with the other sign, and is now what is returned.
+
+  Three independent checks agree: the `H2` content drops from 2.0 to
+  1e-15; the argument principle moves the slow-formation leaky root from
+  `Im(k_z) < 0` (growing along the borehole) to `Im(k_z) > 0`; and that
+  root's slowness against Sinha fig 11(a) goes from 0.39 % RMS with a
+  spurious ±0.8 % sawtooth to 0.02 % RMS, smooth.
+
+  **Every leaky result changes.** Bound modes — Stoneley, flexural,
+  quadrupole, trapped pseudo-Rayleigh, VTI — are untouched, so the
+  externally-scored curves in the validation notebook are unaffected
+  except where noted above.
+
 ### Changed
-- One of the two blockers on the Paillet & Cheng fig 12(a) curves in
-  `_data/pending/` is gone. They needed both a slow-formation
-  leaky-compressional solver and tool geometry; only the former remains.
+- **`pseudo_rayleigh_dispersion` seeds from the branch's trapped
+  cut-off** rather than enumerating roots at the top of the caller's
+  grid. It had to: with the radiation branch corrected there is generally
+  one leaky root in the window rather than a litter of them, and *which*
+  trapped branch's continuation came back under `branch=0` then moved
+  with the grid top. `branch` is now a property of the medium, values
+  agree to ~1e-14 across grid tops from 8 to 100 kHz, and the mode hugs
+  `1/V_S` as the docstring always said instead of trending toward
+  `1/V_P`. A branch index with no reachable cut-off now returns all-NaN
+  instead of raising.
+- **`_LEAKY_CASED_SEED_FLOOR` 0.03 -> 0.002.** The "branch-point pole"
+  it existed to avoid — the object that dipped below `V_S` while
+  carrying positive attenuation — was the incoming contamination. What
+  is there instead emerges *at* `V_S` with zero attenuation, exactly
+  where the bound branch is absorbed, and rises monotonically with the
+  annulus. Roadmap A.9's recorded gap over `V_S_layer / V_S` in
+  [1.28, 1.34] closes with the genuine branch.
+- **The `leaky_radiation_attenuation` bracket is re-measured and named
+  as weaker than it looked.** The ratio to the modal solver was reported
+  as 0.37-1.91 with a stable offset near 0.6; over the band the mode
+  actually occupies it runs 0.11-2.6 with a median near 0.31, collapsing
+  toward zero at the cut-off because the single-bounce picture has no
+  cut-off in it. The offset near 0.6 and the resonance reading are
+  withdrawn.
+
+### Changed
+- ~~One of the two blockers on the Paillet & Cheng fig 12(a) curves in
+  `_data/pending/` is gone.~~ *Both are now gone; the curves are scored
+  in `_data/`. See `leaky_compressional_dispersion` above.*
 
 - **`trapped_pseudo_rayleigh_dispersion_layered`** — cased-hole trapped
   pseudo-Rayleigh, the n=0 pseudo-Rayleigh counterpart of
@@ -170,7 +241,11 @@ the project uses [Semantic Versioning](https://semver.org/).
   between the figure's own C and L lines (1/V_P = 500.0, 1/V_f = 666.7
   us/m), the window a leaky compressional mode occupies.
 
-  **It is doubly unscoreable, and that was known before the work started.**
+  *`_data/pending/` is now empty — both curves were promoted once
+  `leaky_compressional_dispersion` landed, scoring 1.81 % and 0.35 %.
+  The two paragraphs below record what they were waiting for.*
+
+  **It was doubly unscoreable, and that was known before the work started.**
   Shale B is a *slow* formation (`V_S` 1000 < `V_f` 1500), so
   `pseudo_rayleigh_dispersion` — which requires `V_S > V_f` and tracks a
   different, fast-formation mode — cannot run on it. And Table 1 gives shale
