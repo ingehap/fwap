@@ -55,29 +55,12 @@ def test_semblance_in_unit_interval(window):
     assert -1.0e-9 <= rho <= 1.0 + 1.0e-9
 
 
-# Floor on |x| that keeps x**2 above the float64 underflow threshold
-# (smallest normal ~2.2e-308, so |x| >= ~1.5e-154 is safe). Below this
-# the squared sums in ``semblance`` flush to subnormals and the
-# stack-power / trace-power ratio loses scale invariance for purely
-# numerical reasons. Zero is still allowed: an all-zero window is
-# documented to return NaN, which the test already handles.
-_SEMBLANCE_UNDERFLOW_FLOOR = 1.0e-150
-
-_semblance_safe_floats = st.one_of(
-    st.just(0.0),
-    st.floats(
-        min_value=_SEMBLANCE_UNDERFLOW_FLOOR,
-        max_value=100.0,
-        allow_nan=False,
-        allow_infinity=False,
-    ),
-    st.floats(
-        min_value=-100.0,
-        max_value=-_SEMBLANCE_UNDERFLOW_FLOOR,
-        allow_nan=False,
-        allow_infinity=False,
-    ),
-)
+# ``_semblance_safe_floats`` used to live here: a strategy that kept
+# |x| above 1e-150 so the squares in ``semblance`` stayed out of the
+# subnormal range. That was a **test-side workaround for a defect in
+# semblance**, and the defect is now fixed -- the function rescales by
+# a power of two before squaring, so the full float64 range is safe and
+# the strategy is gone. See ``fwap/coherence.py``.
 
 
 @_FAST
@@ -88,7 +71,7 @@ _semblance_safe_floats = st.one_of(
             st.integers(min_value=2, max_value=8),
             st.integers(min_value=4, max_value=32),
         ),
-        elements=_semblance_safe_floats,
+        elements=_finite_floats,
     ),
     alpha=st.floats(
         min_value=1.0e-3,
@@ -102,6 +85,11 @@ def test_semblance_scale_invariant(window, alpha):
 
     Semblance is a ratio of stack power to trace power; multiplying
     every trace by the same scalar cancels out.
+
+    This ran on a restricted strategy until ``semblance`` stopped
+    squaring the raw window. It now sees the whole float64 range, which
+    is where the old implementation broke: agreement is 6e-16 across
+    600 decades of scale.
     """
     rho_a = semblance(window)
     rho_b = semblance(alpha * window)
@@ -255,27 +243,67 @@ def test_stc_returns_expected_shape(n_rec, n_samples, n_slowness):
     n_samples=st.integers(min_value=64, max_value=512),
     slowness=st.floats(min_value=50.0e-6, max_value=300.0e-6, allow_nan=False),
 )
-def test_apply_moveout_preserves_energy(n_rec, n_samples, slowness):
-    """``apply_moveout`` is an approximate isometry in the rFFT sense.
+def test_apply_moveout_energy_loss_is_exactly_the_nyquist_term(
+    n_rec, n_samples, slowness
+):
+    """``apply_moveout`` is an isometry except for one term, in closed form.
 
-    The frequency-domain phase shift modifies only the phase of each
-    bin, so the total spectral magnitude is preserved. The time-domain
-    RMS therefore matches to within the Nyquist-bin floor (real-only
-    constraint forces a tiny amplitude change on even-length inputs).
-    Tolerance 1% relative RMS -- same budget as the one pinned in
-    ``tests/test_wavesep.py``.
+    This test used to assert ``|rms_out - rms_in| / rms_in < 1%``, on the
+    reasoning that a phase shift changes only phase and the real-only
+    Nyquist bin "forces a tiny amplitude change on even-length inputs".
+    The mechanism is right; "tiny" is not. Hypothesis found
+    ``n_rec=2, n_samples=76, slowness=1.68e-4``, where the loss is
+    **1.56 %** -- because for white noise on a short record the Nyquist
+    bin can happen to carry a large share of the energy, and there it
+    held 11.8 % of the spectrum.
+
+    **The implementation is correct and the old property was wrong.** A
+    Nyquist component ``cos(pi n)`` delayed by a fractional ``d``
+    samples is ``cos(pi(n - d)) = cos(pi d) cos(pi n) + sin(pi d)
+    sin(pi n)``, and ``sin(pi n)`` vanishes on every integer sample. So
+    the delayed Nyquist component *is* ``cos(pi d)`` times the original
+    -- exactly what ``irfft`` produces by keeping the real part. The
+    energy really does go, and no better fractional shift exists on the
+    same grid.
+
+    So assert the closed form instead of a budget. Everything below the
+    Nyquist bin is a unitary circular shift, giving
+
+        energy_lost = sum_i X_nyquist,i**2 * sin(pi d_i)**2 / N
+
+    with ``d_i`` the shift in samples. Verified to 7e-16 of total energy
+    across 192 even-length cases while this test was being written --
+    which is a far sharper check than the 1 % it replaces, and it fails
+    if the shift ever stops being unitary anywhere else.
     """
     from fwap.wavesep import apply_moveout
 
     rng = np.random.default_rng(0)
     data = rng.standard_normal((n_rec, n_samples))
     offsets = np.arange(n_rec) * 0.1524
-    shifted = apply_moveout(data, dt=1.0e-5, offsets=offsets, slowness=slowness)
-    rms_in = np.sqrt(np.mean(data**2))
-    rms_out = np.sqrt(np.mean(shifted**2))
-    if rms_in < 1.0e-12:
+    dt = 1.0e-5
+    shifted = apply_moveout(data, dt=dt, offsets=offsets, slowness=slowness)
+
+    energy_in = float(np.sum(data**2))
+    energy_out = float(np.sum(shifted**2))
+    if energy_in < 1.0e-12:
         return
-    assert abs(rms_out - rms_in) / rms_in < 1.0e-2
+
+    if n_samples % 2:
+        # No Nyquist bin: a pure circular shift, unitary to round-off.
+        assert abs(energy_out - energy_in) / energy_in < 1.0e-12
+        return
+
+    shift_samples = (offsets - offsets[0]) * slowness / dt
+    nyquist = np.fft.rfft(data, axis=1)[:, -1].real
+    predicted = float(
+        np.sum(nyquist**2 * np.sin(np.pi * shift_samples) ** 2) / n_samples
+    )
+    assert abs((energy_in - energy_out) - predicted) / energy_in < 1.0e-12
+
+    # ...and the loss is one-directional: a fractional shift can only
+    # take energy out of the Nyquist bin, never add any.
+    assert energy_out <= energy_in * (1.0 + 1.0e-12)
 
 
 @_FAST

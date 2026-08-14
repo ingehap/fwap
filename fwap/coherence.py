@@ -96,7 +96,28 @@ def semblance(window: np.ndarray) -> float:
     needing an energy floor should filter windows upstream -- the
     per-window cost of that check in the inner loop is identical, and
     the appropriate threshold depends on the caller.
+
+    Both sums are formed on a **power-of-two rescaling** of the window
+    rather than on the window itself, because ``x**2`` overflows above
+    ``|x| ~ 1.3e154`` and goes subnormal below ``|x| ~ 1.5e-154``, and
+    the ratio is a ratio of squares. Untreated, semblance returned
+    ``NaN`` for a perfectly coherent window of ``1e160`` and again for
+    one of ``1e-162`` -- neither of which is the all-zero window that
+    ``NaN`` is documented to mean -- and ``1.0000012`` for one of
+    ``1e-159``, which is outside the interval this function promises.
+
+    Scaling by a power of two rather than by the maximum itself is what
+    keeps the repair invisible: every element, every square and every
+    sum scales *exactly*, so ``num`` and ``den`` both pick up the same
+    exact factor and the quotient is **bit-identical** to the unscaled
+    computation wherever that one did not over- or underflow.
     """
+    scale = float(np.max(np.abs(window))) if window.size else 0.0
+    if scale > 0.0 and np.isfinite(scale):
+        # frexp puts the largest magnitude in [0.5, 1), which leaves
+        # both tails of the squaring range a full ~150 decades away.
+        _, exponent = np.frexp(scale)
+        window = np.ldexp(window, -int(exponent))
     stack = np.sum(window, axis=0)
     num = float(np.sum(stack * stack))
     den = window.shape[0] * np.sum(window * window)
@@ -154,6 +175,28 @@ def stc(
     slowness = np.linspace(s_min, s_max, n_slowness)
     L = max(2, int(round(window_length / dt)))
 
+    # Rescale the gather by a power of two before anything is squared.
+    # Coherence is a ratio of squares and so is scale-invariant, but the
+    # squares themselves are not: ``x**2`` overflows above |x| ~ 1.3e154
+    # and goes subnormal below ~1.5e-154, and this routine forms them
+    # twice. Untreated, a gather multiplied by 1e160 -- or by 1e-160 --
+    # returned a coherence map that was **entirely NaN**, for data whose
+    # shape had not changed at all.
+    #
+    # A power of two makes every square and every sum scale exactly, so
+    # ``num`` and ``den`` pick up the same exact factor and every
+    # coherence value is bit-identical to the unscaled computation
+    # wherever that one worked. ``amplitude`` is in data units, not a
+    # ratio, so it is the one output that must be scaled back at the
+    # end; ``den_floor`` is computed after the rescale and so travels
+    # with it.
+    data_exponent = 0
+    peak = float(np.max(np.abs(data))) if data.size else 0.0
+    if peak > 0.0 and np.isfinite(peak):
+        _, data_exponent = np.frexp(peak)
+        data_exponent = int(data_exponent)
+        data = np.ldexp(data, -data_exponent)
+
     # Sliding-window start indices
     t_idx = np.arange(0, n_samp - L + 1, time_step)
     time = t_idx * dt
@@ -198,6 +241,10 @@ def stc(
         amp_k = np.full(n_t, np.nan, dtype=float)
         amp_k[mask] = np.sqrt(num[mask] / L) / n_rec
         amp[k] = amp_k
+
+    # Undo the power-of-two rescale on the one output carrying units.
+    if data_exponent:
+        amp = np.ldexp(amp, data_exponent)
 
     return STCResult(
         slowness=slowness,

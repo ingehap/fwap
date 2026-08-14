@@ -131,6 +131,31 @@ the project uses [Semantic Versioning](https://semver.org/).
   wave.
 
 ### Fixed
+- **`semblance` and `stc` broke at extreme amplitude scales.** Both form
+  `x**2`, which overflows above `|x| ~ 1.3e154` and goes subnormal below
+  `|x| ~ 1.5e-154` — but semblance is a *ratio* of squares and so is
+  scale-invariant, meaning multiplying a gather by a constant should
+  change nothing. It did:
+
+  - `semblance` returned **`1.000000179`** for a perfectly coherent
+    window of `3.71e-159` — outside the `[0, 1]` interval it promises —
+    and **`NaN`** for one of `1e160` or `1e-162`, which the docstring
+    reserves for the all-zero window;
+  - `stc` returned a coherence map that was **entirely `NaN`** for a
+    gather scaled by `1e160` or `1e-160`, for data whose shape had not
+    changed at all.
+
+  Both now rescale by a **power of two** before anything is squared.
+  That choice is what makes the repair invisible: every element, square
+  and sum scales exactly, so numerator and denominator pick up the same
+  exact factor and every result is **bit-identical** to the previous
+  arithmetic wherever that arithmetic worked — verified against the old
+  expression over 500 random windows and 4 full `stc` gathers, not
+  against stored numbers. `stc.amplitude` is the one output carrying
+  units rather than being a ratio, so it is scaled back at the end.
+
+  Found by Hypothesis, which had been reporting these as replayed
+  counterexamples from a local `.hypothesis/` cache that CI never sees.
 - **The leaky radiation branch was two thirds incoming.**
   `_k_or_hankel(..., leaky=True)` returned
   `-K_n(z) + i pi (-1)^n I_n(z)`. That *is* a solution of the modified
@@ -153,6 +178,30 @@ the project uses [Semantic Versioning](https://semver.org/).
   except where noted above.
 
 ### Changed
+- **`test_apply_moveout_preserves_energy` asserted a property that is
+  false**, and is replaced by
+  `..._energy_loss_is_exactly_the_nyquist_term`. It required
+  `|rms_out - rms_in| / rms_in < 1%` on the reasoning that the real-only
+  Nyquist bin forces only a "tiny" amplitude change. Hypothesis found a
+  1.56 % case, where that bin happened to hold 11.8 % of the spectrum.
+
+  **The implementation is correct.** A Nyquist component `cos(pi n)`
+  delayed by a fractional `d` samples is `cos(pi d) cos(pi n)` on the
+  sample grid, because `sin(pi n)` vanishes at every integer — so
+  keeping the real part, as `irfft` does, is exactly right and the
+  energy genuinely goes. The test now asserts the closed form,
+
+      energy_lost = sum_i X_nyquist,i**2 * sin(pi d_i)**2 / N
+
+  to 1e-12 of total energy, with odd-length records required to be
+  isometries to the same tolerance. That is a far sharper check than the
+  1 % budget it replaces, and it fails if the shift ever stops being
+  unitary anywhere below Nyquist.
+- **The `_semblance_safe_floats` strategy is gone.** It kept `|x|` above
+  `1e-150` so Hypothesis would not drive `semblance` into the subnormal
+  range — a test-side workaround for the defect fixed above. The
+  scale-invariance property now runs on the full float64 range and
+  agrees to 6e-16 across 600 decades.
 - **`leaky_compressional_dispersion`'s attenuation is now externally
   validated**, superseding the note added with the function that it
   could not be scored because of an unexplained factor of ~2.2. The
