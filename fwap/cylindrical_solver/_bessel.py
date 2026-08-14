@@ -441,3 +441,86 @@ def _radial_wavenumbers_vti(
     alpha_qSV = float(np.sqrt(alpha_qSV_sq)) if alpha_qSV_sq >= 0.0 else float("nan")
     alpha_SH = float(np.sqrt(alpha_SH_sq)) if alpha_SH_sq >= 0.0 else float("nan")
     return alpha_qP, alpha_qSV, alpha_SH
+
+
+def _rigid_tool_fluid_factors(
+    F: complex,
+    a: float,
+    r_tool: float,
+) -> tuple[complex, complex]:
+    r"""
+    Fluid pressure and radial-displacement factors at ``r = a`` for a
+    borehole containing a rigid centralised logging tool.
+
+    Without a tool the fluid column reaches the axis and regularity
+    there leaves one solution, ``P = A I_0(F r)``, so the modal
+    determinant's fluid column is built from ``I_0(F a)`` and
+    ``I_1(F a)``. A tool makes the fluid an **annulus**
+    ``r_tool < r < a``; the axis is no longer in the domain, ``K_0``
+    is admissible, and the general solution is
+
+    .. math::
+
+        P = A \left[ I_0(F r) + \beta K_0(F r) \right].
+
+    A rigid tool is immovable, so ``u_r(r_tool) = 0``. With
+    ``u_r \propto \mathrm{d}P/\mathrm{d}r
+    = A F [ I_1(F r) - \beta K_1(F r) ]`` that fixes
+
+    .. math::
+
+        \beta = I_1(F\,r_\mathrm{tool}) / K_1(F\,r_\mathrm{tool}),
+
+    and the two factors this helper returns are ``P(a)/A`` and
+    ``(u_r(a) \rho_f \omega^2)/(A F)``. Substituting them for
+    ``I_0(F a)`` and ``I_1(F a)`` is the **entire** change a rigid
+    tool makes to the n=0 modal determinant -- every solid row is
+    untouched, because the tool changes the fluid's radial basis and
+    nothing else.
+
+    This is the White & Zechman (1968) centralised-tool model, the
+    one Paillet & Cheng (1986) use: their table 1 gives a tool
+    *radius* and no tool elastic properties, and their pressure is
+    "measured at the surface of the logging tool (r = R)".
+
+    **The no-tool limit is exact, not approximate.** As
+    ``F r_tool -> 0``, ``I_1 -> F r_tool / 2`` and ``K_1 -> 1 / (F
+    r_tool)``, so ``beta -> (F r_tool)^2 / 2 -> 0``. Rather than rely
+    on that numerically, ``r_tool <= 0`` short-circuits to the plain
+    ``I_0``/``I_1`` pair, which keeps every existing open-hole result
+    bit-identical.
+
+    Parameters
+    ----------
+    F : complex
+        Fluid radial wavenumber (1 / m). Real in the bound regime,
+        imaginary where the fluid field oscillates.
+    a : float
+        Borehole (fluid-formation contact) radius, m.
+    r_tool : float
+        Rigid tool radius, m. ``<= 0`` means no tool. Must be less
+        than ``a``.
+
+    Returns
+    -------
+    tuple of complex
+        ``(Z0, Z1)``, replacing ``I_0(F a)`` and ``I_1(F a)``.
+
+    Raises
+    ------
+    ValueError
+        If ``r_tool >= a``.
+    """
+    if r_tool <= 0.0:
+        return complex(special.iv(0, F * a)), complex(special.iv(1, F * a))
+    if r_tool >= a:
+        raise ValueError(
+            f"tool radius must be smaller than the borehole radius; "
+            f"got r_tool={r_tool}, a={a}"
+        )
+    Fr = F * r_tool
+    beta = complex(special.iv(1, Fr)) / complex(special.kv(1, Fr))
+    Fa = F * a
+    z0 = complex(special.iv(0, Fa)) + beta * complex(special.kv(0, Fa))
+    z1 = complex(special.iv(1, Fa)) - beta * complex(special.kv(1, Fa))
+    return z0, z1
