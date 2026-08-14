@@ -294,3 +294,75 @@ def test_a_solver_curve_scores_against_a_reference_traced_from_itself(tmp_path):
     assert score.passed
     assert score.n_compared == 9
     assert score.rms_relative < 1e-3
+
+
+# ---------------------------------------------------------------------------
+# Attenuation columns: a second quantity through the same loader.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def attenuation_csv(tmp_path):
+    """A dB/m column of the magnitude Sinha & Asvadurov fig 11(c) carries."""
+    freq = np.linspace(3000.0, 15000.0, 21)
+    attenuation = np.linspace(0.06, 0.76, 21)
+    return write_csv(tmp_path, "atten.csv", freq, attenuation)
+
+
+def test_an_attenuation_column_loads_only_when_declared(attenuation_csv):
+    """The default loader must *refuse* it, and say why.
+
+    A dB/m column is three orders of magnitude away from a slowness in
+    s/m, so the existing guard catches it -- and that refusal is the
+    thing worth pinning. If the loader accepted either silently, a
+    slowness CSV named as an attenuation, or the reverse, would be
+    scored against the wrong solver output and could only be caught by
+    the score being absurd.
+    """
+    with pytest.raises(ReferenceDataError, match="plausible slowness band"):
+        load_reference_curve(attenuation_csv)
+
+    curve = load_reference_curve(attenuation_csv, quantity="attenuation")
+    assert curve.n_points == 21
+    assert curve.slowness[0] == pytest.approx(0.06)
+
+
+def test_a_slowness_column_is_not_caught_as_an_attenuation(good_csv):
+    """The reverse direction is *not* caught, and that is not fixable.
+
+    Borehole slowness in s/m runs 1e-5 to 1e-2; radiation attenuation in
+    dB/m runs from a few thousandths near cut-off to tens for a cut-off
+    mode. Those bands overlap, and Sinha fig 11(c) lives in the overlap
+    -- its own values start at 0.0025 dB/m. Narrowing the attenuation
+    band enough to reject a slowness column would reject the real data
+    with it.
+
+    So ``quantity`` is a **declaration, not a detection**: it selects
+    which guard runs, and one direction of that guard is strong while
+    the other is nearly empty. Asserted here so the asymmetry is a
+    recorded property rather than a surprise the day someone trusts it.
+    """
+    curve = load_reference_curve(good_csv, quantity="attenuation")
+    assert curve.n_points == 11
+
+
+def test_an_unknown_quantity_is_rejected_rather_than_defaulted(attenuation_csv):
+    """Silently falling back to "slowness" would be the worst option."""
+    with pytest.raises(ValueError, match="quantity must be"):
+        load_reference_curve(attenuation_csv, quantity="db_per_metre")
+
+
+def test_the_attenuation_guard_cannot_separate_dB_from_nepers(attenuation_csv):
+    """The limitation, asserted so it is not mistaken for a check.
+
+    dB/m and nepers/m differ by 8.686 -- the factor the whole convention
+    question in Sinha fig 11(c) turns on -- and both sit comfortably
+    inside the plausible band. The guard catches a column that is not an
+    attenuation at all; it cannot catch one in the wrong flavour of
+    attenuation, and nothing about it should be read as if it could.
+    """
+    raw = np.loadtxt(attenuation_csv, delimiter=",")
+    nepers = write_csv(
+        attenuation_csv.parent, "nepers.csv", raw[:, 0], raw[:, 1] / 8.686
+    )
+    assert load_reference_curve(nepers, quantity="attenuation").n_points == 21

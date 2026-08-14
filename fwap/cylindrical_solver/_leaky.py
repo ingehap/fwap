@@ -2273,14 +2273,33 @@ def leaky_compressional_dispersion(
     the same curve scores 10.7 % if the tool is left out, so the 5 cm
     inner boundary is doing real work rather than being a detail.
 
-    **Attenuation is not externally validated.** Sinha & Asvadurov
-    fig 11(c) plots a radiation attenuation for this very mode, and
-    the shape is reproduced -- zero at cut-off, a broad maximum near
-    9-10 kHz, a slow decline after -- but the magnitudes differ by a
-    near-constant factor of about 2.2 (drifting 2.30 to 2.14 across
-    the band). The paper states no dB convention, so the factor could
-    not be resolved and the attenuation is *not* scored. Treat
-    ``attenuation_per_meter`` as ``Im(k_z)`` in 1/m and nothing more.
+    **The attenuation is externally validated too**, at **0.32 % RMS
+    over 94 points** against Sinha & Asvadurov fig 11(c) -- but only
+    once the figure's dB convention is applied, and it is not the
+    obvious one. This docstring previously said the attenuation could
+    not be scored because the magnitudes differed by an unexplained
+    factor of about 2.2. They do; the factor is not a constant and it
+    is not arbitrary:
+
+    .. math::
+        \alpha_{\mathrm{Sinha}} \; [\mathrm{dB/m}]
+        \;=\; 8.686 \; \mathrm{Im}(k_z) \; \frac{V_g}{2 V_p}
+
+    where ``V_g = domega/dk_z`` is the group velocity. The paper states
+    no convention anywhere -- all six of its attenuation panels are
+    labelled only "Attenuation (dB/m)" -- so this was not read off the
+    text. It was recovered by inverting the ratio into an implied
+    ``V_g / V_p`` and predicting a group slowness of about 681 us/m,
+    nearly flat above 8 kHz, *before* opening fig 11(b); that panel,
+    calibrated independently, plots 681.7. The prediction holds to
+    **0.65 % RMS over 21 points**, so the relation is confirmed
+    against a curve that played no part in deriving it.
+
+    ``attenuation_per_meter`` itself remains plain ``Im(k_z)`` in 1/m,
+    the spatial decay rate along +z. Converting to Sinha's quantity is
+    the caller's job and needs the group velocity, which this function
+    does not return; the validation notebook shows the two-line
+    conversion.
 
     **There is no low-frequency cut-off on the fundamental**, and this
     docstring claimed one until it was measured. The branch approaches

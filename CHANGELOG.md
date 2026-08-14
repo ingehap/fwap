@@ -7,6 +7,53 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Sinha & Asvadurov (2004) figs 11(b) and 11(c) digitised and scored** —
+  the group slowness and the **radiation attenuation** of the same
+  leaky compressional mode figs 11(a) already ties. Group slowness
+  **0.59 %** RMS over 51/51 points; attenuation **0.32 %** RMS over 93 of
+  99. The attenuation row is the **first reference in the repository that
+  scores an imaginary part** — every other tie, traced figure or analytic
+  oracle, looks at a phase slowness.
+
+  **The dB convention had to be recovered, because the paper states
+  none.** All six of Sinha's attenuation panels are labelled only
+  "Attenuation (dB/m)" with no defining equation. Read naively as
+  `8.686 * Im(k_z)`, fwap comes out ~2.2x high and the factor drifts
+  (2.30 at 4 kHz to 2.14 at 14 kHz). The relation that fits is
+
+      Sinha dB/m = 8.686 * Im(k_z) * (V_g / V_p) / 2
+
+  — a `10*log10` where `20*log10` was assumed, and the loss quoted per
+  metre of energy transport rather than of phase advance.
+
+  It was confirmed the falsifiable way rather than fitted. Inverting the
+  ratio implies a group slowness of about 681 µs/m, nearly flat above
+  8 kHz, and that prediction was written down **before** fig 11(b) was
+  opened; that panel, calibrated independently on its own gridlines,
+  reads 681.7 — agreement to **0.65 % RMS over 21 points** against a
+  curve that played no part in deriving the relation. The fig 11(c)
+  score itself uses fwap's *own* group velocity, so the two references
+  stay independent.
+
+  That cross-check doubles as fig 11(c)'s calibration check, which it
+  cannot otherwise have — attenuation panels carry no dashed reference
+  lines. Fig 11(b) gets its own from fig 11(a): the Stoneley mode is
+  nearly non-dispersive at the top of the band, and its group-to-phase
+  gap closes 1.04 % → 0.42 % from 8 to 15 kHz.
+
+- **`load_reference_curve` takes `quantity="slowness" | "attenuation"`**,
+  selecting which unit guard runs so a dB/m column goes through the same
+  loader and scorer as everything else. **No new public names**, so the
+  API guard is unchanged at 188.
+
+  The attenuation guard is deliberately much weaker than its slowness
+  sibling, and the asymmetry is asserted rather than left implicit: it
+  cannot tell dB/m from nepers/m — the factor 8.686 the convention
+  question above turns on — and it cannot reject a slowness column,
+  because the two plausible bands overlap and fig 11(c)'s own values
+  start at 0.0025 dB/m. `quantity` is a **declaration, not a
+  detection**.
+
 - **`leaky_compressional_dispersion`** — the n=0 leaky compressional mode
   of a **slow** formation (`V_S < V_f < V_P`), between the formation
   compressional and borehole-fluid slownesses. Takes `branch` and
@@ -106,6 +153,13 @@ the project uses [Semantic Versioning](https://semver.org/).
   except where noted above.
 
 ### Changed
+- **`leaky_compressional_dispersion`'s attenuation is now externally
+  validated**, superseding the note added with the function that it
+  could not be scored because of an unexplained factor of ~2.2. The
+  factor is explained above. `attenuation_per_meter` itself is unchanged
+  and still plain `Im(k_z)` in 1/m; converting to Sinha's quantity needs
+  the group velocity and is the caller's job, shown in the notebook.
+
 - **`pseudo_rayleigh_dispersion` seeds from the branch's trapped
   cut-off** rather than enumerating roots at the top of the caller's
   grid. It had to: with the radiation branch corrected there is generally
@@ -131,7 +185,6 @@ the project uses [Semantic Versioning](https://semver.org/).
   cut-off in it. The offset near 0.6 and the resonance reading are
   withdrawn.
 
-### Changed
 - ~~One of the two blockers on the Paillet & Cheng fig 12(a) curves in
   `_data/pending/` is gone.~~ *Both are now gone; the curves are scored
   in `_data/`. See `leaky_compressional_dispersion` above.*

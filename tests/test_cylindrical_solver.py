@@ -7,6 +7,8 @@ parametric checks.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -15581,6 +15583,145 @@ def test_leaky_compressional_branches_are_distinct():
     # propagating branches in slowness, which is the trap.
     assert attenuations[1] > 10.0 * attenuations[0], attenuations
     assert attenuations[1] > 5.0 * attenuations[2], attenuations
+
+
+def test_the_sinha_attenuation_convention_reproduces_its_own_group_slowness():
+    """The relation behind the fig 11(c) score, checked the way it was found.
+
+    Sinha & Asvadurov state no dB convention -- all six of their
+    attenuation panels are labelled only "Attenuation (dB/m)" -- so the
+    one used to score fig 11(c),
+
+        Sinha dB/m = 8.686 * Im(k_z) * (V_g / V_p) / 2
+
+    was recovered rather than read. This test re-runs that recovery in
+    the direction that makes it falsifiable: invert the *measured* ratio
+    between fwap's naive ``8.686 Im(k_z)`` and the digitised fig 11(c)
+    into an implied group slowness, and require it to reproduce the
+    group slowness fig 11(b) plots independently.
+
+    The two panels share nothing but the mode. Fig 11(b) is calibrated
+    on its own gridlines (500-3000 us/m over six lines) and fig 11(c) on
+    its own (0-15 dB/m over four), and neither played any part in
+    producing the other. If the convention were wrong -- or if panel
+    (c)'s y-axis had been mis-calibrated by any factor -- the implied
+    group slowness would be off by that factor and would miss.
+
+    This doubles as the calibration check panel (c) cannot have on its
+    own: attenuation panels carry no dashed reference lines.
+    """
+    from fwap.cylindrical_solver import leaky_compressional_dispersion
+
+    data = Path(__file__).resolve().parents[1] / "docs" / "notebooks" / "_data"
+    attenuation = np.loadtxt(
+        data / "sinha_asvadurov_2004_fig11c_leaky_compressional_attenuation_slow.csv",
+        delimiter=",",
+    )
+    group = np.loadtxt(
+        data / "sinha_asvadurov_2004_fig11b_leaky_compressional_group_slow.csv",
+        delimiter=",",
+    )
+
+    freq = np.arange(2200.0, 15001.0, 25.0)
+    mode = leaky_compressional_dispersion(freq, **_LC_SLOW)
+    live = np.isfinite(mode.slowness)
+    f_live = freq[live]
+    s_live = mode.slowness[live]
+    naive = 8.686 * mode.attenuation_per_meter[live]
+
+    # Only where the reference attenuation is big enough for a ratio to
+    # mean anything, and inside fig 11(b)'s own band.
+    band = (
+        (attenuation[:, 1] > 0.05)
+        & (attenuation[:, 0] >= max(group[:, 0].min(), f_live.min()))
+        & (attenuation[:, 0] <= min(group[:, 0].max(), f_live.max()))
+    )
+    probe = attenuation[band]
+    assert probe.shape[0] > 15
+
+    ours = np.interp(probe[:, 0], f_live, naive)
+    phase = np.interp(probe[:, 0], f_live, s_live)
+    # theirs = ours * (V_g / V_p) / 2  =>  V_g / V_p = 2 * theirs / ours
+    implied_vg_over_vp = 2.0 * probe[:, 1] / ours
+    implied_group_slowness = phase / implied_vg_over_vp
+
+    measured = np.interp(probe[:, 0], group[:, 0], group[:, 1])
+    residual = (implied_group_slowness - measured) / measured
+    rms = float(np.sqrt(np.mean(residual**2)))
+    assert rms < 0.01, f"implied group slowness is {100 * rms:.2f}% RMS off"
+
+    # And the naive reading really is the ~2.2x it was first found to
+    # be -- so the factor is recorded, not silently absorbed.
+    ratio = ours / probe[:, 1]
+    assert 2.0 < float(np.median(ratio)) < 2.4, float(np.median(ratio))
+
+
+def test_leaky_compressional_attenuation_matches_sinha_fig11c():
+    """The imaginary part, scored -- the only such tie in the package.
+
+    Every other external tie in ``docs/notebooks/`` looks at a phase
+    slowness. This one uses fwap's own group velocity to convert
+    ``Im(k_z)`` into Sinha's quantity, so fig 11(b) is not an input and
+    the two scores stay independent.
+    """
+    from fwap.cylindrical_solver import leaky_compressional_dispersion
+
+    data = Path(__file__).resolve().parents[1] / "docs" / "notebooks" / "_data"
+    reference = np.loadtxt(
+        data / "sinha_asvadurov_2004_fig11c_leaky_compressional_attenuation_slow.csv",
+        delimiter=",",
+    )
+
+    freq = np.arange(2200.0, 15001.0, 25.0)
+    mode = leaky_compressional_dispersion(freq, **_LC_SLOW)
+    live = np.isfinite(mode.slowness)
+    f_live = freq[live]
+    s_live = mode.slowness[live]
+    omega = 2.0 * np.pi * f_live
+    group_slowness = np.gradient(omega * s_live, omega)
+    predicted = (
+        8.686 * mode.attenuation_per_meter[live] * (s_live / group_slowness) / 2.0
+    )
+
+    # The floor is not a tolerance: below it the reference is a few
+    # thousandths of a dB/m and a relative budget cannot mean anything.
+    keep = (
+        (reference[:, 1] > 0.05)
+        & (reference[:, 0] >= f_live.min())
+        & (reference[:, 0] <= f_live.max())
+    )
+    assert keep.sum() > 80
+    got = np.interp(reference[keep, 0], f_live, predicted)
+    residual = (got - reference[keep, 1]) / reference[keep, 1]
+    assert float(np.sqrt(np.mean(residual**2))) < 0.01
+    assert float(np.max(np.abs(residual))) < 0.05
+
+
+def test_leaky_compressional_group_slowness_matches_sinha_fig11b():
+    """The group slowness scored on its own, straight from the curve."""
+    from fwap.cylindrical_solver import leaky_compressional_dispersion
+
+    data = Path(__file__).resolve().parents[1] / "docs" / "notebooks" / "_data"
+    reference = np.loadtxt(
+        data / "sinha_asvadurov_2004_fig11b_leaky_compressional_group_slow.csv",
+        delimiter=",",
+    )
+
+    freq = np.arange(2200.0, 15001.0, 25.0)
+    mode = leaky_compressional_dispersion(freq, **_LC_SLOW)
+    live = np.isfinite(mode.slowness)
+    omega = 2.0 * np.pi * freq[live]
+    group_slowness = np.gradient(omega * mode.slowness[live], omega)
+
+    got = np.interp(reference[:, 0], freq[live], group_slowness)
+    residual = (got - reference[:, 1]) / reference[:, 1]
+    assert float(np.sqrt(np.mean(residual**2))) < 0.01
+
+    # A group slowness slower than the phase slowness everywhere the
+    # mode is normally dispersive -- true of the curve, not just of the
+    # match, and it is what makes Sinha's factor bigger than 1/2.
+    phase = np.interp(reference[:, 0], freq[live], mode.slowness[live])
+    assert np.all(got > phase)
 
 
 def test_leaky_compressional_rejects_a_fast_formation():
