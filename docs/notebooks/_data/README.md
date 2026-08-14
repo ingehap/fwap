@@ -6,7 +6,7 @@ live in this directory.
 
 ## Status
 
-**Seventeen curves are shipped, and all seventeen pass.**
+**Nineteen curves are shipped, and all nineteen pass.**
 
 | File | Solver | Score |
 |------|--------|-------|
@@ -20,6 +20,8 @@ live in this directory.
 | `tubman_cheng_toksoz_1984_fig4b_stoneley_cased.csv` | `stoneley_dispersion_layered` | **2.34 %** RMS, 43/43 pts |
 | `tubman_cheng_toksoz_1984_fig4a_pseudo_rayleigh1_open.csv` | `trapped_pseudo_rayleigh_dispersion` (branch 0) | **2.81 %** RMS, 59/59 pts |
 | `tubman_cheng_toksoz_1984_fig4a_pseudo_rayleigh2_open.csv` | `trapped_pseudo_rayleigh_dispersion` (branch 1) | **3.20 %** RMS, 26/26 pts |
+| `tubman_cheng_toksoz_1984_fig4b_pseudo_rayleigh1_cased.csv` | `trapped_pseudo_rayleigh_dispersion_layered` (branch 0) | **3.12 %** RMS, 39/39 pts |
+| `tubman_cheng_toksoz_1984_fig4b_pseudo_rayleigh2_cased.csv` | `trapped_pseudo_rayleigh_dispersion_layered` (branch 1) | **3.84 %** RMS, 24/26 pts |
 | `sinha_asvadurov_2004_fig10a_quadrupole_fast.csv` | `quadrupole_dispersion` | **0.01 %** RMS, 223/257 pts |
 | `sinha_asvadurov_2004_fig19a_quadrupole_slow.csv` | `quadrupole_dispersion` | **0.01 %** RMS, 267/299 pts |
 | `sinha_asvadurov_2004_fig2a_stoneley_fast.csv` | `stoneley_dispersion` | **0.01 %** RMS, 245/245 pts |
@@ -129,7 +131,25 @@ solver defect; that mistake was made and corrected in this branch.
 **Branch identity is measured, not assumed.** Pairing figure curve 1 with
 branch 1, or curve 2 with branch 0, scores **25.9 %** and **27.3 %** against
 the 2.81 % and 3.20 % of the correct pairing. The match picks out the
-branch.
+branch. The cased pair was checked the same way, and the diagonal is just
+as clean: curve 1 scores **3.12 %** against branch 0 and 20.2 % against
+branch 1; curve 2 scores **3.84 %** against branch 1 and 16.7 % against
+branch 0.
+
+**Fig 4(b)'s two pseudo-Rayleigh curves needed a new solver, and the
+reason is worth stating.** They sat in `pending/` because the package had
+no cased pseudo-Rayleigh entry point, and adding one meant a **complex**
+n=0 cased determinant. The real one returns NaN across this entire window
+for two independent reasons: `F_f^2 <= 0` at every phase velocity above
+`V_f`, and any layer with `s^2 <= 0` — which the cement is, since its
+`V_S` is 1728 m/s while the modes run at 1906-2464 m/s.
+
+Neither refusal means the mode is unbound. **Boundedness is set by the
+formation half-space alone**, because only it extends to infinity; an
+annulus of finite thickness may oscillate freely. The formation stays
+evanescent throughout (all 65 points sit below its 2600 m/s `V_S`), so
+`k_z` is real and nothing radiates. The search window is `V_f < c < V_S`
+on the formation, exactly as in the open hole.
 
 **The 2-3 % on all four Tubman ties is expected, not slack digitising.**
 Table 1 carries `Q` — the fluid is `Q_alpha` = 20 — so the published curves

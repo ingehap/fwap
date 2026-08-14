@@ -2752,6 +2752,214 @@ def _modal_determinant_n2_cased(
 # flip to the Hankel branch without touching the assembly.
 
 
+def _layer_e_matrix_n0_complex(
+    kz: complex,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    r: float,
+) -> np.ndarray:
+    """
+    Complex 4x4 mode-amplitude-to-state-vector matrix ``E_n0(r)``
+    at azimuthal order n=0.
+
+    Mirrors :func:`_layer_e_matrix_n0` entry for entry. The two
+    differences are that ``p`` and ``s`` are taken as complex
+    square roots, so a layer whose shear speed is *below* the
+    trial phase velocity is described by oscillatory rather than
+    evanescent radial functions, and that the real version's
+    ``p^2 > 0 and s^2 > 0`` guard is gone.
+
+    That guard is exactly what makes the real n=0 cased
+    determinant unusable for trapped pseudo-Rayleigh modes. In
+    Tubman fig 4(b)'s geometry the cement has ``V_S`` = 1728 m/s
+    while the modes run at 1906-2464 m/s, so the cement layer
+    oscillates. It is still a *bound* mode: boundedness is set by
+    the formation half-space, which stays evanescent, and an
+    intermediate annulus of finite thickness may oscillate freely.
+
+    ``scipy.special.iv`` and ``kv`` accept complex arguments
+    transparently, and in the all-evanescent limit the entries
+    reduce to the real ones.
+
+    Parameters
+    ----------
+    kz : complex
+        Trial axial wavenumber (rad / m). May be complex.
+    omega, vp, vs, rho, r : float
+        Same as :func:`_layer_e_matrix_n0`.
+
+    Returns
+    -------
+    ndarray
+        ``(4, 4)`` complex array; all-NaN if ``r <= 0``.
+    """
+    if r <= 0.0:
+        return np.full((4, 4), np.nan, dtype=complex)
+    kz_c = complex(kz)
+    p = np.sqrt(kz_c * kz_c - (omega / vp) ** 2)
+    s = np.sqrt(kz_c * kz_c - (omega / vs) ** 2)
+    pr = p * r
+    sr = s * r
+    I0_p = complex(special.iv(0, pr))
+    I1_p = complex(special.iv(1, pr))
+    K0_p = complex(special.kv(0, pr))
+    K1_p = complex(special.kv(1, pr))
+    I0_s = complex(special.iv(0, sr))
+    I1_s = complex(special.iv(1, sr))
+    K0_s = complex(special.kv(0, sr))
+    K1_s = complex(special.kv(1, sr))
+    mu = rho * vs * vs
+    kS2 = (omega / vs) ** 2
+    two_kz2_minus_kS2 = 2.0 * kz_c * kz_c - kS2
+
+    E = np.zeros((4, 4), dtype=complex)
+    E[0, 0] = +p * I1_p
+    E[0, 1] = -p * K1_p
+    E[0, 2] = -kz_c * I1_s
+    E[0, 3] = -kz_c * K1_s
+    E[1, 0] = -kz_c * I0_p
+    E[1, 1] = -kz_c * K0_p
+    E[1, 2] = +s * I0_s
+    E[1, 3] = -s * K0_s
+    E[2, 0] = +mu * (two_kz2_minus_kS2 * I0_p - 2.0 * p * I1_p / r)
+    E[2, 1] = +mu * (two_kz2_minus_kS2 * K0_p + 2.0 * p * K1_p / r)
+    E[2, 2] = -2.0 * mu * kz_c * (s * I0_s - I1_s / r)
+    E[2, 3] = +2.0 * mu * kz_c * (s * K0_s + K1_s / r)
+    E[3, 0] = -2.0 * mu * kz_c * p * I1_p
+    E[3, 1] = +2.0 * mu * kz_c * p * K1_p
+    E[3, 2] = +mu * two_kz2_minus_kS2 * I1_s
+    E[3, 3] = +mu * two_kz2_minus_kS2 * K1_s
+    return E
+
+
+def _layer_propagator_n0_complex(
+    kz: complex,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    r_inner: float,
+    r_outer: float,
+) -> np.ndarray:
+    """
+    Complex 4x4 per-layer propagator at azimuthal order n=0.
+
+    Identical algebra to :func:`_layer_propagator_n0` with
+    :func:`_layer_e_matrix_n0_complex` in place of the real
+    builder.
+    """
+    if r_inner == r_outer:
+        return np.eye(4, dtype=complex)
+    E_inner = _layer_e_matrix_n0_complex(kz, omega, vp=vp, vs=vs, rho=rho, r=r_inner)
+    E_outer = _layer_e_matrix_n0_complex(kz, omega, vp=vp, vs=vs, rho=rho, r=r_outer)
+    if not (np.all(np.isfinite(E_inner)) and np.all(np.isfinite(E_outer))):
+        return np.full((4, 4), np.nan, dtype=complex)
+    return np.linalg.solve(E_inner.T, E_outer.T).T
+
+
+def _modal_determinant_n0_cased_complex(
+    kz: complex,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...],
+) -> complex:
+    r"""
+    Complex 7x7 axisymmetric cased-hole modal determinant.
+
+    Fast-regime counterpart of :func:`_modal_determinant_n0_cased`,
+    and the n=0 sister of
+    :func:`_modal_determinant_n1_cased_complex` and
+    :func:`_modal_determinant_n2_cased_complex`.
+
+    The real version refuses two ways that both bite here. It
+    returns NaN when ``F_f^2 <= 0`` -- true for every phase
+    velocity above ``V_f``, which is the whole trapped
+    pseudo-Rayleigh window -- and its layer builder refuses when a
+    layer's ``s^2 <= 0``, which the cement does over that same
+    window in a realistic cased geometry. Neither refusal
+    corresponds to the mode being unbound: the formation
+    half-space stays evanescent throughout, so ``k_z`` is real and
+    the mode carries no radiated energy.
+
+    Parameters
+    ----------
+    kz : complex
+        Trial axial wavenumber (rad / m). Real in ordinary use.
+    omega : float
+        Angular frequency (rad / s).
+    vp, vs, rho : float
+        Formation half-space properties.
+    vf, rho_f : float
+        Borehole-fluid velocity (m / s) and density (kg / m^3).
+    a : float
+        Fluid-column radius (m).
+    layers : tuple of BoreholeLayer
+        Annular layers, ordered outward from the fluid.
+
+    Returns
+    -------
+    complex
+        ``det(M)``. NaN if any layer matrix is non-finite or the
+        scale guard trips.
+    """
+    kz_c = complex(kz)
+    F_f = np.sqrt(kz_c * kz_c - (omega / vf) ** 2)
+    radii = [a]
+    for L in layers:
+        radii.append(radii[-1] + L.thickness)
+    b = radii[-1]
+    L1 = layers[0]
+    E_1_a = _layer_e_matrix_n0_complex(kz_c, omega, vp=L1.vp, vs=L1.vs, rho=L1.rho, r=a)
+    if not np.all(np.isfinite(E_1_a)):
+        return complex("nan")
+    P_total = np.eye(4, dtype=complex)
+    for j, L in enumerate(layers):
+        P_j = _layer_propagator_n0_complex(
+            kz_c,
+            omega,
+            vp=L.vp,
+            vs=L.vs,
+            rho=L.rho,
+            r_inner=radii[j],
+            r_outer=radii[j + 1],
+        )
+        if not np.all(np.isfinite(P_j)):
+            return complex("nan")
+        P_total = P_j @ P_total
+    E_form_b = _layer_e_matrix_n0_complex(kz_c, omega, vp=vp, vs=vs, rho=rho, r=b)
+    if not np.all(np.isfinite(E_form_b)):
+        return complex("nan")
+    scale = float(np.max(np.abs(P_total))) * float(np.max(np.abs(E_1_a)))
+    if not np.isfinite(scale) or scale > np.sqrt(np.finfo(float).max):
+        return complex("nan")
+    v_at_b = P_total @ E_1_a
+    if not np.all(np.isfinite(v_at_b)):
+        return complex("nan")
+    I0_Ff_a = complex(special.iv(0, F_f * a))
+    I1_Ff_a = complex(special.iv(1, F_f * a))
+    M = np.zeros((7, 7), dtype=complex)
+    M[0, 0] = F_f * I1_Ff_a / (rho_f * omega**2)
+    M[0, 1:5] = -E_1_a[0, :]
+    M[1, 0] = -I0_Ff_a
+    M[1, 1:5] = -E_1_a[2, :]
+    M[2, 1:5] = +E_1_a[3, :]
+    for i_state, i_M in zip(range(4), range(3, 7)):
+        M[i_M, 1:5] = +v_at_b[i_state, :]
+        M[i_M, 5] = -E_form_b[i_state, 1]
+        M[i_M, 6] = -E_form_b[i_state, 3]
+    return complex(np.linalg.det(M))
+
+
 def _layer_e_matrix_n1_complex(
     kz: complex,
     omega: float,

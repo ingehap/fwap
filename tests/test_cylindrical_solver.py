@@ -69,6 +69,8 @@ from fwap.cylindrical_solver import (
     stoneley_dispersion,
     stoneley_dispersion_layered,
     stoneley_dispersion_vti,
+    trapped_pseudo_rayleigh_dispersion,
+    trapped_pseudo_rayleigh_dispersion_layered,
 )
 
 
@@ -22563,3 +22565,134 @@ def test_the_cased_curves_order_by_cement_thickness_as_the_paper_says():
         ref_thin = np.interp(f_hz, *zip(*_FIG20A_CEMENT_1CM))
         ref_thick = np.interp(f_hz, *zip(*_FIG20A_CEMENT_3CM))
         assert ref_thick > ref_thin, f"published curves disagree at {f_hz} Hz"
+
+
+# =====================================================================
+# Cased-hole trapped pseudo-Rayleigh (trapped_pseudo_rayleigh_dispersion_layered)
+# =====================================================================
+#
+# The n=0 pseudo-Rayleigh counterpart of stoneley_dispersion_layered.
+# Needed a complex n=0 cased determinant: the real one refuses both for
+# F_f^2 <= 0 (every phase velocity above V_f) and for any layer with
+# s^2 <= 0 (the cement, in a realistic geometry).
+
+
+def _tubman_cased_kwargs() -> dict:
+    """Tubman, Cheng & Toksoz (1984) fig 4(b) geometry, table 1."""
+    from fwap.cylindrical_solver import BoreholeLayer
+
+    ft, inch = 304.8, 0.0254
+    return dict(
+        vp=16.0 * ft,
+        vs=8.53 * ft,
+        rho=2160.0,
+        vf=5.5 * ft,
+        rho_f=1200.0,
+        a=1.85 * inch,
+        layers=(
+            BoreholeLayer(vp=20.0 * ft, vs=11.0 * ft, rho=7500.0, thickness=0.4 * inch),
+            BoreholeLayer(
+                vp=9.26 * ft, vs=5.67 * ft, rho=1920.0, thickness=1.75 * inch
+            ),
+        ),
+    )
+
+
+def test_modal_determinant_n0_cased_complex_matches_real_below_vf():
+    """Where both are defined -- phase velocity below ``V_f``, all media
+    evanescent -- the complex cased determinant reproduces the real one
+    and has a vanishing imaginary part."""
+    from fwap.cylindrical_solver._cased import (
+        _modal_determinant_n0_cased,
+        _modal_determinant_n0_cased_complex,
+    )
+
+    kw = _tubman_cased_kwargs()
+    omega = 2.0 * np.pi * 20000.0
+    for velocity in (1500.0, 1600.0):
+        kz = omega / velocity
+        real = _modal_determinant_n0_cased(kz, omega, **kw)
+        comp = _modal_determinant_n0_cased_complex(kz, omega, **kw)
+        assert np.isfinite(real)
+        np.testing.assert_allclose(comp.real, real, rtol=1e-12)
+        assert abs(comp.imag) <= 1e-12 * abs(comp.real)
+
+
+def test_modal_determinant_n0_cased_complex_finite_where_real_is_nan():
+    """The whole point of the complex variant: it is finite across the
+    trapped window, where the real one returns NaN.
+
+    Both refusals of the real determinant fire here -- the fluid is
+    oscillatory (c > V_f = 1676) and so is the cement (V_S = 1728) -- yet
+    the formation stays evanescent, so the mode is bound."""
+    from fwap.cylindrical_solver._cased import (
+        _modal_determinant_n0_cased,
+        _modal_determinant_n0_cased_complex,
+    )
+
+    kw = _tubman_cased_kwargs()
+    omega = 2.0 * np.pi * 20000.0
+    cement_vs = kw["layers"][1].vs
+    for velocity in (1900.0, 2200.0, 2450.0):
+        assert kw["vf"] < velocity < kw["vs"], "probe must be in the trapped window"
+        assert velocity > cement_vs, "probe must have the cement oscillatory"
+        kz = omega / velocity
+        real = _modal_determinant_n0_cased(kz, omega, **kw)
+        assert np.isnan(real)
+        assert np.isfinite(_modal_determinant_n0_cased_complex(kz, omega, **kw))
+
+
+def test_trapped_pseudo_rayleigh_layered_empty_layers_matches_open_hole():
+    """``layers=()`` must be the open-hole function, not an approximation
+    of it."""
+    vp, vs, rho, vf, rho_f, a = 4000.0, 2300.0, 2500.0, 1500.0, 1000.0, 0.10
+    f = np.linspace(12000.0, 26000.0, 15)
+    got = trapped_pseudo_rayleigh_dispersion_layered(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a
+    )
+    want = trapped_pseudo_rayleigh_dispersion(
+        f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a
+    )
+    np.testing.assert_array_equal(got.slowness, want.slowness)
+    assert got.name == want.name == "trapped_pseudo_rayleigh"
+    assert got.azimuthal_order == 0
+
+
+def test_trapped_pseudo_rayleigh_layered_roots_are_bound():
+    """Every returned root must sit in the trapped window ``V_f < c <
+    V_S`` on the **formation** -- the half-space is what sets
+    boundedness. The cement may, and here does, oscillate."""
+    kw = _tubman_cased_kwargs()
+    f = np.linspace(15000.0, 24500.0, 12)
+    res = trapped_pseudo_rayleigh_dispersion_layered(f, **kw, branch=0)
+    ok = np.isfinite(res.slowness)
+    assert ok.sum() >= 8
+    c = 1.0 / res.slowness[ok]
+    assert np.all(c > kw["vf"]), "root slower than the fluid is a Stoneley mode"
+    assert np.all(c < kw["vs"]), "root faster than formation V_S is not bound"
+    # The regime that motivated the complex determinant.
+    assert np.any(c > kw["layers"][1].vs), "expected cement-oscillatory roots"
+
+
+def test_trapped_pseudo_rayleigh_layered_branch_ordering():
+    """Branch 1 is faster than branch 0 wherever both exist -- roots are
+    ordered by descending ``k_z``, matching the open-hole convention."""
+    kw = _tubman_cased_kwargs()
+    f = np.linspace(19000.0, 24000.0, 8)
+    b0 = trapped_pseudo_rayleigh_dispersion_layered(f, **kw, branch=0)
+    b1 = trapped_pseudo_rayleigh_dispersion_layered(f, **kw, branch=1)
+    both = np.isfinite(b0.slowness) & np.isfinite(b1.slowness)
+    assert both.sum() >= 4
+    assert np.all(b1.slowness[both] < b0.slowness[both])
+
+
+def test_trapped_pseudo_rayleigh_layered_validation():
+    """Input validation mirrors the open-hole original."""
+    kw = _tubman_cased_kwargs()
+    f = np.array([20000.0])
+    with pytest.raises(ValueError, match="fast formation"):
+        trapped_pseudo_rayleigh_dispersion_layered(f, **{**kw, "vs": 1000.0})
+    with pytest.raises(ValueError, match="branch"):
+        trapped_pseudo_rayleigh_dispersion_layered(f, **kw, branch=-1)
+    with pytest.raises(ValueError, match="strictly positive"):
+        trapped_pseudo_rayleigh_dispersion_layered(np.array([-1.0]), **kw)

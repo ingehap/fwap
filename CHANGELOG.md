@@ -7,6 +7,50 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`trapped_pseudo_rayleigh_dispersion_layered`** — cased-hole trapped
+  pseudo-Rayleigh, the n=0 pseudo-Rayleigh counterpart of
+  `stoneley_dispersion_layered`. With `layers=()` it dispatches to the
+  open-hole solver and is bit-equivalent to it.
+
+  Both Tubman, Cheng & Toksoz (1984) fig 4(b) pseudo-Rayleigh curves move
+  from `_data/pending/` to `_data/` and score **3.12 %** (branch 0, 39/39
+  points) and **3.84 %** (branch 1, 24/26). Nineteen curves ship, and
+  section 4 is complete at 6 of 6. Both land in the 2-4 % band the other
+  four Tubman ties occupy, which is the documented `Q` = 20 floor rather
+  than slack.
+
+  **Branch identity is measured, not assumed**, as for the open-hole pair.
+  The diagonal is clean: curve 1 scores 3.12 % against branch 0 and 20.2 %
+  against branch 1; curve 2 scores 3.84 % against branch 1 and 16.7 %
+  against branch 0.
+
+  New internals: `_layer_e_matrix_n0_complex`,
+  `_layer_propagator_n0_complex`, `_modal_determinant_n0_cased_complex` —
+  the n=0 members of a complex-cased family that already had n=1 and n=2.
+
+  **Why a complex determinant was needed, and what it is *not*.** The real
+  n=0 cased determinant returns NaN across this entire window for two
+  independent reasons: `F_f^2 <= 0` at every phase velocity above `V_f`,
+  and any layer with `s^2 <= 0` — which the cement is, its `V_S` being
+  1728 m/s while the modes run at 1906-2464 m/s. Neither refusal means the
+  mode is unbound. **Boundedness is set by the formation half-space
+  alone**, because only it extends to infinity; an annulus of finite
+  thickness may oscillate freely. All 65 reference points sit below the
+  formation's 2600 m/s `V_S`, `k_z` is real, and nothing radiates. So the
+  search window is `V_f < c < V_S` on the formation, exactly as in the
+  open hole — this is not a leaky-mode solver.
+
+  Which part of the complex determinant carries the signal is **measured**
+  by `_real_root_function` rather than assumed. It is `Re` at n=0, by
+  about fifteen orders of magnitude — but assuming that parity is how the
+  n=2 open-hole path was wrong for as long as it existed (roadmap A.7).
+
+  **Cost.** Each frequency is a 2000-sample scan of a 7x7 complex
+  determinant, roughly 0.5 s. `samples` is a correctness-critical
+  parameter shared with the open-hole path and was left alone rather than
+  tuned down for CI time; the notebook uses coarse grids (40 and 30
+  points) instead, and its runtime goes from ~35 s to ~84 s.
+
 - **`flexural_dispersion_vti` supports fast-formation TI** (`V_Sv > V_f`).
   It raised `NotImplementedError` there from the day it shipped; the
   deferred complex-determinant mirror of

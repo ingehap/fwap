@@ -9,7 +9,7 @@ record a gap.
 Nothing in the notebook reads this directory.
 
 **In every case here the solver is what is missing, not the digitising.**
-Entries 2 and 3 are finished references at the fidelity of the rest of the
+Entry 3 is a finished reference at the fidelity of the rest of the
 repository. Entry 4 is the exception worth naming: its reference is
 complete, but it is a raster scan whose x-axis calibration carries about
 1.4 % of scan distortion, so it is a lower-grade curve than anything in
@@ -19,8 +19,6 @@ complete, but it is a raster scan whose x-axis calibration carries about
 
 | File | Source | Blocked on |
 |------|--------|------------|
-| `tubman_..._fig4b_pseudo_rayleigh1_cased.csv` | Tubman/Cheng/Toksoz 1984 fig 4(b) | no cased pseudo-Rayleigh API |
-| `tubman_..._fig4b_pseudo_rayleigh2_cased.csv` | Tubman/Cheng/Toksoz 1984 fig 4(b) | no cased pseudo-Rayleigh API |
 | `sinha_..._fig11a_leaky_compressional_slow.csv` | Sinha & Asvadurov 2004 fig 11(a) | no slow-formation leaky-compressional solver |
 | `paillet_cheng_1986_fig12a_..._fundamental.csv` | Paillet & Cheng 1986 fig 12(a) | same, **and** no logging-tool geometry |
 | `paillet_cheng_1986_fig12a_..._first.csv` | Paillet & Cheng 1986 fig 12(a) | same, **and** no logging-tool geometry |
@@ -38,20 +36,19 @@ is (17 of 73): the fast-formation marcher returns `NaN` outside a narrow
 band rather than a wrong root. That was predicted in this file before the
 solver existed, and it held.
 
-## 2. Cased-hole pseudo-Rayleigh, two branches
+## 2. ~~Cased-hole pseudo-Rayleigh, two branches~~ — promoted
 
-From Tubman, K. M., Cheng, C. H., & Toksoz, M. N. (1984), *Geophysics*
-**49**(7), 1051-1059, fig 4(b). Same figure and same verified geometry as
-the cased Stoneley curve that scores 2.34 % in `_data/` — fluid radius
-1.85 in, 0.4 in steel, 1.75 in cement, formation contact at 4.0 in.
+*Closed.* `trapped_pseudo_rayleigh_dispersion_layered` now exists, so both
+Tubman fig 4(b) curves moved up to `_data/` and score **3.12 %** and
+**3.84 %** RMS. As predicted here, it needed a new public function rather
+than a new argument to an existing one.
 
-**The package has no cased pseudo-Rayleigh entry point.**
-`stoneley_dispersion_layered`, `flexural_dispersion_layered` and
-`quadrupole_dispersion_layered` cover n = 0, 1 and 2 for cased geometries,
-but `trapped_pseudo_rayleigh_dispersion` takes no `layers` argument, so
-there is nothing to call. Promoting these needs a new public function, not
-a new argument to an existing one — so it is API work, and belongs behind
-an issue rather than being bolted on.
+What was not predicted here is *why* it was hard. It needed a **complex**
+n=0 cased determinant, because the real one refuses twice over this
+window — once for the oscillatory fluid, and once because the cement's
+`V_S` (1728 m/s) sits below the modes' 1906-2464 m/s. Neither refusal
+means the mode is unbound: only the formation half-space governs that,
+and it stays evanescent throughout.
 
 ## 3. Slow-formation leaky compressional mode
 
