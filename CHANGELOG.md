@@ -7,6 +7,78 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`pseudo_rayleigh_dispersion` has an external tie at last** — Sinha &
+  Asvadurov (2004) fig 2, curve m = 3, fast formation (A). Phase
+  slowness **1.06 % RMS over 154 of 161 points** (fig 2(a)); radiation
+  attenuation **4.51 % over 153 of 160** (fig 2(c)). Above 10.5 kHz,
+  0.50 % and 1.41 %. Compared at fixed slowness rather than fixed
+  frequency — the fair way near the steep low-frequency end — the phase
+  curves differ by 0.3-1.2 % throughout.
+
+  This was the last leaky solver in the package with no published curve
+  behind it, before or after the radiation-branch correction — which is
+  precisely how that defect survived, since every other tie looks at a
+  bound mode.
+
+  **The curve is `branch=1`, and that is why it was missed.** Sinha names
+  it a *leaky compressional* mode, but in a **fast** formation that
+  window, `1/V_P < s < 1/V_S`, is the one this function tracks. The
+  formation's trapped branches cut off at 7.45 and 15.6 kHz and m=3 is
+  the second one's continuation, so it is index 1; index 0's continuation
+  lives below 7.45 kHz, off the figure. An argument-principle count finds
+  exactly one root in that window at every frequency, so the
+  identification rests on a count rather than on the overlay agreeing.
+
+  An earlier attempt at exactly this comparison returned **11.3 %** and
+  was rejected as the wrong mode. It was the wrong branch index, on a
+  contaminated radiation branch, with grid-dependent seeding; with all
+  three fixed it lands at 1.06 %. The rejection was right on the evidence
+  available — the lesson is that "wrong mode" was one of three things
+  wrong at once.
+
+  The attenuation is scored through the dB convention recovered on
+  fig 11, applied here to a different formation, figure and branch index
+  with nothing re-derived. That transfer is stronger evidence than a
+  repeated constant: the correction factor is `2 V_p / V_g`, so it
+  genuinely differs — the naive `8.686 Im(k_z)` reading overshoots by a
+  median **4.15x** here against **2.2x** there — and the relation still
+  lands inside budget at both.
+
+- **Sinha fig 2(b) digitised into `_data/pending/`** — the same mode's
+  group slowness, and the first entry in that directory that is *not*
+  blocked on a missing solver. It misses at **11.32 %** over the full
+  overlap and is parked rather than scored above a hand-picked 10.5 kHz
+  floor, since that range is chosen by where the disagreement stops.
+
+  **The low-frequency end is a window boundary, not a cut-on.** An
+  earlier version of this entry called it "a 2.5 % offset in cut-on
+  frequency"; investigating it, almost none of that holds. fwap's curve
+  stops at 9.17 kHz because the validator floors the window at
+  `1/V_P` — the root passes straight through and can be tracked to
+  9.02 kHz at 263.5 µs/m, faster than `V_P` and still converging, at
+  which point the P wave ought to radiate too and the determinant is a
+  different one. Nor is the floor near a branch point: `Im(k_z)` = 3.4
+  there, so `p = 6.9 + 7.7i`, far from `p = 0`. And the figure's own
+  first point sits 0.08 % *faster* than `V_P` (273.15 against
+  C = 273.37), so Sinha's solver ran past the boundary too. Compared at
+  fixed slowness the curves differ by 0.8 % at 280 µs/m, 1.2 % at 300
+  and 0.3 % from 380 upward.
+
+  What is real is a local **curvature** difference below about
+  295 µs/m — the first ~0.35 kHz above the crossing — and it is not a
+  shift, since the two curves *cross* near 9.3 kHz. fwap leaves the C
+  line at a near-constant 70 µs/m per kHz; Sinha's hugs it at 29 and
+  steepens to 76 by 300 µs/m, after which the slopes agree to ~10 %.
+  Three explanations were tested and eliminated: **not calibration**
+  (the m=2 branch on the same panel scores 0.01 % over 161/162), **not
+  the root finder** (the argument principle counts one root, and hand
+  continuation at 20 Hz reproduces the locus), **not the P sheet** (no
+  `leaky_p=True` root exists in the window below 10 kHz). About a
+  percent in slowness; the group residual runs +56 % at 9.29 kHz,
+  +36 % at 9.49, −2 % by 9.81 and a few percent above 10 kHz. The open
+  question is now narrow: why does Sinha's m=3 hug the C line for
+  ~0.35 kHz where fwap's leaves it at constant slope?
+
 - **Sinha & Asvadurov (2004) figs 11(b) and 11(c) digitised and scored** —
   the group slowness and the **radiation attenuation** of the same
   leaky compressional mode figs 11(a) already ties. Group slowness

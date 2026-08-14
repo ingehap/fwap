@@ -1953,6 +1953,95 @@ def pseudo_rayleigh_dispersion(
     hybrid solver loses it, and the resulting NaNs mark roughly where
     the mode stops being observable rather than a search failure.
 
+    Validation
+    ----------
+    Scored against **Sinha & Asvadurov (2004) fig 2, curve m = 3** --
+    fast formation (A), ``V_P`` 3658, ``V_S`` 2032 m/s, ``rho`` 2350,
+    water, ``a`` = 0.1016 m -- at **1.06 % RMS over 154 of 161 points**
+    on the phase slowness, and **4.51 % over 153 of 160** on the
+    radiation attenuation of fig 2(c). Above 10.5 kHz those fall to
+    0.50 % and 1.41 %. The attenuation is scored through the dB
+    convention recovered in :func:`leaky_compressional_dispersion`'s
+    notebook section, applied here to a different formation, figure and
+    branch index with nothing re-derived -- and the correction factor
+    is ``2 V_p / V_g``, so it genuinely differs (a median 4.15x here
+    against 2.2x there) rather than being a constant that might have
+    matched by luck.
+
+    That curve is ``branch=1`` here, not ``branch=0``, and the reason is
+    the family structure above: this formation's trapped branches cut
+    off at 7.45 and 15.6 kHz, and m=3 leaves ``1/V_S`` at the top of the
+    plotted band to reach ``1/V_P`` at 8.95 kHz, so it is branch 1's
+    continuation. ``branch=0``'s lives below 7.45 kHz, off that figure.
+
+    **This function had no external tie until then**, which is worth
+    stating plainly because it is how the radiation-branch defect
+    survived: an earlier attempt to score it against this very curve
+    returned 11.3 % and was correctly rejected as the wrong mode. It was
+    the wrong mode *and* the branch was contaminated *and* the seeding
+    was grid-dependent; with all three fixed the same comparison lands
+    inside budget.
+
+    **Where it degrades, and what the low-frequency end is not.** This
+    routine's curve stops at 9.17 kHz on this formation. That is the
+    ``slowness > 1/V_P`` floor in the validator, **not a cut-on**: the
+    root sails straight through it and can be tracked to 9.02 kHz at
+    263.5 us/m, faster than ``V_P``, still converging. Below the floor
+    the formation P wave ought to radiate too (``leaky_p=True``), which
+    is a different determinant, so the marcher stops rather than follow
+    a root onto a sheet it is not solving.
+
+    The floor is also not near a branch point, which is easy to assume
+    and wrong. At the crossing the root carries ``Im(k_z)`` = 3.4, so
+    ``p = 6.9 + 7.7i`` -- far from the ``p = 0`` compressional branch
+    point. For a strongly damped root "phase slowness equals ``1/V_P``"
+    is a convention, not a physical boundary.
+
+    So "where each curve reaches ``1/V_P``" is the wrong way to compare
+    the low-frequency ends, and an earlier version of this docstring
+    used it, reporting a "2.5 % cut-on offset". The figure's own first
+    point sits at 273.15 us/m against ``C`` = 273.37 -- 0.08 % *faster*
+    than ``V_P``, i.e. Sinha's solver also ran past the boundary and
+    plotted one point beyond it. Compared the fair way, at fixed
+    slowness, the two curves differ by **0.8 % at 280 us/m, 1.2 % at
+    300, and 0.3 % from 380 upward**.
+
+    What is left is a genuine but local **curvature** difference. It
+    lives entirely below about 295 us/m -- the first ~0.35 kHz above the
+    crossing -- and it is not a shift: the two curves *cross* near
+    9.3 kHz. fwap leaves the C line at a near-constant 70 us/m per kHz,
+    while Sinha's curve hugs the line at 29 and steepens to 76 by
+    300 us/m, after which the two slopes agree to about 10 %.
+
+    Three explanations were tested and eliminated:
+
+    * **Not calibration.** The m=2 trapped branch on the *same panel*,
+      read with the same gridlines, scores 0.01 % RMS over 161 of 162
+      points.
+    * **Not the root finder.** The argument principle counts exactly
+      one root in the window at every frequency, and continuing the
+      root by hand at 20 Hz steps reproduces the same locus the
+      marcher returns.
+    * **Not the P sheet.** There is no ``leaky_p=True`` root anywhere
+      in the window below 10 kHz, so the disagreement is not fwap
+      solving on the wrong side of the compressional branch cut.
+
+    What is known about the reference there is that its extreme low end
+    is not trustworthy at the 0.1 % level: its first point sits 0.08 %
+    *faster* than ``V_P``, which this branch cannot be. That covers the
+    first point, not the 0.35 kHz stretch.
+
+    So the open question is narrow and specific: **why does Sinha's m=3
+    hug the C line for ~0.35 kHz where fwap's leaves it at constant
+    slope?** In slowness it costs about a percent, which is why fig 2(a)
+    still scores 1.06 %. In the *derivative* it costs far more, and that
+    is what keeps fig 2(b)'s group slowness out of ``_data/``: the
+    residual runs +56 % at 9.29 kHz, +36 % at 9.49, -2 % by 9.81 and a
+    few percent above 10 kHz, for 11.3 % RMS over the full band against
+    4.3 % from 10 kHz up. It is parked in
+    ``docs/notebooks/_data/pending/`` rather than scored over a range
+    chosen by where the disagreement stops.
+
     Accuracy of the attenuation
     ---------------------------
     ``attenuation_per_meter`` has been checked against

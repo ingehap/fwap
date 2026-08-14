@@ -34,8 +34,10 @@ live in this directory.
 | `paillet_cheng_1986_fig12a_leaky_compressional_first.csv` | `leaky_compressional_dispersion` (branch 2, `tool_radius` 0.05) | **0.35 %** RMS, 65/84 pts |
 | `sinha_asvadurov_2004_fig11b_leaky_compressional_group_slow.csv` | `leaky_compressional_dispersion` (group slowness) | **0.59 %** RMS, 51/51 pts |
 | `sinha_asvadurov_2004_fig11c_leaky_compressional_attenuation_slow.csv` | `leaky_compressional_dispersion` (**attenuation**) | **0.32 %** RMS, 93/99 pts |
+| `sinha_asvadurov_2004_fig2a_leaky_compressional_fast.csv` | `pseudo_rayleigh_dispersion` (branch 1) | **1.06 %** RMS, 154/161 pts |
+| `sinha_asvadurov_2004_fig2c_leaky_compressional_attenuation_fast.csv` | `pseudo_rayleigh_dispersion` (**attenuation**, branch 1) | **4.51 %** RMS, 153/160 pts |
 
-**The ten Sinha & Asvadurov rows are extracted, not traced**, and that is why
+**The twelve Sinha & Asvadurov rows are extracted, not traced**, and that is why
 they score two orders of magnitude tighter than everything else here.
 Sinha & Asvadurov's figures are *vector* artwork, so the curve
 coordinates come out of the PDF drawing operators exactly; there is no
@@ -43,7 +45,7 @@ pixel-tracing error to speak of. The calibration was checked against the
 figures' own dashed reference lines before any curve was read -- fig
 10(a) puts L / S / C at 666.75 / 492.08 / 273.31 us/m against the
 1e6/1500 = 666.67, 1e6/2032 = 492.13 and 1e6/3658 = 273.37 the paper's
-own Table 1 implies, agreeing to 0.02 %. For these ten rows the 5 %
+own Table 1 implies, agreeing to 0.02 %. For these twelve rows the 5 %
 budget is therefore measuring the solver rather than the digitising,
 which is not true of the raster-traced rows above. Fig 2(a) carries its
 own anchor: the trapped pseudo-Rayleigh branch begins at 492.1 us/m
@@ -104,6 +106,30 @@ check from fig 11(a): the Stoneley mode is nearly non-dispersive at the
 top of the band, and the gap between its group and phase slownesses
 closes 1.04 % -> 0.42 % from 8 to 15 kHz, which a scale error could not
 produce.
+
+**The two fig 2 rows closed the last gap in the table.** Until they
+landed, `pseudo_rayleigh_dispersion` was the only leaky solver in the
+package with no published curve behind it — before or after the
+radiation-branch correction, which is exactly how that defect survived
+so long. Sinha calls the curve a *leaky compressional* mode, which is
+why it sat unclaimed: in a **fast** formation that window,
+`1/V_P < s < 1/V_S`, is the one `pseudo_rayleigh_dispersion` tracks, and
+the curve is `branch=1` because this formation's trapped branches cut
+off at 7.45 and 15.6 kHz and m=3 is the second one's continuation.
+
+An earlier attempt at exactly this comparison returned **11.3 %** and
+was rejected as the wrong mode. It was the wrong branch index, on a
+contaminated radiation branch, with grid-dependent seeding; with all
+three fixed the same comparison lands at 1.06 %. The lesson is not that
+the rejection was wrong — it was right on the evidence available — but
+that "wrong mode" was one of three things wrong at once.
+
+Both rows degrade at the cut-on, where fwap reaches `1/V_P` at 9.17 kHz
+against the figure's 8.95 — a 2.5 % offset in frequency, on a curve that
+is near-vertical there. That offset is reported as measured rather than
+absorbed: near cut-on the traced curve's *frequency* is the
+well-determined coordinate, so this is not digitising error. Its
+derivative is what could not be shipped — see `pending/README.md`.
 
 **The fig 11(a) leaky compressional row is the one that found a bug**,
 and it is worth saying which kind. It is the first *leaky* mode in this
@@ -259,6 +285,8 @@ Suggested filenames (matching the notebook section titles):
 |---------------------------------------|--------------------------------------------------------------|----------------------------|
 | `sinha_asvadurov_2004_fig2a_stoneley_fast.csv` | Sinha & Asvadurov 2004 fig 2(a) *(shipped)* | Stoneley, fast formation |
 | `sinha_asvadurov_2004_fig2a_pseudo_rayleigh_fast.csv` | Sinha & Asvadurov 2004 fig 2(a) *(shipped)* | trapped pseudo-Rayleigh, fast |
+| `sinha_asvadurov_2004_fig2a_leaky_compressional_fast.csv` | Sinha & Asvadurov 2004 fig 2(a) *(shipped)* | leaky m=3, fast formation |
+| `sinha_asvadurov_2004_fig2c_leaky_compressional_attenuation_fast.csv` | Sinha & Asvadurov 2004 fig 2(c) *(shipped)* | same mode's attenuation, **dB/m** |
 | `schmitt_cheng_1987_fig8a_flexural_slow.csv` | Schmitt & Cheng 1987 fig 8(a) *(shipped)*             | flexural, slow sandstone   |
 | `schmitt_cheng_1987_fig2_flexural_fast.csv` | Schmitt & Cheng 1987 fig 2(a) *(shipped)*             | flexural, fast sandstone   |
 | `sinha_asvadurov_2004_fig11a_stoneley_slow.csv` | Sinha & Asvadurov 2004 fig 11(a) *(shipped)* | Stoneley, slow formation |

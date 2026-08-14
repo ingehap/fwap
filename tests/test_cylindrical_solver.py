@@ -15740,6 +15740,218 @@ def test_leaky_compressional_rejects_a_fast_formation():
         leaky_compressional_dispersion(np.array([8000.0]), **_LC_SLOW, branch=-1)
 
 
+# Sinha & Asvadurov (2004) Table 1 fast formation (A) -- the geometry
+# pseudo_rayleigh_dispersion is scored on, fig 2 curve m=3.
+_PR_SINHA_FAST = dict(
+    vp=3658.0, vs=2032.0, rho=2350.0, vf=1500.0, rho_f=1000.0, a=0.1016
+)
+
+
+def _sinha_fig2_reference(name):
+    data = Path(__file__).resolve().parents[1] / "docs" / "notebooks" / "_data"
+    return np.loadtxt(data / name, delimiter=",")
+
+
+def test_pseudo_rayleigh_matches_sinha_fig2a_m3():
+    """The external tie this function went its whole life without.
+
+    Sinha calls m=3 of fig 2(a) a *leaky compressional* mode, and in a
+    fast formation that window -- ``1/V_P < s < 1/V_S`` -- is the one
+    this function tracks. It is ``branch=1``: the formation's trapped
+    branches cut off at 7.45 and 15.6 kHz, and m=3 leaves ``1/V_S`` at
+    the top of the plotted band to reach ``1/V_P`` at 8.95 kHz, so it is
+    branch 1's continuation rather than branch 0's.
+
+    An earlier attempt at this comparison returned 11.3 % and was
+    rejected as the wrong mode. It was the wrong branch index, on a
+    contaminated radiation branch, with grid-dependent seeding. All
+    three are fixed and the same comparison now lands at 1.06 %.
+    """
+    from fwap.cylindrical_solver import pseudo_rayleigh_dispersion
+
+    reference = _sinha_fig2_reference(
+        "sinha_asvadurov_2004_fig2a_leaky_compressional_fast.csv"
+    )
+    freq = np.arange(8000.0, 15300.0, 10.0)
+    mode = pseudo_rayleigh_dispersion(freq, **_PR_SINHA_FAST, branch=1)
+    live = np.isfinite(mode.slowness)
+    assert live.sum() > 400
+
+    inside = (reference[:, 0] >= freq[live].min()) & (
+        reference[:, 0] <= freq[live].max()
+    )
+    assert inside.sum() > 150
+    got = np.interp(reference[inside, 0], freq[live], mode.slowness[live])
+    residual = (got - reference[inside, 1]) / reference[inside, 1]
+    assert float(np.sqrt(np.mean(residual**2))) < 0.02
+
+    # The window itself, which no digitised curve is needed to check.
+    assert np.all(mode.slowness[live] > 1.0 / _PR_SINHA_FAST["vp"])
+    assert np.all(mode.slowness[live] < 1.0 / _PR_SINHA_FAST["vs"])
+    assert np.all(mode.attenuation_per_meter[live] > 0.0)
+
+
+def test_pseudo_rayleigh_attenuation_matches_sinha_fig2c_m3():
+    """The dB convention transfers to a different formation and mode.
+
+    It was recovered on fig 11 -- slow formation, ``n = 0, m = 3`` --
+    by predicting a group slowness and checking it against fig 11(b).
+    Here the same relation is applied to a *fast* formation, a
+    different figure and a different branch index, with nothing
+    re-derived.
+
+    The transfer is the evidence, and it is stronger than a repeated
+    constant would be. The correction factor is ``2 V_p / V_g``, so it
+    is a property of the mode's dispersion rather than a units
+    constant -- and it does differ: the naive ``8.686 Im(k_z)`` reading
+    overshoots by a median **4.15x** on this strongly dispersive fast
+    branch against **2.2x** on the slow-formation curve it was derived
+    from. A convention that were merely a coincidental factor of two
+    would fail here; this one lands inside budget.
+    """
+    from fwap.cylindrical_solver import pseudo_rayleigh_dispersion
+
+    reference = _sinha_fig2_reference(
+        "sinha_asvadurov_2004_fig2c_leaky_compressional_attenuation_fast.csv"
+    )
+    freq = np.arange(8000.0, 15300.0, 10.0)
+    mode = pseudo_rayleigh_dispersion(freq, **_PR_SINHA_FAST, branch=1)
+    live = np.isfinite(mode.slowness)
+    f_live = freq[live]
+    s_live = mode.slowness[live]
+    omega = 2.0 * np.pi * f_live
+    group = np.gradient(omega * s_live, omega)
+    predicted = 8.686 * mode.attenuation_per_meter[live] * (s_live / group) / 2.0
+
+    inside = (reference[:, 0] >= f_live.min()) & (reference[:, 0] <= f_live.max())
+    got = np.interp(reference[inside, 0], f_live, predicted)
+    residual = (got - reference[inside, 1]) / reference[inside, 1]
+    assert float(np.sqrt(np.mean(residual**2))) < 0.05
+
+    # ...and the naive reading is far off, by a factor this formation
+    # sets rather than a universal one, so the convention is doing real
+    # work rather than being decorative.
+    naive = np.interp(
+        reference[inside, 0], f_live, 8.686 * mode.attenuation_per_meter[live]
+    )
+    ratio = float(np.median(naive / reference[inside, 1]))
+    assert 3.8 < ratio < 4.6, ratio
+    # The factor is 2 V_p / V_g, so it must track the group velocity
+    # rather than being a constant -- check that directly.
+    group_ratio = np.interp(reference[inside, 0], f_live, 2.0 * group / s_live)
+    assert (
+        float(np.median(np.abs(naive / reference[inside, 1] / group_ratio - 1.0)))
+        < 0.05
+    )
+
+
+def test_the_pseudo_rayleigh_low_frequency_end_is_a_window_edge_not_a_cutoff():
+    """What stops the curve at its fast end, measured rather than assumed.
+
+    On Sinha's fast formation this routine returns nothing below
+    9.17 kHz, and it is tempting to read that as the mode's cut-on --
+    an earlier version of this module's write-up did exactly that, and
+    reported a "2.5 % cut-on offset" against the figure. It is not a
+    cut-on. It is the ``slowness > 1/V_P`` floor in the validator, and
+    the root passes straight through it: continued by hand it reaches
+    9.02 kHz at 263.5 us/m, faster than ``V_P``, still converging.
+
+    The marcher stops there for a good reason -- below the floor the
+    formation P wave ought to radiate as well, which is a different
+    determinant -- but "the mode ends here" is not that reason.
+
+    Nor is the floor near a branch point, which is the other tempting
+    assumption. The root is strongly damped there, so ``p`` stays far
+    from the ``p = 0`` compressional branch point.
+    """
+    from fwap.cylindrical_solver import pseudo_rayleigh_dispersion
+    from fwap.cylindrical_solver._bessel import _radial_wavenumber
+    from fwap.cylindrical_solver._leaky import (
+        _modal_determinant_n0_complex,
+        _track_complex_root,
+    )
+
+    freq = np.arange(9000.0, 15300.0, 5.0)
+    mode = pseudo_rayleigh_dispersion(freq, **_PR_SINHA_FAST, branch=1)
+    live = np.isfinite(mode.slowness)
+    edge = float(freq[live].min())
+    assert 9.1e3 < edge < 9.25e3, edge
+    # It stops *at* the floor, not short of it.
+    assert mode.slowness[live][0] == pytest.approx(
+        1.0 / _PR_SINHA_FAST["vp"], rel=5.0e-4
+    )
+
+    # Continue the same root below the floor by hand: it is still there.
+    kz = complex(
+        2.0 * np.pi * edge * mode.slowness[live][0], mode.attenuation_per_meter[live][0]
+    )
+    previous = edge
+    for f in np.arange(edge - 20.0, 9.00e3, -20.0):
+        omega = 2.0 * np.pi * f
+
+        def det(z, omega=omega):
+            return _modal_determinant_n0_complex(
+                z, omega, **_PR_SINHA_FAST, leaky_p=False, leaky_s=True
+            )
+
+        kz = _track_complex_root(det, kz * (f / previous))
+        assert kz is not None, f
+        previous = f
+
+    omega = 2.0 * np.pi * previous
+    slowness_below = kz.real / omega
+    assert slowness_below < 1.0 / _PR_SINHA_FAST["vp"], "root did not cross the C line"
+    assert slowness_below * 1e6 == pytest.approx(263.5, abs=1.0)
+    assert kz.imag > 0.0
+
+    # And at the crossing the root is nowhere near the compressional
+    # branch point, because it is strongly damped: p = 6.9 + 7.7i.
+    omega_edge = 2.0 * np.pi * edge
+    kz_edge = complex(
+        omega_edge * mode.slowness[live][0], mode.attenuation_per_meter[live][0]
+    )
+    assert kz_edge.imag > 3.0
+    p_edge = _radial_wavenumber(
+        kz_edge * kz_edge - (omega_edge / _PR_SINHA_FAST["vp"]) ** 2, leaky=False
+    )
+    assert abs(p_edge) > 5.0, p_edge
+
+
+def test_the_sinha_fig2_m3_branch_is_the_only_root_in_its_window():
+    """No ambiguity about *which* root is being scored.
+
+    The argument principle counts one root in ``(1/V_P, 1/V_S)`` at
+    every frequency across the band, so the identification rests on a
+    count rather than on the overlay agreeing.
+    """
+    from fwap.cylindrical_solver._leaky import _modal_determinant_n0_complex
+
+    for probe in (9.5e3, 11.0e3, 13.0e3, 14.5e3):
+        omega = 2.0 * np.pi * probe
+
+        def det(kz, omega=omega):
+            return _modal_determinant_n0_complex(
+                kz, omega, **_PR_SINHA_FAST, leaky_p=False, leaky_s=True
+            )
+
+        lo = omega / _PR_SINHA_FAST["vp"] * 1.0005
+        hi = omega / _PR_SINHA_FAST["vs"] * 0.9995
+        steps = np.linspace(0.0, 1.0, 2000, endpoint=False)
+        contour = np.concatenate(
+            [
+                lo + (hi - lo) * steps + 1j * 1.0e-4,
+                hi + 1j * (1.0e-4 + 20.0 * steps),
+                hi - (hi - lo) * steps + 1j * 20.0,
+                lo + 1j * (20.0 - 20.0 * steps),
+            ]
+        )
+        values = np.array([det(complex(z)) for z in contour])
+        assert np.all(np.isfinite(values)), probe
+        phase = np.unwrap(np.angle(np.append(values, values[0])))
+        winding = (phase[-1] - phase[0]) / (2.0 * np.pi)
+        assert winding == pytest.approx(1.0, abs=1.0e-3), (probe, winding)
+
+
 def test_the_leaky_branch_joins_the_trapped_one_at_its_cutoff():
     """Below a trapped branch's cut-off the same mode continues as a
     leaky root, leaving ``1/V_S`` with ``Im(k_z) -> 0^+``.
