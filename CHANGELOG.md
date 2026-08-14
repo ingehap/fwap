@@ -7,6 +7,105 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **A second, independent tie for the cased-hole dipole — and the first
+  behind casing in a *slow* formation** — Yang et al. (2022) fig 2, two
+  curves, **0.38 %** and **0.017 %** RMS.
+
+  Different group, different decade, and *vector* artwork rather than a
+  raster scan, so the figure is extracted rather than traced: rendered
+  at 600 dpi and separated by ink level and mark size, with the thick
+  grey line taken by its fill colour and the dotted line by its marks
+  being 7×8 px squares where the dashed and dash-dot lines run 16–31 px.
+  Two calibration checks come out of the artwork itself — the panels'
+  gridlines recover to 0.0005 in normalised velocity, and the hard
+  curve's flat top reads 2999.8 m/s against table 1's 3000 (0.007 %),
+  with nothing fitted.
+
+  It is also the same object the solver computes rather than a semblance
+  pick: the paper states `D₁(k_z, ω) = 0` for the dipole flexural mode
+  and `v = ω/k_z`.
+
+  **Two of eight curves ship, and the paper's own table says why.**
+  Figure 2 sweeps eight formations from `V_S` = 3000 down to 1450 m/s,
+  but table 1 gives `V_P` and density for exactly two of them. Scoring
+  the other six would need a `V_P` and a density invented for each.
+
+  **The soft curve is the one that matters.** `V_S` = 1450 m/s sits below
+  the borehole fluid's 1500, putting a slow formation behind 8 mm of
+  steel and 30 mm of cement — the configuration the Schmitt & Cheng entry
+  above could only cite in prose. All twelve of its points are below
+  `V_S/V_f` = 0.9667, so the published branch is **bound**, and
+  `flexural_dispersion_layered` matches it at 0.017 % over 12 of 12.
+
+  **It does not tie the cased *leaky* dipole.** Yang et al. stop at the
+  mode's cutoff, which they give as 15.04 kHz and the traced dots confirm
+  (the first is at 15.13). Below it `fwap` continues the same branch as a
+  leaky root over 12.10–14.75 kHz, above `V_S` and carrying positive
+  radiation attenuation, and there is still no published curve there. The
+  gap recorded above is unchanged; what this adds is a hard tie on the
+  bound side of that cutoff.
+
+- **The cased-hole dipole and quadrupole get their first external
+  ties** — Schmitt & Cheng (1987) figs 20 and 21, six traced curves,
+  **0.18–0.86 % RMS**. Before these, `flexural_dispersion_layered` and
+  `quadrupole_dispersion_layered` had only internal consistency checks
+  behind them (N=1 matching the single-interface determinant, two
+  half-thickness layers matching one, layer order mattering) — all true,
+  none of it evidence that the curve is the published one.
+
+  The set varies cement *thickness* (1 cm against 3 cm) and cement
+  *stiffness* (their cement 2 against cement 1) separately, so it also
+  pins the radius convention: the report says "the inner borehole radius
+  is decreased by the amount of the casing and cement thickness ... The
+  original borehole radius is 10 cm", so `a` = 0.10 − t_casing −
+  t_cement and the formation contact stays at 0.10 m. A solver that read
+  10 cm as the fluid radius matches neither thickness.
+
+  **The digitising floor is measured, not assumed.** Cement 1 at 3 cm is
+  plotted in *both* panels of both figures, so it was traced twice from
+  independent artwork; the two fig 20 renderings agree to **0.23 % RMS**
+  and the two fig 21 renderings to **0.55 %** over the band where the
+  panel-(a) copy stays clear of the figure's "/phase" annotation. Only
+  the cleaner panel ships for that case.
+
+  **One traced curve was rejected rather than shipped.** Each panel also
+  carries the open hole as curve (1); fig 20's copy crosses case (3)'s
+  *group* branch inside its steep segment and the trace hops there,
+  reading 3.8 % against the already-shipped fig 2(a) rendering of the
+  same curve, which the solver matches at 0.37 %. The attenuation panels
+  are likewise not scored — they plot table 1's *intrinsic* `1/Q`, and
+  these solvers are elastic.
+
+- **The cased-hole leaky dipole gets a citation, and a measured search
+  limit.** Schmitt & Cheng (1987) p. 231 state the behaviour directly:
+  behind casing in a slow formation "the high frequency part of the
+  fundamental modes excited either by a dipole or a quadrupole source
+  will then also be leaky", travelling "with a velocity higher than that
+  of the formation shear wave". They illustrate that case with waveforms
+  rather than a dispersion curve, so it is carried by tests rather than
+  by an overlay — this remains the one mode in the validation notebook
+  with no scoreable reference anywhere reachable.
+
+  Their own parameters expose a limit worth recording.
+  `_march_leaky_cased_branch` searches `(V_S, min(V_f, min layer V_S))`;
+  for their slow sandstone behind 1.02 cm of steel and 3 cm of cement 1
+  the binding term is the *fluid*, and the branch runs above it —
+  leaving `V_S` near 1.4 kHz, peaking near 1710 m/s at 5.5 kHz just
+  under the cement's 1729, and coming back down through `V_f` near
+  13.8 kHz — so `flexural_dispersion_layered` returns `NaN` across the
+  whole band and resolves the mode only at the top, around 1487 m/s. An
+  argument-principle contour counts exactly one root inside a box around
+  it at 3.0, 5.5 and 8.0 kHz, so the mode is present and the marcher is
+  not looking there.
+
+  **Two failures, not one.** Above 3 kHz the root is outside the window;
+  at 1.5 and 2 kHz it is *inside* it (a winding count over the whole
+  `(V_S, V_f)` box returns 1) and is missed anyway, which is seeding
+  rather than the ceiling; below 1 kHz the window is genuinely empty.
+  Raising the ceiling alone would not close the gap. Behaviour is
+  unchanged — both halves are now pinned by a test that fails the day
+  either is fixed.
+
 - **`pseudo_rayleigh_dispersion` has an external tie at last** — Sinha &
   Asvadurov (2004) fig 2, curve m = 3, fast formation (A). Phase
   slowness **1.06 % RMS over 154 of 161 points** (fig 2(a)); radiation
