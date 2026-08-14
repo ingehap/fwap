@@ -14898,11 +14898,20 @@ def test_the_bound_dipole_mode_is_absorbed_at_the_shear_branch_point():
     exactly one sign change while the mode exists and **none at all**
     afterwards. Absorbed at the branch point.
 
-    That is why the layered driver's answer steps 7 % at the crossing.
-    It is a handover between two different modes, not a break in one:
-    the bound mode ends here, and the leaky branch the driver reports
-    above it was already there below it (see
-    ``test_the_leaky_branch_coexists_with_the_bound_mode_below_the_crossing``).
+    This half stands. What was built on it does not: it used to read
+    "that is why the layered driver's answer steps 7 % at the crossing
+    -- a handover between two different modes, not a break in one",
+    on the strength of a leaky branch measured coexisting with the
+    bound mode below the crossing. That branch was the incoming
+    contamination in :func:`_k_or_hankel`; corrected, nothing radiating
+    exists below the crossing and the leaky branch instead *emerges*
+    at ``V_S`` where this mode is absorbed. One mode, continuous. See
+    ``test_no_leaky_branch_coexists_with_the_bound_mode_below_the_crossing``
+    and ``test_the_branch_point_pole_was_the_incoming_contamination``.
+
+    The absorption itself is unaffected -- it is measured on the
+    *real*, proper-sheet determinant, which the radiation branch never
+    touched.
     """
     from fwap.cylindrical_solver import _modal_determinant_n1_cased
 
@@ -14931,16 +14940,33 @@ def test_the_bound_dipole_mode_is_absorbed_at_the_shear_branch_point():
         )
 
 
-def test_the_leaky_branch_coexists_with_the_bound_mode_below_the_crossing():
-    """The other half: the leaky branch is a different mode, not a sequel.
+def test_no_leaky_branch_coexists_with_the_bound_mode_below_the_crossing():
+    """The bound mode is alone below the crossing, which is what makes
+    the leaky branch its continuation rather than a second family.
 
-    Below the crossing the driver reports the bound mode, above it the
-    leaky one, and the answer steps 7 % between them. That step is only
-    a discontinuity if the two are the same mode. They are not -- at
-    ``V_S_layer / V_S = 1.20`` the bound mode sits at 786.67 m/s while
-    the leaky branch is already there at 868.30, radiating, with the
-    branch-point pole at 810.14 between them. Three objects, one
-    stiffness.
+    **This test asserted the opposite until it was re-measured.** It
+    claimed that at ``V_S_layer / V_S = 1.20`` three objects coexist at
+    one stiffness -- the bound mode at 786.67 m/s, a leaky branch
+    already radiating at 868.30, and a branch-point pole at 810.14
+    between them -- and that the 7 % step the driver shows across the
+    crossing is therefore a handover between two modes rather than a
+    break in one.
+
+    None of that survives correcting :func:`_k_or_hankel`'s radiation
+    branch. Swept above ``V_S`` at this stiffness the *only* root is
+    the layer's own shear speed, 960.0 m/s to the digit with zero
+    imaginary part -- the degeneracy the production search already
+    names and rejects. The leaky branch does not exist here at all; it
+    emerges at ``V_S`` near ratio 1.28 and climbs, as
+    ``test_the_branch_point_pole_was_the_incoming_contamination``
+    shows. One mode, continuous through the crossing.
+
+    It is worth recording *how* the old assertion survived the
+    correction locally: seeded at 868 m/s the tracker lands on that
+    960.0 m/s degeneracy, whose imaginary part is zero to rounding, and
+    ``root.imag > 0.0`` then turns on the sign of a 1e-12 rounding
+    error. It came out ``+5e-12`` on one machine and ``-6e-13`` in CI.
+    A test that passes on the sign of a rounding error is not passing.
     """
     from fwap.cylindrical_solver import _modal_determinant_n1_cased_complex
     from fwap.cylindrical_solver._leaky import (
@@ -14950,7 +14976,8 @@ def test_the_leaky_branch_coexists_with_the_bound_mode_below_the_crossing():
 
     omega = 2.0 * np.pi * float(_GAP_FREQ[0])
     vs = _GAP_FORMATION["vs"]
-    layers = _gap_sweep_layers(1.20, vs)
+    ratio = 1.20
+    layers = _gap_sweep_layers(ratio, vs)
 
     bound = flexural_dispersion_layered(
         _GAP_FREQ, **_GAP_FORMATION, **_A2_BOREHOLE, layers=layers
@@ -14976,16 +15003,34 @@ def test_the_leaky_branch_coexists_with_the_bound_mode_below_the_crossing():
             leaky_s=leaky_s,
         )
 
-    # The leaky flexural branch, at the same stiffness the bound mode
-    # is alive at.
-    guess = complex(omega / 868.0, 0.05 * omega / 868.0)
-    root = _track_complex_root(determinant, guess)
-    assert root is not None and root.imag > 0.0
-    leaky_velocity = omega / root.real
-    assert leaky_velocity > vs, "and it radiates, so it is above V_S"
-    assert abs(determinant(root)) < 1.0e-6 * abs(determinant(root * 1.002))
-    # Well clear of the bound mode: a different object, not its sequel.
-    assert leaky_velocity / bound_velocity - 1.0 > 0.05
+    # Sweep the whole window above V_S rather than probing one guess:
+    # the claim is an absence, and a single seed cannot establish one.
+    layer_velocity = ratio * vs
+    found = []
+    for k_real in np.linspace(omega / 1500.0 * 1.001, omega / (vs * 1.0006), 90):
+        for level in (0.002, 0.01, 0.03, 0.08, 0.2):
+            root = _track_complex_root(determinant, complex(k_real, level * k_real))
+            if root is None or root.imag <= 1.0e-9:
+                continue
+            if not (omega / 1500.0 < root.real < omega / (vs * 1.0006)):
+                continue
+            found.append(omega / root.real)
+
+    # Everything the sweep reaches is the layer's own shear speed, and
+    # nothing else -- so there is no radiating branch here to coexist.
+    assert all(v == pytest.approx(layer_velocity, rel=1.0e-6) for v in found), sorted(
+        set(round(v, 2) for v in found)
+    )
+
+    # And that degeneracy is not a mode: its attenuation is zero to
+    # rounding, which is exactly why seeding at it and asserting
+    # Im(k_z) > 0 was a coin flip.
+    degenerate = _track_complex_root(
+        determinant, complex(omega / 868.0, 0.05 * omega / 868.0)
+    )
+    assert degenerate is not None
+    assert omega / degenerate.real == pytest.approx(layer_velocity, rel=1.0e-6)
+    assert abs(degenerate.imag) < 1.0e-9 * degenerate.real
 
 
 def test_the_branch_point_pole_was_the_incoming_contamination():
