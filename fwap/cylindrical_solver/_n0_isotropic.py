@@ -12,7 +12,7 @@ import numpy as np
 from scipy import optimize
 
 from fwap._common import logger
-from fwap.cylindrical_solver._bessel import _i0_i1, _k0_k1
+from fwap.cylindrical_solver._bessel import _i0_i1, _k0_k1, _rigid_tool_fluid_factors
 from fwap.cylindrical_solver._dataclasses import BoreholeMode
 
 # ---------------------------------------------------------------------
@@ -29,9 +29,19 @@ def _modal_determinant_n0(
     vf: float,
     rho_f: float,
     a: float,
+    *,
+    r_tool: float = 0.0,
 ) -> float:
     r"""
     3x3 axisymmetric modal determinant in the bound-mode regime.
+
+    ``r_tool > 0`` places a rigid centralised logging tool of that
+    radius inside the fluid, which replaces the fluid column's
+    ``I_0(F a)`` / ``I_1(F a)`` pair with the annulus factors from
+    :func:`_rigid_tool_fluid_factors`. Nothing else changes -- the
+    tool alters the fluid's radial basis and leaves every solid row
+    alone. ``r_tool = 0`` (the default) is bit-identical to the
+    open-hole form.
 
     Three boundary conditions at ``r = a``:
 
@@ -100,7 +110,11 @@ def _modal_determinant_n0(
     s = np.sqrt(kz * kz - (omega / vs) ** 2)
     Fa, pa, sa = F * a, p * a, s * a
 
-    I0Fa, I1Fa = _i0_i1(Fa)
+    if r_tool > 0.0:
+        z0, z1 = _rigid_tool_fluid_factors(F, a, r_tool)
+        I0Fa, I1Fa = float(z0.real), float(z1.real)
+    else:
+        I0Fa, I1Fa = _i0_i1(Fa)
     K0pa, K1pa = _k0_k1(pa)
     K0sa, K1sa = _k0_k1(sa)
 
@@ -173,6 +187,7 @@ def stoneley_dispersion(
     vf: float,
     rho_f: float,
     a: float,
+    tool_radius: float = 0.0,
 ) -> BoreholeMode:
     r"""
     Stoneley-wave phase slowness vs frequency from the n=0
@@ -197,6 +212,13 @@ def stoneley_dispersion(
         Borehole-fluid velocity (m/s) and density (kg/m^3).
     a : float
         Borehole radius (m).
+    tool_radius : float, default 0.0
+        Radius (m) of a rigid centralised logging tool. ``0.0`` means
+        no tool -- the open-hole case, bit-identical to the result
+        before this parameter existed. A positive value makes the
+        fluid an annulus ``tool_radius < r < a`` with ``u_r = 0`` at
+        the tool surface, the White & Zechman (1968) model used by
+        Paillet & Cheng (1986). Must be smaller than ``a``.
 
     Returns
     -------
@@ -229,7 +251,9 @@ def stoneley_dispersion(
         omega = 2.0 * np.pi * float(f)
 
         def _det(kz, omega=omega):
-            return _modal_determinant_n0(kz, omega, vp, vs, rho, vf, rho_f, a)
+            return _modal_determinant_n0(
+                kz, omega, vp, vs, rho, vf, rho_f, a, r_tool=tool_radius
+            )
 
         kz_lo, kz_hi = _stoneley_kz_bracket(omega, vp, vs, rho, vf, rho_f, a)
         try:

@@ -20,8 +20,8 @@ complete, but it is a raster scan whose x-axis calibration carries about
 | File | Source | Blocked on |
 |------|--------|------------|
 | `sinha_..._fig11a_leaky_compressional_slow.csv` | Sinha & Asvadurov 2004 fig 11(a) | no slow-formation leaky-compressional solver |
-| `paillet_cheng_1986_fig12a_..._fundamental.csv` | Paillet & Cheng 1986 fig 12(a) | same, **and** no logging-tool geometry |
-| `paillet_cheng_1986_fig12a_..._first.csv` | Paillet & Cheng 1986 fig 12(a) | same, **and** no logging-tool geometry |
+| `paillet_cheng_1986_fig12a_..._fundamental.csv` | Paillet & Cheng 1986 fig 12(a) | same (the tool geometry it also needed now exists) |
+| `paillet_cheng_1986_fig12a_..._first.csv` | Paillet & Cheng 1986 fig 12(a) | same (the tool geometry it also needed now exists) |
 
 ## 1. ~~Fast-formation TI flexural~~ — promoted
 
@@ -97,11 +97,14 @@ a leaky compressional mode occupies.
   `pseudo_rayleigh_dispersion` — which requires `V_S > V_f` — will not run
   on it, and it is a different mode from that function's fast-formation
   leaky root in any case.
-* **Logging tool.** Table 1 gives shale B a 5 cm centralised tool. fwap
-  models no inner tool anywhere: `BoreholeLayer` stacks *outward* from the
-  fluid, and `FluidAnnulus` is a debonding gap between casing and cement,
-  not an inner cylinder. Even a slow-formation leaky-compressional solver
-  would not reproduce this figure without tool support.
+* ~~**Logging tool.**~~ *Resolved.* Table 1 gives shale B a 5 cm
+  centralised tool, and fwap modelled no inner tool at all when this
+  entry was written. It does now: `stoneley_dispersion`,
+  `trapped_pseudo_rayleigh_dispersion` and the n=0 determinants take a
+  `tool_radius`, implementing the same White & Zechman (1968) rigid
+  model this paper uses. **One of the two blockers is gone.** What
+  remains is the mode itself -- a slow-formation leaky compressional
+  branch, which no fwap function computes.
 
 ### Fidelity: lower than everything else parked here, and why
 

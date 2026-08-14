@@ -15,6 +15,7 @@ from fwap._common import logger
 from fwap.cylindrical_solver._bessel import (
     _k_or_hankel,
     _radial_wavenumber,
+    _rigid_tool_fluid_factors,
 )
 from fwap.cylindrical_solver._cased import _modal_determinant_n0_cased_complex
 from fwap.cylindrical_solver._dataclasses import (
@@ -244,6 +245,7 @@ def _modal_determinant_n0_complex(
     *,
     leaky_p: bool = False,
     leaky_s: bool = False,
+    r_tool: float = 0.0,
 ) -> complex:
     """
     Complex-``k_z`` n=0 modal determinant with optional leaky-wave
@@ -309,8 +311,11 @@ def _modal_determinant_n0_complex(
 
     # Fluid: I-Bessel always (regular at r=0). scipy.special.iv
     # supports complex arguments transparently.
-    I0Fa = complex(special.iv(0, Fa))
-    I1Fa = complex(special.iv(1, Fa))
+    if r_tool > 0.0:
+        I0Fa, I1Fa = _rigid_tool_fluid_factors(F, a, r_tool)
+    else:
+        I0Fa = complex(special.iv(0, Fa))
+        I1Fa = complex(special.iv(1, Fa))
 
     # Formation P (K or Hankel via analytic continuation).
     K0pa, K1pa = _k_or_hankel(0, p, a, leaky=leaky_p)
@@ -1349,6 +1354,7 @@ def trapped_pseudo_rayleigh_dispersion(
     rho_f: float,
     a: float,
     branch: int = 0,
+    tool_radius: float = 0.0,
 ) -> BoreholeMode:
     r"""
     Trapped (fully bound) pseudo-Rayleigh dispersion from the n=0 determinant.
@@ -1388,6 +1394,13 @@ def trapped_pseudo_rayleigh_dispersion(
         descending ``k_z``, i.e. ascending radial order -- the same
         convention :func:`pseudo_rayleigh_dispersion` uses, and the
         fundamental is the slowest of the trapped modes at any frequency.
+    tool_radius : float, default 0.0
+        Radius (m) of a rigid centralised logging tool. ``0.0`` means
+        no tool -- the open-hole case, bit-identical to the result
+        before this parameter existed. A positive value makes the
+        fluid an annulus ``tool_radius < r < a`` with ``u_r = 0`` at
+        the tool surface, the White & Zechman (1968) model used by
+        Paillet & Cheng (1986). Must be smaller than ``a``.
 
     Returns
     -------
@@ -1462,7 +1475,17 @@ def trapped_pseudo_rayleigh_dispersion(
 
         def det(kz: float, omega: float = omega) -> float:
             return _modal_determinant_n0_complex(
-                kz, omega, vp, vs, rho, vf, rho_f, a, leaky_p=False, leaky_s=False
+                kz,
+                omega,
+                vp,
+                vs,
+                rho,
+                vf,
+                rho_f,
+                a,
+                leaky_p=False,
+                leaky_s=False,
+                r_tool=tool_radius,
             ).real
 
         roots = _scan_bound_roots(

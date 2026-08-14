@@ -7,6 +7,64 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Rigid centralised logging-tool geometry.** `stoneley_dispersion` and
+  `trapped_pseudo_rayleigh_dispersion` take a `tool_radius` (default
+  `0.0`), as do the n=0 determinants via `r_tool`, and `tube_wave_speed`
+  gains `tool_radius` plus the `a` it then needs. **No new public names**,
+  so the API guard is unchanged at 187.
+
+  This is the White & Zechman (1968) model that Paillet & Cheng (1986) use
+  — confirmed from that paper rather than assumed: it says the theory was
+  *"extended to the borehole with a centralized logging tool by White and
+  Zechman (1968)"*, measures pressure *"at the surface of the logging tool
+  (r = R)"*, and its table 1 gives a tool **radius** with no tool elastic
+  properties.
+
+  **The change is one column wide.** A rigid tool is immovable, so
+  `u_r(r_tool) = 0`. The fluid becomes an annulus, the axis leaves the
+  domain, `K_0` becomes admissible, and the fluid solution is
+  `P = A [I_0(F r) + beta K_0(F r)]` with
+  `beta = I_1(F r_tool) / K_1(F r_tool)`. Substituting the resulting pair
+  for `I_0(F a)` / `I_1(F a)` is the **entire** modification to the n=0
+  determinant — every solid row is untouched, because the tool changes the
+  fluid's radial basis and nothing else. `_rigid_tool_fluid_factors`
+  carries it.
+
+  **`tool_radius = 0` is bit-identical, not merely close.** The helper
+  short-circuits rather than relying on `beta -> 0` numerically, so every
+  curve in the validation notebook is untouched by this geometry existing.
+  A test asserts bit-identity; another asserts the quadratic convergence
+  `beta ~ (F r_tool)^2 / 2` predicts.
+
+- **Notebook section 9: an analytic oracle for the tool.** The
+  tool-corrected low-frequency tube wave has a closed form, derived from
+  the same quasi-static argument as White's:
+
+      1 / V_T^2 = rho_f [ 1/K_f + a^2 / (mu (a^2 - R^2)) ]
+
+  The wall still gains `pi a^2 P / mu` of volume per unit length, but that
+  gain is now shared over a fluid area of `pi (a^2 - R^2)`, so the
+  compliance term is scaled by `a^2 / (a^2 - R^2)`.
+
+  It agrees with the `f -> 0` limit of `stoneley_dispersion` to **1.4-1.8
+  x 10^-8** for tool radii from 0 to 60 % of the borehole. That is a
+  genuine cross-check: the closed form has no Bessel functions, no modal
+  determinant and no root finding, while the solver is nothing but those,
+  and the tool enters the two through completely different doors. Unlike
+  section 8 it carries **no self-confirmation caveat** — the solver's
+  bracket uses the *open-hole* White formula, which knows nothing about
+  `R`.
+
+  The validity floor moves with the tool and now does so in the guard:
+  `V_S > V_f sqrt(1 - (rho_f/rho) a^2/(a^2 - R^2))`. A tool lowers the
+  floor, so it widens the range of formations supporting a bound tube
+  wave.
+
+### Changed
+- One of the two blockers on the Paillet & Cheng fig 12(a) curves in
+  `_data/pending/` is gone. They needed both a slow-formation
+  leaky-compressional solver and tool geometry; only the former remains.
+
 - **`trapped_pseudo_rayleigh_dispersion_layered`** — cased-hole trapped
   pseudo-Rayleigh, the n=0 pseudo-Rayleigh counterpart of
   `stoneley_dispersion_layered`. With `layers=()` it dispatches to the

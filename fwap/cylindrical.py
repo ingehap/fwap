@@ -230,6 +230,8 @@ def tube_wave_speed(
     *,
     vf: float,
     rho_f: float,
+    a: float | None = None,
+    tool_radius: float = 0.0,
 ) -> float:
     r"""
     Low-frequency (tube-wave) limit of the borehole Stoneley speed.
@@ -303,6 +305,30 @@ def tube_wave_speed(
         Borehole-fluid velocity (m/s); must be positive.
     rho_f : float
         Borehole-fluid density (kg/m^3); must be positive.
+    a : float or None, default None
+        Borehole radius (m). Required only when ``tool_radius`` is
+        positive; the open-hole formula is scale-free and ignores it.
+    tool_radius : float, default 0.0
+        Radius (m) of a rigid centralised logging tool. ``0.0`` is the
+        open hole and returns exactly the value this function returned
+        before the parameter existed.
+
+        A tool makes the fluid an annulus, which changes the balance
+        the tube wave is built from. The wall still dilates by
+        ``u_r(a) = P a / (2 mu)``, so the volume it gains per unit
+        length is ``pi a^2 P / mu`` regardless of the tool; but that
+        gain is now shared over a fluid area of ``pi (a^2 - R^2)``
+        rather than ``pi a^2``. The compliance term is therefore
+        scaled by ``a^2 / (a^2 - R^2)``:
+
+        .. math::
+
+            \frac{1}{V_T^2} = \rho_f \left[ \frac{1}{K_f}
+                + \frac{a^2}{\mu\,(a^2 - R^2)} \right].
+
+        A tool always slows the tube wave, and the effect is strongly
+        nonlinear in ``R``: at ``R = a/2`` the compliance term rises
+        by a third.
 
     Returns
     -------
@@ -341,7 +367,29 @@ def tube_wave_speed(
             "lighter than the borehole fluid has no bound tube wave."
         )
 
-    floor = vf * np.sqrt(1.0 - rho_f / rho)
+    if tool_radius < 0.0:
+        raise ValueError(f"tool_radius must be non-negative, got {tool_radius}")
+    if tool_radius > 0.0:
+        if a is None:
+            raise ValueError("a (borehole radius) is required when tool_radius > 0")
+        if a <= 0.0:
+            raise ValueError(f"a must be positive, got {a}")
+        if tool_radius >= a:
+            raise ValueError(
+                f"tool radius must be smaller than the borehole radius; "
+                f"got tool_radius={tool_radius}, a={a}"
+            )
+    # Compliance is shared over the fluid annulus rather than the full
+    # bore, so the wall term is scaled by a^2 / (a^2 - R^2).
+    if tool_radius > 0.0 and a is not None:
+        compliance_scale = a * a / (a * a - tool_radius * tool_radius)
+    else:
+        compliance_scale = 1.0
+
+    # The floor moves with the tool: requiring V_T < vs and substituting
+    # the scaled compliance gives vs > vf sqrt(1 - (rho_f/rho) * scale).
+    floor_arg = 1.0 - (rho_f / rho) * compliance_scale
+    floor = vf * np.sqrt(floor_arg) if floor_arg > 0.0 else 0.0
     if vs <= floor:
         raise ValueError(
             f"vs={vs} is at or below the tube-wave validity floor "
@@ -355,7 +403,7 @@ def tube_wave_speed(
             "are out of scope here."
         )
 
-    return float(1.0 / np.sqrt(1.0 / vf**2 + rho_f / (rho * vs**2)))
+    return float(1.0 / np.sqrt(1.0 / vf**2 + compliance_scale * rho_f / (rho * vs**2)))
 
 
 def _fluid_solid_reflection(

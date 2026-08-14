@@ -14,6 +14,7 @@ from fwap.cylindrical import (
     flexural_dispersion_physical,
     flexural_dispersion_vti_physical,
     rayleigh_speed,
+    tube_wave_speed,
 )
 from fwap.cylindrical_solver import (
     BoreholeLayer,
@@ -22696,3 +22697,138 @@ def test_trapped_pseudo_rayleigh_layered_validation():
         trapped_pseudo_rayleigh_dispersion_layered(f, **kw, branch=-1)
     with pytest.raises(ValueError, match="strictly positive"):
         trapped_pseudo_rayleigh_dispersion_layered(np.array([-1.0]), **kw)
+
+
+# =====================================================================
+# Rigid centralised logging tool (tool_radius / r_tool)
+# =====================================================================
+#
+# White & Zechman (1968) model, as used by Paillet & Cheng (1986): the
+# tool is immovable, so u_r = 0 at its surface and the fluid becomes an
+# annulus. That admits K_0 alongside I_0 and changes exactly one column
+# of the n=0 determinant. Every solid row is untouched.
+
+
+def test_rigid_tool_fluid_factors_no_tool_is_bit_identical():
+    """``r_tool <= 0`` must short-circuit to the plain Bessel pair, so
+    every open-hole result predating this parameter is unchanged to the
+    last bit -- not merely to a tolerance."""
+    from scipy import special
+
+    from fwap.cylindrical_solver._bessel import _rigid_tool_fluid_factors
+
+    for F, a in ((3.7, 0.10), (0.4, 0.05), (28.0, 0.12)):
+        z0, z1 = _rigid_tool_fluid_factors(F, a, 0.0)
+        assert z0 == float(special.iv(0, F * a))
+        assert z1 == float(special.iv(1, F * a))
+
+
+def test_rigid_tool_fluid_factors_enforce_the_rigid_boundary():
+    """The whole content of the model: radial displacement vanishes at
+    the tool surface. ``u_r(r) ∝ I_1(F r) - beta K_1(F r)``, so the
+    check is that this is zero at ``r = r_tool``."""
+    from scipy import special
+
+    F, r_tool = 3.7, 0.04
+    beta = special.iv(1, F * r_tool) / special.kv(1, F * r_tool)
+    u_r = special.iv(1, F * r_tool) - beta * special.kv(1, F * r_tool)
+    assert abs(u_r) < 1e-15 * max(1.0, abs(special.iv(1, F * r_tool)))
+
+
+def test_rigid_tool_fluid_factors_converge_quadratically():
+    """As the tool shrinks the factors approach the open-hole pair, and
+    at the rate the algebra predicts: ``beta ~ (F r_tool)^2 / 2``, so
+    shrinking the radius tenfold cuts the deviation a hundredfold."""
+    from fwap.cylindrical_solver._bessel import _rigid_tool_fluid_factors
+
+    F, a = 3.7, 0.10
+    z0_open, _ = _rigid_tool_fluid_factors(F, a, 0.0)
+    devs = []
+    for r_tool in (1.0e-3, 1.0e-4):
+        z0, _ = _rigid_tool_fluid_factors(F, a, r_tool)
+        devs.append(abs(z0 - z0_open))
+    ratio = devs[0] / devs[1]
+    assert 50.0 < ratio < 200.0, f"expected ~100x, got {ratio:.1f}"
+
+
+def test_rigid_tool_fluid_factors_rejects_tool_larger_than_hole():
+    from fwap.cylindrical_solver._bessel import _rigid_tool_fluid_factors
+
+    with pytest.raises(ValueError, match="smaller than the borehole radius"):
+        _rigid_tool_fluid_factors(3.7, 0.10, 0.10)
+
+
+def test_tube_wave_speed_tool_matches_cylindrical_solver():
+    """**Analytic oracle for the tool geometry.**
+
+    ``tube_wave_speed`` with a tool is a quasi-static area-and-compliance
+    argument with no Bessel functions in it at all; the ``f -> 0`` limit
+    of ``stoneley_dispersion`` is a cylindrical modal determinant built
+    entirely from them. They agree to 1e-7 across tool radii out to 60 %
+    of the borehole, which is a cross-check between two independent
+    calculations rather than the solver confirming itself.
+    """
+    kw = dict(vp=4000.0, vs=2300.0, rho=2300.0, vf=1500.0, rho_f=1000.0, a=0.10)
+    for r_tool in (0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06):
+        numeric = (
+            1.0
+            / stoneley_dispersion(np.array([1.0]), **kw, tool_radius=r_tool).slowness[0]
+        )
+        closed = tube_wave_speed(
+            kw["vs"],
+            kw["rho"],
+            vf=kw["vf"],
+            rho_f=kw["rho_f"],
+            a=kw["a"],
+            tool_radius=r_tool,
+        )
+        np.testing.assert_allclose(numeric, closed, rtol=1e-7)
+
+
+def test_tube_wave_speed_tool_slows_monotonically_and_collapses_at_zero():
+    """A tool always slows the tube wave, and ``tool_radius=0`` returns
+    exactly the open-hole value."""
+    args = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+    open_hole = tube_wave_speed(2300.0, 2300.0, vf=1500.0, rho_f=1000.0)
+    assert tube_wave_speed(2300.0, 2300.0, **args, tool_radius=0.0) == open_hole
+    speeds = [
+        tube_wave_speed(2300.0, 2300.0, **args, tool_radius=r)
+        for r in (0.0, 0.02, 0.04, 0.06, 0.08)
+    ]
+    assert all(b < x for x, b in zip(speeds, speeds[1:]))
+
+
+def test_tube_wave_speed_tool_validation():
+    args = dict(vf=1500.0, rho_f=1000.0)
+    with pytest.raises(ValueError, match="a .borehole radius. is required"):
+        tube_wave_speed(2300.0, 2300.0, **args, tool_radius=0.05)
+    with pytest.raises(ValueError, match="smaller than the borehole radius"):
+        tube_wave_speed(2300.0, 2300.0, **args, a=0.05, tool_radius=0.05)
+    with pytest.raises(ValueError, match="non-negative"):
+        tube_wave_speed(2300.0, 2300.0, **args, a=0.10, tool_radius=-0.01)
+
+
+def test_dispersion_tool_radius_zero_is_bit_identical():
+    """The default must not perturb any existing curve."""
+    kw = dict(vp=4000.0, vs=2300.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.10)
+    f = np.linspace(2000.0, 26000.0, 13)
+    np.testing.assert_array_equal(
+        stoneley_dispersion(f, **kw, tool_radius=0.0).slowness,
+        stoneley_dispersion(f, **kw).slowness,
+    )
+    np.testing.assert_array_equal(
+        trapped_pseudo_rayleigh_dispersion(f, **kw, tool_radius=0.0).slowness,
+        trapped_pseudo_rayleigh_dispersion(f, **kw).slowness,
+    )
+
+
+def test_stoneley_dispersion_tool_slows_the_mode_at_every_frequency():
+    """Physically the tool can only slow the Stoneley wave -- it is the
+    reason tool corrections appear in Stoneley permeability workflows."""
+    kw = dict(vp=4000.0, vs=2300.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.10)
+    f = np.linspace(1000.0, 20000.0, 20)
+    s_open = stoneley_dispersion(f, **kw).slowness
+    s_tool = stoneley_dispersion(f, **kw, tool_radius=0.05).slowness
+    ok = np.isfinite(s_open) & np.isfinite(s_tool)
+    assert ok.sum() >= 15
+    assert np.all(s_tool[ok] > s_open[ok])
