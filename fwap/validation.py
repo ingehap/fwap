@@ -70,6 +70,12 @@ _SLOWNESS_SI_RANGE: tuple[float, float] = (1.0e-5, 1.0e-2)
 #: Plausible band for borehole-acoustic frequency (Hz).
 _FREQ_HZ_RANGE: tuple[float, float] = (1.0e2, 1.0e6)
 
+#: Plausible band for a radiation-attenuation column in dB/m. Leaky borehole
+#: modes run from a few hundredths of a dB/m near cut-off to tens of dB/m for
+#: the cut-off modes that never propagate; the band is deliberately wider than
+#: that, so a value outside it is a units mistake rather than an unusual mode.
+_ATTENUATION_DB_PER_M_RANGE: tuple[float, float] = (1.0e-4, 1.0e3)
+
 
 class ReferenceDataError(ValueError):
     """A digitised reference file is unusable, with a reason attached."""
@@ -85,7 +91,13 @@ class ReferenceCurve:
     freq : ndarray, shape (N,), float64
         Frequency (Hz), strictly increasing.
     slowness : ndarray, shape (N,), float64
-        Phase slowness (s/m).
+        Phase slowness (s/m) by default. Also carries a *group* slowness in
+        the same units, or -- when the curve was loaded with
+        ``quantity="attenuation"`` -- a radiation attenuation in dB/m. The
+        name is historical: :func:`score_against_reference` is a
+        relative-deviation comparison and never interprets the values, so
+        splitting the field per quantity would only invite the branches to
+        drift apart.
     source : str
         Where the curve came from --- by default the filename it was loaded
         from. Carried so a score can be reported against a named figure rather
@@ -105,6 +117,44 @@ class ReferenceCurve:
     def freq_range(self) -> tuple[float, float]:
         """Lowest and highest digitised frequency (Hz)."""
         return float(self.freq[0]), float(self.freq[-1])
+
+
+def _diagnose_attenuation_units(values: np.ndarray) -> str | None:
+    """
+    Name the likely unit mistake in a dB/m column, or ``None`` if it is plain.
+
+    The slowness counterpart below can lean on strong priors -- borehole
+    slownesses cluster in a narrow band, so ``us/m`` and ``m/s`` columns are
+    recognisable on sight. Attenuation has no such prior: a leaky mode's
+    radiation loss spans four orders of magnitude between a mode just past
+    cut-off and one that never propagates, so this check can only catch a
+    column that is not an attenuation at all.
+
+    Two things it cannot do, both asserted in ``tests/test_validation.py``
+    so neither is mistaken for coverage:
+
+    * **It cannot tell dB/m from nepers/m**, which differ by the factor
+      8.686 that the whole convention question turns on.
+    * **It cannot reject a slowness column.** Slowness in s/m spans
+      1e-5 to 1e-2 and attenuation spans a few thousandths of a dB/m to
+      tens; those overlap, and Sinha & Asvadurov fig 11(c) lives in the
+      overlap -- its own values start at 0.0025 dB/m. Narrowing the band
+      enough to catch a slowness column would reject the real data too.
+
+    So the ``quantity`` argument of :func:`load_reference_curve` is a
+    *declaration*, not a detection. It picks which guard runs; the
+    slowness guard is strong, this one is nearly empty, and the
+    asymmetry is deliberate rather than an oversight.
+    """
+    median = float(np.median(np.abs(values)))
+    lo, hi = _ATTENUATION_DB_PER_M_RANGE
+    if lo <= median <= hi:
+        return None
+    return (
+        f"median |value| {median:.3g} is outside the plausible attenuation "
+        f"band [{lo:.0e}, {hi:.0e}] dB/m; check the units of the digitised "
+        "y-axis"
+    )
 
 
 def _diagnose_slowness_units(values: np.ndarray) -> str | None:
@@ -137,15 +187,18 @@ def _diagnose_slowness_units(values: np.ndarray) -> str | None:
 
 
 def load_reference_curve(
-    path: str | Path, *, source: str | None = None
+    path: str | Path,
+    *,
+    source: str | None = None,
+    quantity: str = "slowness",
 ) -> ReferenceCurve:
     """
     Read a two-column digitised reference CSV, refusing anything suspicious.
 
-    The file is ``freq_hz, slowness_s_per_m``, no header, one row per digitised
-    point. Rows are sorted by frequency on load, because digitiser output
-    follows click order rather than axis order and an unsorted curve would
-    silently break interpolation.
+    The file is ``freq_hz, value``, no header, one row per digitised point.
+    Rows are sorted by frequency on load, because digitiser output follows
+    click order rather than axis order and an unsorted curve would silently
+    break interpolation.
 
     Parameters
     ----------
@@ -153,6 +206,14 @@ def load_reference_curve(
         CSV to read.
     source : str or None
         Label for the curve; defaults to the file name.
+    quantity : {"slowness", "attenuation"}, default "slowness"
+        What the second column holds, which selects the unit check.
+        ``"slowness"`` expects phase or group slowness in s/m;
+        ``"attenuation"`` expects a radiation attenuation in dB/m. The
+        returned :class:`ReferenceCurve` stores either in its ``slowness``
+        field -- the scorer is a relative-deviation comparison and does not
+        care what the values mean, so a second field would only invite the
+        two to drift apart.
 
     Returns
     -------
@@ -167,7 +228,13 @@ def load_reference_curve(
         non-positive values, has duplicate frequencies, or carries values whose
         magnitude indicates the wrong units. The message names the suspected
         mistake --- no silent rescaling happens in any case.
+    ValueError
+        If ``quantity`` is not one of the two recognised names.
     """
+    if quantity not in ("slowness", "attenuation"):
+        raise ValueError(
+            f"quantity must be 'slowness' or 'attenuation', got {quantity!r}"
+        )
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"no digitised reference at {p}")
@@ -179,7 +246,7 @@ def load_reference_curve(
         raise ReferenceDataError(f"{p.name} is empty")
     if raw.ndim != 2 or raw.shape[1] != 2:
         raise ReferenceDataError(
-            f"{p.name} must have exactly 2 columns (freq_hz, slowness_s_per_m), "
+            f"{p.name} must have exactly 2 columns (freq_hz, value), "
             f"got shape {raw.shape}"
         )
     if raw.shape[0] < 3:
@@ -192,7 +259,7 @@ def load_reference_curve(
     if np.any(raw <= 0.0):
         raise ReferenceDataError(
             f"{p.name} contains non-positive values; both frequency and "
-            "slowness must be strictly positive"
+            "value must be strictly positive"
         )
 
     order = np.argsort(raw[:, 0])
@@ -210,7 +277,10 @@ def load_reference_curve(
             f"plausible band [{_FREQ_HZ_RANGE[0]:.0e}, {_FREQ_HZ_RANGE[1]:.0e}] "
             "Hz; a figure axis in kHz must be multiplied by 1e3 before saving"
         )
-    problem = _diagnose_slowness_units(slowness)
+    if quantity == "attenuation":
+        problem = _diagnose_attenuation_units(slowness)
+    else:
+        problem = _diagnose_slowness_units(slowness)
     if problem is not None:
         raise ReferenceDataError(f"{p.name}: {problem}")
 

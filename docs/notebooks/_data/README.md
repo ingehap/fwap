@@ -32,8 +32,10 @@ live in this directory.
 | `sinha_asvadurov_2004_fig11a_leaky_compressional_slow.csv` | `leaky_compressional_dispersion` | **0.03 %** RMS, 107/107 pts |
 | `paillet_cheng_1986_fig12a_leaky_compressional_fundamental.csv` | `leaky_compressional_dispersion` (branch 0, `tool_radius` 0.05) | **1.81 %** RMS, 136/170 pts |
 | `paillet_cheng_1986_fig12a_leaky_compressional_first.csv` | `leaky_compressional_dispersion` (branch 2, `tool_radius` 0.05) | **0.35 %** RMS, 65/84 pts |
+| `sinha_asvadurov_2004_fig11b_leaky_compressional_group_slow.csv` | `leaky_compressional_dispersion` (group slowness) | **0.59 %** RMS, 51/51 pts |
+| `sinha_asvadurov_2004_fig11c_leaky_compressional_attenuation_slow.csv` | `leaky_compressional_dispersion` (**attenuation**) | **0.32 %** RMS, 93/99 pts |
 
-**The eight Sinha & Asvadurov rows are extracted, not traced**, and that is why
+**The ten Sinha & Asvadurov rows are extracted, not traced**, and that is why
 they score two orders of magnitude tighter than everything else here.
 Sinha & Asvadurov's figures are *vector* artwork, so the curve
 coordinates come out of the PDF drawing operators exactly; there is no
@@ -41,7 +43,7 @@ pixel-tracing error to speak of. The calibration was checked against the
 figures' own dashed reference lines before any curve was read -- fig
 10(a) puts L / S / C at 666.75 / 492.08 / 273.31 us/m against the
 1e6/1500 = 666.67, 1e6/2032 = 492.13 and 1e6/3658 = 273.37 the paper's
-own Table 1 implies, agreeing to 0.02 %. For these eight rows the 5 %
+own Table 1 implies, agreeing to 0.02 %. For these ten rows the 5 %
 budget is therefore measuring the solver rather than the digitising,
 which is not true of the raster-traced rows above. Fig 2(a) carries its
 own anchor: the trapped pseudo-Rayleigh branch begins at 492.1 us/m
@@ -68,10 +70,47 @@ support. They are shipped because they are the **only** external
 evidence the rigid logging tool has: the same fundamental scores 10.66 %
 with `tool_radius` left out.
 
+**One row is not a slowness at all.** The fig 11(c) row holds a
+radiation attenuation in **dB/m**, and it is loaded with
+`load_reference_curve(..., quantity="attenuation")` so it gets its own
+unit guard rather than the slowness one. That guard is much weaker than
+its slowness sibling and deliberately so: attenuation has no tight prior,
+and it cannot tell dB/m from nepers/m -- the factor 8.686 this figure's
+whole convention question turns on -- nor reject a slowness column,
+because the two bands overlap and fig 11(c)'s own values start at
+0.0025 dB/m. The `quantity` argument is a *declaration*, not a
+detection.
+
+**The dB convention had to be recovered, because the paper never states
+one.** All six of Sinha & Asvadurov's attenuation panels are labelled
+only "Attenuation (dB/m)" with no defining equation anywhere in the
+text. Read naively as `8.686 Im(k_z)`, fwap comes out about 2.2x high,
+drifting 2.30 to 2.14 across the band. The relation that fits is
+
+    Sinha dB/m = 8.686 * Im(k_z) * (V_g / V_p) / 2
+
+and it was confirmed the falsifiable way: inverting the ratio implies a
+group slowness of about 681 us/m, nearly flat above 8 kHz, and that
+prediction was written down *before* fig 11(b) was opened. Fig 11(b),
+calibrated independently on its own gridlines, reads 681.7 -- agreement
+to **0.65 % RMS over 21 points**, against a panel that played no part in
+deriving the relation.
+
+That doubles as fig 11(c)'s calibration check, which it could not
+otherwise have: attenuation panels carry no dashed reference lines to
+verify against. A y-scale wrong by any factor would have thrown the
+implied group slowness off by the same factor. Fig 11(b) gets its own
+check from fig 11(a): the Stoneley mode is nearly non-dispersive at the
+top of the band, and the gap between its group and phase slownesses
+closes 1.04 % -> 0.42 % from 8 to 15 kHz, which a scale error could not
+produce.
+
 **The fig 11(a) leaky compressional row is the one that found a bug**,
 and it is worth saying which kind. It is the first *leaky* mode in this
-table -- every other row is a bound mode, and every analytic oracle in
-the notebook looks at a bound mode's real part. `_k_or_hankel`'s
+table -- every other row was a bound mode, and every analytic oracle in
+the notebook looks at a bound mode's real part. The fig 11(c) row above
+is the first reference of any kind here that scores an **imaginary**
+part. `_k_or_hankel`'s
 radiation branch had been two thirds *incoming* since it was written,
 passing every local test it had because those tests are satisfied by
 the incoming wave too. Scored against this curve it gave 0.39 % RMS
@@ -224,6 +263,8 @@ Suggested filenames (matching the notebook section titles):
 | `schmitt_cheng_1987_fig2_flexural_fast.csv` | Schmitt & Cheng 1987 fig 2(a) *(shipped)*             | flexural, fast sandstone   |
 | `sinha_asvadurov_2004_fig11a_stoneley_slow.csv` | Sinha & Asvadurov 2004 fig 11(a) *(shipped)* | Stoneley, slow formation |
 | `sinha_asvadurov_2004_fig11a_leaky_compressional_slow.csv` | Sinha & Asvadurov 2004 fig 11(a) *(shipped)* | leaky compressional m=3, slow |
+| `sinha_asvadurov_2004_fig11b_leaky_compressional_group_slow.csv` | Sinha & Asvadurov 2004 fig 11(b) *(shipped)* | same mode's group slowness |
+| `sinha_asvadurov_2004_fig11c_leaky_compressional_attenuation_slow.csv` | Sinha & Asvadurov 2004 fig 11(c) *(shipped)* | same mode's radiation attenuation, **dB/m** |
 | `paillet_cheng_1986_fig12a_leaky_compressional_fundamental.csv` | Paillet & Cheng 1986 fig 12(a) *(shipped)* | leaky compressional, shale B + 5 cm tool |
 | `paillet_cheng_1986_fig12a_leaky_compressional_first.csv` | Paillet & Cheng 1986 fig 12(a) *(shipped)* | leaky compressional first mode, same |
 | `sinha_asvadurov_2004_fig6a_flexural_fast.csv` | Sinha & Asvadurov 2004 fig 6(a) *(shipped)* | flexural, fast formation |
