@@ -7,6 +7,52 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`pseudo_rayleigh_dispersion` has an external tie at last** — Sinha &
+  Asvadurov (2004) fig 2, curve m = 3, fast formation (A). Phase
+  slowness **1.06 % RMS over 154 of 161 points** (fig 2(a)); radiation
+  attenuation **4.51 % over 153 of 160** (fig 2(c)). Above 10.5 kHz,
+  0.50 % and 1.41 %.
+
+  This was the last leaky solver in the package with no published curve
+  behind it, before or after the radiation-branch correction — which is
+  precisely how that defect survived, since every other tie looks at a
+  bound mode.
+
+  **The curve is `branch=1`, and that is why it was missed.** Sinha names
+  it a *leaky compressional* mode, but in a **fast** formation that
+  window, `1/V_P < s < 1/V_S`, is the one this function tracks. The
+  formation's trapped branches cut off at 7.45 and 15.6 kHz and m=3 is
+  the second one's continuation, so it is index 1; index 0's continuation
+  lives below 7.45 kHz, off the figure. An argument-principle count finds
+  exactly one root in that window at every frequency, so the
+  identification rests on a count rather than on the overlay agreeing.
+
+  An earlier attempt at exactly this comparison returned **11.3 %** and
+  was rejected as the wrong mode. It was the wrong branch index, on a
+  contaminated radiation branch, with grid-dependent seeding; with all
+  three fixed it lands at 1.06 %. The rejection was right on the evidence
+  available — the lesson is that "wrong mode" was one of three things
+  wrong at once.
+
+  The attenuation is scored through the dB convention recovered on
+  fig 11, applied here to a different formation, figure and branch index
+  with nothing re-derived. That transfer is stronger evidence than a
+  repeated constant: the correction factor is `2 V_p / V_g`, so it
+  genuinely differs — the naive `8.686 Im(k_z)` reading overshoots by a
+  median **4.15x** here against **2.2x** there — and the relation still
+  lands inside budget at both.
+
+- **Sinha fig 2(b) digitised into `_data/pending/`** — the same mode's
+  group slowness, and the first entry in that directory that is *not*
+  blocked on a missing solver. It misses at **11.32 %** over the full
+  overlap because fwap reaches `1/V_P` at 9.17 kHz against the figure's
+  8.95, a 2.5 % offset in cut-on frequency that differentiation
+  amplifies from the ~1 % it costs the phase curve into double digits.
+  Parked rather than scored above a hand-picked 10.5 kHz floor, since
+  that range is chosen by where the disagreement stops. The offset is
+  reported as measured and is not digitising error: near cut-on the
+  traced curve's frequency is the well-determined coordinate.
+
 - **Sinha & Asvadurov (2004) figs 11(b) and 11(c) digitised and scored** —
   the group slowness and the **radiation attenuation** of the same
   leaky compressional mode figs 11(a) already ties. Group slowness

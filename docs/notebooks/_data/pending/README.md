@@ -8,19 +8,27 @@ record a gap.
 
 Nothing in the notebook reads this directory.
 
-**It is currently empty.** Every curve that has ever been parked here has
-since been promoted, and the entries below are kept as a record of what
-each one was waiting for. In every case the solver was what was missing,
-not the digitising -- which is the pattern worth carrying forward: a
-reference finished at the fidelity of the rest of the repository is worth
-committing before the code that can score it exists, because it is then
-already in the tree the day that code lands.
+**It holds one curve** (entry 5). The four before it were all promoted,
+and their entries are kept as a record of what each was waiting for.
+
+For those four the missing piece was always a **solver**, which is a
+pattern worth carrying forward: a reference finished at the fidelity of
+the rest of the repository is worth committing before the code that can
+score it exists, because it is then already in the tree the day that
+code lands.
+
+Entry 5 breaks that pattern and is the more interesting case. Its solver
+exists and its two sibling curves are scored; this one misses the budget
+because of a small, real, unexplained disagreement near a cut-on. It is
+parked rather than scored over a hand-picked frequency range, because
+choosing the range by where the disagreement stops is the one move this
+directory exists to avoid.
 
 ## Contents
 
 | File | Source | Blocked on |
 |------|--------|------------|
-| *(none)* | | |
+| `sinha_..._fig2b_leaky_compressional_group_fast.csv` | Sinha & Asvadurov 2004 fig 2(b) | not the solver — see below |
 
 ## 1. ~~Fast-formation TI flexural~~ — promoted
 
@@ -107,3 +115,31 @@ that along the figure's C line — which is why 65 of 84 points are scored
 rather than all of them, and why the fastest traced point reads 0.5 %
 faster than `1/V_P`. The CSV is still shipped as traced rather than
 clipped to the physical bound.
+
+
+## 5. Sinha & Asvadurov 2004 fig 2(b) — group slowness of the fast m=3 mode
+
+**This is the first entry here that is not blocked on a missing solver.**
+The solver exists and its siblings are scored: the same mode's phase
+slowness (fig 2(a)) and attenuation (fig 2(c)) both sit in `_data/` at
+1.06 % and 4.51 %. This curve misses at **11.32 %** over the full
+overlap, and 3.83 % above 10.5 kHz.
+
+The cause is one number. fwap's m=3 reaches `1/V_P` at 9.17 kHz against
+the figure's 8.95 — a 2.5 % offset in the cut-on frequency. The phase
+curve is near-vertical there, so the offset already costs about a
+percent on fig 2(a); the group slowness is its *derivative*, and near a
+vertical cut-on a derivative amplifies that into double digits.
+
+It is parked rather than scored over a restricted band because the band
+that would make it pass — above 10.5 kHz — is chosen by where the
+disagreement stops, not by anything physical. Shipping it that way would
+be selecting the range to fit the budget, which is the one move this
+directory exists to avoid.
+
+**What would close it** is understanding the 2.5 % cut-on offset, not a
+tolerance. It is not digitising error: near cut-on the traced curve's
+frequency is the well-determined coordinate, and the trace starts on the
+C line at 273.1 µs/m against C = 273.4. Whether it is a real modelling
+difference or a convergence limit of the marcher near the branch point
+is open.

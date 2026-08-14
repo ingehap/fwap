@@ -1953,6 +1953,46 @@ def pseudo_rayleigh_dispersion(
     hybrid solver loses it, and the resulting NaNs mark roughly where
     the mode stops being observable rather than a search failure.
 
+    Validation
+    ----------
+    Scored against **Sinha & Asvadurov (2004) fig 2, curve m = 3** --
+    fast formation (A), ``V_P`` 3658, ``V_S`` 2032 m/s, ``rho`` 2350,
+    water, ``a`` = 0.1016 m -- at **1.06 % RMS over 154 of 161 points**
+    on the phase slowness, and **4.51 % over 153 of 160** on the
+    radiation attenuation of fig 2(c). Above 10.5 kHz those fall to
+    0.50 % and 1.41 %. The attenuation is scored through the dB
+    convention recovered in :func:`leaky_compressional_dispersion`'s
+    notebook section, applied here to a different formation, figure and
+    branch index with nothing re-derived -- and the correction factor
+    is ``2 V_p / V_g``, so it genuinely differs (a median 4.15x here
+    against 2.2x there) rather than being a constant that might have
+    matched by luck.
+
+    That curve is ``branch=1`` here, not ``branch=0``, and the reason is
+    the family structure above: this formation's trapped branches cut
+    off at 7.45 and 15.6 kHz, and m=3 leaves ``1/V_S`` at the top of the
+    plotted band to reach ``1/V_P`` at 8.95 kHz, so it is branch 1's
+    continuation. ``branch=0``'s lives below 7.45 kHz, off that figure.
+
+    **This function had no external tie until then**, which is worth
+    stating plainly because it is how the radiation-branch defect
+    survived: an earlier attempt to score it against this very curve
+    returned 11.3 % and was correctly rejected as the wrong mode. It was
+    the wrong mode *and* the branch was contaminated *and* the seeding
+    was grid-dependent; with all three fixed the same comparison lands
+    inside budget.
+
+    **Where it degrades.** fwap reaches ``1/V_P`` at 9.17 kHz against
+    the figure's 8.95 -- a 2.5 % offset in the cut-on frequency. The
+    curve is near-vertical there, so that offset dominates both RMS
+    figures, and a *derivative* of it dominates far harder: the group
+    slowness misses by 11.3 % over the full band against fig 2(b),
+    which is why that curve is parked in ``docs/notebooks/_data/pending/``
+    rather than scored over a frequency range chosen to make it pass.
+    The offset is reported as measured; it is not digitising error,
+    since near cut-on the traced curve's frequency is the
+    well-determined coordinate.
+
     Accuracy of the attenuation
     ---------------------------
     ``attenuation_per_meter`` has been checked against
