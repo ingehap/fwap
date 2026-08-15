@@ -233,10 +233,36 @@ The same growth of residual with damping is already recorded at `n = 0`,
 on a different figure and formation, by the fig 2 comparison — the more
 damped half of that curve misses by more than 2×, and the weakly damped
 slow-formation mode does better still. So it is a property of these
-comparisons rather than of the quadrupole. **Which side is nearer the
-truth at the strongly radiating end is not settled here.** What is
-settled is that better seeding or tracking will not move it, so the
-1.39 % is carried as a measured budget rather than chased.
+comparisons rather than of the quadrupole.
+
+**Which side is right is now settled, and it is fwap's.** The paper
+prints its own boundary-condition matrix — Appendix eqs (A2)–(A15), a
+4×4 at general `n`. It shares no algebra with fwap: a different
+potential basis (its SV/SH columns are a mixture of fwap's), the
+opposite sign convention for the radial wavenumbers, ordinary Hankel
+functions instead of modified Bessel ones, and rows scaled without the
+shear modulus. Transcribed verbatim and root-solved, it gives:
+
+| | vs fwap's `k_z` | vs fig 10(a) |
+| --- | --- | --- |
+| Sinha & Asvadurov's own eqs (A2)–(A15) | **7e-14** (Re), **3e-10** (Im), median exactly 0, over 117 frequencies | **1.37 %** at 3.24 kHz, decaying to 0.00 % at 5.29 kHz |
+
+A third construction — a from-scratch derivation off the Helmholtz
+potentials, with the cylindrical stress tensor and finite-difference-checked
+Bessel derivative rules — agrees with both. So three independent
+implementations of the boundary conditions land on the same root, and
+the curve plotted in the paper is the outlier. The residual is a
+property of that plotted limb, not of the solver, and is carried as a
+measured budget on the *reference*.
+
+One subtlety cost real time and is worth recording: in Sinha's sign
+convention the branch rule differs **per wave** — the bound P needs
+`Im(α) > 0` so `H⁽¹⁾` decays, while the radiating S needs the principal
+root. With real `k_z` the two coincide, so a principal-root
+transcription reproduces every bound mode and then silently selects the
+*growing* P wave the moment `k_z` goes complex. That produced a matrix
+which agreed with fwap at n=1 and n=2 bound and had no leaky root at
+all — a false negative that looked exactly like a real disagreement.
 
 The attenuation floor is 0.2 dB/m — 1 % of that panel's 0–20 axis, and
 about four times its digitising resolution. Below it the reference is a

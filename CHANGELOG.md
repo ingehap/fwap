@@ -6,6 +6,39 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Sinha & Asvadurov's own published matrix, as a standing independent
+  oracle.** The paper prints its boundary-condition matrix (Appendix
+  eqs A2–A15, 4×4 at general `n`), and it shares no algebra with fwap:
+  a different potential basis (its SV/SH columns are a mixture of
+  fwap's), the opposite sign convention for the radial wavenumbers,
+  ordinary Hankel functions instead of modified Bessel ones, and rows
+  scaled without the shear modulus. `tests/test_cylindrical_solver.py`
+  now carries it as an oracle for the n=1 and n=2 determinants, bound
+  and leaky alike.
+
+  **This settles the question #128 left open, in fwap's favour.**
+  Root-solved, the paper's own equations reproduce
+  `leaky_quadrupole_dispersion`'s `k_z` to 7e-14 in the real part and
+  3e-10 in the imaginary part — median difference exactly zero — over
+  117 frequencies spanning the band, while differing from the curve
+  plotted in the same paper by the full 1.37 % at 3.24 kHz, decaying
+  to 0.00 % at 5.29 kHz. A third construction, derived from scratch off
+  the Helmholtz potentials with finite-difference-checked Bessel
+  derivative rules, agrees with both. Three independent implementations
+  of the boundary conditions land on one root; fig 10(a)'s
+  low-frequency limb is the outlier. The residual is therefore a
+  property of that plotted curve, not of the solver.
+
+  Worth recording for anyone transcribing the appendix: in Sinha's sign
+  convention the branch rule differs **per wave** — the bound P needs
+  `Im(α) > 0` so `H⁽¹⁾` decays, the radiating S needs the principal
+  root. With real `k_z` the two coincide, so a principal-root
+  transcription reproduces every bound mode and then silently selects
+  the *growing* P wave the moment `k_z` goes complex. That yields a
+  matrix which agrees at n=1 and n=2 bound and has no leaky root at
+  all — a false negative indistinguishable from a real disagreement.
+
 ### Changed
 - **The leaky quadrupole's low-frequency phase drift is documented as a
   measured budget, not a defect.** `leaky_quadrupole_dispersion` peaks at
