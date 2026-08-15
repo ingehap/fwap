@@ -331,12 +331,23 @@ def _flexural_dispersion_fast_formation_layered(
     is bound everywhere outside the borehole fluid.
 
     Branch tracking is shared with the unlayered case via
-    :func:`~fwap.cylindrical_solver._n1_isotropic._march_fast_flexural_branch`,
-    so the two cannot drift apart: the window is ``(V_f, V_S)`` and
-    the fundamental is the slowest root that is no faster than the
-    previous one. See that function and
+    :func:`~fwap.cylindrical_solver._n1_isotropic._march_fast_flexural_branch`:
+    the window is ``(V_f, V_S)`` and the fundamental is the slowest
+    root that is no faster than the previous one. See that function and
     :func:`~fwap.cylindrical_solver._n1_isotropic._flexural_dispersion_fast_formation`
     for why ``V_R`` is not a bound of this mode (roadmap A.2).
+
+    Sharing the marcher is **not** on its own enough to keep this path
+    and the unlayered one together, and this docstring used to say it
+    was. The branch descends through ``V_f``; what happens at that
+    crossing is decided after the march, by
+    :func:`~fwap.cylindrical_solver._n1_isotropic._extend_below_fluid`,
+    which for a long time was called by the unlayered driver and not by
+    this one. The two then disagreed above about 10 kHz -- ``NaN`` here
+    against a tracked mode there -- in configurations where they solve
+    the same problem. Both call it now; the check that they still agree
+    is
+    ``test_the_layered_drivers_follow_the_branch_below_the_fluid_velocity``.
 
     Parameters
     ----------
