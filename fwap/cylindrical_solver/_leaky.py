@@ -24,6 +24,7 @@ from fwap.cylindrical_solver._dataclasses import (
     BranchSegment,
 )
 from fwap.cylindrical_solver._n1_isotropic import _real_root_function
+from fwap.cylindrical_solver._n2_quadrupole import _modal_determinant_n2_complex
 
 # =====================================================================
 # Leaky-mode extension (Roadmap A continuation, phases L1 + L2)
@@ -2808,6 +2809,242 @@ def leaky_compressional_dispersion(
     return BoreholeMode(
         name="leaky_compressional",
         azimuthal_order=0,
+        freq=f_arr,
+        slowness=slowness,
+        attenuation_per_meter=attenuation,
+    )
+
+
+# ---------------------------------------------------------------------
+# Leaky quadrupole (n = 2, shear branch radiating)
+#
+# The regime table at the top of this module lists "Quadrupole fast
+# (n=2): F leaky, p bound, s bound", which is the trapped window
+# ``V_f < c < V_S``. Below its cut-off the mode does not stop existing:
+# it crosses ``V_S`` and continues with ``c > V_S``, where the shear
+# radial wavenumber turns imaginary and the mode radiates shear into
+# the formation. That is the ``s`` leaky row the table was missing, and
+# it is the n=2 sister of the n=0 pseudo-Rayleigh regime.
+#
+# Sinha & Asvadurov (2004) fig 10(a) plots it -- their m = 1 curve runs
+# below the S line at low frequency -- and their text says outright that
+# the mode "becomes non-radiating above 5 kHz".
+# ---------------------------------------------------------------------
+
+#: Ceiling of the leaky quadrupole search, as a multiple of ``V_S``.
+#: The branch turns over well before this: measured across six media
+#: (Sinha's and Claro's fast sandstones, Claro's slow case, a
+#: limestone, a granite, and a 5 cm hole) the peak phase velocity is
+#: 1.0092-1.0106 ``V_S``, so 1.10 clears it by an order of magnitude in
+#: excursion while still excluding the next branch up.
+_LEAKY_QUAD_CEILING = 1.10
+
+#: Rejection half-width around ``V_f``, relative. In a *slow* formation
+#: ``V_f`` lies above ``V_S`` and therefore inside this search window,
+#: and the determinant has a sign change pinned exactly at it where the
+#: fluid radial wavenumber vanishes. Unnamed, the complex search
+#: converges onto it and reports it as a mode -- on Claro's slow stack
+#: it returns 2200.72 m/s, which is ``V_f`` to six figures.
+_LEAKY_QUAD_FLUID_TOL = 1.0e-3
+
+#: Consecutive rejected steps tolerated before the march stops.
+_LEAKY_QUAD_MAX_INVALID = 3
+
+
+def _leaky_quadrupole_seed(
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> complex | None:
+    """Hunt the leaky n=2 root at one frequency, without continuation.
+
+    Used for the first step of the march and to re-acquire after a gap.
+    The seeds carry a **positive** imaginary part because that is where
+    these roots are; seeded negative the solver mostly walks off, and
+    the branch then looks absent on media where it is plainly present.
+    """
+
+    def _det(kz: complex) -> complex:
+        return _modal_determinant_n2_complex(
+            kz, omega, vp, vs, rho, vf, rho_f, a, leaky_p=False, leaky_s=True
+        )
+
+    for ratio in np.linspace(1.0005, 1.03, 14):
+        for imag in (0.02, 0.08, 0.2, 0.5, 0.9, 1.5):
+            root = _track_complex_root(_det, complex(omega / (vs * ratio), imag))
+            if root is None or root.real <= 0.0:
+                continue
+            if _leaky_quadrupole_valid(root, omega, vs=vs, vf=vf):
+                return root
+    return None
+
+
+def _leaky_quadrupole_valid(kz: complex, omega: float, *, vs: float, vf: float) -> bool:
+    """Is this converged root the radiating quadrupole branch?"""
+    if kz.real <= 0.0 or not np.isfinite(kz.real) or not np.isfinite(kz.imag):
+        return False
+    if kz.imag <= 0.0 or kz.imag > 50.0:
+        return False
+    velocity = omega / kz.real
+    if not vs < velocity < _LEAKY_QUAD_CEILING * vs:
+        return False
+    return abs(velocity / vf - 1.0) > _LEAKY_QUAD_FLUID_TOL
+
+
+def leaky_quadrupole_dispersion(
+    freq: np.ndarray,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+) -> BoreholeMode:
+    r"""
+    Radiating quadrupole (n=2) below the trapped cut-off.
+
+    :func:`~fwap.quadrupole_dispersion` tracks the screw mode while it
+    is trapped, ``c < V_S``. It has a genuine low-frequency cut-off:
+    below it no real-``k_z`` root exists at all, and scanning to within
+    ``1e-10`` of ``V_S`` finds nothing. The mode has not ended, it has
+    *crossed*. Above ``V_S`` the shear radial wavenumber
+    ``s^2 = k_z^2 - (\omega/V_S)^2`` turns negative, the outgoing
+    Hankel form replaces the decaying ``K``-Bessel one, and the mode
+    radiates shear into the formation with complex ``k_z``. This
+    function tracks that continuation.
+
+    It is the n=2 sister of :func:`pseudo_rayleigh_dispersion`, which
+    is the same ``s``-radiating regime at n=0.
+
+    Parameters
+    ----------
+    freq : ndarray
+        Frequency grid (Hz). Must be strictly positive. Values above
+        the trapped cut-off return ``NaN`` -- use
+        :func:`~fwap.quadrupole_dispersion` there.
+    vp, vs, rho : float
+        Formation P-wave velocity (m/s), S-wave velocity (m/s) and bulk
+        density (kg/m^3). Must satisfy ``vp > vs > 0`` and ``rho > 0``.
+    vf, rho_f : float
+        Borehole-fluid velocity (m/s) and density (kg/m^3).
+    a : float
+        Borehole radius (m).
+
+    Returns
+    -------
+    BoreholeMode
+        ``name = "leaky_quadrupole"``, ``azimuthal_order = 2``, with
+        ``slowness[i] = Re(k_z)/omega`` and
+        ``attenuation_per_meter[i] = Im(k_z)`` in nepers per metre.
+        ``NaN`` outside the band where the branch exists.
+
+    Raises
+    ------
+    ValueError
+        If any input is non-positive, or ``vp <= vs``, or ``freq``
+        contains a non-positive entry.
+
+    Notes
+    -----
+    **Where the branch lives.** Measured over six media, it occupies
+    roughly ``0.55`` to ``0.98`` of the trapped cut-off frequency and
+    peaks at ``1.009``-``1.011`` ``V_S``. It is strongly attenuating at
+    the low-frequency end -- ``Im(k_z)`` reaches order 1 per metre --
+    which is why Sinha & Asvadurov describe these as
+    "essentially non-propagating" and not detected at far receivers.
+
+    **Scores against Sinha & Asvadurov (2004) fig 10**, which plots
+    this mode three ways for their fast formation: phase slowness
+    0.58 % RMS over the 34 sub-cut-off points of fig 10(a), group
+    slowness 2.27 % against fig 10(b), and radiation attenuation
+    1.46 % against fig 10(c) above a 0.2 dB/m floor. The attenuation
+    tie is the meaningful one: it checks ``Im(k_z)``, which the phase
+    curve cannot see, so a solver could get the radiation entirely
+    wrong and still score well on fig 10(a).
+
+    The residual is concentrated at the low-frequency end of the phase
+    curve, where fwap peaks at 1.009 ``V_S`` against the figure's
+    1.019. That disagreement is recorded rather than tuned away; the
+    imaginary part agrees there to about 2 %, so it is not a
+    wrong-branch error.
+
+    References
+    ----------
+    * Sinha, B. K., & Asvadurov, S. (2004). Dispersion and radial depth
+      of investigation of borehole modes. *Geophysical Prospecting*
+      52(4), 271-286.
+    """
+    if vp <= 0 or vs <= 0 or rho <= 0:
+        raise ValueError("vp, vs, rho must all be positive")
+    if vf <= 0 or rho_f <= 0:
+        raise ValueError("vf and rho_f must be positive")
+    if a <= 0:
+        raise ValueError("a must be positive")
+    if vp <= vs:
+        raise ValueError("require vp > vs")
+    f_arr = np.asarray(freq, dtype=float)
+    if np.any(f_arr <= 0):
+        raise ValueError("freq must be strictly positive")
+
+    slowness = np.full(f_arr.size, np.nan, dtype=float)
+    attenuation = np.full(f_arr.size, np.nan, dtype=float)
+    if f_arr.size == 0:
+        return BoreholeMode(
+            name="leaky_quadrupole",
+            azimuthal_order=2,
+            freq=f_arr,
+            slowness=slowness,
+            attenuation_per_meter=attenuation,
+        )
+
+    medium = dict(vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a)
+
+    def _det(kz: complex, omega: float) -> complex:
+        return _modal_determinant_n2_complex(
+            kz, omega, vp, vs, rho, vf, rho_f, a, leaky_p=False, leaky_s=True
+        )
+
+    # March downward. The branch is easiest at the top of its band,
+    # where it has just crossed V_S and Im(k_z) is still near zero;
+    # marching up from the strongly attenuating end instead makes the
+    # first step the hardest one.
+    kz_prev: complex | None = None
+    omega_prev: float | None = None
+    misses = 0
+    for i in np.argsort(-f_arr):
+        omega = 2.0 * np.pi * float(f_arr[i])
+        root: complex | None = None
+        if kz_prev is not None and omega_prev is not None:
+            candidate = _track_complex_root(
+                lambda kz, w=omega: _det(kz, w),
+                kz_prev * (omega / omega_prev),
+            )
+            if candidate is not None and _leaky_quadrupole_valid(
+                candidate, omega, vs=vs, vf=vf
+            ):
+                root = candidate
+        if root is None:
+            root = _leaky_quadrupole_seed(omega, **medium)
+        if root is None:
+            if kz_prev is not None:
+                misses += 1
+                if misses > _LEAKY_QUAD_MAX_INVALID:
+                    break
+            continue
+        misses = 0
+        slowness[i] = root.real / omega
+        attenuation[i] = root.imag
+        kz_prev, omega_prev = root, omega
+
+    return BoreholeMode(
+        name="leaky_quadrupole",
+        azimuthal_order=2,
         freq=f_arr,
         slowness=slowness,
         attenuation_per_meter=attenuation,
