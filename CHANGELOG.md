@@ -55,11 +55,67 @@ the project uses [Semantic Versioning](https://semver.org/).
   matrix which agrees at n=1 and n=2 bound and has no leaky root at
   all — a false negative indistinguishable from a real disagreement.
 
+  A **third** instance surfaced on the cased-hole matrix, and it is the
+  same failure every time: asked with the *bound* half-space shear
+  column, the appendix assembly has no root at fwap's cased leaky
+  dipole — `sigma_min` sits at 1e-13 and barely moves — where the
+  radiating branch bottoms out at 1e-16. Neither the steel nor the
+  conditioning causes that, though both were plausible enough to be
+  measured and excluded first (exponential growth: `|k_s|·t` is only
+  0.02–0.48; row scaling: equilibration changes nothing; rank collapse:
+  the propagated columns keep `s3/s1 = 0.026`). It is the branch alone.
+
   A second trap surfaced applying the oracle at n=0: `Re(p²) < 0` is
   **not** a usable leaky-P test once `k_z` is complex. On the leaky
   pseudo-Rayleigh branch near 9.2 kHz the `Im(k_z)²` term alone pushes
   `Re(p²)` negative while the P wave is still bound, and selecting the
   leaky P branch there costs all 14 decades of agreement.
+
+### Fixed
+- **The layered fast-formation drivers now follow the branch below the
+  fluid velocity**, as the unlayered ones already did.
+  `_extend_below_fluid` landed on `flexural_dispersion` and
+  `quadrupole_dispersion` when it was written and on neither layered
+  twin, so above the crossing `flexural_dispersion_layered` and
+  `quadrupole_dispersion_layered` returned `NaN` where the open-hole
+  solvers tracked the mode — about **10 kHz at n=1 and 17 kHz at n=2**
+  on a 3658/2032/2350 formation. On a coarse grid that starts above the
+  crossing the effect is worse than a gap: the marcher stays on a
+  higher mode, so a real steel-and-cement stack came back at 2418 m/s
+  where the fundamental is at 1474.
+
+  The `_flexural_dispersion_fast_formation_layered` docstring claimed
+  the layered and unlayered paths "cannot drift apart" because they
+  share `_march_fast_flexural_branch`. They did share it, and differed
+  in what happened after it.
+
+  Found by pointing Sinha's published 4x4 at the *layered* code path
+  with the layers made of formation material — the same boundary-value
+  problem as the open hole, so any disagreement is a defect. The
+  recovered roots are confirmed independently by Schmitt & Cheng's
+  appendix matrix (below), which is a different paper.
+
+### Added
+- **The Schmitt & Cheng appendix is now a cased-hole oracle**, reaching
+  what Sinha's open-hole 4x4 structurally cannot: a real stack of steel
+  and cement. `_appendix_sigma_min_stack` generalises the existing
+  one-annulus helper to `N` annuli and to complex `k_z`, and locates
+  fwap's cased roots in both regimes:
+
+  | mode | regime | ratio off-root |
+  | --- | --- | --- |
+  | cased leaky dipole (n=1) | radiating | 125–1478× |
+  | cased leaky screw (n=2) | radiating | 99–5239× |
+  | cased Stoneley (n=0) | bound | 51–1953× |
+
+  A normalised 4×4 bottoms out near 1e-16 at a true root, so the
+  measured quantity is how far `sigma_min` rises off it rather than a
+  log-decade depth; the raw determinant is numerically useless here for
+  the reason roadmap A.7 records.
+
+  This covers the leaky cased dipole that roadmap A.9 opened and #122
+  narrowed — the mode that runs at 1.11–1.22 times a slow formation's
+  shear speed behind steel, where no published figure pins it.
 
 ### Changed
 - **The leaky quadrupole's low-frequency phase drift is documented as a

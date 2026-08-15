@@ -709,8 +709,10 @@ def _quadrupole_dispersion_fast_formation_layered(
             leaky_s=False,
         )
 
+    from fwap.cylindrical_solver._cased import _modal_determinant_n2_cased
     from fwap.cylindrical_solver._n1_isotropic import (
         _FAST_FLEXURAL_MAX_CASED_ROOTS,
+        _extend_below_fluid,
         _march_fast_flexural_branch,
         _real_root_function,
     )
@@ -727,6 +729,25 @@ def _quadrupole_dispersion_fast_formation_layered(
         exclude=tuple(layer.vs for layer in layers),
         max_roots=_FAST_FLEXURAL_MAX_CASED_ROOTS,
     )
+
+    # Same sub-fluid continuation the unlayered n=2 driver already does.
+    # The screw branch crosses V_f near 17 kHz on a fast formation, and
+    # without this the layered path returned NaN from there up while the
+    # unlayered one tracked the mode.
+    def _real_det(kz: float, _omega: float) -> float:
+        return _modal_determinant_n2_cased(
+            kz,
+            _omega,
+            vp=vp,
+            vs=vs,
+            rho=rho,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
+            layers=layers,
+        )
+
+    slowness = _extend_below_fluid(_real_det, f_arr, slowness, vf=vf)
 
     return BoreholeMode(
         name="quadrupole",
