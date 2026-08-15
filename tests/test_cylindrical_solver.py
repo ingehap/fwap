@@ -25853,3 +25853,121 @@ def test_sinha_appendix_matrix_vanishes_at_fwaps_n0_roots():
         leaky_compressional_dispersion(freq, **_LC_SLOW),
         True,
     )
+
+
+def test_the_layered_machinery_reduces_to_the_published_open_hole_matrix():
+    """Layers made of formation are not a layer, and the oracle knows it.
+
+    ``flexural_dispersion_layered`` with a stack whose media equal the
+    half-space is the *same boundary-value problem* as the open hole, so
+    Sinha's published 4x4 has to hold for it -- but the code path is
+    completely different: the 10x10 layered determinant at one layer and
+    the cased propagator chain at two. This runs the whole layer
+    assembly, interface conditions and half-space columns included,
+    against a matrix from a different paper than the one it was built
+    from.
+
+    It is also how the sub-fluid gap below was found: the two disagreed
+    above 10 kHz, in a configuration where they cannot.
+    """
+    medium = _LQ_SINHA
+    one = (
+        BoreholeLayer(
+            vp=medium["vp"], vs=medium["vs"], rho=medium["rho"], thickness=0.03
+        ),
+    )
+    two = (
+        BoreholeLayer(
+            vp=medium["vp"], vs=medium["vs"], rho=medium["rho"], thickness=0.02
+        ),
+        BoreholeLayer(
+            vp=medium["vp"], vs=medium["vs"], rho=medium["rho"], thickness=0.04
+        ),
+    )
+    cases = (
+        (
+            0,
+            stoneley_dispersion,
+            stoneley_dispersion_layered,
+            np.arange(3000.0, 12000.0, 1000.0),
+        ),
+        (
+            1,
+            flexural_dispersion,
+            flexural_dispersion_layered,
+            np.arange(3000.0, 12500.0, 1000.0),
+        ),
+    )
+    for n, unlayered, layered, freq in cases:
+        base = unlayered(freq, **medium)
+        for label, stack in (("10x10", one), ("propagator", two)):
+            mode = layered(freq, **medium, layers=stack)
+            checked = 0
+            for i, f in enumerate(freq):
+                if not np.isfinite(mode.slowness[i]):
+                    continue
+                # Same problem, so the same root to floating point ...
+                assert np.isfinite(base.slowness[i]), (n, label, f)
+                assert mode.slowness[i] == pytest.approx(base.slowness[i], rel=1e-11), (
+                    n,
+                    label,
+                    f,
+                )
+                # ... and the published matrix agrees with both.
+                omega = 2.0 * np.pi * f
+                depth = _sinha_root_depth(n, omega * mode.slowness[i], omega, medium)
+                assert depth > 8.0, (n, label, f, depth)
+                checked += 1
+            assert checked >= 8, (n, label, checked)
+
+
+def test_the_layered_drivers_follow_the_branch_below_the_fluid_velocity():
+    """The layered fast-formation paths cross ``V_f`` like the open-hole
+    ones, instead of stopping there.
+
+    ``_extend_below_fluid`` landed on the two unlayered drivers when it
+    was written and on neither layered one, so above the crossing
+    ``flexural_dispersion_layered`` and ``quadrupole_dispersion_layered``
+    returned ``NaN`` where their unlayered twins tracked the mode --
+    about 10 kHz at n=1 and 17 kHz at n=2 on this formation. The
+    docstring claimed the two "cannot drift apart" because they share
+    the marcher; they shared the marcher and differed in what happened
+    after it.
+
+    Asserted against the unlayered driver rather than against stored
+    numbers: with the layers made of formation the two are the same
+    problem, so any future divergence is a defect in one of them.
+    """
+    from fwap import quadrupole_dispersion, quadrupole_dispersion_layered
+
+    medium = _LQ_SINHA
+    stack = (
+        BoreholeLayer(
+            vp=medium["vp"], vs=medium["vs"], rho=medium["rho"], thickness=0.03
+        ),
+    )
+    for n, unlayered, layered, freq in (
+        (
+            1,
+            flexural_dispersion,
+            flexural_dispersion_layered,
+            np.arange(10000.0, 13000.0, 500.0),
+        ),
+        (
+            2,
+            quadrupole_dispersion,
+            quadrupole_dispersion_layered,
+            np.arange(18000.0, 25000.0, 1000.0),
+        ),
+    ):
+        base = unlayered(freq, **medium)
+        mode = layered(freq, **medium, layers=stack)
+        assert np.isfinite(base.slowness).all(), n
+        # The regime this is about: the branch is below the fluid speed.
+        assert np.all(1.0 / base.slowness < medium["vf"]), n
+        assert np.isfinite(mode.slowness).all(), (n, mode.slowness)
+        np.testing.assert_allclose(mode.slowness, base.slowness, rtol=1e-10)
+        for i, f in enumerate(freq):
+            omega = 2.0 * np.pi * f
+            depth = _sinha_root_depth(n, omega * mode.slowness[i], omega, medium)
+            assert depth > 8.0, (n, f, depth)

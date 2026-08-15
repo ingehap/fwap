@@ -423,6 +423,157 @@ _HOLE = 0.10
 _THICKNESS = 0.16
 
 
+#: Cased-hole stack: API 5.5" steel and Schmitt & Cheng Table 1 cement 1.
+_STEEL = dict(vp=5940.0, vs=3220.0, rho=7500.0)
+_FAST = dict(vp=4500.0, vs=2600.0, rho=2500.0)
+_CASED_STACK = ((_STEEL, 0.01), (_CEMENT, 0.03))
+_CASED_HOLE = 0.10
+
+
+def _bound_radial(kz: complex, omega: float, v: float) -> complex:
+    return np.sqrt(complex(kz) ** 2 - (omega / v) ** 2)
+
+
+def _outgoing_radial(kz: complex, omega: float, v: float) -> complex:
+    """The radiating branch, fixed by the Bessel identity rather than
+    by which sign happens to agree.
+
+    ``K_nu(z) = (pi/2) i^(nu+1) H^(1)_nu(i z)``, so ``K_nu(ks r)`` -- the
+    appendix's decaying column -- is an *outgoing* wave exactly when
+    ``ks = -i k_r`` with ``k_r = sqrt((omega/V)^2 - k_z^2)`` taken with
+    positive real part. Getting this wrong is not a small error: it
+    leaves the assembly with no root at all where fwap has one, which
+    reads as a disagreement rather than as a bug (PR #129).
+    """
+    kr = np.sqrt((omega / v) ** 2 - complex(kz) ** 2)
+    if kr.real < 0.0:
+        kr = -kr
+    return -1j * kr
+
+
+def _appendix_sigma_min_stack(
+    kz: complex,
+    omega: float,
+    *,
+    n: int,
+    fluid: dict[str, float],
+    a: float,
+    stack: tuple[tuple[dict[str, float], float], ...],
+    half: dict[str, float],
+    leaky_s: bool = False,
+) -> float:
+    """Smallest singular value of the 4x4 boundary-condition matrix for
+    a fluid core, ``N`` elastic annuli and an elastic half-space,
+    assembled only from the appendix.
+
+    Generalises :func:`_appendix_sigma_min` from one annulus to a stack
+    and from real to complex ``k_z``, which is what a cased hole needs:
+    behind steel the dipole runs faster than a slow formation's shear
+    speed, so the mode radiates and ``k_z`` is complex.
+
+    The branch rule is **per wave**: the formation P stays bound while
+    its S radiates, so only ``ks`` moves to the outgoing branch. Columns
+    are normalised at every stage; the raw determinant is numerically
+    useless for the reason roadmap A.7 records, and the singular value
+    is the conditioning-robust stand-in.
+
+    Parameters
+    ----------
+    kz : complex
+        Axial wavenumber (rad/m).
+    omega : float
+        Angular frequency (rad/s).
+    n : int
+        Azimuthal order.
+    fluid : dict
+        ``vf`` (m/s) and ``rho_f`` (kg/m^3).
+    a : float
+        Borehole (fluid-side) radius (m).
+    stack : tuple of (dict, float)
+        ``(medium, thickness)`` inside-out; ``vp``/``vs`` in m/s,
+        ``rho`` in kg/m^3, thickness in m.
+    half : dict
+        Formation half-space medium.
+    leaky_s : bool, default False
+        Put the half-space shear wave on the radiating branch.
+
+    Returns
+    -------
+    float
+        Smallest singular value, or ``inf`` where the algebra fails.
+    """
+
+    def T_nat(medium: dict[str, float], r: float, radiating: bool) -> np.ndarray:
+        kw = dict(
+            k=complex(kz),
+            omega=omega,
+            kp=_bound_radial(kz, omega, medium["vp"]),
+            ks=(
+                _outgoing_radial(kz, omega, medium["vs"])
+                if radiating
+                else _bound_radial(kz, omega, medium["vs"])
+            ),
+            rho=medium["rho"],
+            beta=medium["vs"],
+        )
+        T = _schmitt_appendix_T(n, r=r, **kw)  # type: ignore[arg-type]
+        return (T.T / _THETA_SECTOR).T
+
+    def normalise(x: np.ndarray) -> np.ndarray:
+        return x / np.maximum(np.abs(x).max(axis=0), 1e-300)
+
+    radii = [a]
+    for _, thickness in stack:
+        radii.append(radii[-1] + thickness)
+
+    try:
+        V = normalise(T_nat(half, radii[-1], leaky_s)[:, [1, 3, 5]])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", sla.LinAlgWarning)
+            for i in range(len(stack) - 1, -1, -1):
+                medium = stack[i][0]
+                V = normalise(
+                    T_nat(medium, radii[i], False)
+                    @ sla.solve(T_nat(medium, radii[i + 1], False), V)
+                )
+        F = _bound_radial(kz, omega, fluid["vf"])
+        i_n = special.iv(n, F * a)
+        i_n1 = special.iv(n + 1, F * a)
+        M = np.zeros((4, 4), dtype=complex)
+        M[0, :3] = V[0]
+        M[0, 3] = -(F * i_n1 + n / a * i_n) / (fluid["rho_f"] * omega**2)
+        M[1, :3] = V[3]
+        M[1, 3] = +i_n
+        M[2, :3] = V[4]
+        M[3, :3] = V[5]
+        M = normalise(M)
+        if not np.isfinite(M).all():
+            return np.inf
+        return float(np.linalg.svd(M, compute_uv=False)[-1])
+    except (np.linalg.LinAlgError, sla.LinAlgError, ValueError):
+        return np.inf
+
+
+def _appendix_root_sharpness(kz: complex, omega: float, **kw: object) -> float:
+    """How far ``sigma_min`` rises off the root, as a ratio.
+
+    The conditioning-robust stand-in for the log-decade depth used
+    against Sinha's open-hole matrix: a normalised 4x4 bottoms out near
+    1e-16 at a true root, so the discriminating quantity is how much
+    *higher* the neighbours sit.
+    """
+    at_root = _appendix_sigma_min_stack(kz, omega, **kw)  # type: ignore[arg-type]
+    if not np.isfinite(at_root) or at_root <= 0.0:
+        return 0.0
+    nearby = np.median(
+        [
+            _appendix_sigma_min_stack(kz * g, omega, **kw)  # type: ignore[arg-type]
+            for g in (0.97, 0.98, 1.02, 1.03)
+        ]
+    )
+    return float(nearby / at_root)
+
+
 def _appendix_sigma_min(c: float, omega: float, n: int = 1) -> float:
     """Smallest singular value of the 4x4 boundary-condition matrix
     assembled only from the appendix.
@@ -636,3 +787,151 @@ def test_the_open_hole_determinants_match_the_appendix() -> None:
     assert scores[1] < 0.002, f"n=1 rms {scores[1]:.2%}"
     assert scores[2] < 0.002, f"n=2 rms {scores[2]:.2%}"
     assert scores[1] < 5.0 * scores[0]
+
+
+# ----------------------------------------------------------------------
+# 5. The appendix as a cased-hole oracle
+#
+# Sections 1-4 check the appendix's *columns* and one published curve.
+# This section uses the assembled matrix the way PR #129 used Sinha's:
+# as an independent statement of where the roots are. It reaches what
+# Sinha's 4x4 cannot -- a real cased stack, steel and cement, where the
+# dipole is leaky because behind steel it outruns a slow formation's
+# shear speed.
+#
+# Scale: a normalised 4x4 bottoms out near 1e-16 at a true root, so the
+# measured quantity is the *ratio* by which sigma_min rises off it. All
+# thresholds below are far under what is observed (99-5239x), and the
+# contrast against the wrong branch is the point: there the ratio is
+# 1.0-1.9, i.e. no root at all.
+# ----------------------------------------------------------------------
+
+
+def test_the_appendix_locates_the_cased_leaky_modes() -> None:
+    """fwap's cased leaky dipole and screw modes are roots of the
+    appendix matrix, across the band.
+
+    This is the check the open-hole oracle cannot make. Behind steel the
+    n=1 mode runs at 1.11-1.22 times the formation shear speed, so it
+    radiates and ``k_z`` is complex -- the regime roadmap A.9 opened and
+    PR #122 narrowed. An independently published layer matrix puts the
+    root where fwap puts it, to within a singular value of 1e-16.
+    """
+    fluid, a = _FLUID, _CASED_HOLE
+    layers = tuple(
+        BoreholeLayer(**medium, thickness=t)  # type: ignore[arg-type]
+        for medium, t in _CASED_STACK
+    )
+    for n, solver in ((1, flexural_dispersion_layered), (2, _quadrupole_layered())):
+        freq = np.arange(5000.0, 14000.0, 1000.0)
+        mode = solver(freq, **_SLOW, **fluid, a=a, layers=layers)  # type: ignore[arg-type]
+        damping = mode.attenuation_per_meter
+        assert damping is not None, n
+        live = np.isfinite(mode.slowness)
+        assert live.sum() >= 6, (n, live.sum())
+        checked = 0
+        for i in np.flatnonzero(live):
+            omega = 2.0 * np.pi * freq[i]
+            kz = omega * mode.slowness[i] + 1j * damping[i]
+            # The mode is genuinely leaky here, which is why the
+            # radiating branch is the right one to ask for.
+            assert 1.0 / mode.slowness[i] > _SLOW["vs"], (n, freq[i])
+            assert damping[i] > 0.0, (n, freq[i])
+            sharpness = _appendix_root_sharpness(
+                kz,
+                omega,
+                n=n,
+                fluid=fluid,
+                a=a,
+                stack=_CASED_STACK,
+                half=_SLOW,
+                leaky_s=True,
+            )
+            assert sharpness > 25.0, (n, freq[i], sharpness)
+            checked += 1
+        assert checked >= 6, (n, checked)
+
+
+def test_the_cased_oracle_needs_the_radiating_branch() -> None:
+    """The same trap as PR #129, on a different paper's matrix.
+
+    Asked with the *bound* half-space shear column, the assembly has no
+    root at fwap's cased leaky dipole -- ``sigma_min`` sits at 1e-13 and
+    barely moves (ratio about 1-2) where the radiating branch bottoms
+    out at 1e-16 with a ratio in the hundreds. Nothing about the steel
+    or the conditioning causes that; it is the branch alone.
+
+    Kept because the failure is silent: a bound-branch transcription
+    reproduces every trapped mode and then reports a clean disagreement
+    on the leaky ones.
+    """
+    fluid, a = _FLUID, _CASED_HOLE
+    layers = tuple(
+        BoreholeLayer(**medium, thickness=t)  # type: ignore[arg-type]
+        for medium, t in _CASED_STACK
+    )
+    freq = np.array([5000.0, 8000.0, 11000.0])
+    mode = flexural_dispersion_layered(freq, **_SLOW, **fluid, a=a, layers=layers)
+    damping = mode.attenuation_per_meter
+    assert damping is not None
+    common = dict(n=1, fluid=fluid, a=a, stack=_CASED_STACK, half=_SLOW)
+    for i, f in enumerate(freq):
+        if not np.isfinite(mode.slowness[i]):
+            continue
+        omega = 2.0 * np.pi * f
+        kz = omega * mode.slowness[i] + 1j * damping[i]
+        radiating = _appendix_root_sharpness(kz, omega, **common, leaky_s=True)
+        bound = _appendix_root_sharpness(kz, omega, **common, leaky_s=False)
+        assert radiating > 25.0, (f, radiating)
+        assert bound < 5.0, (f, bound)
+        assert radiating > 20.0 * bound, (f, radiating, bound)
+
+
+def test_the_appendix_locates_the_cased_bound_modes() -> None:
+    """Behind the same casing, the bound sub-fluid modes too.
+
+    Fast formation, so the Stoneley and the flexural below ``V_f`` are
+    trapped rather than radiating and ``k_z`` is real. Together with the
+    leaky test above this puts both cased regimes, n=0 through n=2,
+    under one published layer matrix.
+    """
+    fluid, a = _FLUID, _CASED_HOLE
+    layers = tuple(
+        BoreholeLayer(**medium, thickness=t)  # type: ignore[arg-type]
+        for medium, t in _CASED_STACK
+    )
+    freq = np.arange(3000.0, 14000.0, 1500.0)
+    mode = _stoneley_layered()(freq, **_FAST, **fluid, a=a, layers=layers)
+    checked = 0
+    for i, f in enumerate(freq):
+        if not np.isfinite(mode.slowness[i]):
+            continue
+        c = 1.0 / mode.slowness[i]
+        if c >= fluid["vf"]:
+            continue  # the assembly's fluid core is the bound form
+        omega = 2.0 * np.pi * f
+        sharpness = _appendix_root_sharpness(
+            omega * mode.slowness[i],
+            omega,
+            n=0,
+            fluid=fluid,
+            a=a,
+            stack=_CASED_STACK,
+            half=_FAST,
+            leaky_s=False,
+        )
+        assert sharpness > 20.0, (f, sharpness)
+        checked += 1
+    assert checked >= 6, checked
+
+
+def _quadrupole_layered():  # type: ignore[no-untyped-def]
+    from fwap import quadrupole_dispersion_layered
+
+    return quadrupole_dispersion_layered
+
+
+def _stoneley_layered():  # type: ignore[no-untyped-def]
+    from fwap import stoneley_dispersion_layered
+
+    return stoneley_dispersion_layered

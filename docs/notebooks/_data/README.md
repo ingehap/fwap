@@ -280,7 +280,15 @@ keeps a single nonzero entry, in the `σ_rθ` row, so the determinant
 factorises into a torsional condition times an axisymmetric 3×3 — a
 borehole cannot excite torsion with an axisymmetric source.
 
-**Two traps, both recorded in code**, because each produced a false
+A second matrix does the cased-hole half, which Sinha's 4x4 cannot
+express: Schmitt & Cheng's appendix, assembled over `N` annuli, locates
+fwap's roots behind a real steel-and-cement stack — the leaky dipole
+(125–1478x off-root), the leaky screw mode (99–5239x) and the bound
+cased Stoneley (51–1953x). That covers the leaky cased dipole roadmap
+A.9 opened, which runs at 1.11–1.22 times a slow formation's shear
+speed and which no published figure pins.
+
+**Three traps, all recorded in code**, because each produced a false
 negative that looked exactly like a real disagreement:
 
 1. In Sinha's sign convention the branch rule differs **per wave** — the
@@ -293,6 +301,16 @@ negative that looked exactly like a real disagreement:
    On the leaky pseudo-Rayleigh branch near 9.2 kHz the `Im(k_z)²` term
    alone pushes `Re(p²)` negative while the P wave is still bound;
    selecting the leaky P branch there costs all 14 decades.
+3. The same per-wave rule on the cased matrix: with the bound shear
+   column the assembly has no root at fwap's cased leaky dipole at all.
+   Steel and conditioning were the plausible culprits and both were
+   measured and excluded — `|k_s|·t` is 0.02–0.48 so nothing grows
+   exponentially, row equilibration changes nothing, and the propagated
+   columns stay well-conditioned at `s3/s1 = 0.026`. It was the branch.
+
+The recurrence is the lesson. A wrong branch never looks like noise: it
+reproduces every easy case, fails only the hard one, and so arrives
+looking like a discovery about the solver.
 
 The attenuation floor is 0.2 dB/m — 1 % of that panel's 0–20 axis, and
 about four times its digitising resolution. Below it the reference is a

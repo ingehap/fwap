@@ -388,8 +388,10 @@ def _flexural_dispersion_fast_formation_layered(
             leaky_s=False,
         )
 
+    from fwap.cylindrical_solver._cased import _modal_determinant_n1_cased
     from fwap.cylindrical_solver._n1_isotropic import (
         _FAST_FLEXURAL_MAX_CASED_ROOTS,
+        _extend_below_fluid,
         _march_fast_flexural_branch,
         _real_root_function,
     )
@@ -406,6 +408,27 @@ def _flexural_dispersion_fast_formation_layered(
         exclude=tuple(layer.vs for layer in layers),
         max_roots=_FAST_FLEXURAL_MAX_CASED_ROOTS,
     )
+
+    # The branch descends through V_f exactly as it does without a
+    # layer stack, and below it all three radial wavenumbers are real
+    # again, so the real cased determinant applies. Without this the
+    # layered driver stops at V_f and returns NaN where the unlayered
+    # one keeps going -- the two are the same problem when the layers
+    # are made of formation, and they disagreed above about 10 kHz.
+    def _real_det(kz: float, _omega: float) -> float:
+        return _modal_determinant_n1_cased(
+            kz,
+            _omega,
+            vp=vp,
+            vs=vs,
+            rho=rho,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
+            layers=layers,
+        )
+
+    slowness = _extend_below_fluid(_real_det, f_arr, slowness, vf=vf)
 
     return BoreholeMode(
         name="flexural",
