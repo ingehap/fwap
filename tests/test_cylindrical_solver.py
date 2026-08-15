@@ -15010,17 +15010,22 @@ def test_pass_two_re_acquires_the_branch_after_a_gap():
     Schmitt & Cheng's upper leg starts at 13.25 kHz instead of 14.0, and
     ``_A2``'s at 4.25 instead of 5.0 -- and then at 4.00 once the
     downward pass walks the leg back from its entry point.
+
+    Schmitt & Cheng's leg reaches 13.00 rather than 13.25 for a third
+    reason, unrelated to either: the ceiling dead band that was
+    declining the 1497.11 m/s root there has since been withdrawn. See
+    ``_LEAKY_CASED_DEGENERACY_TOL``.
     """
     radius, layers = _sc87_stack(1729.0, 1920.0, 0.03)
     freq = np.arange(1000.0, 15001.0, 250.0)
     mode = flexural_dispersion_layered(freq, **_SC87_SLOW, a=radius, layers=layers)
     found = np.isfinite(mode.slowness)
-    # Two legs, and the upper one now reaches down to 13.25 kHz.
+    # Two legs, and the upper one now reaches down to 13.00 kHz.
     where = np.flatnonzero(found)
     gaps = np.where(np.diff(where) > 2)[0]
     assert gaps.size == 1, f"expected two legs, got {gaps.size + 1}"
     upper_start = freq[where[int(gaps[0]) + 1]]
-    assert upper_start == pytest.approx(13250.0), upper_start
+    assert upper_start == pytest.approx(13000.0), upper_start
     # Every value in both legs sits inside the search window.
     velocity = 1.0 / mode.slowness[found]
     assert np.all(velocity > _SC87_SLOW["vs"])
@@ -24400,3 +24405,86 @@ def test_fwap_continues_the_yang_branch_below_its_published_cutoff():
     assert np.all(velocity > _YANG_SOFT["vs"])
     assert np.all(velocity < _YANG_SOFT["vf"])
     assert np.all(mode.attenuation_per_meter[leaky] > 0.0)
+
+
+def test_the_ceiling_is_guarded_by_the_degeneracy_name_not_by_a_dead_band():
+    """Which guard protects which ceiling, stated structurally.
+
+    ``_LEAKY_CASED_DEGENERACY_TOL`` used to be applied twice: once to
+    reject a candidate coinciding with a named ``exclude`` velocity, and
+    again as the width of a dead band held off the window ceiling. Only
+    the first is what its recorded reasoning asks for.
+
+    The reasoning is that the ceiling *is* a layer shear speed whenever
+    the softest layer is slower than the fluid, so a root pinned at it
+    is that layer's vanishing radial wavenumber rather than a mode. When
+    that is true the ceiling is in ``exclude`` and ``_degenerate``
+    rejects it. When it is not true -- ``ceiling = V_f``, which is
+    Schmitt & Cheng's cased geometry, where the cement is *faster* than
+    the fluid -- there is no degeneracy at the ceiling at all, and the
+    dead band was the only thing acting.
+
+    This asserts that split from the layer stacks themselves, without
+    running the solver.
+    """
+    from fwap.cylindrical_solver._leaky import _LEAKY_CASED_DEGENERACY_TOL
+
+    def ceiling_is_named(vf, layers):
+        exclude = tuple(layer.vs for layer in layers)
+        ceiling = min(vf, min(exclude))
+        named = any(
+            abs(ceiling / e - 1.0) < _LEAKY_CASED_DEGENERACY_TOL for e in exclude
+        )
+        return ceiling, named
+
+    # Ceiling is the cement shear speed -> named, so guarded already.
+    ceiling, named = ceiling_is_named(1500.0, (_A2_CASING, _A2_CEMENT))
+    assert ceiling == pytest.approx(_A2_CEMENT.vs)
+    assert named
+
+    # The annulus-stiffness sweep the withdrawn justification was
+    # measured on: also a layer shear speed, also named.
+    ceiling, named = ceiling_is_named(1500.0, _gap_sweep_layers(1.3))
+    assert ceiling == pytest.approx(1.3 * 800.0)
+    assert named
+
+    # Schmitt & Cheng: the fluid is the ceiling and no layer is near it.
+    radius, layers = _sc87_stack(1729.0, 1920.0, 0.03)
+    ceiling, named = ceiling_is_named(_SC87_SLOW["vf"], layers)
+    assert ceiling == pytest.approx(_SC87_SLOW["vf"])
+    assert not named
+
+
+def test_withdrawing_the_ceiling_dead_band_added_a_mode_not_an_edge_artefact():
+    """The point it recovers moves like a branch, not like a branch point.
+
+    A root pinned at the ceiling -- the failure the withdrawn dead band
+    was written against -- reads ``c / ceiling`` = 1 to four figures at
+    every frequency, and carries no leakage. This one does neither: over
+    12.90 to 14.00 kHz on Schmitt & Cheng's stack it runs 1498.4 ->
+    1486.9 m/s with ``Im(k_z)`` 0.658 -> 0.543, both smooth and monotone,
+    and ``c / ceiling`` sweeps 0.9989 -> 0.9912.
+
+    An argument-principle contour counts one root at 13.00 kHz and none
+    at 12.75, where the branch has left the window through ``V_f``; that
+    count is asserted in
+    ``test_the_cased_leaky_dipole_can_outrun_the_borehole_fluid``.
+    """
+    radius, layers = _sc87_stack(1729.0, 1920.0, 0.03)
+    freq = np.arange(12900.0, 14001.0, 50.0)
+    mode = flexural_dispersion_layered(freq, **_SC87_SLOW, a=radius, layers=layers)
+    assert np.isfinite(mode.slowness).all(), 1.0 / mode.slowness
+
+    velocity = 1.0 / mode.slowness
+    leakage = mode.attenuation_per_meter
+    # Monotone in both parts -- one branch, not an edge being tracked.
+    assert np.all(np.diff(velocity) < 0.0), velocity
+    assert np.all(np.diff(leakage) < 0.0), leakage
+    assert np.all(leakage > 0.0)
+    # And not pinned: the ratio to the ceiling moves by nearly 1 %.
+    ratio = velocity / _SC87_SLOW["vf"]
+    assert ratio.max() < 1.0
+    assert ratio.max() - ratio.min() > 0.007, ratio
+    # The top of the recovered stretch really is inside the old dead
+    # band, which is why it took withdrawing it to see any of this.
+    assert velocity.max() > _SC87_SLOW["vf"] * (1.0 - 2.0e-3)

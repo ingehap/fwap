@@ -835,18 +835,16 @@ def _fill_slow_cased_leaky_n1(
     from below; on ``_A2`` that recovers 4.00 kHz and the leg ends where
     the roots do, with a contour counting none at 3.75.
 
-    **Schmitt & Cheng's 13.00 kHz is a different cause, and an earlier
-    note here got it wrong.** It was attributed to the march being
-    one-directional, which is what ``_A2``'s 4.00 kHz was. Measured: the
-    descent does reach 13.00 and finds a root at **1497.11 m/s**, inside
-    the window's 1499.25 ceiling but inside the 0.2 % dead band held off
-    it, so ``_valid`` declines it. At 12.75 the same branch is at
-    1500.44, genuinely above ``V_f`` and outside the window. The dead
-    band exists because the ceiling is itself a branch point and a
-    *fresh seed* landing there is the degeneracy rather than a mode --
-    but this root arrives by continuation, which is the distinction
-    ``_LEAKY_CASED_SEED_FLOOR`` already draws at the other end of the
-    window. Left alone here rather than changed on the way past.
+    **Schmitt & Cheng's 13.00 kHz was a third cause, and it is closed
+    too.** An earlier note here blamed the one-directional march, which
+    is what ``_A2``'s 4.00 kHz was; measured, the descent reached 13.00
+    and found a root at 1497.11 m/s that ``_valid`` then declined for
+    sitting inside a 0.2 % dead band held off the window ceiling. That
+    dead band has since been withdrawn -- it was a second, unasked-for
+    use of ``_LEAKY_CASED_DEGENERACY_TOL``, redundant wherever the
+    ceiling is a layer shear speed and active only where it is ``V_f``,
+    which is this geometry. See that constant for the three measurements
+    behind the withdrawal. 13.00 kHz now comes back.
 
     What is left besides that is the ceiling. Between roughly 3 and 13 kHz the branch
     is above ``V_f``, outside the window this searches at all, and no

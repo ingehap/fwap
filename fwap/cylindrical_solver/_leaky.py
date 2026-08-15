@@ -835,8 +835,7 @@ _LEAKY_CASED_SCAN_POINTS = 192
 _LEAKY_CASED_EDGE_EPS = 5.0e-4
 
 #: Relative tolerance for calling a candidate degenerate with one of
-#: the ``exclude`` velocities, and the width of the dead band held off
-#: the window ceiling.
+#: the ``exclude`` velocities.
 #:
 #: Larger than ``_FAST_FLEXURAL_DEGENERACY_TOL`` (1e-5) on purpose, and
 #: the reason is a dimensionless one. The ceiling of this window IS a
@@ -849,6 +848,45 @@ _LEAKY_CASED_EDGE_EPS = 5.0e-4
 #: ``1.31 <= V_S_layer / V_S <= 1.50``, returning ``c / V_S = ceiling /
 #: V_S`` to four figures. The tolerance must therefore exceed
 #: ``_LEAKY_CASED_EDGE_EPS``.
+#:
+#: **This constant used to be applied twice**, and the second use has
+#: been withdrawn. Besides naming the degeneracy it also set the width
+#: of a dead band held off the window ceiling -- ``v < hi (1 - tol)`` in
+#: :func:`_march_leaky_cased_branch`'s validity test -- which is a
+#: different job and was never what the reasoning above asks for.
+#:
+#: The reasoning asks that a *named* ``exclude`` velocity be rejected
+#: with a tolerance wider than the scan's edge margin, and ``_degenerate``
+#: does exactly that. Where the ceiling is a layer shear speed it is in
+#: ``exclude``, so the protection is already there without the dead
+#: band; where it is not -- ``ceiling = V_f``, a fluid-slower-than-cement
+#: stack, which is Schmitt & Cheng's (1987) cased geometry -- there is no
+#: degeneracy at the ceiling to protect against, and the dead band was
+#: truncating the branch on its way out of the window.
+#:
+#: Measured before removing it, three ways:
+#:
+#: * The sweep the docstring above records does not reproduce. At band
+#:   widths 2e-3, 5e-4, 1e-4 and **zero** the answers are identical --
+#:   804.99, 808.13, 821.20, 838.04, 854.49, 870.33 m/s over ratios 1.30
+#:   to 1.50 -- with ``c / ceiling`` between 0.725 and 0.774. Nothing is
+#:   near the ceiling to be captured by anything.
+#: * Over 96 cased geometries x 25 frequencies, removing the band adds 5
+#:   points out of 2192 and moves **none**. No configuration returns a
+#:   run of points flat in frequency at the ceiling, with the band or
+#:   without it.
+#: * What it adds is a mode, not an edge artefact. On Schmitt & Cheng's
+#:   stack the recovered points run 1498.399 -> 1486.867 m/s over
+#:   12.90 -> 14.00 kHz with ``Im(k_z)`` 0.658 -> 0.543, both smooth and
+#:   monotone, and ``c / ceiling`` sweeping 0.9989 -> 0.9912 rather than
+#:   sitting at 1.0000 -- which is the pinned signature the paragraph
+#:   above describes. An argument-principle contour counts one root at
+#:   13.00 and 13.25 kHz and none at 12.75, where the branch has left
+#:   through ``V_f``.
+#:
+#: What still holds the search off the ceiling is ``_LEAKY_CASED_EDGE_EPS``
+#: alone, a 0.05 % margin, which is a scan-window edge rather than a
+#: claim about modes.
 _LEAKY_CASED_DEGENERACY_TOL = 2.0e-3
 
 #: A seed is only accepted if the determinant at the refined root is
@@ -1085,9 +1123,12 @@ def _march_leaky_cased_branch(
             # Im(k_z) < 0 is a wave growing along the borehole.
             return False
         v = omega / kz.real
-        # The dead band at the top keeps the window ceiling -- which is
-        # itself a branch point -- out of the accepted set.
-        if not (lo * 0.98 < v < hi * (1.0 - _LEAKY_CASED_DEGENERACY_TOL)):
+        # The window, with only the scan's own edge margin held off the
+        # top. A ceiling that is a layer shear speed is a branch point
+        # and is kept out by ``_degenerate`` below, which names it; a
+        # ceiling that is ``V_f`` is not one of those and used to be
+        # guarded anyway -- see ``_LEAKY_CASED_DEGENERACY_TOL``.
+        if not (lo * 0.98 < v < hi):
             return False
         if band is not None and not (band[0] <= v <= band[1]):
             return False
