@@ -448,6 +448,7 @@ def _radial_wavenumbers_vti_complex(
     c66: float,
     rho: float,
     reference: tuple[complex, complex] | None = None,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
 ) -> tuple[complex, complex, complex]:
     r"""
     Radial wavenumbers for the VTI Christoffel equation, without the
@@ -470,14 +471,25 @@ def _radial_wavenumbers_vti_complex(
     **Complex ``k_z``.** The leaky case, where the quadratic's
     coefficients themselves go complex.
 
-    Branch selection is the **decaying** one throughout: ``numpy``'s
+    Branch selection defaults to the **decaying** one: ``numpy``'s
     principal square root gives ``Re(alpha) >= 0``, which is what
-    ``K_n(alpha r)`` needs to fall off with ``r``. The *radiating*
-    branch a leaky mode needs is deliberately **not** offered here --
-    it is a per-wave choice with no caller yet to exercise it, and an
-    unexercised branch rule is exactly what produced three
-    determinants with no root on this codebase. It belongs with the
-    driver that needs it.
+    ``K_n(alpha r)`` needs to fall off with ``r``.
+
+    ``radiating`` switches a wave to the **outgoing** branch instead,
+    per wave, as ``(qP, qSV, SH)``. The two conditions are different
+    and A.10 is the record of confusing them: decay is
+    ``Re(alpha) >= 0``, radiation is ``Im(alpha) > 0``, and the
+    principal root satisfies the first, not the second. A radiating
+    wave therefore takes whichever sign gives ``Im(alpha) > 0``, and
+    its Bessel pair must be evaluated on the continued branch
+    (``_k_or_hankel(leaky=True)``) rather than through ``K_n``.
+
+    The flags are **independent**. qP and qSV come from one quadratic
+    but they are two waves, and each sits on its own sheet: over
+    ``V_Sv < c < V_P`` the qSV wave radiates while qP is still
+    evanescent, which is the ordinary leaky configuration. Labelling
+    happens on the squares first, so a split choice cannot reorder the
+    pair.
 
     Labelling
     ---------
@@ -507,6 +519,10 @@ def _radial_wavenumbers_vti_complex(
         VTI stiffness tensor entries (Pa).
     rho : float
         Formation density (kg / m^3).
+    radiating : tuple of bool, default (False, False, False)
+        Per-wave ``(qP, qSV, SH)`` selection of the outgoing branch.
+        A wave flagged here is put on ``Im(alpha) > 0``; the others
+        keep ``Re(alpha) >= 0``.
     reference : tuple of complex, optional
         ``(alpha_qP, alpha_qSV)`` from a neighbouring evaluation, used
         to carry the labelling across a step. Only consulted when the
@@ -543,15 +559,30 @@ def _radial_wavenumbers_vti_complex(
         alpha = np.sqrt(complex(x))
         return complex(-alpha) if alpha.real < 0.0 else complex(alpha)
 
+    def _outgoing(x: complex) -> complex:
+        alpha = np.sqrt(complex(x))
+        return complex(-alpha) if alpha.imag < 0.0 else complex(alpha)
+
+    rad_qP, rad_qSV, rad_SH = radiating
+    # Label on the squares, then take each root on its own sheet: the
+    # two waves share a quadratic but not a branch. For V_S < c < V_P
+    # the qSV wave radiates while qP is still evanescent, which is the
+    # ordinary leaky case and must stay expressible.
     root_a, root_b = _decaying(x_plus), _decaying(x_minus)
 
     real_roots = abs(x_plus.imag) == 0.0 and abs(x_minus.imag) == 0.0
-    if real_roots and x_plus.real >= 0.0 and x_minus.real >= 0.0:
-        # Same convention as the real solver: qP is the larger.
-        alpha_qP, alpha_qSV = (
-            max(root_a, root_b, key=lambda z: z.real),
-            min(root_a, root_b, key=lambda z: z.real),
-        )
+    if real_roots:
+        # Same convention as the real solver: qP is the larger root of
+        # the quadratic. The ordering is on ``alpha^2``, not on
+        # ``alpha``, and it must hold whatever the signs are. In the
+        # leaky window one square is negative, so its ``alpha`` is
+        # imaginary -- comparing ``Re(alpha)`` or ``|alpha|`` there
+        # silently swaps the two waves, which is what this did before
+        # A.11 phase 4 reached that window.
+        if x_plus.real >= x_minus.real:
+            alpha_qP, alpha_qSV = root_a, root_b
+        else:
+            alpha_qP, alpha_qSV = root_b, root_a
     elif abs(x_plus - x_minus.conjugate()) <= 1e-9 * max(abs(x_plus), 1.0):
         # Conjugate pair: the labels are a convention, not a physical
         # split. Fixed as Im(alpha_qP) >= 0 so repeated calls agree.
@@ -570,7 +601,12 @@ def _radial_wavenumbers_vti_complex(
             (root_a, root_b) if abs(root_a) >= abs(root_b) else (root_b, root_a)
         )
 
-    alpha_SH = _decaying((c44 * kz_c * kz_c - rho_omega_sq) / c66)
+    if rad_qP:
+        alpha_qP = _outgoing(alpha_qP * alpha_qP)
+    if rad_qSV:
+        alpha_qSV = _outgoing(alpha_qSV * alpha_qSV)
+    sh_branch = _outgoing if rad_SH else _decaying
+    alpha_SH = sh_branch((c44 * kz_c * kz_c - rho_omega_sq) / c66)
     return alpha_qP, alpha_qSV, alpha_SH
 
 

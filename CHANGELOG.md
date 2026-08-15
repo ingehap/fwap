@@ -6,7 +6,36 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Radiating branches for the VTI formation columns** (roadmap A.11
+  phase 4, partial). `_radial_wavenumbers_vti_complex` takes a per-wave
+  `radiating=(qP, qSV, SH)` flag, and the row builders evaluate through
+  `_k_or_hankel` rather than `K_n`. The flags are independent: over
+  `V_Sv < c < V_P` the qSV wave radiates while qP stays evanescent.
+
+  **Validated against an independent implementation.** Unlike the
+  conjugate regime, the leaky regime *is* reachable isotropically, so
+  the VTI determinant is checked against `_modal_determinant_n1_complex`
+  and agrees exactly — `det_vti * (alpha_qP - alpha_qSV) * k_z /
+  det_iso = -1` at every sampled velocity, the factor being the column
+  recombination's own non-vanishing Jacobian.
+
+  **No leaky VTI driver yet, and no leaky dispersion curve.**
+  `_fluid_bessels_n1_vti` branches on the sign of a real `F_f^2` and has
+  no outgoing form, so a complex `k_z` would silently take the bound
+  fluid branch. It is refused at `_modal_matrix_n1_vti` with that named
+  as the reason.
+
 ### Fixed
+- **`_radial_wavenumbers_vti_complex` was swapping qP and qSV above
+  `V_Sv`** (A.11 phase 4). The labelling ordered on `Re(alpha)`, but
+  once a root's square goes negative — which is exactly the leaky
+  window — that `alpha` is imaginary and the comparison picks the wrong
+  wave. Ordering is now on `alpha^2`, whatever the signs. The bug was
+  introduced with the function in phase 2 and never surfaced because
+  its tests sampled only the bound window; the isotropic limit goes
+  from 23.1 to 2.1e-14 across the leaky window on the fix.
+
 - **The bound VTI flexural window is no longer truncated** (roadmap
   A.11 phase 3). `flexural_dispersion_vti` returned `NaN` wherever the
   Christoffel discriminant went negative, which cost **77 % of the

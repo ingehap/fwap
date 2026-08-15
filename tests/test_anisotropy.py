@@ -2364,3 +2364,166 @@ def test_the_qsv_column_is_the_qp_column_conjugated_and_scaled():
         checked += 1
     assert checked >= 4, checked
     assert worst < 1e-12, worst
+
+
+# ----------------------------------------------------------------------
+# A.11 phase 4: radiating branches, and the oracle that checks them
+# ----------------------------------------------------------------------
+
+
+def test_the_leaky_window_keeps_the_qp_qsv_pair_separable():
+    """A.11 phase 0 deferred this; the open window makes it answerable.
+
+    Phase 0 measured the branch-exchange region over a scan reaching
+    ``1.6 V_P`` and found ``Re(disc)`` sign changes on three media, but
+    could not say whether they mattered: the window a leaky search
+    visits is ``(V_Sv, V_P0)``, and on two media the solver could not
+    even reach it. It does now, and the pair stays well separated
+    there on all six -- so continuity assignment suffices and no
+    polarisation criterion is needed.
+    """
+    for name, entry in _THOMSEN_TABLE_1.items():
+        s = _thomsen_stiffness(entry)
+        v_sv = np.sqrt(s["c44"] / s["rho"])
+        v_p = np.sqrt(s["c33"] / s["rho"])
+        worst = np.inf
+        for freq in (4000.0, 8000.0, 14000.0):
+            omega = 2.0 * np.pi * freq
+            for c in np.linspace(v_sv * 1.002, v_p * 0.998, 40):
+                for damping in (0.0, 0.3, 0.7, 1.0):
+                    disc = _christoffel_discriminant(omega / c + 1j * damping, omega, s)
+                    scale = abs((s["c11"] + s["c44"]) * s["rho"] * omega**2) ** 2
+                    worst = min(worst, abs(disc) / scale)
+        assert worst > 1e-6, (name, worst)
+
+
+def test_the_radiating_branch_is_per_wave_and_does_not_reorder_the_pair():
+    """qP and qSV share a quadratic but not a sheet.
+
+    Over ``V_Sv < c < V_P`` the qSV wave radiates while qP is still
+    evanescent -- the ordinary leaky configuration -- so the flags must
+    be independent. And the labelling must survive it: ``alpha_qP`` is
+    the larger ``alpha^2``, which in this window means the *positive*
+    square even though the other root has the larger ``|alpha|``.
+    Ordering on ``alpha`` instead silently swaps the two waves, which
+    is what this did until phase 4 reached the window.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti_complex
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Green River shale"])
+    v_sv = np.sqrt(s["c44"] / s["rho"])
+    omega = 2.0 * np.pi * 8000.0
+
+    for c in (1200.0, 1600.0, 1900.0, 2200.0, 2600.0, 3000.0, 3200.0):
+        leaky = c > v_sv
+        qp, qsv, sh = _radial_wavenumbers_vti_complex(
+            omega / c, omega, **s, radiating=(False, leaky, leaky)
+        )
+        assert (qp**2).real >= (qsv**2).real - 1e-6, (c, qp, qsv)
+        if leaky:
+            assert qsv.imag > 0.0, (c, qsv)
+            assert abs(qp.imag) < 1e-12, (c, qp)
+
+    # Flagging one wave leaves the others exactly alone.
+    for c in (2200.0, 3000.0):
+        base = _radial_wavenumbers_vti_complex(omega / c, omega, **s)
+        split = _radial_wavenumbers_vti_complex(
+            omega / c, omega, **s, radiating=(False, True, False)
+        )
+        assert base[0] == split[0], (c, base[0], split[0])
+        assert base[2] == split[2], (c, base[2], split[2])
+
+
+def test_the_leaky_vti_determinant_reproduces_the_isotropic_one():
+    """The oracle for phase 4, and it is a real one.
+
+    Unlike the conjugate regime -- which the isotropic limit cannot
+    reach at all -- the *leaky* regime is reachable isotropically, so
+    the VTI determinant with radiating branches can be checked against
+    `_modal_determinant_n1_complex`, an independent implementation.
+
+    They agree exactly, up to the recombination's own Jacobian: the
+    column change of basis scales the determinant by ``-1/(split k_z)``
+    with ``split = alpha_qP - alpha_qSV``, which is non-vanishing here
+    and so moves no root. Dividing it out leaves a ratio of exactly
+    ``-1`` at every sampled velocity.
+
+    This test caught two real errors while being written: the branch
+    flags were mapped in the wrong order (`_detect_leaky_branches`
+    returns ``(leaky_F, leaky_p, leaky_s)`` -- fluid first), and the
+    qP/qSV labels were swapping above ``V_Sv``.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti_complex
+    from fwap.cylindrical_solver._leaky import _detect_leaky_branches
+    from fwap.cylindrical_solver._n1_isotropic import (
+        _modal_determinant_n1_complex,
+    )
+    from fwap.cylindrical_solver._vti import _modal_matrix_n1_vti
+
+    vp, vs, rho = 3658.0, 2032.0, 2350.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.10
+    c44, c11 = rho * vs * vs, rho * vp * vp
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+    omega = 2.0 * np.pi * 9000.0
+
+    ratios = []
+    for c in (2200.0, 2500.0, 2800.0, 3100.0, 3400.0, 3600.0):
+        kz = complex(omega / c)
+        _, leaky_p, leaky_s = _detect_leaky_branches(kz, omega, vp, vs, vf)
+        assert (leaky_p, leaky_s) == (False, True), (c, leaky_p, leaky_s)
+        qp, qsv, _ = _radial_wavenumbers_vti_complex(
+            kz, omega, **iso, radiating=(leaky_p, leaky_s, leaky_s)
+        )
+        matrix = _modal_matrix_n1_vti(
+            kz.real,
+            omega,
+            **iso,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
+            radiating=(leaky_p, leaky_s, leaky_s),
+        )
+        vti = complex(np.linalg.det(matrix))
+        isotropic = complex(
+            _modal_determinant_n1_complex(
+                kz,
+                omega,
+                vp=vp,
+                vs=vs,
+                rho=rho,
+                vf=vf,
+                rho_f=rho_f,
+                a=a,
+                leaky_p=leaky_p,
+                leaky_s=leaky_s,
+            )
+        )
+        ratios.append(vti / isotropic * (qp - qsv) * kz)
+
+    adjusted = np.array(ratios)
+    assert np.allclose(adjusted, -1.0, rtol=1e-9, atol=1e-9), adjusted
+
+
+def test_a_complex_kz_is_still_refused_and_says_why():
+    """The fluid column is the remaining gap, and it is named.
+
+    The formation columns take radiating branches now, but
+    `_fluid_bessels_n1_vti` branches on the sign of a real ``F_f^2``
+    and has no outgoing form, so a complex ``k_z`` would silently take
+    the bound fluid branch. Refused rather than half-supported.
+    """
+    import pytest
+
+    from fwap.cylindrical_solver._vti import _modal_matrix_n1_vti
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Green River shale"])
+    with pytest.raises(NotImplementedError, match="fluid column"):
+        _modal_matrix_n1_vti(
+            complex(20.0, 0.3),
+            2.0 * np.pi * 8000.0,
+            **s,
+            vf=1500.0,
+            rho_f=1000.0,
+            a=0.10,
+            radiating=(False, True, True),
+        )
