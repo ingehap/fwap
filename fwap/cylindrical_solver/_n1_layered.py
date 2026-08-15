@@ -814,22 +814,24 @@ def _fill_slow_cased_leaky_n1(
     of their cement 1 the binding term is the *fluid*: the branch leaves
     ``V_S`` near 1.4 kHz, climbs to about 1710 m/s at 5.5 kHz -- just
     under the cement's 1729 -- and comes back down through ``V_f`` near
-    13.8 kHz. So this function returns ``NaN`` across the whole band and
-    picks the mode up only at the top, around 1487 m/s; where exactly it
-    starts is grid-dependent (14 kHz on a 500 Hz ladder, 13.5 kHz on a
-    sparse one). An argument-principle contour counts exactly one root
-    inside a box around it at 3.0, 5.5 and 8.0 kHz, so the mode is
-    present and the marcher is not looking for it there.
+    13.8 kHz.
 
-    **Two failures, not one.** Above 3 kHz the root is outside the
-    window and the marcher is right not to find it; at 1.5 and 2 kHz it
-    is *inside* the window -- a winding count over the whole
-    ``(V_S, V_f)`` box returns 1 -- and is missed anyway, which is
-    seeding rather than the ceiling. Below 1 kHz the window is genuinely
-    empty. Raising the ceiling alone would therefore not close the gap,
-    and it would still need seeding that does not rest on a real-axis
-    scan of ``Im(det)``: above ``V_f`` the fluid field is oscillatory
-    and there is no real-axis minimum to seed from.
+    **That gap had two causes and one of them is now fixed.** Above
+    3 kHz the root is outside the window and the marcher is right not to
+    find it. At 1.5-2.5 kHz it is *inside* the window -- a winding count
+    over the whole ``(V_S, V_f)`` box returns 1 -- and it used to be
+    missed anyway, which was seeding rather than the ceiling. Rebuilding
+    the seeding recovers that leg in full (1235.9, 1300.0, 1358.3,
+    1412.0, 1461.2 m/s at 1.50-2.50 kHz), and an argument-principle
+    contour confirms it is exactly the window's contents: one root at
+    each of those five frequencies and none at 1.00, 1.25, 2.75 or 3.00.
+
+    What is left is the ceiling. Between roughly 3 and 13 kHz the branch
+    is above ``V_f``, outside the window this searches at all, and no
+    amount of seeding reaches it -- a contour still counts one root
+    there at 3.0, 5.5 and 8.0 kHz. Raising the ceiling is the remaining
+    half, and it would need the fluid field handled as oscillatory
+    rather than evanescent.
 
     References
     ----------

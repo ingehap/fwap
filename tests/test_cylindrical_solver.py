@@ -14514,10 +14514,32 @@ def test_cased_slow_formation_dipole_is_leaky_and_the_leaky_branch_finds_it():
     the whole band, attenuation descending with it, coverage above
     0.7, an asymptote within 2 % of ``V_S`` -- were measured while
     :func:`_k_or_hankel` was mixing an incoming wave into its leaky
-    branch. Corrected, this stack's branch runs 5-12 kHz (0.62 of the
-    band), falls 1238 -> 1167 m/s to a minimum near 9 kHz and climbs
-    back to 1191, with the attenuation mirroring it. One turning point
-    each, no monotone claim.
+    branch. Corrected, the branch this stack showed ran 5-12 kHz (0.62
+    of the band), falling 1238 -> 1167 m/s to a minimum near 9 kHz and
+    climbing back to 1191.
+
+    **Fifth state: that was one leg of two.** Rebuilding the seeding --
+    a ``log|det|`` survey in place of a blind sweep, a two-sided slope
+    rule in place of a monotone one, and pass two merging into pass one
+    instead of replacing it -- recovered a second leg at **1.0-2.0 kHz**,
+    rising 1033.9 -> 1282.9 m/s toward the annulus ceiling. Coverage
+    goes 0.62 -> 0.73.
+
+    The new leg is not the marcher finding more of what it already had:
+    an argument-principle contour over the whole window counts **one**
+    root at 1.0, 1.5 and 2.0 kHz, and **none** at 2.25-3.75 kHz where
+    the curve is NaN between the legs. So the branch leaves the window
+    through the ceiling and comes back, and this fixture has the same
+    two-leg shape as Schmitt & Cheng's.
+
+    **What is still missed is bounded and named.** The same contour
+    counts one root at 4.00, 4.25, 4.50 and 4.75 kHz, and the marcher
+    returns ``NaN`` at all four. The cause is
+    ``_LEAKY_CASED_MAX_INVALID``: the march stops after two consecutive
+    misses, so the gap between the legs ends it before it can re-acquire
+    the upper one, and those four frequencies are only reached by pass
+    one's scan, which does not see them. That is a separate knob from
+    the seeding and is left alone here.
 
     The structural assertions -- above ``V_S``, below the annulus
     ceiling, attenuation strictly positive -- are unchanged and still
@@ -14528,7 +14550,7 @@ def test_cased_slow_formation_dipole_is_leaky_and_the_leaky_branch_finds_it():
         freq, **_A2_SLOW, **_A2_BOREHOLE, layers=(_A2_CASING, _A2_CEMENT)
     )
     found = np.isfinite(res.slowness)
-    assert found.mean() > 0.5, f"coverage {found.mean():.2f}"
+    assert found.mean() > 0.7, f"coverage {found.mean():.2f}"
 
     velocity = 1.0 / res.slowness[found]
     attenuation = res.attenuation_per_meter[found]
@@ -14537,11 +14559,25 @@ def test_cased_slow_formation_dipole_is_leaky_and_the_leaky_branch_finds_it():
     # makes it leaky -- and below the annulus ceiling.
     assert np.all(velocity > _A2_SLOW["vs"])
     assert np.all(velocity < min(_A2_BOREHOLE["vf"], _A2_CEMENT.vs))
-    # One turning point each: a single continuous branch with an Airy
-    # minimum in it, not two families spliced together.
-    for label, curve in (("velocity", velocity), ("attenuation", attenuation)):
-        turns = int((np.diff(np.sign(np.diff(curve))) != 0).sum())
-        assert turns == 1, f"{label} has {turns} turning points, expected 1"
+    # Two legs, so shape is asserted per leg rather than across the
+    # concatenation -- a turning-point count over the joined arrays
+    # would be counting the gap.
+    #
+    # Split on gaps wider than two samples. The upper leg has a
+    # single-frequency hole at 8.0 kHz that predates all of this (the
+    # branch before any of the seeding work had it too, at the same
+    # frequency), and it is not a leg boundary.
+    where = np.flatnonzero(found)
+    gap = np.where(np.diff(where) > 2)[0]
+    assert gap.size == 1, f"expected two legs, got {gap.size + 1}"
+    split = int(gap[0]) + 1
+    lower, upper = velocity[:split], velocity[split:]
+    # The lower leg rises toward the ceiling and leaves through it.
+    assert np.all(np.diff(lower) > 0.0), lower
+    assert lower[-1] < min(_A2_BOREHOLE["vf"], _A2_CEMENT.vs)
+    # The upper leg keeps its one Airy minimum.
+    turns = int((np.diff(np.sign(np.diff(upper))) != 0).sum())
+    assert turns == 1, f"upper leg has {turns} turning points, expected 1"
     # Leakage: positive throughout.
     assert np.all(attenuation > 0.0)
 
@@ -14805,19 +14841,27 @@ def test_the_leaky_cased_branch_is_continuous_across_the_closed_gap():
     assert np.all(np.diff(attenuation) > 0.0), attenuation
 
 
-def test_the_seed_sweep_leaves_a_branch_the_scan_already_found_alone():
+def test_the_seed_sweep_only_ever_adds_to_what_the_scan_found():
     """The guarantee that makes the sweep safe to have.
 
     Its extra reach also finds the shear branch point's own zeros, which
     are sharp and are not modes. Seeded from those at a frequency where
-    the flexural mode has genuinely left the window, the monotone rule
-    follows that family instead, and starting from the low-frequency end
-    it takes the whole band: every already-converged frequency moved,
-    by 17 % at 3.5 kHz, ending 0.23 % above ``V_S`` instead of 1.3 %.
+    the flexural mode has genuinely left the window, the old monotone
+    rule followed that family instead, and starting from the
+    low-frequency end it took the whole band: every already-converged
+    frequency moved, by 17 % at 3.5 kHz, ending 0.23 % above ``V_S``
+    instead of 1.3 %.
 
-    So the sweep runs only when the scan found nothing anywhere. This
-    test asserts that by disabling the sweep outright and requiring the
-    answers to be identical to the last bit.
+    **The guard used to be a gate and is now a merge**, which is
+    strictly stronger. Gating the sweep on "the scan found nothing
+    anywhere" left it able to replace every value on the runs where it
+    did fire; merging into the scan's gaps makes overwriting a scanned
+    value impossible to express. So the assertion changes shape: the
+    sweep may add frequencies -- on this fixture it adds five, the
+    1.0-2.0 kHz leg -- but every frequency the scan resolved keeps its
+    value to the last bit.
+
+    Asserted by disabling the sweep outright and comparing.
     """
     import fwap.cylindrical_solver._leaky as leaky_module
 
@@ -14835,13 +14879,79 @@ def test_the_seed_sweep_leaves_a_branch_the_scan_already_found_alone():
     finally:
         leaky_module._LEAKY_CASED_SEED_SWEEP_POINTS = original
 
+    scanned = np.isfinite(without_sweep.slowness)
+    swept = np.isfinite(with_sweep.slowness)
+    # Never takes anything away.
+    assert np.all(swept[scanned]), "the sweep lost a frequency the scan had"
+    # Never changes anything it did not add.
     assert np.array_equal(
-        np.isfinite(with_sweep.slowness), np.isfinite(without_sweep.slowness)
-    ), "the sweep changed which frequencies converge"
-    finite = np.isfinite(with_sweep.slowness)
-    assert np.array_equal(
-        with_sweep.slowness[finite], without_sweep.slowness[finite]
+        with_sweep.slowness[scanned], without_sweep.slowness[scanned]
     ), "the sweep changed a value the scan had already found"
+    # And on this fixture it does add: the second leg is the whole point.
+    assert int(swept.sum()) - int(scanned.sum()) == 5, (
+        f"expected the 1.0-2.0 kHz leg, got "
+        f"{int(swept.sum()) - int(scanned.sum())} extra frequencies"
+    )
+
+
+def test_the_seed_survey_reaches_a_strongly_damped_branch():
+    """Why the seed ladder is geometric and why it goes to 45 %.
+
+    The ladder used to be ``(0.03, 0.07)`` -- 3 % and 7 % of
+    ``Re(k_z)`` -- chosen to bracket the leakage the ``_A2`` fixture
+    carries. That read as a property of the mode and was a property of
+    that stack. Schmitt & Cheng's slow sandstone behind their casing and
+    cement carries **29 %**, and no seed on the old ladder converged to
+    it.
+
+    This pins the measurement rather than the ladder: the branch's own
+    ``Im(k_z) / Re(k_z)``, which is what any seeding scheme has to
+    reach. A ladder that stops short of it will fail this test by
+    failing to find the root at all.
+    """
+    radius, layers = _sc87_stack(1729.0, 1920.0, 0.03)
+    freq = np.array([1500.0, 2000.0])
+    mode = flexural_dispersion_layered(freq, **_SC87_SLOW, a=radius, layers=layers)
+    assert np.isfinite(mode.slowness).all()
+    # Im / Re, the quantity the seed levels are fractions of. Re(k_z)
+    # is omega * slowness, and Im(k_z) is the reported attenuation.
+    ratio = mode.attenuation_per_meter / (2.0 * np.pi * freq * mode.slowness)
+    assert np.all(ratio > 0.25), ratio
+    assert np.all(ratio < 0.35), ratio
+    # The deepest level on the ladder has to clear it, with margin.
+    from fwap.cylindrical_solver._leaky import _LEAKY_CASED_SEED_SWEEP_LEVELS
+
+    assert max(_LEAKY_CASED_SEED_SWEEP_LEVELS) > float(np.max(ratio))
+
+
+def test_the_step_rule_is_two_sided_and_carries_a_frequency():
+    """The continuation rule constrains shape, not direction.
+
+    It used to be one-sided and dimensionless in the wrong way: "a
+    candidate faster than the last one by more than 0.5 %" has no
+    frequency in it, so the same physical branch passed or failed on how
+    finely the caller sampled, and a branch with an Airy minimum failed
+    on the way back up.
+
+    Both consequences were live. This asserts the replacement directly:
+    the same geometry sampled two ways must give the same branch, and
+    the branch must be allowed to rise.
+    """
+    radius, layers = _sc87_stack(1729.0, 1920.0, 0.03)
+    coarse = np.array([1500.0, 2000.0, 2500.0])
+    fine = np.arange(1500.0, 2501.0, 125.0)
+    got_coarse = flexural_dispersion_layered(
+        coarse, **_SC87_SLOW, a=radius, layers=layers
+    )
+    got_fine = flexural_dispersion_layered(fine, **_SC87_SLOW, a=radius, layers=layers)
+    assert np.isfinite(got_coarse.slowness).all()
+    assert np.isfinite(got_fine.slowness).all()
+    # Sampling-independent: the coarse points sit on the fine curve.
+    on_fine = np.interp(coarse, fine, 1.0 / got_fine.slowness)
+    np.testing.assert_allclose(1.0 / got_coarse.slowness, on_fine, rtol=2.0e-3)
+    # And rising -- which the old rule forbade outright at this step size.
+    assert np.all(np.diff(1.0 / got_coarse.slowness) > 0.0)
+    assert (1.0 / got_coarse.slowness)[-1] / (1.0 / got_coarse.slowness)[0] > 1.15
 
 
 def test_the_seed_sweep_is_bounded_when_there_is_nothing_to_find():
@@ -23912,7 +24022,7 @@ def test_the_cased_dipole_of_a_slow_formation_has_no_bound_root_at_all():
 
 
 def test_the_cased_leaky_dipole_can_outrun_the_borehole_fluid():
-    """The gap Schmitt & Cheng's slow geometry exposes, with numbers.
+    """What is left of the gap Schmitt & Cheng's slow geometry exposes.
 
     ``_march_leaky_cased_branch`` searches ``(V_S, min(V_f, min layer
     V_S))``. For the ``_A2`` stack that ceiling is the cement's 1300 m/s
@@ -23923,30 +24033,49 @@ def test_the_cased_leaky_dipole_can_outrun_the_borehole_fluid():
     1.4 kHz, climbs to about 1710 m/s at 5.5 kHz -- just under the
     cement's 1729 -- and comes back down through ``V_f`` near 13.8 kHz.
 
-    So ``flexural_dispersion_layered`` returns ``NaN`` across the band
-    and resolves the mode only near the top, at about 1487 m/s. Exactly
-    where it starts resolving is grid-dependent -- 14 kHz on a 500 Hz
+    So the mode is resolved near the top of the band, at about 1487 m/s.
+    Exactly where that starts is grid-dependent -- 14 kHz on a 500 Hz
     ladder, 13.5 kHz on a sparse one -- which is why the probe below
-    stops at 12 kHz rather than pretending the edge is sharp. An
-    argument-principle contour says the root is genuinely there in
-    between: exactly one zero inside a box around it at each of 3, 5.5
-    and 8 kHz.
+    stops at 12 kHz rather than pretending the edge is sharp.
 
-    **Two different failures are being pinned here, not one.** Above
-    3 kHz the root is outside the search window and the marcher is right
-    not to find it. At 1.5 and 2 kHz it is *inside* the window -- a
-    winding count over the whole ``(V_S, V_f)`` box returns 1 -- and the
-    marcher misses it anyway, so that part is seeding rather than the
-    ceiling. Below 1 kHz the window is genuinely empty. Raising the
-    ceiling alone would therefore not close the gap, and it would still
-    need seeding that does not rest on a real-axis scan of ``Im(det)``:
-    above ``V_f`` the fluid field is oscillatory and there is no
-    real-axis minimum to seed from.
+    **This test used to say the whole band was NaN, and promised to fail
+    the day either half of the gap was fixed. One half now is.** The gap
+    always had two causes: above 3 kHz the root is outside the search
+    window and the marcher is right not to find it, but at 1.5-2.5 kHz
+    it is *inside* the window and was missed anyway -- seeding rather
+    than the ceiling. Rebuilding the seeding recovers that leg in full:
+    1235.9, 1300.0, 1358.3, 1412.0 and 1461.2 m/s at 1.50 to 2.50 kHz,
+    which an independent hand-seeded minimisation of ``log|det|``
+    reproduces to 0.003 %.
 
-    This test fails, correctly, the day either half is fixed.
+    **The recovered leg is exactly the window's contents, no more.** An
+    argument-principle contour counts one root at each of 1.50, 1.75,
+    2.00, 2.25 and 2.50 kHz and **none** at 1.00, 1.25, 2.75 or 3.00 --
+    the same five frequencies the marcher returns and the same four it
+    declines. Nothing was left behind at the edges and nothing spurious
+    was added.
+
+    What remains is the ceiling half, and it is what this test now pins:
+    between roughly 3 and 13 kHz the branch is above ``V_f``, outside
+    the window the marcher searches at all, and no amount of seeding
+    reaches it.
     """
     radius, layers = _sc87_stack(1729.0, 1920.0, 0.03)
-    freq = np.array([500.0, 1500.0, 3000.0, 5500.0, 8000.0, 10000.0, 12000.0])
+    # The leg the seeding rebuild recovered.
+    low = np.array([1500.0, 1750.0, 2000.0, 2250.0, 2500.0])
+    got = flexural_dispersion_layered(low, **_SC87_SLOW, a=radius, layers=layers)
+    assert np.isfinite(got.slowness).all(), 1.0 / got.slowness
+    np.testing.assert_allclose(
+        1.0 / got.slowness, [1235.9, 1300.0, 1358.3, 1412.0, 1461.2], rtol=1.0e-3
+    )
+    assert np.all(got.attenuation_per_meter > 0.0)
+    # It is a leg of this window, so it stays inside it.
+    assert np.all(1.0 / got.slowness > _SC87_SLOW["vs"])
+    assert np.all(1.0 / got.slowness < _SC87_SLOW["vf"])
+
+    # The ceiling half is untouched: above the leg the branch outruns
+    # V_f and the marcher cannot look there.
+    freq = np.array([3000.0, 5500.0, 8000.0, 10000.0, 12000.0])
     mode = flexural_dispersion_layered(freq, **_SC87_SLOW, a=radius, layers=layers)
     assert not np.isfinite(mode.slowness).any(), 1.0 / mode.slowness
     # ... and it does resolve once the branch has slowed below V_f.
@@ -23977,9 +24106,18 @@ def test_the_cased_leaky_dipole_can_outrun_the_borehole_fluid():
         winding = (phase[-1] - phase[0]) / (2.0 * np.pi)
         assert abs(winding - 1.0) < 0.05, f"{freq_hz} Hz: winding {winding:.3f}"
 
-    # The other half: at 1.5 and 2 kHz the root is inside the window the
-    # marcher already searches, and it is still missed.
-    for freq_hz, expected in ((500.0, 0), (1000.0, 0), (1500.0, 1), (2000.0, 1)):
+    # The window's contents at the low end, counted rather than assumed:
+    # one root exactly where the recovered leg is and none beside it.
+    for freq_hz, expected in (
+        (1000.0, 0),
+        (1250.0, 0),
+        (1500.0, 1),
+        (1750.0, 1),
+        (2000.0, 1),
+        (2250.0, 1),
+        (2500.0, 1),
+        (2750.0, 0),
+    ):
         omega = 2.0 * np.pi * freq_hz
         lo, hi = omega / (ceiling - 0.5), omega / (_SC87_SLOW["vs"] + 0.5)
         n = 80

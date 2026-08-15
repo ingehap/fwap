@@ -7,6 +7,84 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **The leaky cased marcher's seeding rebuilt, and it recovers a whole
+  branch leg that four separate assumptions were hiding.** No public API
+  change; `flexural_dispersion_layered` and
+  `quadrupole_dispersion_layered` return more of the same mode.
+
+  The reported failure was one seeding constant. Behind it were four,
+  each the marcher assuming a branch geometry this one does not have:
+
+  1. **Seed levels too shallow.** The off-axis ladder was `(0.03, 0.07)`
+     — 3 % and 7 % of `Re(k_z)` — measured on the `_A2` fixture and read
+     as a property of the mode. Schmitt & Cheng's (1987) slow cased
+     branch carries **29 %**; every seed on the old ladder missed it,
+     while 0.15 and deeper land on it immediately.
+  2. **A monotone-descent step rule.** "A candidate faster than the last
+     one by more than 0.5 %" has no frequency in it, so the same branch
+     passed or failed on how finely the caller sampled, and a branch
+     with an Airy minimum failed on the way back up. `_A2`'s own branch
+     rises 1167 → 1191 m/s and survives only because that fixture uses
+     250 Hz steps. Replaced by a two-sided bound on `|d ln v / d ln f|`,
+     which constrains shape rather than direction.
+  3. **The sweep gated on "pass one found nothing anywhere".** Pass two
+     now *merges* into pass one's gaps instead of replacing it. That is
+     strictly stronger than the gate it replaces: overwriting a scanned
+     value is no longer expressible, where before it was merely
+     prevented by not running.
+  4. **Five sweep attempts across the band.** Raised to 24.
+
+  **The fix that paid for the others is the survey.** Locating candidate
+  poles by evaluating `log|det|` on a coarse grid and refining only at
+  its local minima costs *one determinant evaluation per node*, against
+  one full root-track per node for a blind sweep — so a ladder deep
+  enough to reach 45 % damping is cheaper than the old two shallow
+  levels. Per attempted frequency: 385 ms → 111 ms. End to end on a real
+  cased stack with no leaky branch anywhere, which is the case the
+  attempt cap exists for: **35.3 s → 19.3 s**.
+
+  **The recovered leg is verified twice, independently of the marcher.**
+  On Schmitt & Cheng's geometry it reads 1235.9, 1300.0, 1358.3, 1412.0
+  and 1461.2 m/s at 1.50–2.50 kHz; a hand-seeded minimisation of
+  `log|det|` reproduces all five to 0.003 %, and an argument-principle
+  contour counts exactly one root at each and **none** at 1.00, 1.25,
+  2.75 or 3.00 — the same five the marcher returns and the same four it
+  declines.
+
+  **`_A2` turns out to have the same two-leg shape**, which nothing had
+  shown before: a new leg at 1.0–2.0 kHz rising 1033.9 → 1282.9 m/s
+  toward the annulus ceiling, coverage 0.62 → 0.73, with winding counts
+  confirming one root where it is found and none in the gap above it.
+
+  **What is left is bounded and named rather than implied.** On `_A2` a
+  contour counts one root at 4.00, 4.25, 4.50 and 4.75 kHz where the
+  marcher still returns `NaN`; the cause is `_LEAKY_CASED_MAX_INVALID`,
+  which stops the march after two consecutive misses, so the gap between
+  legs ends it before it can re-acquire. On Schmitt & Cheng's geometry
+  the ceiling half of the original gap survives untouched — between
+  roughly 3 and 13 kHz the branch is above `V_f`, outside the searched
+  window entirely. Neither is touched here.
+
+  Three tests were re-baselined, all deliberately, including the one
+  written in the previous entry that promised to fail the day either
+  half of that gap was fixed.
+
+  **It also surfaced a latent defect in the surrogate generator**, which
+  is fixed here rather than papered over. `dispersion_callable`
+  linearly interpolates a mode's finite support, so a curve whose
+  support is one orphaned sample plus a block far away had a straight
+  line drawn between them — through a band where the solver found no
+  root and where there is none to find — and the injected arrival
+  followed it. Recovering the second leg made that reachable: on the
+  48-point grid the two-mode cased dataset uses, the lower leg can be a
+  single sample. `scripts/gen_surrogate_dataset.py` gains
+  `principal_support`, which keeps the longest segment of a curve while
+  tolerating interior holes up to two samples wide — a tracker stumble
+  is not a segment boundary, and the standard cased fixture has had one
+  such hole at 8.0 kHz for as long as it has existed. Stored slowness,
+  stored attenuation and the injected arrival now all describe the same
+  segment.
+
 - **A second, independent tie for the cased-hole dipole — and the first
   behind casing in a *slow* formation** — Yang et al. (2022) fig 2, two
   curves, **0.38 %** and **0.017 %** RMS.

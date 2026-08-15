@@ -317,19 +317,21 @@ For Schmitt & Cheng's slow sandstone behind 1.02 cm of steel and 3 cm of
 cement 1 that ceiling is the *fluid*, 1500 m/s, and the branch runs
 above it — leaving `V_S` near 1.4 kHz, peaking near 1710 m/s at 5.5 kHz
 just under the cement's 1729, and coming back down through `V_f` near
-13.8 kHz. So `flexural_dispersion_layered` returns `NaN` across the
-whole band and resolves the mode only at the top, around 1487 m/s. An
-argument-principle contour counts exactly one root inside a box around
-it at 3.0, 5.5 and 8.0 kHz, so the mode is there and the marcher is not
-looking.
+13.8 kHz.
 
-**Two failures, not one.** Above 3 kHz the root is outside the window.
-At 1.5 and 2 kHz it is *inside* it — a winding count over the whole
-`(V_S, V_f)` box returns 1 — and is missed anyway, which is seeding
-rather than the ceiling; below 1 kHz the window is genuinely empty. So
-raising the ceiling alone would not close the gap, and it would still
-need seeding that does not rely on a real-axis scan: above `V_f` there
-is no real-axis minimum to seed from.
+**That gap had two causes, and the seeding one is now fixed.** Above
+3 kHz the root is outside the window and the marcher is right not to
+find it. At 1.5–2.5 kHz it is *inside* the window and used to be missed
+anyway. Rebuilding the seeding recovers that leg in full — 1235.9,
+1300.0, 1358.3, 1412.0, 1461.2 m/s — and an argument-principle contour
+confirms it is exactly the window's contents: one root at each of those
+five frequencies and none at 1.00, 1.25, 2.75 or 3.00.
+
+What remains is the ceiling. Between roughly 3 and 13 kHz the branch is
+above `V_f`, outside the window the marcher searches at all; a contour
+still counts one root there at 3.0, 5.5 and 8.0 kHz. Closing that half
+needs the borehole fluid field handled as oscillatory rather than
+evanescent, which is a determinant question rather than a search one.
 
 **The cased dipole is tied twice, and the second tie reaches a slow
 formation.** Yang et al. (2022) fig 2 plots the same mode from a

@@ -859,15 +859,37 @@ _LEAKY_CASED_SHARPNESS = 1.0e-6
 #: Consecutive rejected steps the marcher walks past before giving up.
 _LEAKY_CASED_MAX_INVALID = 2
 
-#: Slack on the monotone-descent rule, as a fraction of the previous
-#: step's phase velocity. The branch descends, so a candidate faster
-#: than the last one by more than this is a different branch.
-_LEAKY_CASED_STEP_UP = 5.0e-3
-
-#: Real-axis resolution of the off-axis seed sweep, and the imaginary
-#: offsets it tries at each point as fractions of ``Re(k_z)``.
+#: Bound on ``|d ln v / d ln f|`` between consecutive accepted steps:
+#: how fast the branch is allowed to move in phase velocity per unit
+#: relative change in frequency. A candidate that moves faster than this
+#: is a different branch.
 #:
-#: The sweep is the fallback for the case the real-axis scan cannot
+#: **This replaced a monotone-descent rule, and the premise of that rule
+#: was wrong.** It read "the branch descends, so a candidate faster than
+#: the last one by more than 0.5 % is a different branch" -- a one-sided
+#: bound with no frequency in it. Two things follow from having no
+#: frequency in it: the same physical branch passes or fails depending
+#: on how finely the caller sampled, and a branch with an Airy minimum
+#: fails on the way back up. Both were live. The ``_A2`` fixture's own
+#: branch rises 1167 -> 1191 m/s above 9 kHz and survives only because
+#: that fixture is sampled at 250 Hz, where the rise is 0.15 % a step;
+#: Schmitt & Cheng's (1987) slow cased branch rises 1235.9 -> 1461.2 m/s
+#: over 1.5-2.5 kHz, which is 10 % at a 500 Hz step and was rejected at
+#: every sampling tried.
+#:
+#: The replacement is dimensionless and two-sided, so it constrains the
+#: branch's *shape* rather than its direction. Measured slopes: about
+#: 0.33 on the Schmitt & Cheng ascent, -0.10 on the ``_A2`` descent, and
+#: -0.42 on an open-hole flexural fall from ``V_S`` to ``V_f``. A hop to
+#: the shear branch point's family -- the failure the old rule existed
+#: to prevent -- is 3.6 at ``_A2``'s step size, so the bound below still
+#: rejects it by a factor of three.
+_LEAKY_CASED_STEP_SLOPE = 1.0
+
+#: Resolution of the off-axis seed survey: real-axis nodes, and the
+#: imaginary offsets tried at each as fractions of ``Re(k_z)``.
+#:
+#: The survey is the fallback for the case the real-axis scan cannot
 #: handle: a pole far enough off the axis that its shadow there is not a
 #: usable seed. It is not a hypothetical. Over
 #: ``1.3 <= V_S_layer / V_S <= 1.5`` at ``ka = 2.5`` the scan does find
@@ -877,18 +899,36 @@ _LEAKY_CASED_STEP_UP = 5.0e-3
 #: to the digit), which is the degeneracy ``exclude`` names and rejects.
 #: Correctly rejected, and nothing left: that was A.9's recorded gap.
 #:
-#: Seeded off the axis it converges immediately, and coarsely: a single
-#: level at 5 % of ``Re(k_z)`` over 12 real points already finds all
-#: three roots to 1e-4, and the 16 x 2 grid below finds them to the
-#: same 1e-4 with margin over that. It is kept small on purpose --
-#: see ``_LEAKY_CASED_SWEEP_MAX_ATTEMPTS`` for what it costs in the
-#: case where there is nothing to find.
+#: **The levels used to be ``(0.03, 0.07)`` and that was too shallow.**
+#: They were chosen to bracket the leakage the ``_A2`` fixture carries --
+#: ``Im(k_z) / Re(k_z)`` from about 11 % where the branch first appears
+#: to 0.4 % at the top of the band -- and read as a property of the mode
+#: when they were a property of that stack. Schmitt & Cheng's (1987)
+#: slow sandstone behind their casing and cement carries **29 %** at
+#: 1.5 kHz and 28.7 % at 2.0 kHz, three times the deepest level tried,
+#: and every seed on the old ladder missed it: 0.03 and 0.07 return
+#: nothing at 1.5 kHz and the window ceiling itself at 2.0 kHz, while
+#: 0.15 and anything above it land on the root at 1235.9 m/s
+#: (``Im`` 2.244) and 1358.3 (2.658) immediately.
 #:
-#: The levels bracket the leakage this branch actually carries --
-#: ``Im(k_z) / Re(k_z)`` runs from about 11 % where it first appears to
-#: 0.4 % at the top of the band.
-_LEAKY_CASED_SEED_SWEEP_POINTS = 16
-_LEAKY_CASED_SEED_SWEEP_LEVELS = (0.03, 0.07)
+#: The ladder is now geometric and reaches 45 %, and the grid is read
+#: differently -- see :func:`_march_leaky_cased_branch`'s ``_survey``.
+#: Doubling the old ladder's depth by adding levels would have doubled
+#: its cost, which was already the expensive knob
+#: (``_LEAKY_CASED_SWEEP_MAX_ATTEMPTS``); surveying ``log|det|`` and
+#: refining only at its local minima costs *one determinant evaluation*
+#: per node against one full root-track per node, so seven levels come
+#: out about 3.5x cheaper than the old two. Measured on the geometry
+#: above: 385 ms per attempted frequency before, 111 ms after.
+_LEAKY_CASED_SEED_SWEEP_POINTS = 14
+_LEAKY_CASED_SEED_SWEEP_LEVELS = (0.02, 0.035, 0.06, 0.10, 0.17, 0.28, 0.45)
+
+#: Local minima of the survey surface refined per frequency, deepest
+#: first. The window holds one fundamental plus a handful of overtones
+#: and edge artefacts; refining the four deepest reaches the mode in
+#: every case measured while keeping the survey's cost dominated by the
+#: determinant grid rather than by root tracking.
+_LEAKY_CASED_SEED_SURVEY_CANDIDATES = 4
 
 #: Height above the formation shear speed below which the sweep will not
 #: take a *fresh* seed, as a fraction of ``V_S``.
@@ -939,12 +979,25 @@ _LEAKY_CASED_SEED_FLOOR = 0.002
 #: *every* frequency -- and the surrogate generators reject exactly such
 #: stacks by the hundred. Three tests in
 #: ``tests/test_gen_surrogate_dataset.py`` measure it: 41 s before the
-#: sweep existed, 828 s with it uncapped, 82 s with this cap and the
-#: 16 x 2 grid. The whole CI job went 422 s -> 1331 s uncapped, which is
-#: what sent anyone looking. The fixture the sweep exists for is a single
-#: frequency, so no cap costs it anything -- the values it recovers are
-#: identical at every setting tried.
-_LEAKY_CASED_SWEEP_MAX_ATTEMPTS = 5
+#: sweep existed, 828 s with it uncapped, 82 s with a cap of 5 and the
+#: old 16 x 2 blind grid. The whole CI job went 422 s -> 1331 s
+#: uncapped, which is what sent anyone looking.
+#:
+#: **The cap was set by cost, and the cost has since changed**, so the
+#: cap moved with it. Replacing the blind grid with the ``log|det``
+#: survey took an attempted frequency from 385 ms to 111 ms, and 5
+#: attempts was never a statement about where branches live -- it was
+#: the most the old sweep could afford. Five is too few to *find* one:
+#: a branch occupying a fraction ``phi`` of the band needs about
+#: ``1 / phi`` attempts to be landed on at all, and Schmitt & Cheng's
+#: (1987) slow cased branch occupies 1.4-2.6 kHz of a 1-15 kHz band,
+#: ``phi`` = 0.086. At 5 it was missed at every sampling tried; at 24 it
+#: comes out whole.
+#:
+#: 24 costs less than 5 used to. Measured end to end on a real cased
+#: stack with no leaky branch anywhere -- the pathological case this cap
+#: exists for -- 35.3 s before, 19.3 s after.
+_LEAKY_CASED_SWEEP_MAX_ATTEMPTS = 24
 
 
 def _march_leaky_cased_branch(
@@ -1012,7 +1065,20 @@ def _march_leaky_cased_branch(
             abs(v / e - 1.0) < _LEAKY_CASED_DEGENERACY_TOL for e in exclude if e > 0.0
         )
 
-    def _valid(kz: complex, omega: float, ceiling_v: float) -> bool:
+    def _band(kz_prev: complex | None, omega_prev: float | None, omega: float):
+        """Velocities the next step may land in, from the last one.
+
+        A two-sided bound on ``|d ln v / d ln f|`` -- see
+        ``_LEAKY_CASED_STEP_SLOPE``. ``None`` before the branch has
+        started, when there is nothing to be continuous with.
+        """
+        if kz_prev is None or omega_prev is None or omega <= 0.0:
+            return None
+        span = _LEAKY_CASED_STEP_SLOPE * abs(np.log(omega / omega_prev))
+        v_prev = omega_prev / kz_prev.real
+        return v_prev * np.exp(-span), v_prev * np.exp(span)
+
+    def _valid(kz: complex, omega: float, band) -> bool:
         if not (np.isfinite(kz.real) and np.isfinite(kz.imag)):
             return False
         if kz.real <= 0.0 or kz.imag < 0.0:
@@ -1023,7 +1089,7 @@ def _march_leaky_cased_branch(
         # itself a branch point -- out of the accepted set.
         if not (lo * 0.98 < v < hi * (1.0 - _LEAKY_CASED_DEGENERACY_TOL)):
             return False
-        if v > ceiling_v:
+        if band is not None and not (band[0] <= v <= band[1]):
             return False
         if _degenerate(v):
             return False
@@ -1036,13 +1102,13 @@ def _march_leaky_cased_branch(
             return False
         return at < _LEAKY_CASED_SHARPNESS * off
 
-    def _refine(kz_guess: complex, omega: float, ceiling_v: float) -> complex | None:
+    def _refine(kz_guess: complex, omega: float, band) -> complex | None:
         root = _track_complex_root(lambda k: det_fn(k, omega), kz_guess)
-        if root is None or not _valid(root, omega, ceiling_v):
+        if root is None or not _valid(root, omega, band):
             return None
         return root
 
-    def _scan(omega: float, ceiling_v: float) -> complex | None:
+    def _scan(omega: float, band) -> complex | None:
         """Refine the slowest real-axis ``Im(det)`` crossing in the window.
 
         Walks from the slow end (largest ``k_z``) so the first crossing
@@ -1061,12 +1127,59 @@ def _march_leaky_cased_branch(
             if a_val == 0.0 or np.sign(a_val) == np.sign(b_val):
                 continue
             mid = complex(0.5 * (grid[j] + grid[j - 1]), 0.0)
-            root = _refine(mid, omega, ceiling_v)
+            root = _refine(mid, omega, band)
             if root is not None:
                 return root
         return None
 
-    def _sweep(omega: float, ceiling_v: float) -> complex | None:
+    def _survey(omega: float) -> list[complex]:
+        """Locate candidate poles by a coarse ``log|det|`` survey.
+
+        Evaluates the determinant once per node of a
+        ``points x levels`` grid over the window -- real part spanning
+        it, imaginary part as a fraction of the real -- and returns the
+        grid's local minima, deepest first. One determinant evaluation
+        per node, against one full root-track per node for the blind
+        sweep this replaced, so a ladder deep enough to reach a strongly
+        damped branch is affordable.
+
+        Returning *seeds* rather than roots keeps the acceptance rules
+        in one place: everything the survey proposes still goes through
+        :func:`_refine`.
+        """
+        levels = _LEAKY_CASED_SEED_SWEEP_LEVELS
+        k_real = np.linspace(omega / hi, omega / lo, _LEAKY_CASED_SEED_SWEEP_POINTS)
+        surface = np.full((k_real.size, len(levels)), np.inf)
+        for i, k in enumerate(k_real):
+            for j, level in enumerate(levels):
+                try:
+                    value = abs(det_fn(complex(k, level * k), omega))
+                except (ValueError, ArithmeticError, OverflowError):
+                    continue
+                if np.isfinite(value) and value > 0.0:
+                    # log, because |det| spans tens of decades across
+                    # the window and a linear surface is all trend.
+                    surface[i, j] = np.log(value)
+        found: list[tuple[float, complex]] = []
+        for i in range(k_real.size):
+            for j in range(len(levels)):
+                here = surface[i, j]
+                if not np.isfinite(here):
+                    continue
+                neighbours = [
+                    surface[a, b]
+                    for a in (i - 1, i, i + 1)
+                    for b in (j - 1, j, j + 1)
+                    if 0 <= a < k_real.size
+                    and 0 <= b < len(levels)
+                    and (a, b) != (i, j)
+                ]
+                if neighbours and here <= min(neighbours):
+                    found.append((here, complex(k_real[i], levels[j] * k_real[i])))
+        found.sort(key=lambda item: item[0])
+        return [seed for _, seed in found[:_LEAKY_CASED_SEED_SURVEY_CANDIDATES]]
+
+    def _sweep(omega: float, band) -> complex | None:
         """Seed off the real axis, for the poles whose shadow on it is not
         a usable seed.
 
@@ -1083,20 +1196,18 @@ def _march_leaky_cased_branch(
         """
         best: complex | None = None
         floor = vs * (1.0 + _LEAKY_CASED_SEED_FLOOR)
-        real_seeds = np.linspace(omega / hi, omega / lo, _LEAKY_CASED_SEED_SWEEP_POINTS)
-        for k_real in real_seeds:
-            for level in _LEAKY_CASED_SEED_SWEEP_LEVELS:
-                root = _refine(complex(k_real, level * k_real), omega, ceiling_v)
-                if root is None:
-                    continue
-                if omega / root.real < floor:
-                    # The shear branch point's own zeros live here. They
-                    # are sharp and they are not modes; see
-                    # ``_LEAKY_CASED_SEED_FLOOR``.
-                    continue
-                # Slowest = largest Re(k_z).
-                if best is None or root.real > best.real:
-                    best = root
+        for seed in _survey(omega):
+            root = _refine(seed, omega, band)
+            if root is None:
+                continue
+            if omega / root.real < floor:
+                # The shear branch point's own zeros live here. They
+                # are sharp and they are not modes; see
+                # ``_LEAKY_CASED_SEED_FLOOR``.
+                continue
+            # Slowest = largest Re(k_z).
+            if best is None or root.real > best.real:
+                best = root
         return best
 
     def _march(use_sweep: bool) -> tuple[np.ndarray, np.ndarray]:
@@ -1117,14 +1228,10 @@ def _march_leaky_cased_branch(
         misses = 0
         for i in np.argsort(f_arr):
             omega = 2.0 * np.pi * float(f_arr[i])
-            ceiling_v = (
-                np.inf
-                if (kz_prev is None or omega_prev is None)
-                else (omega_prev / kz_prev.real) * (1.0 + _LEAKY_CASED_STEP_UP)
-            )
+            band = _band(kz_prev, omega_prev, omega)
             root: complex | None = None
             if kz_prev is not None and omega_prev is not None:
-                root = _refine(kz_prev * (omega / omega_prev), omega, ceiling_v)
+                root = _refine(kz_prev * (omega / omega_prev), omega, band)
             if root is None and not (use_sweep and kz_prev is None):
                 # Skipped only where it is provably redundant: the sweep
                 # pass runs at all because pass one found nothing, and
@@ -1132,9 +1239,9 @@ def _march_leaky_cased_branch(
                 # scan sees exactly what it saw then -- no previous root,
                 # so an infinite ceiling and the same window. It returned
                 # None, and would again.
-                root = _scan(omega, ceiling_v)
+                root = _scan(omega, band)
             if root is None and use_sweep and int(i) in sweep_at:
-                root = _sweep(omega, ceiling_v)
+                root = _sweep(omega, band)
 
             if root is None:
                 logger.debug(
@@ -1157,26 +1264,35 @@ def _march_leaky_cased_branch(
 
         return out_s, out_a
 
-    # The sweep is a rescue for the case where the branch never starts,
-    # and it is deliberately not used for anything else. Once the scan
-    # has found the branch anywhere in the band, continuation owns it and
-    # the remaining empty frequencies are its ends -- where the mode has
-    # left the window, not where it is hiding.
+    # Pass one scans only; pass two may also seed off the axis. Pass two
+    # never overwrites pass one -- it fills the frequencies pass one left
+    # empty and nothing else.
     #
-    # Letting the sweep fill those ends instead loses the branch. Its
-    # extra reach finds the shear branch point's zeros (see
-    # ``_LEAKY_CASED_SEED_FLOOR``) at frequencies where the flexural mode
-    # has genuinely gone, the monotone-descent rule then follows that
-    # family down, and because it starts at the low-frequency end it
-    # takes the whole band with it: measured on the standard steel +
-    # cement stack it moved every already-converged frequency, by 17 %
-    # at 3.5 kHz, and ended 0.23 % above ``V_S`` instead of 1.3 %. Gating
-    # it on "pass one found nothing at all" makes that impossible by
-    # construction rather than by tuning -- where the scan succeeds, the
-    # answer is exactly what it was.
+    # **That merge is the guarantee, and it used to be a gate.** The
+    # sweep's extra reach also finds the shear branch point's zeros (see
+    # ``_LEAKY_CASED_SEED_FLOOR``), which are sharp and are not modes.
+    # Seeded from those where the flexural mode has genuinely left the
+    # window, the old monotone rule followed that family down, and
+    # because it starts at the low-frequency end it took the whole band:
+    # every already-converged frequency moved, by 17 % at 3.5 kHz, and
+    # the branch ended 0.23 % above ``V_S`` instead of 1.3 %. Pass two
+    # *replacing* pass one wholesale is what made that possible, so the
+    # fix was to run it only when pass one found nothing at all.
+    #
+    # Merging instead makes the same thing impossible by construction and
+    # costs nothing in reach: a frequency pass one resolved keeps its
+    # value bit for bit, and one it did not is offered to the sweep
+    # rather than written off as an end of the branch. It is not always
+    # an end. A branch that leaves the window in the *middle* of the band
+    # -- because it outruns ``V_f`` and comes back, which is what a stiff
+    # annulus around a slow formation does -- has two legs, and the gate
+    # could only ever return whichever one the scan reached first.
     slowness, attenuation = _march(use_sweep=False)
-    if not np.any(np.isfinite(slowness)):
-        slowness, attenuation = _march(use_sweep=True)
+    if not np.all(np.isfinite(slowness)):
+        swept_s, swept_a = _march(use_sweep=True)
+        fill = ~np.isfinite(slowness) & np.isfinite(swept_s)
+        slowness[fill] = swept_s[fill]
+        attenuation[fill] = swept_a[fill]
 
     return slowness, attenuation
 
