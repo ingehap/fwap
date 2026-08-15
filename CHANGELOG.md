@@ -39,10 +39,28 @@ the project uses [Semantic Versioning](https://semver.org/).
   quadrupole continues below the cut-off **rising above `V_S`**, to
   1.019 `V_S` at 3.2 kHz, not lying flat on it — so the two published
   figures disagree, and the flat one has the shape of a modal solver
-  returning a branch point. fwap's leaky root matches Sinha's at the
-  crossing (0.00 % and 0.01 % at the two nearest points) and diverges to
-  1.37 % at 3.2 kHz, peaking at 1.009 `V_S` against Sinha's 1.019. That
-  residual disagreement is recorded, not tuned away.
+  returning a branch point.
+
+  The source has since been read (Sinha & Asvadurov 2004, *Geophysical
+  Prospecting* 52, 271–286), and it settles two things the digitised CSV
+  could not. Fig 10(a) carries the whole quadrupole family (m = 1..4),
+  so the sub-cut-off points might have belonged to a neighbour — but
+  read out of the PDF drawing operators the m = 1 curve is a single
+  chain of three contiguous sub-paths spanning 3.243–15.252 kHz, and
+  those points are its low-frequency end; the shipped CSV reproduces it
+  to 0.009 % RMS. And the text states the regime outright: m = 1
+  "becomes non-radiating above 5 kHz", against fwap's trapped root
+  beginning at 5.51 kHz and the measured crossing at 5.30 kHz.
+
+  It also shows fwap's leaky root is largely **right**, which the phase
+  curve alone did not reveal. Figs 10(b) and 10(c) give the m = 1 group
+  slowness and radiation attenuation, so the imaginary part can be
+  checked without fwap's own derivative: combining the three published
+  curves through the dB convention recovered earlier from figs
+  11(c)/2(c) implies an `Im(k_z)` that fwap matches to **0.8–1.8 %**
+  over 4.6–5.3 kHz, and fwap's group slowness matches fig 10(b) to
+  **2.06 % RMS**. What drifts is the phase velocity alone, and only at
+  the low-frequency end — exact at the crossing, 1.23 % low by 3.3 kHz.
 
   Also named while chasing it: in a **slow** formation `V_f` lies above
   `V_S`, and the determinant has a sign change pinned exactly at it. The

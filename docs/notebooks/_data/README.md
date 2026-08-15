@@ -156,13 +156,46 @@ to 1.019 `V_S` at 3.2 kHz, rather than lying flat on it. The two
 published figures disagree with each other here, and the flat one has
 the shape of a modal solver returning the branch point below cut-off.
 
-fwap's leaky root agrees with Sinha's at the crossing — 0.00 % and
-0.01 % at the two points nearest it — and then diverges to 1.37 % at
-3.2 kHz, peaking at 1.009 `V_S` where Sinha reaches 1.019. That
-disagreement is unresolved, and is recorded rather than tuned away.
-Turning the leaky branch into a public dispersion function would be a
-new leaky regime and a new public name, which `CONTRIBUTING.md` asks to
-raise as an issue first.
+**The source has since been read, and it confirms both the branch
+identity and the regime.** Sinha & Asvadurov 2004, *Geophysical
+Prospecting* 52, 271–286. Fig 10(a) carries the whole quadrupole family
+— m = 1, 2, 3, 4, the last three with cut-offs the text puts "around 4,
+7 and 11 kHz" — so the worry was that the sub-cut-off points belonged to
+a neighbour. They do not: read out of the PDF drawing operators, the
+m = 1 curve is a single chain of three contiguous sub-paths running
+3.243 → 15.252 kHz, and the sub-cut-off points are its low-frequency
+end. The shipped CSV reproduces that chain to **0.009 % RMS**. The text
+is explicit about the regime too: the m = 1 mode "becomes non-radiating
+above 5 kHz", and fwap's trapped root begins at 5.51 kHz against a
+measured curve crossing at 5.30 kHz.
+
+**And fwap's leaky root is largely right, which the phase curve alone
+did not show.** Fig 10(c) plots the m = 1 radiation attenuation and
+fig 10(b) its group slowness, so the imaginary part can be checked
+without going through fwap's own derivative. Combining the three
+published curves — `Im(k_z) = dB · 2 / (8.686 · S_phase/S_group)`, the
+convention recovered earlier from figs 11(c)/2(c) — gives:
+
+| f (kHz) | implied `Im(k_z)` | fwap | ratio |
+|---|---|---|---|
+| 4.6 | 0.2175 | 0.2157 | 0.992 |
+| 4.8 | 0.1534 | 0.1529 | 0.997 |
+| 5.0 | 0.0970 | 0.0963 | 0.993 |
+| 5.2 | 0.0473 | 0.0474 | 1.001 |
+| 5.3 | 0.0263 | 0.0267 | 1.018 |
+
+So the radiating part agrees to **0.8–1.8 %**, and fwap's group slowness
+matches fig 10(b) to **2.06 % RMS** over the overlap. What drifts is the
+*phase* velocity alone, and only at the far low-frequency end: exact at
+the crossing, 1.23 % low by 3.3 kHz, peaking at 1.009 `V_S` where the
+figure reaches 1.019. That is a narrower and better-behaved discrepancy
+than "the leaky branch disagrees", which is what the phase curve on its
+own suggested.
+
+Turning the leaky branch into a public dispersion function would still
+be a new leaky regime and a new public name, which `CONTRIBUTING.md`
+asks to raise as an issue first. It now has three curves to be scored
+against rather than one.
 
 **The twelve Sinha & Asvadurov rows are extracted, not traced**, and that is why
 they score two orders of magnitude tighter than everything else here.
