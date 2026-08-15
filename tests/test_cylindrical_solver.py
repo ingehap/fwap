@@ -24488,3 +24488,288 @@ def test_withdrawing_the_ceiling_dead_band_added_a_mode_not_an_edge_artefact():
     # The top of the recovered stretch really is inside the old dead
     # band, which is why it took withdrawing it to see any of this.
     assert velocity.max() > _SC87_SLOW["vf"] * (1.0 - 2.0e-3)
+
+
+# ---------------------------------------------------------------------------
+# Claro (2020) fig 3.7 -- phase *and* group slowness, six modes
+#
+# Diego Salam Claro, "Computational analysis of dispersive acoustic waves in
+# fluid-filled boreholes", MSc dissertation, Instituto de Fisica Gleb
+# Wataghin, UNICAMP, 2020. Figure 3.7 plots Stoneley, flexural and quadrupole
+# for one formation and two fluids, 200 Hz to 20 kHz, with the phase slowness
+# solid and the **group slowness dashed** -- the reason it is here. Before
+# this, the package had exactly one scored group-slowness tie (Sinha fig
+# 11(b)); fig 3.7 adds six, and they are a finite-element calculation rather
+# than another modal-determinant one, so they are not the same method
+# checking itself.
+#
+# Parameters are the thesis's own Tables 3.1 and 3.2, converted with the
+# K = 304800 it states in eq 3.2.1. Fluid 1 is slower than the formation
+# shear (fast formation); fluid 2 is faster (slow formation).
+_CLARO_K = 304800.0
+_CLARO_ROCK = dict(vp=_CLARO_K / 87.0, vs=_CLARO_K / 152.4, rho=2300.0)
+_CLARO_FAST = dict(**_CLARO_ROCK, vf=_CLARO_K / 203.0, rho_f=1000.0, a=0.1)
+_CLARO_SLOW = dict(**_CLARO_ROCK, vf=_CLARO_K / 138.5, rho_f=1000.0, a=0.1)
+_CLARO_STACK = {"fast": _CLARO_FAST, "slow": _CLARO_SLOW}
+_CLARO_PANEL = {"fast": "a", "slow": "b"}
+
+
+def _claro_solver(mode: str):
+    from fwap.cylindrical_solver import (
+        flexural_dispersion,
+        quadrupole_dispersion,
+        stoneley_dispersion,
+    )
+
+    return {
+        "stoneley": stoneley_dispersion,
+        "flexural": flexural_dispersion,
+        "quadrupole": quadrupole_dispersion,
+    }[mode]
+
+
+def _claro_curves(tag: str, mode: str, n: int = 400):
+    """Return ``(freq, phase, group)`` over the live part of the band."""
+    freq = np.linspace(200.0, 20000.0, n)
+    result = _claro_solver(mode)(freq, **_CLARO_STACK[tag])
+    live = np.isfinite(result.slowness)
+    omega = 2.0 * np.pi * freq[live]
+    phase = result.slowness[live]
+    return freq[live], phase, np.gradient(omega * phase, omega)
+
+
+def _claro_reference(tag: str, mode: str, which: str) -> np.ndarray:
+    data = Path(__file__).resolve().parents[1] / "docs" / "notebooks" / "_data"
+    return np.loadtxt(
+        data / f"claro_2020_fig37{_CLARO_PANEL[tag]}_{mode}_{which}_{tag}.csv",
+        delimiter=",",
+    )
+
+
+def _claro_score(tag: str, mode: str, which: str) -> tuple[int, float, float]:
+    reference = _claro_reference(tag, mode, which)
+    freq, phase, group = _claro_curves(tag, mode)
+    curve = phase if which == "phase" else group
+    keep = (reference[:, 0] >= freq.min()) & (reference[:, 0] <= freq.max())
+    got = np.interp(reference[keep, 0], freq, curve)
+    residual = (got - reference[keep, 1]) / reference[keep, 1]
+    return (
+        int(keep.sum()),
+        float(np.sqrt(np.mean(residual**2))),
+        float(np.max(np.abs(residual))),
+    )
+
+
+_CLARO_MODES = [
+    (tag, mode)
+    for tag in ("fast", "slow")
+    for mode in ("stoneley", "flexural", "quadrupole")
+]
+
+
+@pytest.mark.parametrize(("tag", "mode"), _CLARO_MODES)
+def test_claro_fig37_phase_slowness_matches(tag: str, mode: str) -> None:
+    """All six phase curves, which is what the group curves differentiate.
+
+    These ship alongside the group curves rather than instead of them:
+    without the phase tie there is no way to tell a wrong group velocity
+    from a wrong phase velocity that was differentiated correctly.
+    """
+    n, rms, worst = _claro_score(tag, mode, "phase")
+    assert n > 130, n
+    assert rms < 0.004, (tag, mode, rms)
+    assert worst < 0.01, (tag, mode, worst)
+
+
+# Per-curve RMS and worst-point budgets, each set from what was
+# measured rather than one loose number covering all six. A single 3 %
+# budget would have been worthless on the two Stoneley rows: those group
+# curves sit within 1.8 % and 2.2 % of their own *phase* curves, so a
+# solver that returned the phase slowness and never differentiated
+# anything would have passed. The test therefore scores that substitution
+# too and requires it to fail, so each row certifies that it can tell a
+# group slowness from a phase slowness at the tolerance it is granted.
+_CLARO_GROUP_BUDGET = [
+    ("fast", "stoneley", 0.002, 0.005),
+    ("fast", "flexural", 0.030, 0.060),
+    ("fast", "quadrupole", 0.015, 0.030),
+    ("slow", "stoneley", 0.002, 0.008),
+    ("slow", "flexural", 0.010, 0.025),
+    ("slow", "quadrupole", 0.005, 0.020),
+]
+
+
+@pytest.mark.parametrize(("tag", "mode", "budget", "worst_budget"), _CLARO_GROUP_BUDGET)
+def test_claro_fig37_group_slowness_matches(
+    tag: str, mode: str, budget: float, worst_budget: float
+) -> None:
+    """Six group-slowness ties, from ``d(omega * S)/d(omega)``.
+
+    The flexural budget is the loosest of the six for a reason that is
+    measured, not assumed: see
+    :func:`test_the_fig37_group_budget_is_set_by_the_dashed_curve_not_the_solver`.
+    """
+    n, rms, worst = _claro_score(tag, mode, "group")
+    assert n > 95, n
+    assert rms < budget, (tag, mode, rms, budget)
+    assert worst < worst_budget, (tag, mode, worst, worst_budget)
+
+    # The budget is tight enough to reject the phase slowness in its
+    # place -- otherwise the row would be testing nothing about the
+    # derivative at all.
+    reference = _claro_reference(tag, mode, "group")
+    freq, phase, _ = _claro_curves(tag, mode)
+    keep = (reference[:, 0] >= freq.min()) & (reference[:, 0] <= freq.max())
+    undifferentiated = np.interp(reference[keep, 0], freq, phase)
+    decoy = (undifferentiated - reference[keep, 1]) / reference[keep, 1]
+    assert float(np.sqrt(np.mean(decoy**2))) > budget, (tag, mode)
+
+
+def test_the_fig37_group_budget_is_set_by_the_dashed_curve_not_the_solver() -> None:
+    """Why the fast flexural gets 3 % where its phase curve gets 0.4 %.
+
+    Three curves describe the same physics on the Airy limb: the
+    figure's dashed group curve, the figure's *own* solid phase curve
+    differentiated, and fwap's group curve. Comparing all three orders
+    them, which comparing two cannot.
+
+    fwap lands **nearer the figure's own phase data than the figure's
+    own dashed rendering does**. So on that limb the dashed curve is the
+    least reliable of the three, and the budget it is granted is
+    measuring the reading rather than the solver. The dashed curve is
+    near-vertical there, where both the dash pattern and one slowness
+    per pixel column degrade at once.
+
+    This is the falsifiable form of the claim: if fwap were the curve in
+    the wrong, it would sit *further* from the differentiated phase data
+    than the dashed curve does, and this test would fail.
+    """
+    tag, mode = "fast", "flexural"
+    phase_ref = _claro_reference(tag, mode, "phase")
+    group_ref = _claro_reference(tag, mode, "group")
+
+    # Smooth the pixel-quantised phase trace before differentiating it;
+    # without this the quantisation noise dominates the derivative.
+    window = 15
+    padded = np.pad(phase_ref[:, 1], window // 2, mode="edge")
+    smoothed = np.convolve(padded, np.ones(window) / window, "valid")
+    omega = 2.0 * np.pi * phase_ref[:, 0]
+    implied = np.gradient(omega * smoothed, omega)
+
+    limb = (group_ref[:, 0] >= 3000.0) & (group_ref[:, 0] <= 5000.0)
+    assert limb.sum() > 20, limb.sum()
+    at = group_ref[limb, 0]
+    dashed = group_ref[limb, 1]
+    differentiated = np.interp(at, phase_ref[:, 0], implied)
+    freq, _, group = _claro_curves(tag, mode)
+    ours = np.interp(at, freq, group)
+
+    def rms(a: np.ndarray, b: np.ndarray) -> float:
+        return float(np.sqrt(np.mean(((a - b) / b) ** 2)))
+
+    ours_vs_differentiated = rms(ours, differentiated)
+    dashed_vs_differentiated = rms(dashed, differentiated)
+    assert ours_vs_differentiated < dashed_vs_differentiated, (
+        ours_vs_differentiated,
+        dashed_vs_differentiated,
+    )
+    # And the figure really is inconsistent with itself here, rather
+    # than all three agreeing and the ordering being noise.
+    assert dashed_vs_differentiated > 0.02, dashed_vs_differentiated
+
+
+@pytest.mark.parametrize("tag", ["fast", "slow"])
+def test_the_fig37_stoneley_limit_matches_biots_closed_form(tag: str) -> None:
+    """A falsifiable anchor the thesis supplies itself.
+
+    Its eq 3.2.2 gives the low-frequency Stoneley limit in closed form,
+    ``v/v_f = 1 / sqrt(1 + rho_f v_f^2 / (rho v_s^2))``, with no
+    reference to the figure. Both the digitised curve and fwap have to
+    land on it, and neither was fitted to the other.
+    """
+    stack = _CLARO_STACK[tag]
+    predicted = stack["vf"] / np.sqrt(
+        1.0 + stack["rho_f"] * stack["vf"] ** 2 / (stack["rho"] * stack["vs"] ** 2)
+    )
+    reference = _claro_reference(tag, "stoneley", "phase")
+    freq, phase, _ = _claro_curves(tag, "stoneley")
+
+    assert reference[0, 0] < 250.0, reference[0, 0]
+    digitised = 1.0 / reference[0, 1]
+    assert abs(digitised - predicted) / predicted < 0.003, (digitised, predicted)
+    assert abs(1.0 / phase[0] - predicted) / predicted < 0.002
+
+
+@pytest.mark.parametrize(
+    ("tag", "mode", "peak"),
+    [
+        ("fast", "flexural", 247.2),
+        ("fast", "quadrupole", 244.0),
+        ("slow", "flexural", 191.9),
+        ("slow", "quadrupole", 192.6),
+    ],
+)
+def test_the_fig37_airy_phase_peaks_match(tag: str, mode: str, peak: float) -> None:
+    """The Airy phase, which is the feature the thesis names.
+
+    Its height is what a group-slowness curve is read for -- it sets the
+    amplitude maximum of the recorded waveform -- and it is an interior
+    maximum, so it cannot be reproduced by getting the endpoints right.
+    The peak *frequency* is deliberately not asserted tightly: these
+    maxima are broad and flat, so their location is the poorly
+    determined half of the measurement.
+
+    The ``peak`` values are **read off the shipped curve, not quoted
+    from the thesis** -- it states no numbers for these maxima. They are
+    written out so that a silent change to the CSV shows up as a failure
+    here rather than being absorbed, and the first assertion below is
+    what keeps the two in step.
+    """
+    reference = _claro_reference(tag, mode, "group")
+    assert abs(reference[:, 1].max() * _CLARO_K - peak) < 0.2, peak
+
+    freq, _, group = _claro_curves(tag, mode, n=800)
+    top = int(np.argmax(group))
+    assert 0 < top < len(freq) - 1, top
+    height = group[top] * _CLARO_K
+    assert abs(height - peak) / peak < 0.01, (height, peak)
+
+    published = int(np.argmax(reference[:, 1]))
+    assert abs(freq[top] - reference[published, 0]) < 700.0
+
+
+def test_the_fast_formation_window_stops_at_the_fluid_slowness() -> None:
+    """What fig 3.7 shows that fwap cannot reach, stated in its units.
+
+    ``_flexural_dispersion_fast_formation`` searches phase velocity in
+    ``(V_f, V_S)``: below ``V_f`` the fluid field stops being
+    oscillatory in ``r`` and the branch flags it sets no longer
+    describe it. Its docstring already says so. Fig 3.7(a) is the first
+    reference in the package that *plots* the part beyond that edge --
+    both dipole and quadrupole run on past the fluid slowness toward
+    Scholte, ending near 213 us/ft against a 203 us/ft fluid.
+
+    This test pins the edge so that closing it registers as a change
+    rather than passing unnoticed. The two modes are given separate
+    numbers rather than one shared pair: by 20 kHz the dipole has run
+    4.8 % past the fluid slowness and the quadrupole only 2.1 %, since
+    the quadrupole starts dispersing later and has not reached Scholte
+    by the end of the band.
+    """
+    fluid_slowness = 1.0 / _CLARO_FAST["vf"]
+    for mode, n_beyond, reach in (("flexural", 200, 1.045), ("quadrupole", 60, 1.02)):
+        freq, phase, _ = _claro_curves("fast", mode)
+        assert phase.max() < fluid_slowness
+        assert phase.max() > fluid_slowness * 0.999, mode
+
+        # The published curve really does keep going, by a wide margin.
+        reference = _claro_reference("fast", mode, "phase")
+        beyond = reference[:, 1] > fluid_slowness
+        assert beyond.sum() > n_beyond, (mode, beyond.sum())
+        assert reference[:, 1].max() > fluid_slowness * reach, mode
+
+    # The slow panel has no such edge: there V_f is faster than V_S, so
+    # the whole branch is bound and fwap covers the figure to 20 kHz.
+    for mode in ("flexural", "quadrupole"):
+        freq, _, _ = _claro_curves("slow", mode)
+        assert freq.max() > 19900.0, mode

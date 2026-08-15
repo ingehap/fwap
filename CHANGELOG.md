@@ -7,6 +7,58 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Twelve reference curves from Claro (2020) fig 3.7** — the package's
+  first **group-slowness** validation set, and its first **finite-element**
+  reference. The validation set goes 34 → 46 curves. No API change.
+
+  Every external tie so far scored a *phase* slowness, with one
+  exception (Sinha fig 11(b), a single curve). Fig 3.7 plots Stoneley,
+  flexural and quadrupole over 200 Hz – 20 kHz for one formation and two
+  fluids, phase solid and **group dashed**, so it adds six group ties and
+  six phase ties at once. It is also FEM-with-a-PML rather than another
+  modal determinant, so a shared root-finding assumption cannot hide in
+  the agreement.
+
+  Scores: phase 0.02–0.28 % RMS across all six; group 0.08 %, 0.10 %,
+  0.22 %, 0.50 %, 0.85 % and 2.40 %.
+
+  **The budgets are per curve, and the reason is measured.** A single
+  loose budget is unsafe for a group slowness, because a group curve
+  tends to sit near its own phase curve — both Stoneley group curves are
+  within 1.8 % and 2.2 % of theirs, so at 3 % a solver that returned the
+  phase slowness and never differentiated anything would have passed.
+  Each row is now granted a budget set from what was measured, and each
+  asserts that the undifferentiated phase curve *fails* that budget.
+
+  The loosest, the fast flexural at 2.40 %, is loose in the reading and
+  not the solver, and it takes three curves to show that rather than
+  two. Over the Airy limb there are the figure's dashed group curve, the
+  figure's own solid phase curve differentiated, and fwap's group curve.
+  Against the differentiated phase data, fwap sits at **1.24 %** and the
+  figure's own dashed curve at **2.51 %** — so the dashed rendering is
+  the least reliable of the three there, being near-vertical where the
+  dash pattern and the one-slowness-per-column reading degrade together.
+  That ordering is asserted as a test, and it fails if fwap is the curve
+  that drifts.
+
+  Two anchors were checked before anything was scored, both supplied by
+  the thesis rather than by the figure: its eq 3.2.2 closed form for the
+  low-frequency Stoneley limit predicts 226.5 and 171.1 µs/ft against
+  fwap's 226.5 and 171.3, and the dipole/quadrupole plateau must be the
+  formation shear slowness 152.40 µs/ft, which the quadrupole traces read
+  as 152.38 and 152.48.
+
+  Also recorded, in the figure's own units for the first time: in a fast
+  formation `flexural_dispersion` and `quadrupole_dispersion` stop at the
+  fluid slowness, because `_flexural_dispersion_fast_formation` searches
+  phase velocity in `(V_f, V_S)` — below `V_f` the fluid field stops
+  being oscillatory in `r`. Its docstring already said so; fig 3.7(a) is
+  the first reference here that *plots* the far side, where both branches
+  descend past the 203 µs/ft fluid slowness toward Scholte — the dipole
+  reaching 212.8 µs/ft by 20 kHz and the quadrupole, which starts
+  dispersing later, only 207.2. A test pins the edge so that closing it
+  registers as a change. The slow panel has no such edge and is covered
+  to 20 kHz.
 - **The ceiling dead band is withdrawn**, and its justification turned
   out to have expired the same way `_LEAKY_CASED_SEED_FLOOR`'s did.
   Schmitt & Cheng's cased branch reaches 13.00 kHz instead of 13.25;

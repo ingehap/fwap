@@ -6,7 +6,7 @@ live in this directory.
 
 ## Status
 
-**Thirty-four curves are shipped, and all thirty-four pass.**
+**Forty-six curves are shipped, and all forty-six pass.**
 
 | File | Solver | Score |
 |------|--------|-------|
@@ -44,6 +44,74 @@ live in this directory.
 | `schmitt_cheng_1987_fig21b_screw_cased_cement2_3cm.csv` | `quadrupole_dispersion_layered` | **0.26 %** RMS, 92/94 pts |
 | `yang_lv_2022_fig2a_flexural_cased_hard.csv` | `flexural_dispersion_layered` | **0.38 %** RMS, 71/105 pts |
 | `yang_lv_2022_fig2b_flexural_cased_soft.csv` | `flexural_dispersion_layered` (**slow formation**) | **0.017 %** RMS, 12/12 pts |
+| `claro_2020_fig37a_stoneley_phase_fast.csv` | `stoneley_dispersion` | **0.09 %** RMS, 388/388 pts |
+| `claro_2020_fig37a_stoneley_group_fast.csv` | `stoneley_dispersion` (**group slowness**) | **0.08 %** RMS, 179/179 pts |
+| `claro_2020_fig37a_flexural_phase_fast.csv` | `flexural_dispersion` | **0.28 %** RMS, 134/347 pts |
+| `claro_2020_fig37a_flexural_group_fast.csv` | `flexural_dispersion` (**group slowness**) | **2.40 %** RMS, 100/214 pts |
+| `claro_2020_fig37a_quadrupole_phase_fast.csv` | `quadrupole_dispersion` | **0.10 %** RMS, 214/391 pts |
+| `claro_2020_fig37a_quadrupole_group_fast.csv` | `quadrupole_dispersion` (**group slowness**) | **0.85 %** RMS, 146/198 pts |
+| `claro_2020_fig37b_stoneley_phase_slow.csv` | `stoneley_dispersion` | **0.02 %** RMS, 390/390 pts |
+| `claro_2020_fig37b_stoneley_group_slow.csv` | `stoneley_dispersion` (**group slowness**) | **0.10 %** RMS, 203/203 pts |
+| `claro_2020_fig37b_flexural_phase_slow.csv` | `flexural_dispersion` | **0.05 %** RMS, 352/352 pts |
+| `claro_2020_fig37b_flexural_group_slow.csv` | `flexural_dispersion` (**group slowness**) | **0.50 %** RMS, 224/228 pts |
+| `claro_2020_fig37b_quadrupole_phase_slow.csv` | `quadrupole_dispersion` | **0.02 %** RMS, 279/391 pts |
+| `claro_2020_fig37b_quadrupole_group_slow.csv` | `quadrupole_dispersion` (**group slowness**) | **0.22 %** RMS, 178/196 pts |
+
+**The twelve Claro rows are the package's first group-slowness set, and
+its first finite-element reference.** Everything else here is a
+modal-determinant calculation checking a modal-determinant calculation;
+fig 3.7 is FEM with a PML, so a shared root-finding assumption cannot
+hide in the agreement. The six phase rows ship *with* the six group rows
+on purpose: without them there is no way to separate a wrong group
+velocity from a correct derivative of a wrong phase velocity.
+
+Their budgets are set per curve rather than by the 5 % blanket, because
+the blanket is meaningless for two of the six group rows. The two
+Stoneley group curves sit within 1.8 % and 2.2 % of their own *phase*
+curves, so at 5 % — or even 3 % — a solver that returned the phase
+slowness and never differentiated anything would have scored a pass on
+those two. (The other four are safe at 5 %: substituting the phase curve
+costs 8.2 % to 21.3 % there. They are still given tighter budgets,
+because there is no reason to grant slack that was not needed.)
+The budgets used are 0.2 % (Stoneley), 0.5–1.5 % (quadrupole) and
+1.0–3.0 % (flexural), and `tests/test_cylindrical_solver.py` asserts for
+every row that the undifferentiated phase curve *fails* the budget that
+row is granted.
+
+The loosest of them, the fast-formation flexural at 2.40 %, is loose in
+the *reading* rather than the solver, and three curves rather than two
+are what establish that. Over the Airy limb (3–5 kHz) there are the
+figure's dashed group curve, the figure's own solid phase curve
+differentiated, and fwap's group curve. Against the differentiated phase
+data, **fwap sits at 1.24 % and the figure's own dashed curve at
+2.51 %** — so on that limb the dashed rendering is the least reliable of
+the three, being near-vertical where the dash pattern and the
+one-slowness-per-column reading degrade together. Comparing only two
+curves would have shown a disagreement without saying which one was
+wrong. This ordering is a test, and it fails if fwap is the curve that
+drifts.
+
+Two anchors were checked before any of this was scored. The thesis's
+eq 3.2.2 gives the low-frequency Stoneley limit in closed form with no
+reference to the figure: it predicts 226.5 and 171.1 µs/ft, the traces
+read 226.7 and 171.4, and fwap gives 226.5 and 171.3. The dipole and
+quadrupole plateaus must be the formation shear slowness, 152.40 µs/ft
+exactly; the quadrupole traces read 152.38 and 152.48. The dipole traces
+read about 0.5 % high there, and the reason is visible in the figure —
+the orange plateau is drawn *underneath* the yellow one, so only its
+upper fringe survives tracing. That is why the dipole phase rows score
+worse than the quadrupole ones despite being the easier mode.
+
+The fast-panel dipole and quadrupole are scored over part of their
+range only (134/347 and 214/391 points) because fwap stops at the fluid
+slowness: `_flexural_dispersion_fast_formation` searches phase velocity
+in `(V_f, V_S)`, since below `V_f` the fluid field stops being
+oscillatory in `r`. Its docstring already said so; fig 3.7(a) is the
+first reference here that *plots* the far side, where both branches
+descend past the 203 µs/ft fluid slowness toward Scholte — the dipole
+reaching 212.8 µs/ft by 20 kHz and the quadrupole, which starts
+dispersing later, only 207.2. The slow panel has no such edge and is
+covered to 20 kHz.
 
 **The twelve Sinha & Asvadurov rows are extracted, not traced**, and that is why
 they score two orders of magnitude tighter than everything else here.
@@ -428,6 +496,22 @@ Suggested filenames (matching the notebook section titles):
 | `tubman_cheng_toksoz_1984_fig4a_pseudo_rayleigh2_open.csv` | Tubman/Cheng/Toksoz 1984 fig 4a *(shipped)* | pseudo-Rayleigh 2, open |
 | `ellefsen_cheng_schmitt_1988_fig2_flexural_vti_hard.csv` | Ellefsen/Cheng/Schmitt 1988 fig 2 | elastic VTI flexural, hard |
 | `ellefsen_cheng_schmitt_1988_fig2_flexural_iso_hard.csv` | Ellefsen/Cheng/Schmitt 1988 fig 2 | equivalent isotropic, hard |
+| `claro_2020_fig37a_{stoneley,flexural,quadrupole}_{phase,group}_fast.csv` | Claro 2020 fig 3.7(a) *(shipped)* | six curves, fast formation (FEM) |
+| `claro_2020_fig37b_{stoneley,flexural,quadrupole}_{phase,group}_slow.csv` | Claro 2020 fig 3.7(b) *(shipped)* | six curves, **slow** formation (FEM) |
+
+Claro 2020 is Diego Salam Claro, *Computational analysis of dispersive
+acoustic waves in fluid-filled boreholes*, MSc dissertation, Instituto
+de Física Gleb Wataghin, UNICAMP, 2020. Its fig 3.7 draws phase slowness
+solid and **group slowness dashed**, in three colours, so the two are
+separated by connected-component column span: every dash spans at most
+about nine pixel columns even where the curve is near-vertical, while
+the solid line survives as one component of nearly the full width. A
+tolerance ball around each line colour is not enough on its own — where
+orange and yellow cross, the anti-aliased blend is within 46 of *both*
+and each mask inherits a short diagonal run of the other's curve, which
+put stray points up to 34 and 56 pixels off. Membership is therefore
+exclusive: a pixel must be nearer its own colour than any other by a
+margin.
 | `ellefsen_cheng_schmitt_1988_fig4_flexural_vti_soft.csv` | Ellefsen/Cheng/Schmitt 1988 fig 4 | elastic VTI flexural, soft |
 | `ellefsen_cheng_schmitt_1988_fig4_flexural_iso_soft.csv` | Ellefsen/Cheng/Schmitt 1988 fig 4 | equivalent isotropic, soft |
 
