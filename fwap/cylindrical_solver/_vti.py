@@ -18,6 +18,7 @@ from fwap.cylindrical_solver._n0_isotropic import (
     stoneley_dispersion,
 )
 from fwap.cylindrical_solver._n1_isotropic import (
+    _extend_below_fluid,
     _march_fast_flexural_branch,
     _real_root_function,
     flexural_dispersion,
@@ -599,6 +600,32 @@ def _flexural_dispersion_fast_formation_vti(
 
     root_fn = _real_root_function(_det, f_arr, vs=Vsv, vf=vf)
     slowness = _march_fast_flexural_branch(root_fn, f_arr, vs=Vsv, vf=vf)
+
+    # The branch descends through V_f here exactly as it does in the
+    # isotropic and layered drivers, and below it the fluid Bessels are
+    # non-oscillatory again, so the *real* VTI determinant applies --
+    # which is precisely the regime it documents itself as valid in.
+    # Without this the VTI driver stopped at the crossing: on a
+    # 3800/3658/2032/2100 shale it returned NaN from 11 kHz up while its
+    # own determinant had a root at 1489 m/s descending smoothly from
+    # the 1504 m/s it had just reported at 10 kHz.
+    def _real_det(kz: float, _omega: float) -> float:
+        return _modal_determinant_n1_vti(
+            kz,
+            _omega,
+            c11=c11,
+            c13=c13,
+            c33=c33,
+            c44=c44,
+            c66=c66,
+            rho=rho,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
+        )
+
+    slowness = _extend_below_fluid(_real_det, f_arr, slowness, vf=vf)
+
     return BoreholeMode(
         name="flexural",
         azimuthal_order=1,

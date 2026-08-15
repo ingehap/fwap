@@ -25971,3 +25971,194 @@ def test_the_layered_drivers_follow_the_branch_below_the_fluid_velocity():
             omega = 2.0 * np.pi * f
             depth = _sinha_root_depth(n, omega * mode.slowness[i], omega, medium)
             assert depth > 8.0, (n, f, depth)
+
+
+def _iso_stiffness_from(medium):
+    """The five VTI constants for an isotropic medium."""
+    c44 = medium["rho"] * medium["vs"] ** 2
+    c11 = medium["rho"] * medium["vp"] ** 2
+    return dict(
+        c11=c11,
+        c13=c11 - 2.0 * c44,
+        c33=c11,
+        c44=c44,
+        c66=c44,
+        rho=medium["rho"],
+        vf=medium["vf"],
+        rho_f=medium["rho_f"],
+        a=medium["a"],
+    )
+
+
+def _depth_of(fn, kz, omega, offsets):
+    """Decades ``|fn|`` drops at ``kz`` relative to the given offsets.
+
+    Takes the offsets explicitly because the VTI determinants are NaN
+    by contract outside their regime: probing symmetrically across
+    ``V_f`` reads as a failure when it is only the neighbourhood
+    leaving the region where the function is defined.
+    """
+    here = abs(fn(kz, omega))
+    around = np.median([abs(fn(kz * g, omega)) for g in offsets])
+    if not np.isfinite(here) or here <= 0.0 or not np.isfinite(around):
+        return float("nan")
+    return float(np.log10(around / here))
+
+
+def test_the_vti_determinants_reduce_to_the_published_isotropic_matrix():
+    """VTI algebra at isotropic constants, against Sinha's 4x4.
+
+    Nothing else checks this, and the public API cannot: both
+    ``stoneley_dispersion_vti`` and ``flexural_dispersion_vti``
+    dispatch to the isotropic solvers when ``_is_isotropic_stiffness``
+    holds, so the VTI determinants are never *exercised* in the one
+    limit where an independent answer exists. Called directly they are,
+    and the published matrix vanishes wherever they do.
+
+    The two *depths* are not asserted equal. Sinha's formulation has its
+    own potential basis and row scaling, so the determinants differ by a
+    smooth non-vanishing factor and their curvature at the root differs
+    with it -- observed here between 0.0 and 1.2 decades apart. The
+    shared root is the claim; equal depth would be a coincidence of
+    normalisation.
+
+    Three regimes, because the two determinants carry different
+    validity windows: n=0 across the band, n=1 on a slow formation, and
+    n=1 sub-fluid on a fast one where the real determinant is defined.
+    """
+    fast, slow = (
+        _LQ_SINHA,
+        dict(vp=2751.0, vs=1201.0, rho=2100.0, vf=1500.0, rho_f=1000.0, a=0.1016),
+    )
+    two_sided = (0.97, 0.98, 1.02, 1.03)
+    sub_fluid = (1.02, 1.03, 1.05, 1.07)  # k_z up is c down: stays below V_f
+
+    cases = (
+        (
+            "n=0",
+            0,
+            _modal_determinant_n0_vti,
+            stoneley_dispersion,
+            fast,
+            np.arange(3000.0, 13000.0, 1500.0),
+            two_sided,
+        ),
+        (
+            "n=1 slow",
+            1,
+            _modal_determinant_n1_vti,
+            flexural_dispersion,
+            slow,
+            np.arange(3000.0, 13000.0, 1500.0),
+            two_sided,
+        ),
+        (
+            "n=1 sub-fluid",
+            1,
+            _modal_determinant_n1_vti,
+            flexural_dispersion,
+            fast,
+            np.arange(10500.0, 13000.0, 500.0),
+            sub_fluid,
+        ),
+    )
+    for label, n, vti_det, solver, medium, freq, offsets in cases:
+        stiffness = _iso_stiffness_from(medium)
+        mode = solver(freq, **medium)
+        checked = 0
+        for i, f in enumerate(freq):
+            if not np.isfinite(mode.slowness[i]):
+                continue
+            omega = 2.0 * np.pi * f
+            kz = omega * mode.slowness[i]
+            published = _depth_of(
+                lambda k, w: _sinha_appendix_determinant(n, k, w, **medium),
+                kz,
+                omega,
+                offsets,
+            )
+            vti = _depth_of(lambda k, w: vti_det(k, w, **stiffness), kz, omega, offsets)
+            assert published > 8.0, (label, f, published)
+            assert vti > 8.0, (label, f, vti)
+            checked += 1
+        assert checked >= 4, (label, checked)
+
+
+def test_the_vti_driver_follows_the_branch_below_the_fluid_velocity():
+    """``flexural_dispersion_vti`` crosses ``V_f`` like every other
+    fast-formation driver.
+
+    Third instance of one omission. ``_extend_below_fluid`` was written
+    for the unlayered isotropic drivers, reached neither layered one
+    (fixed in #131) and did not reach the VTI one either, so on
+    Thomsen's Green River shale the solver returned ``NaN`` from about
+    7.7 kHz up -- while its own real determinant, which documents
+    itself as valid exactly there, had the root.
+
+    Asserted as continuity rather than against stored numbers: the
+    fundamental crosses ``V_f`` once and keeps descending, so a branch
+    that is smooth through the crossing is the statement worth
+    holding.
+
+    One sample may still be ``NaN``, the one whose root sits inside the
+    epsilon of ``V_f`` that neither the above-``V_f`` search nor the
+    sub-fluid one brackets. That is not a VTI defect and this fix does
+    not claim to remove it: the isotropic driver drops exactly one
+    sample at its own crossing too, and
+    ``test_the_isotropic_and_vti_drivers_drop_the_same_single_sample``
+    pins the two together rather than leaving it implied.
+    """
+    stiffness = _green_river_shale_stiffness()
+    kwargs = dict(**stiffness, vf=1500.0, rho_f=1000.0, a=0.10)
+    freq = np.arange(6000.0, 13500.0, 250.0)
+    c = 1.0 / flexural_dispersion_vti(freq, **kwargs).slowness
+
+    missing = ~np.isfinite(c)
+    assert missing.sum() <= 1, c
+    if missing.any():
+        # ... and if one is missing it is the crossing, not a gap in
+        # the sub-fluid leg.
+        # One grid step is about 14 m/s in c here, so "at the
+        # crossing" is a step, not a hair.
+        assert abs(c[np.flatnonzero(missing)[0] - 1] - 1500.0) < 20.0, c
+    good = c[~missing]
+    # It really does cross, so the test is about the crossing.
+    assert good[0] > 1500.0 and good[-1] < 1500.0
+    assert (good < 1500.0).sum() >= 15, good
+    # Monotone descent, and no step anywhere near the crossing.
+    assert np.all(np.diff(good) < 0.0)
+    assert np.max(np.abs(np.diff(good)) / good[:-1]) < 0.02
+
+    # The recovered roots are roots of the VTI determinant itself.
+    for i in np.flatnonzero((~missing) & (c < 1500.0))[:6]:
+        omega = 2.0 * np.pi * freq[i]
+        depth = _depth_of(
+            lambda k, w: _modal_determinant_n1_vti(k, w, **kwargs),
+            omega / c[i],
+            omega,
+            (1.02, 1.03, 1.05, 1.07),
+        )
+        assert depth > 8.0, (freq[i], depth)
+
+
+def test_the_isotropic_and_vti_drivers_drop_the_same_single_sample():
+    """The one gap at the ``V_f`` crossing is shared, and pre-dates VTI.
+
+    Both fast-formation drivers lose exactly the frequency whose root
+    lands within the epsilon of ``V_f``: the marcher searches strictly
+    above it and :func:`_extend_below_fluid` strictly below, so a root
+    sitting on the line is bracketed by neither. Recorded rather than
+    papered over -- it is one sample in thirty on either side, and
+    closing it means widening a bracket across the regime boundary,
+    which is a change to the isotropic driver, not a VTI question.
+    """
+    medium = _LQ_SINHA
+    freq = np.arange(9400.0, 10200.0, 25.0)
+    c = 1.0 / flexural_dispersion(freq, **medium).slowness
+    missing = ~np.isfinite(c)
+    assert missing.sum() == 1, c
+    # It is at the crossing, and it is the only one.
+    assert abs(c[np.flatnonzero(missing)[0] - 1] - 1500.0) < 2.0, c
+    good = c[~missing]
+    assert good[0] > 1500.0 and good[-1] < 1500.0
+    assert np.all(np.diff(good) < 0.0)
