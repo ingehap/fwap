@@ -6,6 +6,50 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **`leaky_quadrupole_dispersion`** — the radiating n=2 branch below the
+  trapped screw mode's cut-off. New public name (189 total); validation
+  set 46 → 48.
+
+  #125 established that the trapped quadrupole has a genuine cut-off and
+  that what lies below it radiates, with phase velocity *above* `V_S`;
+  #126 confirmed from the source that Sinha & Asvadurov fig 10's m = 1
+  curve is exactly that branch. This turns the finding into a solver.
+  Above `V_S` the shear radial wavenumber
+  `s² = k_z² − (ω/V_S)²` turns negative, the outgoing Hankel form
+  replaces the decaying `K`-Bessel one, and `k_z` goes complex — the
+  n=2 sister of the n=0 pseudo-Rayleigh regime, and the `s`-leaky row
+  the module's own regime table was missing.
+
+  **Scored three ways against fig 10, which plots this one mode three
+  times:** phase 0.58 % RMS over the 34 sub-cut-off points of panel (a),
+  group slowness 2.27 % against panel (b), radiation attenuation 1.46 %
+  against panel (c). Panel (c) is the one that matters — a phase curve
+  cannot see `Im(k_z)` at all, so a solver could get the radiation
+  entirely wrong and still score well on panel (a). Two new CSVs ship
+  for panels (b) and (c); panel (a) was already here, with those 34
+  points simply out of the trapped solver's reach.
+
+  Fig 10(a) is now scored by **two** solvers over disjoint parts of one
+  curve — 223 trapped points and 34 leaky. They never both claim a
+  frequency and the handover is one grid step wide, both asserted.
+
+  Three things were measured rather than assumed. The search ceiling is
+  `1.10 V_S`, against a branch that peaks at 1.009–1.011 `V_S` across
+  six media. The `V_f` branch point is excluded by name, because in a
+  *slow* formation `V_f` lies above `V_S` and inside the window, and the
+  search otherwise converges onto it and reports it as a mode. And the
+  seeds carry a **positive** imaginary part, because that is where these
+  roots are — seeded negative the solver walks off and the branch looks
+  absent on media where it is plainly present.
+
+  The residual is not uniform, and the docstring says so: the
+  attenuation agrees across the band while the phase drifts only at the
+  far low-frequency end, where fwap peaks at 1.009 `V_S` against the
+  figure's 1.019. Since `Im(k_z)` agrees to about 2 % at those same
+  frequencies, that is not a wrong-branch error, and it is recorded
+  rather than tuned away.
+
 ### Investigated
 - **The quadrupole's low-frequency plateau is not a coverage gap**, and
   closing it the obvious way would manufacture an artefact. No code

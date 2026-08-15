@@ -6,7 +6,7 @@ live in this directory.
 
 ## Status
 
-**Forty-six curves are shipped, and all forty-six pass.**
+**Forty-eight curves are shipped, and all forty-eight pass.**
 
 | File | Solver | Score |
 |------|--------|-------|
@@ -23,6 +23,9 @@ live in this directory.
 | `tubman_cheng_toksoz_1984_fig4b_pseudo_rayleigh1_cased.csv` | `trapped_pseudo_rayleigh_dispersion_layered` (branch 0) | **3.12 %** RMS, 39/39 pts |
 | `tubman_cheng_toksoz_1984_fig4b_pseudo_rayleigh2_cased.csv` | `trapped_pseudo_rayleigh_dispersion_layered` (branch 1) | **3.84 %** RMS, 24/26 pts |
 | `sinha_asvadurov_2004_fig10a_quadrupole_fast.csv` | `quadrupole_dispersion` | **0.01 %** RMS, 223/257 pts |
+| `sinha_asvadurov_2004_fig10a_quadrupole_fast.csv` (sub-cut-off) | `leaky_quadrupole_dispersion` | **0.58 %** RMS, 34/257 pts |
+| `sinha_asvadurov_2004_fig10b_quadrupole_group_fast.csv` | `leaky_quadrupole_dispersion` (**group slowness**) | **2.27 %** RMS, 16/224 pts |
+| `sinha_asvadurov_2004_fig10c_quadrupole_attenuation_fast.csv` | `leaky_quadrupole_dispersion` (**attenuation**) | **1.46 %** RMS, 29/29 pts |
 | `sinha_asvadurov_2004_fig19a_quadrupole_slow.csv` | `quadrupole_dispersion` | **0.01 %** RMS, 267/299 pts |
 | `sinha_asvadurov_2004_fig2a_stoneley_fast.csv` | `stoneley_dispersion` | **0.01 %** RMS, 245/245 pts |
 | `sinha_asvadurov_2004_fig2a_pseudo_rayleigh_fast.csv` | `trapped_pseudo_rayleigh_dispersion` (branch 0) | **0.01 %** RMS, 161/162 pts |
@@ -192,10 +195,25 @@ figure reaches 1.019. That is a narrower and better-behaved discrepancy
 than "the leaky branch disagrees", which is what the phase curve on its
 own suggested.
 
-Turning the leaky branch into a public dispersion function would still
-be a new leaky regime and a new public name, which `CONTRIBUTING.md`
-asks to raise as an issue first. It now has three curves to be scored
-against rather than one.
+**That solver now exists.** `leaky_quadrupole_dispersion` tracks the
+radiating branch, and fig 10 scores it three ways — phase 0.58 % RMS
+over the 34 sub-cut-off points of panel (a), group slowness 2.27 %
+against panel (b), attenuation 1.46 % against panel (c). Panel (c) is
+the one that matters: a phase-slowness curve cannot see `Im(k_z)` at
+all, so a solver could get the radiation completely wrong and still
+score well on panel (a).
+
+Note that fig 10(a) is now scored by **two** solvers over disjoint
+parts of one curve — `quadrupole_dispersion` for the 223 trapped points
+and `leaky_quadrupole_dispersion` for the 34 below the cut-off. The two
+never both claim a frequency, and the handover is one grid step wide;
+`tests/test_cylindrical_solver.py` asserts both.
+
+The attenuation floor is 0.2 dB/m — 1 % of that panel's 0–20 axis, and
+about four times its digitising resolution. Below it the reference is a
+couple of pixel rows off zero and a *relative* budget stops meaning
+anything, the same reasoning as the fig 11(c) floor at a level set by
+this panel's own scale.
 
 **The twelve Sinha & Asvadurov rows are extracted, not traced**, and that is why
 they score two orders of magnitude tighter than everything else here.

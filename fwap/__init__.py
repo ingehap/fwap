@@ -302,6 +302,7 @@ from fwap.cylindrical_solver import (
 )
 from fwap.cylindrical_solver import (
     leaky_compressional_dispersion,
+    leaky_quadrupole_dispersion,
     pseudo_rayleigh_dispersion as pseudo_rayleigh_modal_dispersion,
     trapped_pseudo_rayleigh_dispersion,
     trapped_pseudo_rayleigh_dispersion_layered,
@@ -489,6 +490,7 @@ __all__ = [
     "flexural_dispersion_vti",
     "pseudo_rayleigh_modal_dispersion",
     "leaky_compressional_dispersion",
+    "leaky_quadrupole_dispersion",
     "trapped_pseudo_rayleigh_dispersion",
     "trapped_pseudo_rayleigh_dispersion_layered",
     "quadrupole_dispersion",

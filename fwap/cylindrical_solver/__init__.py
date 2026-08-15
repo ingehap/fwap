@@ -262,6 +262,9 @@ from fwap.cylindrical_solver._leaky import (
     leaky_compressional_dispersion as leaky_compressional_dispersion,
 )
 from fwap.cylindrical_solver._leaky import (
+    leaky_quadrupole_dispersion as leaky_quadrupole_dispersion,
+)
+from fwap.cylindrical_solver._leaky import (
     pseudo_rayleigh_dispersion as pseudo_rayleigh_dispersion,
 )
 from fwap.cylindrical_solver._leaky import (

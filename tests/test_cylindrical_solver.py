@@ -25150,3 +25150,171 @@ def test_below_the_cut_off_the_quadrupole_is_leaky_and_above_v_s(name: str) -> N
     # Genuinely radiating, and less so as the cut-off is approached.
     assert np.all(losses > 0.0), (name, losses)
     assert losses[0] > losses[-1], (name, losses)
+
+
+# ----------------------------------------------------------------------
+# The leaky quadrupole (n = 2, shear branch radiating)
+#
+# #125 established that the trapped quadrupole has a genuine cut-off,
+# and that what lies below it is a radiating branch with phase velocity
+# ABOVE V_S. #126 confirmed from the source that Sinha & Asvadurov
+# fig 10's m = 1 curve is exactly that branch. This block scores the
+# solver against all three panels of that figure -- phase 10(a), group
+# 10(b), attenuation 10(c) -- which is what makes the tie meaningful:
+# the attenuation checks Im(k_z), and no phase curve can see that.
+# ----------------------------------------------------------------------
+
+_LQ_SINHA = dict(vp=3658.0, vs=2032.0, rho=2350.0, vf=1500.0, rho_f=1000.0, a=0.1016)
+
+
+def _lq_curves(medium: dict, freq: np.ndarray):
+    """Return ``(freq, phase, group, dB/m)`` over the live band."""
+    from fwap import leaky_quadrupole_dispersion
+
+    mode = leaky_quadrupole_dispersion(freq, **medium)
+    live = np.isfinite(mode.slowness)
+    f_live = freq[live]
+    phase = mode.slowness[live]
+    omega = 2.0 * np.pi * f_live
+    group = np.gradient(omega * phase, omega)
+    # Sinha's dB convention, recovered from figs 11(c)/2(c): a
+    # 10*log10 per metre of energy transport, not 20*log10 per metre
+    # of phase advance.
+    decibels = 8.686 * mode.attenuation_per_meter[live] * (phase / group) / 2.0
+    return f_live, phase, group, decibels
+
+
+def _lq_score(x: np.ndarray, y: np.ndarray, f: np.ndarray, curve: np.ndarray):
+    keep = (x >= f.min()) & (x <= f.max())
+    got = np.interp(x[keep], f, curve)
+    residual = (got - y[keep]) / y[keep]
+    return (
+        int(keep.sum()),
+        float(np.sqrt(np.mean(residual**2))),
+        float(np.max(np.abs(residual))),
+    )
+
+
+def test_leaky_quadrupole_matches_sinha_fig10a_phase() -> None:
+    """The 34 sub-cut-off points of the curve already shipped.
+
+    They are the same CSV `quadrupole_dispersion` is scored against
+    above; those 34 were simply out of its reach, because the trapped
+    search stops at ``V_S`` and this part of the branch is past it.
+    """
+    data = Path(__file__).resolve().parents[1] / "docs" / "notebooks" / "_data"
+    reference = np.loadtxt(
+        data / "sinha_asvadurov_2004_fig10a_quadrupole_fast.csv", delimiter=","
+    )
+    freq = np.arange(3100.0, 5460.0, 20.0)
+    f_live, phase, _, _ = _lq_curves(_LQ_SINHA, freq)
+    n, rms, worst = _lq_score(reference[:, 0], reference[:, 1], f_live, phase)
+    assert n >= 30, n
+    assert rms < 0.01, rms
+    assert worst < 0.02, worst
+
+
+def test_leaky_quadrupole_matches_sinha_fig10c_attenuation() -> None:
+    """The tie that matters: ``Im(k_z)``, which no phase curve sees.
+
+    The floor is 0.2 dB/m, which is 1 % of that panel's 0-20 axis and
+    about four times its digitising resolution. Below it the reference
+    is a couple of pixel rows off zero and a *relative* budget stops
+    meaning anything -- the same reasoning as the fig 11(c) floor, at a
+    level set by this panel's own scale.
+    """
+    data = Path(__file__).resolve().parents[1] / "docs" / "notebooks" / "_data"
+    reference = np.loadtxt(
+        data / "sinha_asvadurov_2004_fig10c_quadrupole_attenuation_fast.csv",
+        delimiter=",",
+    )
+    keep = reference[:, 1] > 0.2
+    freq = np.arange(3100.0, 5460.0, 20.0)
+    f_live, _, _, decibels = _lq_curves(_LQ_SINHA, freq)
+    n, rms, worst = _lq_score(reference[keep, 0], reference[keep, 1], f_live, decibels)
+    assert n >= 25, n
+    assert rms < 0.03, rms
+    assert worst < 0.06, worst
+
+
+def test_leaky_quadrupole_matches_sinha_fig10b_group() -> None:
+    """And the group slowness, over the part below the cut-off.
+
+    Fig 10(b)'s m = 1 curve starts at 4.50 kHz, so only its bottom
+    stretch overlaps the radiating band -- but that stretch is
+    independent of both other panels.
+    """
+    data = Path(__file__).resolve().parents[1] / "docs" / "notebooks" / "_data"
+    reference = np.loadtxt(
+        data / "sinha_asvadurov_2004_fig10b_quadrupole_group_fast.csv", delimiter=","
+    )
+    freq = np.arange(3100.0, 5460.0, 20.0)
+    f_live, _, group, _ = _lq_curves(_LQ_SINHA, freq)
+    n, rms, worst = _lq_score(reference[:, 0], reference[:, 1], f_live, group)
+    assert n >= 10, n
+    assert rms < 0.04, rms
+    assert worst < 0.06, worst
+
+
+def test_the_leaky_quadrupole_is_above_v_s_and_radiating() -> None:
+    """The two properties that make it the radiating branch at all.
+
+    Phase velocity above ``V_S`` is what turns the shear radial
+    wavenumber imaginary; a positive ``Im(k_z)`` is the outgoing wave
+    carrying energy away. Either one alone would be satisfied by
+    something else.
+    """
+    freq = np.arange(3100.0, 5460.0, 40.0)
+    f_live, phase, _, _ = _lq_curves(_LQ_SINHA, freq)
+    from fwap import leaky_quadrupole_dispersion
+
+    mode = leaky_quadrupole_dispersion(freq, **_LQ_SINHA)
+    live = np.isfinite(mode.slowness)
+
+    velocity = 1.0 / phase
+    assert np.all(velocity > _LQ_SINHA["vs"]), velocity.min()
+    assert velocity.max() < _LQ_SINHA["vs"] * 1.02, velocity.max()
+    assert np.all(mode.attenuation_per_meter[live] > 0.0)
+    # It radiates harder the further below the cut-off it goes.
+    order = np.argsort(f_live)
+    loss = mode.attenuation_per_meter[live][order]
+    assert loss[0] > 5.0 * loss[-1], (loss[0], loss[-1])
+
+
+def test_the_leaky_quadrupole_hands_over_to_the_trapped_one() -> None:
+    """The two solvers meet at ``V_S`` and do not overlap.
+
+    ``quadrupole_dispersion`` covers ``c < V_S`` and this covers
+    ``c > V_S``, so between them they should cover the branch once --
+    not twice, and not with a gap wider than the crossing itself.
+    """
+    from fwap import leaky_quadrupole_dispersion, quadrupole_dispersion
+
+    freq = np.arange(3000.0, 9000.0, 50.0)
+    trapped = quadrupole_dispersion(freq, **_LQ_SINHA).slowness
+    leaky = leaky_quadrupole_dispersion(freq, **_LQ_SINHA).slowness
+    both = np.isfinite(trapped) & np.isfinite(leaky)
+    assert both.sum() == 0, freq[both]
+
+    live = np.isfinite(trapped) | np.isfinite(leaky)
+    assert live.sum() > 80, live.sum()
+    # The handover is one grid step wide, not a band.
+    edge_leaky = freq[np.isfinite(leaky)].max()
+    edge_trapped = freq[np.isfinite(trapped)].min()
+    assert 0.0 < edge_trapped - edge_leaky < 200.0, (edge_leaky, edge_trapped)
+
+
+def test_leaky_quadrupole_rejects_bad_input() -> None:
+    """Same guards as its trapped sister."""
+    from fwap import leaky_quadrupole_dispersion
+
+    good = dict(_LQ_SINHA)
+    with pytest.raises(ValueError, match="vp > vs"):
+        leaky_quadrupole_dispersion(np.array([4.0e3]), **{**good, "vp": 1000.0})
+    with pytest.raises(ValueError, match="strictly positive"):
+        leaky_quadrupole_dispersion(np.array([0.0]), **good)
+    with pytest.raises(ValueError, match="a must be positive"):
+        leaky_quadrupole_dispersion(np.array([4.0e3]), **{**good, "a": 0.0})
+    empty = leaky_quadrupole_dispersion(np.array([]), **good)
+    assert empty.slowness.size == 0
+    assert empty.azimuthal_order == 2
