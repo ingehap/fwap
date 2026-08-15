@@ -402,7 +402,6 @@ def _flexural_dispersion_fast_formation_layered(
     from fwap.cylindrical_solver._cased import _modal_determinant_n1_cased
     from fwap.cylindrical_solver._n1_isotropic import (
         _FAST_FLEXURAL_MAX_CASED_ROOTS,
-        _extend_below_fluid,
         _march_fast_flexural_branch,
         _real_root_function,
     )
@@ -410,15 +409,6 @@ def _flexural_dispersion_fast_formation_layered(
     # Roadmap A.7: which part of the determinant carries the signal is
     # measured, not assumed. It is Im at n=1 and Re at n=2, and the
     # n=2 path tracked the wrong one for as long as it existed.
-    root_fn = _real_root_function(_det, f_arr, vs=vs, vf=vf)
-    slowness = _march_fast_flexural_branch(
-        root_fn,
-        f_arr,
-        vs=vs,
-        vf=vf,
-        exclude=tuple(layer.vs for layer in layers),
-        max_roots=_FAST_FLEXURAL_MAX_CASED_ROOTS,
-    )
 
     # The branch descends through V_f exactly as it does without a
     # layer stack, and below it all three radial wavenumbers are real
@@ -439,7 +429,16 @@ def _flexural_dispersion_fast_formation_layered(
             layers=layers,
         )
 
-    slowness = _extend_below_fluid(_real_det, f_arr, slowness, vf=vf)
+    root_fn = _real_root_function(_det, f_arr, vs=vs, vf=vf)
+    slowness = _march_fast_flexural_branch(
+        root_fn,
+        f_arr,
+        vs=vs,
+        vf=vf,
+        real_det=_real_det,
+        exclude=tuple(layer.vs for layer in layers),
+        max_roots=_FAST_FLEXURAL_MAX_CASED_ROOTS,
+    )
 
     return BoreholeMode(
         name="flexural",

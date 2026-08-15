@@ -26162,3 +26162,112 @@ def test_the_isotropic_and_vti_drivers_drop_the_same_single_sample():
     good = c[~missing]
     assert good[0] > 1500.0 and good[-1] < 1500.0
     assert np.all(np.diff(good) < 0.0)
+
+
+def test_the_marcher_cannot_be_called_without_a_sub_fluid_determinant():
+    """The omission that hit three drivers is now unrepresentable.
+
+    ``_extend_below_fluid`` used to be the caller's job, one line after
+    the march. Three of the five drivers were written without it -- the
+    layered n=1 and n=2 paths and the VTI one -- each returning ``NaN``
+    over a band where its own determinant had the root, and each found
+    separately, months apart, by a different oracle.
+
+    They were not careless: nothing in the signature said the march was
+    only half the branch. It does now. ``real_det`` is keyword-only and
+    has no default, so a driver that forgets it fails at the call
+    rather than silently returning a truncated branch, and this test
+    fails if someone gives it one.
+    """
+    import inspect
+
+    from fwap.cylindrical_solver._n1_isotropic import (
+        _march_fast_flexural_branch,
+        _modal_determinant_n1,
+        _modal_determinant_n1_complex,
+    )
+
+    sig = inspect.signature(_march_fast_flexural_branch)
+    real_det = sig.parameters["real_det"]
+    assert real_det.kind is inspect.Parameter.KEYWORD_ONLY
+    assert real_det.default is inspect.Parameter.empty, (
+        "real_det must stay required: a default is exactly what let three "
+        "drivers opt out of the sub-fluid continuation without saying so"
+    )
+
+    medium = _LQ_SINHA
+    freq = np.array([9000.0, 11000.0])
+
+    def _im_det(kz, omega):
+        return _modal_determinant_n1_complex(
+            complex(kz, 0.0),
+            omega,
+            medium["vp"],
+            medium["vs"],
+            medium["rho"],
+            medium["vf"],
+            medium["rho_f"],
+            medium["a"],
+            leaky_p=False,
+            leaky_s=False,
+        ).imag
+
+    with pytest.raises(TypeError):
+        _march_fast_flexural_branch(_im_det, freq, vs=medium["vs"], vf=medium["vf"])
+
+    # And the positive half, so this is not only a test that something
+    # fails: supplied properly, the same call marches and returns roots.
+    def _real_det(kz, omega):
+        return _modal_determinant_n1(
+            kz,
+            omega,
+            medium["vp"],
+            medium["vs"],
+            medium["rho"],
+            medium["vf"],
+            medium["rho_f"],
+            medium["a"],
+        )
+
+    marched = _march_fast_flexural_branch(
+        _im_det, freq, vs=medium["vs"], vf=medium["vf"], real_det=_real_det
+    )
+    assert np.isfinite(marched).all(), marched
+    # Spelled out rather than left to the comparison: 9 kHz sits above
+    # the crossing on this formation and 11 kHz below it, so this call
+    # exercises both legs and a marcher that stopped at V_f would give
+    # NaN for the second sample.
+    assert 1.0 / marched[0] > medium["vf"] > 1.0 / marched[1]
+    np.testing.assert_allclose(
+        marched, flexural_dispersion(freq, **medium).slowness, rtol=1e-12
+    )
+
+
+def test_every_fast_formation_driver_routes_through_the_one_marcher():
+    """No driver reaches the fast-formation branch by another path.
+
+    The guard above only helps for callers that use the marcher, so
+    this pins the other half: the sub-fluid continuation is called in
+    exactly one place, inside
+    :func:`_march_fast_flexural_branch`. A driver that grew its own
+    copy would slip the requirement, and that is the shape of the
+    original bug.
+    """
+    import pathlib
+
+    root = pathlib.Path(_n1_isotropic_module().__file__).parent
+    callers = []
+    for path in sorted(root.glob("*.py")):
+        for i, line in enumerate(path.read_text().splitlines(), 1):
+            if "_extend_below_fluid(" in line and not line.lstrip().startswith(
+                ("def ", "#", '"', "*")
+            ):
+                callers.append((path.name, i, line.strip()))
+    assert len(callers) == 1, callers
+    assert callers[0][0] == "_n1_isotropic.py", callers
+
+
+def _n1_isotropic_module():
+    from fwap.cylindrical_solver import _n1_isotropic
+
+    return _n1_isotropic
