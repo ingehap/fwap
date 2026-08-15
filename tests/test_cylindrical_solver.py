@@ -467,10 +467,17 @@ def test_flexural_dispatches_to_fast_formation_path_when_vs_gt_vf():
     ``(V_f, V_S)`` window. The previous "all NaN" contract is
     deliberately broken.
 
-    The window used to be written ``(V_R, V_S)`` here. It is not:
-    ``V_R`` is not a bound of this mode, and asserting it was part of
-    what kept roadmap A.2 invisible. The mode descends past ``V_R``
-    toward Scholte, so the only floor is ``V_f``."""
+    **The floor named here has now been wrong twice.** It was first
+    written ``V_R``, which is not a bound of this mode -- asserting it
+    was part of what kept roadmap A.2 invisible. It was then corrected
+    to ``V_f`` with the note that ``V_f`` was "the only floor". It is
+    not one either: the branch descends *through* ``V_f`` toward the
+    Scholte speed, and the sub-fluid continuation follows it there. The
+    floor is the plane-interface Scholte speed, and this test now says
+    so -- checked against `scholte_speed`, not against a search bound.
+    """
+    from fwap import scholte_speed
+
     vp, vs, rho = 5500.0, 3100.0, 2500.0
     vf, rho_f, a = 1500.0, 1000.0, 0.1
     f = np.linspace(20000.0, 80000.0, 30)
@@ -478,8 +485,12 @@ def test_flexural_dispatches_to_fast_formation_path_when_vs_gt_vf():
     finite = np.isfinite(res.slowness)
     assert finite.any(), "fast-formation path must populate at least one frequency"
     velocity = 1.0 / res.slowness[finite]
-    assert (velocity > vf).all(), f"velocity must stay above V_f ({vf}); got {velocity}"
+    floor = scholte_speed(vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f)
     assert (velocity < vs).all(), f"velocity must stay below V_S ({vs}); got {velocity}"
+    assert (velocity > floor * 0.999).all(), f"below Scholte ({floor}); got {velocity}"
+    # It really does use the far side of V_f -- most of this band is
+    # there, which is what the old `velocity > vf` assertion forbade.
+    assert (velocity < vf).sum() > 20, velocity
     assert _descends(velocity), "the branch descends monotonically"
     # Bound mode -> attenuation_per_meter is None.
     assert res.attenuation_per_meter is None
@@ -2348,9 +2359,12 @@ def test_quadrupole_dispatches_to_fast_formation_path_when_vs_gt_vf():
     complex-determinant fast-formation path when ``V_S > V_f`` instead
     of returning NaN throughout.
 
-    The window is ``(V_f, V_S)``, not ``(V_R, V_S)`` -- see the n=1
-    sister test. ``V_R`` is not a bound of the screw mode either.
+    The *searched* window is ``(V_f, V_S)``, but that is a property of
+    the search and not of the mode -- see the n=1 sister test for the
+    two floors this assertion has already outlived. The screw mode
+    descends through ``V_f`` toward Scholte just as the dipole does.
     """
+    from fwap import scholte_speed
     from fwap.cylindrical_solver import quadrupole_dispersion
 
     vp, vs, rho = 5500.0, 3100.0, 2500.0
@@ -2360,8 +2374,10 @@ def test_quadrupole_dispatches_to_fast_formation_path_when_vs_gt_vf():
     finite = np.isfinite(res.slowness)
     assert finite.any(), "fast-formation path must populate at least one frequency"
     velocity = 1.0 / res.slowness[finite]
-    assert (velocity > vf).all(), f"velocity must stay above V_f; got {velocity}"
+    floor = scholte_speed(vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f)
     assert (velocity < vs).all(), f"velocity must stay below V_S ({vs}); got {velocity}"
+    assert (velocity > floor * 0.999).all(), f"below Scholte ({floor}); got {velocity}"
+    assert (velocity < vf).sum() >= 18, velocity
     assert _descends(velocity), "the branch descends monotonically"
     # Bound mode -> attenuation_per_meter is None.
     assert res.attenuation_per_meter is None
@@ -2704,13 +2720,17 @@ def test_quadrupole_fast_formation_re_det_relative_zero():
 
 
 def test_quadrupole_fast_formation_velocities_in_bound_window():
-    """All fast-formation finite outputs have phase velocity strictly
-    between ``V_f`` and ``V_S`` -- the bound-mode window for the n=2
-    leaky-F regime. Mirrors the n=1 sister test.
+    """All fast-formation finite outputs lie between Scholte and ``V_S``.
 
-    The bound used to be written ``V_R``; that was the A.2 assumption,
-    and the screw mode descends past it toward Scholte.
+    This test used to say ``(V_f, V_S)`` and accept three surviving
+    samples, on the reasoning that past the ``V_f`` crossing the mode
+    "leaves the regime these branch flags describe, and NaN there is the
+    honest answer". The NaN was honest about the *search*, not about the
+    mode: below ``V_f`` all three radial wavenumbers are real again and
+    the ordinary real determinant finds the branch. The band is now
+    populated throughout rather than at three points.
     """
+    from fwap import scholte_speed
     from fwap.cylindrical_solver import quadrupole_dispersion
 
     vp, vs, rho = 5500.0, 3100.0, 2500.0
@@ -2718,12 +2738,10 @@ def test_quadrupole_fast_formation_velocities_in_bound_window():
     f = np.linspace(40000.0, 100000.0, 50)
     res = quadrupole_dispersion(f, vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f, a=a)
     finite = np.isfinite(res.slowness)
-    # Only a few samples survive: this rock's screw branch crosses V_f
-    # early in the band, and past that it leaves the regime these branch
-    # flags describe. NaN there is the honest answer.
-    assert finite.sum() >= 3
+    assert finite.sum() >= 45, finite.sum()
     velocity = 1.0 / res.slowness[finite]
-    assert (velocity > vf).all()
+    floor = scholte_speed(vp=vp, vs=vs, rho=rho, vf=vf, rho_f=rho_f)
+    assert (velocity > floor * 0.999).all()
     assert (velocity < vs).all()
 
 
@@ -16450,8 +16468,13 @@ def test_fast_formation_quadrupole_is_now_a_usable_curve():
     With the window corrected to ``(V_f, V_S)`` and the fundamental
     selected, phase velocity descends monotonically, and every value
     sits below ``V_R`` where the old bracket could not reach.
+
+    The lower bound has since moved again: with the sub-fluid
+    continuation the curve descends past ``V_f`` toward Scholte, so
+    ``velocity > V_f`` is no longer true of it and the floor asserted
+    here is the Scholte speed.
     """
-    from fwap import quadrupole_dispersion
+    from fwap import quadrupole_dispersion, scholte_speed
 
     frequencies = np.array([10.0e3, 15.0e3, 20.0e3, 30.0e3, 60.0e3, 100.0e3])
     result = quadrupole_dispersion(frequencies, **_QUAD_FAST, **_QUAD_FLUID, a=0.10)
@@ -16462,8 +16485,9 @@ def test_fast_formation_quadrupole_is_now_a_usable_curve():
     assert _descends(velocity), f"not monotone: {velocity}"
 
     v_rayleigh = rayleigh_speed(_QUAD_FAST["vp"], _QUAD_FAST["vs"])
+    floor = scholte_speed(**_QUAD_FAST, **_QUAD_FLUID)
     assert np.all(velocity < v_rayleigh)
-    assert np.all(velocity > _QUAD_FLUID["vf"])
+    assert np.all(velocity > floor * 0.999)
 
 
 def test_slow_formation_quadrupole_is_a_usable_curve():
@@ -16493,9 +16517,13 @@ def test_slow_formation_quadrupole_is_a_usable_curve():
 # limit. That is why the old check needed rel=0.10 and used 8.3 % of it:
 # the tolerance was absorbing the wrong reference, not solver error.
 #
-# Slow formations only, deliberately. In fast ones n=1 is leaky and the
-# real-axis search returns scatter or NaN -- roadmap A.2, and the same
-# failure the n=2 block records.
+# Slow formations only, deliberately -- see
+# `test_the_fast_formation_high_frequency_limit_is_scholte_too` for the
+# fast case, which needed the sub-fluid continuation before it could be
+# asked at all. Until that existed, the search was confined to
+# `(V_f, V_S)`, the fundamental had left through `V_f` long before
+# 50 kHz, and what came back was a higher-order mode accumulating at
+# `V_f` -- converging tidily to the wrong limit.
 # ----------------------------------------------------------------------
 
 
@@ -19596,28 +19624,46 @@ def test_fast_flexural_bracket_excludes_the_modes_own_asymptote():
 
 
 def test_fast_flexural_returns_the_fundamental_above_the_crossing():
-    """A.2 fixed, at the single frequency that named the defect.
+    """A.2 at the frequency that named it -- and the third value asked for.
 
-    This test used to assert the wrong answer: at 19.5 kHz the
-    determinant has roots near 1853 and 2269 m/s, the fundamental is
-    1853, and the solver returned ~2269 because that is what its
-    ``(V_R, V_S)`` window happened to contain. With the window
-    corrected to ``(V_f, V_S)`` and the fundamental selected, the call
-    returns **1853 m/s** -- the value the old test named as the one
-    being missed.
+    This test has now named three different answers at 19.5 kHz. It
+    first asserted ~2269 m/s, the ``(V_R, V_S)`` window's pick. A.2
+    corrected the window to ``(V_f, V_S)`` and it asserted **1853**,
+    on the reasoning that the determinant "has roots near 1853 and
+    2269, and the fundamental is 1853".
+
+    Tracing every root against frequency shows 1853 is an overtone.
+    The fundamental runs 2242 (4 kHz), 1816 (6), 1625 (8), 1554 (10),
+    1520 (12), 1501 (14) -- one smooth descent -- and **crosses ``V_f``
+    between 14 and 15 kHz**, continuing 1495.5, 1490.7, 1487.0 and on
+    toward Scholte at 1472.6. The 1853 root does not belong to it: it
+    is absent below 18 kHz and appears at ``V_S`` at 18 kHz, then
+    descends 1939, 1884, 1837. A branch cannot enter from ``V_S`` at
+    18 kHz and also be the mode that was at 1554 at 10 kHz.
+
+    So the window was right and the frequency was past its end. The
+    fundamental at 19.5 kHz is 1481.6 m/s, below the fluid, and the
+    ordering below is what distinguishes the branches rather than any
+    single remembered number.
     """
-    from fwap import flexural_dispersion
+    from fwap import flexural_dispersion, scholte_speed
 
     result = flexural_dispersion(np.array([19.5e3]), **_A2_ROCK, **_A2_FLUID, a=0.10)
     velocity = 1.0 / result.slowness[0]
+    floor = scholte_speed(**_A2_ROCK, **_A2_FLUID)
 
     assert np.isfinite(velocity)
-    assert velocity == pytest.approx(1853.0, rel=0.01)
-    v_rayleigh = rayleigh_speed(_A2_ROCK["vp"], _A2_ROCK["vs"])
-    assert velocity < v_rayleigh, (
-        "the fundamental is below V_R here, which the old bracket could "
-        "not represent at all"
-    )
+    assert velocity == pytest.approx(1481.6, rel=0.01)
+    assert velocity < _A2_FLUID["vf"], "the fundamental has crossed by 19.5 kHz"
+    assert velocity > floor * 0.999, "and it is heading for Scholte, not past it"
+
+    # The branch is continuous across the crossing, which is what makes
+    # the sub-fluid root the same mode rather than a new one.
+    sweep = np.arange(6.0e3, 24.1e3, 1.0e3)
+    track = 1.0 / flexural_dispersion(sweep, **_A2_ROCK, **_A2_FLUID, a=0.10).slowness
+    assert np.all(np.isfinite(track))
+    assert np.all(np.diff(track) < 0.0), track
+    assert track[0] > _A2_FLUID["vf"] and track[-1] < _A2_FLUID["vf"]
 
 
 def test_fast_flexural_returns_a_curve_not_a_sawtooth():
@@ -19750,11 +19796,20 @@ def test_fast_flexural_matches_the_published_curve():
     at the formation shear speed, and ``V_R`` was never a limit of this
     mode. The old bracket could not reach them by construction.
 
-    Outside the band it returns NaN rather than a guess: below the
-    plateau the mode has not formed, and above the ``V_f`` crossing it
-    has left this regime.
+    **The figure also settles the ``V_f`` question against the test
+    that used to be here.** This asserted ``velocity > V_f``, while
+    scoring against a curve whose own last three points are 1495.0,
+    1495.0 and 1492.7 m/s -- all *below* the 1500 m/s fluid. The
+    assertion contradicted the reference it was checking, and survived
+    only because those points were NaN and so never compared. With the
+    sub-fluid continuation they are compared, at 0.02 %, 0.30 % and
+    0.30 %: coverage goes 9 of 13 points to 12, with the median error
+    unmoved at 0.16 %.
+
+    Below the plateau it still returns NaN rather than a guess -- there
+    the mode has not formed. That is the one remaining gap, at 2.5 kHz.
     """
-    from fwap import flexural_dispersion
+    from fwap import flexural_dispersion, scholte_speed
 
     freq = np.array([f for f, _ in _FIG2A_FLEXURAL_PHASE])
     reference = np.array([v for _, v in _FIG2A_FLEXURAL_PHASE])
@@ -19763,9 +19818,13 @@ def test_fast_flexural_matches_the_published_curve():
     )
     finite = np.isfinite(velocity)
 
-    assert finite.sum() >= 9, f"expected the middle band; got {finite.sum()}"
+    assert finite.sum() >= 12, f"expected all but the plateau; got {finite.sum()}"
     assert np.all(velocity[finite] <= _FIG2_ROCK["vs"])
-    assert np.all(velocity[finite] > _FIG2_FLUID["vf"])
+    floor = scholte_speed(**_FIG2_ROCK, **_FIG2_FLUID)
+    assert np.all(velocity[finite] > floor * 0.999)
+    # The published curve itself crosses V_f, and so does fwap.
+    assert (reference < _FIG2_FLUID["vf"]).sum() >= 3
+    assert (velocity[finite] < _FIG2_FLUID["vf"]).sum() >= 3
 
     error = np.abs((velocity[finite] - reference[finite]) / reference[finite])
     assert np.median(error) < 0.004, f"median {np.median(error):.2%}"
@@ -24738,38 +24797,181 @@ def test_the_fig37_airy_phase_peaks_match(tag: str, mode: str, peak: float) -> N
     assert abs(freq[top] - reference[published, 0]) < 700.0
 
 
-def test_the_fast_formation_window_stops_at_the_fluid_slowness() -> None:
-    """What fig 3.7 shows that fwap cannot reach, stated in its units.
+def test_the_fast_formation_branch_continues_past_the_fluid_slowness() -> None:
+    """The window edge fig 3.7(a) exposed, now on the far side of it.
 
-    ``_flexural_dispersion_fast_formation`` searches phase velocity in
-    ``(V_f, V_S)``: below ``V_f`` the fluid field stops being
-    oscillatory in ``r`` and the branch flags it sets no longer
-    describe it. Its docstring already says so. Fig 3.7(a) is the first
-    reference in the package that *plots* the part beyond that edge --
-    both dipole and quadrupole run on past the fluid slowness toward
-    Scholte, ending near 213 us/ft against a 203 us/ft fluid.
+    This test was written to pin the edge so that closing it registered
+    as a change rather than passing unnoticed, and that is what it is
+    doing: it used to assert ``phase.max() < fluid_slowness``.
 
-    This test pins the edge so that closing it registers as a change
-    rather than passing unnoticed. The two modes are given separate
-    numbers rather than one shared pair: by 20 kHz the dipole has run
-    4.8 % past the fluid slowness and the quadrupole only 2.1 %, since
-    the quadrupole starts dispersing later and has not reached Scholte
-    by the end of the band.
+    ``_march_fast_flexural_branch`` searches phase velocity in
+    ``(V_f, V_S)`` because above ``V_f`` the fluid radial wavenumber is
+    imaginary. The branch does not stop there -- it descends *through*
+    ``V_f`` toward Scholte, and below ``V_f`` all three radial
+    wavenumbers are real again, so the ordinary real determinant picks
+    it up. Both orders now run past the 203 us/ft fluid, the dipole to
+    212.8 us/ft by 20 kHz and the quadrupole to 207.2.
     """
     fluid_slowness = 1.0 / _CLARO_FAST["vf"]
-    for mode, n_beyond, reach in (("flexural", 200, 1.045), ("quadrupole", 60, 1.02)):
+    for mode, reach in (("flexural", 1.045), ("quadrupole", 1.02)):
         freq, phase, _ = _claro_curves("fast", mode)
-        assert phase.max() < fluid_slowness
-        assert phase.max() > fluid_slowness * 0.999, mode
+        beyond = phase > fluid_slowness
+        assert beyond.sum() > 40, (mode, beyond.sum())
+        assert phase.max() > fluid_slowness * reach, (mode, phase.max())
 
-        # The published curve really does keep going, by a wide margin.
+        # It goes as far as the published curve does, and no further.
         reference = _claro_reference("fast", mode, "phase")
-        beyond = reference[:, 1] > fluid_slowness
-        assert beyond.sum() > n_beyond, (mode, beyond.sum())
-        assert reference[:, 1].max() > fluid_slowness * reach, mode
+        assert phase.max() < reference[:, 1].max() * 1.01, mode
 
-    # The slow panel has no such edge: there V_f is faster than V_S, so
-    # the whole branch is bound and fwap covers the figure to 20 kHz.
+    # The slow panel never had this edge: there V_f is faster than V_S,
+    # so the whole branch is bound and fwap covers the figure to 20 kHz.
     for mode in ("flexural", "quadrupole"):
         freq, _, _ = _claro_curves("slow", mode)
         assert freq.max() > 19900.0, mode
+
+
+def test_the_fast_branch_crosses_the_fluid_velocity_exactly_once() -> None:
+    """The two search regimes join into one curve, not two.
+
+    The above- and below-``V_f`` passes use different determinants over
+    disjoint windows, so the risk is a seam: a jump, a repeat, or a
+    stretch where both claim a root. None of those is present. The
+    branch is monotone in slowness and crosses ``V_f`` once.
+    """
+    for tag in ("fast", "slow"):
+        for mode in ("flexural", "quadrupole"):
+            freq, phase, _ = _claro_curves(tag, mode, n=600)
+            assert np.all(np.diff(phase) > 0.0), (tag, mode)
+            crossings = int(
+                np.sum(np.diff(np.sign(phase - 1.0 / _CLARO_STACK[tag]["vf"])) != 0)
+            )
+            expected = 1 if tag == "fast" else 0
+            assert crossings == expected, (tag, mode, crossings)
+
+
+def test_the_sub_fluid_window_holds_at_most_one_root() -> None:
+    """The measurement the sub-fluid search rests on, in miniature.
+
+    ``_extend_below_fluid`` brackets each frequency once over the whole
+    of ``(0.5 V_f, V_f)`` instead of scanning it, which is only sound
+    because nothing else lives down there. The full sweep behind that
+    covered 90 fast formations at two azimuthal orders and five
+    frequencies each -- 900 windows, never more than one sign change.
+    This is a fast corner of it, so the claim is checked rather than
+    quoted.
+    """
+    from fwap.cylindrical_solver._n1_isotropic import (
+        _FAST_FLEXURAL_SUB_FLUID_FLOOR,
+        _modal_determinant_n1,
+    )
+    from fwap.cylindrical_solver._n2_quadrupole import _modal_determinant_n2
+
+    seen = set()
+    for stack in (_CLARO_FAST, dict(_CLARO_FAST, a=0.05)):
+        medium = {k: stack[k] for k in ("vp", "vs", "rho", "vf", "rho_f", "a")}
+        floor = medium["vf"] * _FAST_FLEXURAL_SUB_FLUID_FLOOR
+        velocity = np.linspace(floor, medium["vf"] * (1.0 - 1.0e-4), 1500)
+        for det in (_modal_determinant_n1, _modal_determinant_n2):
+            for f in (8.0e3, 15.0e3, 25.0e3, 40.0e3):
+                omega = 2.0 * np.pi * f
+                values = np.array([det(omega / v, omega, **medium) for v in velocity])
+                finite = np.isfinite(values)
+                sign = np.sign(values)
+                changes = int(
+                    np.sum((sign[:-1] * sign[1:] < 0) & finite[:-1] & finite[1:])
+                )
+                assert changes <= 1, (medium["a"], det.__name__, f, changes)
+                seen.add(changes)
+
+    # And it is not vacuous -- some of those windows really do hold one.
+    assert seen == {0, 1}, seen
+
+
+def test_the_fast_formation_high_frequency_limit_is_scholte_too() -> None:
+    """The oracle the ``(V_f, V_S)`` window used to put out of reach.
+
+    ``scholte_speed`` solves a plane fluid/solid interface -- no Bessel
+    functions, no radius, no azimuthal order -- so this is an external
+    check rather than the solver agreeing with itself. It stays external
+    here: the sub-fluid search floor is a fraction of ``V_f`` and not the
+    Scholte speed, precisely so that bounding the search does not become
+    the thing being tested. See
+    :data:`~fwap.cylindrical_solver._n1_isotropic._FAST_FLEXURAL_SUB_FLUID_FLOOR`.
+
+    The two orders approach from opposite sides, which is why n=2 is not
+    asked for a monotone ``|error|``: n=1 comes up from below, while n=2
+    comes down from above and crosses a few parts in ten thousand past
+    it before settling. Both land inside 1e-3 either way.
+    """
+    from fwap import flexural_dispersion, quadrupole_dispersion, scholte_speed
+
+    frequencies = np.array([50.0e3, 100.0e3, 200.0e3, 400.0e3])
+    for rock in (_QUAD_FAST, dict(vp=3658.0, vs=2032.0, rho=2350.0)):
+        assert rock["vs"] > _QUAD_FLUID["vf"], "this block is about fast formations"
+        reference = scholte_speed(**rock, **_QUAD_FLUID)
+        for solver in (flexural_dispersion, quadrupole_dispersion):
+            result = solver(frequencies, **rock, **_QUAD_FLUID, a=0.10)
+            assert np.all(np.isfinite(result.slowness)), solver.__name__
+            error = np.abs(1.0 / result.slowness / reference - 1.0)
+            assert error[-1] < 1.0e-3, (solver.__name__, error)
+            # Converging, not merely close.
+            assert error[0] > 3.0 * error[-1], (solver.__name__, error)
+
+
+def test_the_fast_formation_limit_is_not_the_fluid_velocity() -> None:
+    """The specific wrong answer the old window produced, pinned.
+
+    Higher-order modes accumulate at ``V_f`` from above, so a search
+    confined to ``(V_f, V_S)`` finds one of them once the fundamental
+    has crossed, and it converges tidily -- to ``V_f``. On the fast
+    sandstone at 50/100/200/400 kHz it used to return 1.0217, 1.0048,
+    1.0011 and 1.0003 ``V_f``.
+
+    That is a plausible-looking curve, which is exactly why it needs a
+    test naming it. The Scholte speed is 0.99 % below ``V_f`` for this
+    rock -- a small gap, but the branch now sits within 0.11 % of
+    Scholte at 100 kHz and 0.03 % at 400 kHz, so the two limits are
+    still told apart by an order of magnitude.
+    """
+    from fwap import flexural_dispersion, quadrupole_dispersion, scholte_speed
+
+    rock, fluid = _QUAD_FAST, _QUAD_FLUID
+    reference = scholte_speed(**rock, **fluid)
+    separation = 1.0 - reference / fluid["vf"]
+    assert separation > 5.0e-3, "the two limits must be distinguishable"
+
+    frequencies = np.array([100.0e3, 400.0e3])
+    for solver in (flexural_dispersion, quadrupole_dispersion):
+        velocity = 1.0 / solver(frequencies, **rock, **fluid, a=0.10).slowness
+        assert np.all(velocity < fluid["vf"]), (solver.__name__, velocity)
+        missed = np.abs(velocity / reference - 1.0)
+        assert np.all(missed < 0.25 * separation), (solver.__name__, missed)
+
+
+def test_the_sub_fluid_search_never_returns_its_own_floor() -> None:
+    """No answer beats an answer pinned to a constant of the search.
+
+    Above roughly 500 kHz the real determinant underflows to exactly
+    ``0.0`` over much of the sub-fluid window, and the floor end goes
+    first. ``np.sign(0.0)`` is 0, so a zero endpoint passes a naive
+    opposite-sign test and brentq then returns that endpoint -- an
+    answer sitting on ``_FAST_FLEXURAL_SUB_FLUID_FLOOR``, which is a
+    statement about the constant rather than about the rock.
+
+    This is the same shape as the two leaky-cased constants withdrawn
+    earlier: a number that comes back looking like a mode because a
+    guard, not the physics, put it there.
+    """
+    from fwap import flexural_dispersion, quadrupole_dispersion
+    from fwap.cylindrical_solver._n1_isotropic import _FAST_FLEXURAL_SUB_FLUID_FLOOR
+
+    frequencies = np.array([600.0e3, 800.0e3, 1.2e6])
+    floor = _CLARO_FAST["vf"] * _FAST_FLEXURAL_SUB_FLUID_FLOOR
+    for solver in (flexural_dispersion, quadrupole_dispersion):
+        slowness = solver(frequencies, **_CLARO_FAST).slowness
+        live = np.isfinite(slowness)
+        if live.any():
+            assert np.all(1.0 / slowness[live] > floor * 1.5), solver.__name__
+        # And where it cannot answer it says so, rather than handing
+        # back the higher-order mode still sitting above V_f.
+        assert not np.all(live), solver.__name__

@@ -2362,9 +2362,29 @@ _FAST_FLEXURAL_MAX_CASED_ROOTS = 8
 _FAST_FLEXURAL_DEGENERACY_TOL = 1.0e-5
 
 #: Consecutive misses after the branch has been acquired before the
-#: marcher stops. The fundamental leaves through ``V_f`` once and does
-#: not return, so continuing to scan only costs time.
+#: marcher stops. The fundamental leaves this window through ``V_f``
+#: once and does not re-enter it, so continuing to scan only costs
+#: time. It does not stop existing when it leaves --
+#: :func:`_extend_below_fluid` picks it up on the other side.
 _FAST_FLEXURAL_MAX_MISSES = 2
+
+#: Floor of the sub-fluid search, as a fraction of ``V_f``. The branch
+#: below ``V_f`` descends toward the plane-interface Scholte speed, and
+#: ``V_Scholte / V_f`` bottoms out near 0.67 over fast formations
+#: (heaviest fluid, ``V_S`` barely above ``V_f``), so 0.5 clears it with
+#: room for the slight undershoot measured at high frequency.
+#:
+#: It is deliberately **not** ``scholte_speed``, which would be the
+#: tighter floor. That function is the package's independent oracle for
+#: exactly this limit, and bounding the search with it would make
+#: "the branch converges to Scholte" a statement about the bracket
+#: rather than about the solver.
+#:
+#: Nothing else lives down there: over 90 fast formations (``V_S/V_f``
+#: 1.001-3, ``rho_f/rho`` 0.2-1.0, ``a`` 0.05-0.2 m) at both azimuthal
+#: orders and five frequencies each, 900 windows, the determinant has
+#: **one** sign change in ``(0.5 V_f, V_f)`` or none -- never two.
+_FAST_FLEXURAL_SUB_FLUID_FLOOR = 0.5
 
 
 def _flexural_kz_bracket(
@@ -2646,6 +2666,158 @@ def _march_fast_flexural_branch(
     return slowness
 
 
+def _extend_below_fluid(
+    real_det: Callable[[float, float], float],
+    freq: np.ndarray,
+    slowness: np.ndarray,
+    *,
+    vf: float,
+) -> np.ndarray:
+    r"""
+    Continue a fast-formation branch below the fluid velocity.
+
+    :func:`_march_fast_flexural_branch` searches phase velocity in
+    ``(V_f, V_S)`` because above ``V_f`` the fluid radial wavenumber is
+    imaginary and the determinant needs the complex evaluator. The
+    branch does not end there: it descends *through* ``V_f`` toward the
+    Scholte speed, and on the far side ``F^2 = k_z^2 - (omega/V_f)^2``
+    is positive again, so all three radial wavenumbers are real and the
+    ordinary **real** determinant applies -- the same one the
+    slow-formation driver uses. The regime below ``V_f`` in a fast
+    formation is not exotic; it is the plain bound case.
+
+    Where a sub-fluid root exists it **wins**, rather than merely
+    filling a ``NaN``. That is a statement about the mode, not a
+    convenience: the fundamental crosses ``V_f`` once and does not come
+    back, so once it is below, anything the ``(V_f, V_S)`` search still
+    returns is a different mode.
+
+    It is not a hypothetical. Higher-order modes accumulate at ``V_f``
+    from above, so a search confined to that window finds one of them
+    and it looks entirely plausible -- on Claro 2020 fig 3.7(a)'s
+    sandstone, a grid of 50/100/200/400 kHz used to come back at
+    1.0217, 1.0048, 1.0011 and 1.0003 ``V_f``, converging neatly to
+    ``V_f`` instead of to the Scholte speed at 0.951 ``V_f`` where the
+    fundamental actually goes. On a grid that spans the crossing the marcher stops of its
+    own accord and the two never compete; it is grids *starting* above
+    the crossing that were served the wrong branch, which is why
+    ``test_flexural_converges_to_the_plane_scholte_speed`` was
+    restricted to slow formations.
+
+    Each frequency is bracketed independently rather than marched,
+    because there is nothing to march past: the window holds one root
+    or none. See :data:`_FAST_FLEXURAL_SUB_FLUID_FLOOR` for the
+    measurement behind that, and for why the floor is a fraction of
+    ``V_f`` rather than the Scholte speed.
+
+    Parameters
+    ----------
+    real_det : callable
+        ``real_det(k_z, omega) -> float``, the real-valued modal
+        determinant at real ``k_z``; the root condition is
+        ``real_det = 0``.
+    freq : ndarray, shape (n,)
+        Frequencies in Hz, any order.
+    slowness : ndarray, shape (n,)
+        Phase slowness (s/m) from the above-``V_f`` pass, ``NaN`` where
+        it found nothing. Not modified in place.
+    vf : float
+        Borehole-fluid velocity (m/s).
+
+    Returns
+    -------
+    ndarray, shape (n,)
+        A copy of ``slowness``, with each sub-fluid root taking
+        precedence over any above-``V_f`` value at the same frequency.
+
+    Notes
+    -----
+    The two passes meet cleanly. For the fast sandstone of Claro 2020
+    fig 3.7(a) the branch is above ``V_f`` through 9.10 kHz and below it
+    from 9.20 kHz, crossing inside a band that the ``eps`` margins of
+    the two searches exclude between them -- so at most a single grid
+    point is lost at the crossing, and often none.
+    """
+    f_arr = np.asarray(freq, dtype=float)
+    out = np.array(slowness, dtype=float, copy=True)
+    if f_arr.size == 0:
+        return out
+    eps = 1.0e-4
+    v_hi = vf * (1.0 - eps)
+    v_lo = vf * _FAST_FLEXURAL_SUB_FLUID_FLOOR
+    crossed_at = np.inf
+
+    for i in range(f_arr.size):
+        omega = 2.0 * np.pi * float(f_arr[i])
+        kz_lo, kz_hi = omega / v_hi, omega / v_lo
+        try:
+            d_lo = real_det(kz_lo, omega)
+            d_hi = real_det(kz_hi, omega)
+        except (ValueError, ArithmeticError, OverflowError):
+            continue
+        if not (np.isfinite(d_lo) and np.isfinite(d_hi)):
+            continue
+        # Both endpoints must be genuinely non-zero, not merely of
+        # opposite sign. Above roughly 500 kHz this determinant
+        # underflows to exactly 0.0 over much of the window -- at
+        # 800 kHz, 1698 of 3000 samples -- and the floor end goes first.
+        # ``np.sign(0.0)`` is 0, so a zero endpoint passes a naive sign
+        # test, and brentq then returns that endpoint: an answer pinned
+        # at _FAST_FLEXURAL_SUB_FLUID_FLOOR, dressed as a mode.
+        if d_lo == 0.0 or d_hi == 0.0:
+            continue
+        if np.sign(d_lo) == np.sign(d_hi):
+            continue
+        try:
+            kz = float(
+                optimize.brentq(real_det, kz_lo, kz_hi, args=(omega,), xtol=1.0e-10)
+            )
+        except (ValueError, RuntimeError):
+            continue
+        if kz <= 0.0:
+            continue
+        # Belt and braces: never return the floor itself. The floor is a
+        # constant of this search, so a root sitting on it is a
+        # statement about the constant rather than about the medium.
+        if omega / kz <= v_lo * (1.0 + 1.0e-6):
+            logger.debug(
+                "sub-fluid pass: discarding a root pinned at the search "
+                "floor at f=%.1f Hz",
+                f_arr[i],
+            )
+            continue
+        if np.isfinite(out[i]):
+            logger.debug(
+                "sub-fluid pass: replacing the %.4f V_f root at f=%.1f Hz with "
+                "the fundamental at %.4f V_f; the (V_f, V_S) window cannot "
+                "hold the fundamental once it has crossed",
+                1.0 / (out[i] * vf),
+                f_arr[i],
+                omega / (kz * vf),
+            )
+        out[i] = kz / omega
+        crossed_at = min(crossed_at, float(f_arr[i]))
+
+    # Above the crossing the fundamental is below ``V_f`` for good, so
+    # any surviving ``(V_f, V_S)`` value up there is a higher-order
+    # mode -- returned only where the sub-fluid determinant could not be
+    # evaluated at all, which for these media means the underflow above
+    # roughly 500 kHz. Report nothing rather than a different mode: a
+    # NaN is visible, a plausible wrong branch is not.
+    if np.isfinite(crossed_at):
+        stale = (f_arr > crossed_at) & np.isfinite(out) & (out * vf < 1.0)
+        if stale.any():
+            logger.debug(
+                "sub-fluid pass: dropping %d above-V_f value(s) at f > %.1f Hz, "
+                "where the fundamental has already crossed",
+                int(stale.sum()),
+                crossed_at,
+            )
+            out[stale] = np.nan
+
+    return out
+
+
 def _flexural_dispersion_fast_formation(
     freq: np.ndarray,
     *,
@@ -2749,6 +2921,11 @@ def _flexural_dispersion_fast_formation(
     # n=2 path tracked the wrong one for as long as it existed.
     root_fn = _real_root_function(_det, f_arr, vs=vs, vf=vf)
     slowness = _march_fast_flexural_branch(root_fn, f_arr, vs=vs, vf=vf)
+
+    def _real_det(kz: float, _omega: float) -> float:
+        return _modal_determinant_n1(kz, _omega, vp, vs, rho, vf, rho_f, a)
+
+    slowness = _extend_below_fluid(_real_det, f_arr, slowness, vf=vf)
 
     return BoreholeMode(
         name="flexural",

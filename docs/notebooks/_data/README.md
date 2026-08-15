@@ -26,7 +26,7 @@ live in this directory.
 | `sinha_asvadurov_2004_fig19a_quadrupole_slow.csv` | `quadrupole_dispersion` | **0.01 %** RMS, 267/299 pts |
 | `sinha_asvadurov_2004_fig2a_stoneley_fast.csv` | `stoneley_dispersion` | **0.01 %** RMS, 245/245 pts |
 | `sinha_asvadurov_2004_fig2a_pseudo_rayleigh_fast.csv` | `trapped_pseudo_rayleigh_dispersion` (branch 0) | **0.01 %** RMS, 161/162 pts |
-| `sinha_asvadurov_2004_fig6a_flexural_fast.csv` | `flexural_dispersion` | **0.01 %** RMS, 64/114 pts |
+| `sinha_asvadurov_2004_fig6a_flexural_fast.csv` | `flexural_dispersion` | **0.01 %** RMS, 114/114 pts |
 | `sinha_asvadurov_2004_fig15a_flexural_slow.csv` | `flexural_dispersion` | **0.01 %** RMS, 238/238 pts |
 | `sinha_asvadurov_2004_fig11a_stoneley_slow.csv` | `stoneley_dispersion` | **0.01 %** RMS, 204/257 pts |
 | `sinha_asvadurov_2004_fig11a_leaky_compressional_slow.csv` | `leaky_compressional_dispersion` | **0.03 %** RMS, 107/107 pts |
@@ -46,10 +46,10 @@ live in this directory.
 | `yang_lv_2022_fig2b_flexural_cased_soft.csv` | `flexural_dispersion_layered` (**slow formation**) | **0.017 %** RMS, 12/12 pts |
 | `claro_2020_fig37a_stoneley_phase_fast.csv` | `stoneley_dispersion` | **0.09 %** RMS, 388/388 pts |
 | `claro_2020_fig37a_stoneley_group_fast.csv` | `stoneley_dispersion` (**group slowness**) | **0.08 %** RMS, 179/179 pts |
-| `claro_2020_fig37a_flexural_phase_fast.csv` | `flexural_dispersion` | **0.28 %** RMS, 134/347 pts |
-| `claro_2020_fig37a_flexural_group_fast.csv` | `flexural_dispersion` (**group slowness**) | **2.40 %** RMS, 100/214 pts |
-| `claro_2020_fig37a_quadrupole_phase_fast.csv` | `quadrupole_dispersion` | **0.10 %** RMS, 214/391 pts |
-| `claro_2020_fig37a_quadrupole_group_fast.csv` | `quadrupole_dispersion` (**group slowness**) | **0.85 %** RMS, 146/198 pts |
+| `claro_2020_fig37a_flexural_phase_fast.csv` | `flexural_dispersion` | **0.19 %** RMS, 347/347 pts |
+| `claro_2020_fig37a_flexural_group_fast.csv` | `flexural_dispersion` (**group slowness**) | **1.66 %** RMS, 208/214 pts |
+| `claro_2020_fig37a_quadrupole_phase_fast.csv` | `quadrupole_dispersion` | **0.10 %** RMS, 286/391 pts |
+| `claro_2020_fig37a_quadrupole_group_fast.csv` | `quadrupole_dispersion` (**group slowness**) | **0.76 %** RMS, 184/198 pts |
 | `claro_2020_fig37b_stoneley_phase_slow.csv` | `stoneley_dispersion` | **0.02 %** RMS, 390/390 pts |
 | `claro_2020_fig37b_stoneley_group_slow.csv` | `stoneley_dispersion` (**group slowness**) | **0.10 %** RMS, 203/203 pts |
 | `claro_2020_fig37b_flexural_phase_slow.csv` | `flexural_dispersion` | **0.05 %** RMS, 352/352 pts |
@@ -78,13 +78,13 @@ The budgets used are 0.2 % (Stoneley), 0.5–1.5 % (quadrupole) and
 every row that the undifferentiated phase curve *fails* the budget that
 row is granted.
 
-The loosest of them, the fast-formation flexural at 2.40 %, is loose in
+The loosest of them, the fast-formation flexural at 1.66 %, is loose in
 the *reading* rather than the solver, and three curves rather than two
 are what establish that. Over the Airy limb (3–5 kHz) there are the
 figure's dashed group curve, the figure's own solid phase curve
 differentiated, and fwap's group curve. Against the differentiated phase
 data, **fwap sits at 1.24 % and the figure's own dashed curve at
-2.51 %** — so on that limb the dashed rendering is the least reliable of
+2.58 %** — so on that limb the dashed rendering is the least reliable of
 the three, being near-vertical where the dash pattern and the
 one-slowness-per-column reading degrade together. Comparing only two
 curves would have shown a disagreement without saying which one was
@@ -102,16 +102,26 @@ the orange plateau is drawn *underneath* the yellow one, so only its
 upper fringe survives tracing. That is why the dipole phase rows score
 worse than the quadrupole ones despite being the easier mode.
 
-The fast-panel dipole and quadrupole are scored over part of their
-range only (134/347 and 214/391 points) because fwap stops at the fluid
-slowness: `_flexural_dispersion_fast_formation` searches phase velocity
-in `(V_f, V_S)`, since below `V_f` the fluid field stops being
-oscillatory in `r`. Its docstring already said so; fig 3.7(a) is the
-first reference here that *plots* the far side, where both branches
-descend past the 203 µs/ft fluid slowness toward Scholte — the dipole
-reaching 212.8 µs/ft by 20 kHz and the quadrupole, which starts
-dispersing later, only 207.2. The slow panel has no such edge and is
-covered to 20 kHz.
+The fast-panel dipole and quadrupole were originally scored over part
+of their range only (134/347 and 214/391 points), because the solver
+stopped at the fluid slowness: the fast-formation search runs over
+phase velocity in `(V_f, V_S)`, since *above* `V_f` the fluid radial
+wavenumber is imaginary and the determinant needs the complex
+evaluator. Fig 3.7(a) was the first reference here that *plots* the far
+side, and plotting it is what got the window extended.
+
+Below `V_f` all three radial wavenumbers are real again, so the
+ordinary real determinant continues the branch (`_extend_below_fluid`).
+The dipole now scores 347/347 at 0.19 % and its group curve 208/214 at
+1.66 %. Sinha fig 6(a) — a different rock from a different paper, and
+vector-extracted rather than traced — went from 64/114 points to
+**114/114 with its RMS unchanged at 0.01 %**, which is the independent
+check that the recovered half is the same branch and not a fit. The
+quadrupole's remaining 105 unscored points are at the other end: they
+sit at the `V_S` plateau below its geometric cutoff, which is a
+separate question from this one.
+
+The slow panel never had this edge and was always covered to 20 kHz.
 
 **The twelve Sinha & Asvadurov rows are extracted, not traced**, and that is why
 they score two orders of magnitude tighter than everything else here.

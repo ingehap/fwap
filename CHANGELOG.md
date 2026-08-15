@@ -6,6 +6,70 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **The fast-formation dipole and quadrupole now follow their branch
+  below the fluid velocity**, instead of stopping at it. No public API
+  change. `flexural_dispersion` and `quadrupole_dispersion` are affected
+  in fast formations only; slow formations take a different dispatch and
+  are untouched.
+
+  The fast-formation search runs over phase velocity in `(V_f, V_S)`,
+  because *above* `V_f` the fluid radial wavenumber is imaginary and the
+  determinant needs the complex evaluator. The branch does not end
+  there: it descends *through* `V_f` toward the Scholte speed, and on
+  the far side `F^2` is positive again, so all three radial wavenumbers
+  are real and the ordinary real determinant — the same one the
+  slow-formation driver already used — picks it up. The regime below
+  `V_f` in a fast formation is not exotic; it is the plain bound case.
+
+  **Three published curves grade this, and none of them was used to
+  build it.** Sinha & Asvadurov fig 6(a) goes from 64 of its 114 points
+  to **114/114 with its RMS unchanged at 0.01 %** — vector-extracted
+  rather than traced, on different rock from a different paper, so the
+  recovered half being as accurate as the half that already worked is
+  the check that it is the same branch. Claro fig 3.7(a)'s dipole goes
+  134/347 → **347/347** (0.28 % → 0.19 %), and its group curve
+  100/214 → **208/214** (2.40 % → 1.66 %). Schmitt & Cheng fig 2(a)
+  goes 9 of 13 points to 12, median error unmoved at 0.16 %.
+
+  **Two wrong answers were being returned, not just missing ones.**
+
+  *A different mode, on grids starting above the crossing.* Higher-order
+  modes accumulate at `V_f` from above, so a search confined to
+  `(V_f, V_S)` finds one once the fundamental has left, and it converges
+  tidily — to `V_f`. At 50/100/200/400 kHz the fast sandstone used to
+  return 1.0217, 1.0048, 1.0011 and 1.0003 `V_f`, where the fundamental
+  actually goes to Scholte at 0.951 `V_f`. That is why
+  `test_flexural_converges_to_the_plane_scholte_speed` was restricted to
+  slow formations; it now covers fast ones at both azimuthal orders.
+
+  *A named value in a test.* `test_fast_flexural_returns_the_fundamental_above_the_crossing`
+  asserted 1853 m/s at 19.5 kHz as the fundamental. Tracing every root
+  against frequency shows the fundamental runs 2242 (4 kHz) → 1501
+  (14 kHz), crosses `V_f` between 14 and 15 kHz, and continues 1495.5,
+  1490.7, … toward Scholte. The 1853 root is absent below 18 kHz and
+  enters at `V_S`: it is an overtone. The window was right and the
+  frequency was past its end. The value asserted there is now 1481.6,
+  and the test checks branch continuity rather than a remembered number.
+
+  The search floor is `0.5 V_f`, and deliberately **not** `scholte_speed`
+  even though that is the tighter bound — bounding the search with the
+  package's own independent oracle for this limit would make "the branch
+  converges to Scholte" a statement about the bracket. Nothing else lives
+  down there: over 90 fast formations at two azimuthal orders and five
+  frequencies each, 900 windows, the determinant has one sign change in
+  `(0.5 V_f, V_f)` or none, never two.
+
+  One guard is worth naming because it is the failure mode this
+  changelog keeps recording. Above roughly 500 kHz the real determinant
+  underflows to exactly `0.0` over much of the window — at 800 kHz,
+  1698 of 3000 samples — and the floor end goes first. `np.sign(0.0)` is
+  0, so a zero endpoint passes a naive opposite-sign test and brentq
+  returns that endpoint: an answer pinned at the search floor, dressed
+  as a mode. Both endpoints are now required to be non-zero, and a root
+  landing on the floor is discarded. Above that frequency the result is
+  NaN, which is the honest answer.
+
 ### Added
 - **Twelve reference curves from Claro (2020) fig 3.7** — the package's
   first **group-slowness** validation set, and its first **finite-element**
@@ -20,7 +84,7 @@ the project uses [Semantic Versioning](https://semver.org/).
   the agreement.
 
   Scores: phase 0.02–0.28 % RMS across all six; group 0.08 %, 0.10 %,
-  0.22 %, 0.50 %, 0.85 % and 2.40 %.
+  0.22 %, 0.50 %, 0.76 % and 1.66 %.
 
   **The budgets are per curve, and the reason is measured.** A single
   loose budget is unsafe for a group slowness, because a group curve
@@ -30,12 +94,12 @@ the project uses [Semantic Versioning](https://semver.org/).
   Each row is now granted a budget set from what was measured, and each
   asserts that the undifferentiated phase curve *fails* that budget.
 
-  The loosest, the fast flexural at 2.40 %, is loose in the reading and
+  The loosest, the fast flexural at 1.66 %, is loose in the reading and
   not the solver, and it takes three curves to show that rather than
   two. Over the Airy limb there are the figure's dashed group curve, the
   figure's own solid phase curve differentiated, and fwap's group curve.
   Against the differentiated phase data, fwap sits at **1.24 %** and the
-  figure's own dashed curve at **2.51 %** — so the dashed rendering is
+  figure's own dashed curve at **2.58 %** — so the dashed rendering is
   the least reliable of the three there, being near-vertical where the
   dash pattern and the one-slowness-per-column reading degrade together.
   That ordering is asserted as a test, and it fails if fwap is the curve

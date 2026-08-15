@@ -444,6 +444,7 @@ def _quadrupole_dispersion_fast_formation(
         )
 
     from fwap.cylindrical_solver._n1_isotropic import (
+        _extend_below_fluid,
         _march_fast_flexural_branch,
         _real_root_function,
     )
@@ -452,6 +453,11 @@ def _quadrupole_dispersion_fast_formation(
     # Measured rather than assumed -- see _real_root_function.
     root_fn = _real_root_function(_det, f_arr, vs=vs, vf=vf)
     slowness = _march_fast_flexural_branch(root_fn, f_arr, vs=vs, vf=vf)
+
+    def _real_det(kz: float, _omega: float) -> float:
+        return _modal_determinant_n2(kz, _omega, vp, vs, rho, vf, rho_f, a)
+
+    slowness = _extend_below_fluid(_real_det, f_arr, slowness, vf=vf)
 
     return BoreholeMode(
         name="quadrupole",
