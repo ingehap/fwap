@@ -25483,3 +25483,261 @@ def test_the_leaky_quadrupole_branch_selection_is_not_in_play():
 
     assert np.all((kz * kz - (omega / _LQ_SINHA["vp"]) ** 2).real > 0.0)
     assert np.all((kz * kz - (omega / _LQ_SINHA["vs"]) ** 2).real < 0.0)
+
+
+# ======================================================================
+# An independent oracle: Sinha & Asvadurov's own published matrix
+#
+# #128 measured the leaky quadrupole's low-frequency drift against
+# fig 10(a) and excluded every search-side cause, but left open which
+# side was nearer the truth -- fwap's n=2 leaky determinant, or the
+# paper's strongly-damped values. This settles it, because the paper
+# prints the matrix.
+#
+# Sinha & Asvadurov (2004), Geophysical Prospecting 52, 271-286,
+# Appendix eqs (A2)-(A15) give the 4x4 boundary-condition matrix L for
+# a fluid-filled borehole of radius a in an infinite elastic formation,
+# at general cylindrical order n. It shares no algebra with fwap: a
+# different potential basis (their SV/SH columns are a mixture of
+# fwap's), a different radial-wavenumber convention (theirs is the
+# negative of fwap's), ordinary Hankel functions instead of modified
+# Bessel ones, and rows scaled without the shear modulus.
+#
+# Transcribed below verbatim. It reproduces fwap's roots at n=1
+# flexural, n=2 trapped and n=2 leaky alike -- and, at the frequencies
+# where fwap and fig 10(a) disagree, the paper's own equations land on
+# fwap's answer rather than on the paper's plotted curve.
+# ======================================================================
+
+
+def _sinha_wavenumber(alpha_sq_fwap: complex, leaky: bool) -> complex:
+    """Sinha's ``alpha`` / ``beta`` from fwap's radial wavenumber.
+
+    fwap works with ``alpha^2 = k_z^2 - (omega/V)^2`` and Sinha with the
+    negative of it, so the two differ by a factor of ``+/- i`` -- and
+    which sign is not a matter of taste:
+
+    * **bound**: fwap takes ``Re(p) > 0`` and evaluates ``K_n(p r)``.
+      The Hankel form matching it is ``H^(1)(i p r)``, so Sinha's
+      ``alpha = +i p``, giving ``Im(alpha) > 0`` and ``H^(1) ~ e^{-pr}``,
+      decaying.
+    * **leaky**: fwap takes ``Im(s) > 0`` and evaluates the outgoing
+      continuation, which is ``H^(1)(-i s r)``, so Sinha's
+      ``beta = -i s`` -- landing with ``Im(beta) < 0``, the radially
+      growing leaky solution, which is the correct one.
+
+    With **real** ``k_z`` the two rules coincide: ``alpha^2`` is
+    negative real and the principal root is already ``+i p``. So a
+    principal-root transcription reproduces every bound mode and then
+    silently selects the growing P wave the moment ``k_z`` goes
+    complex, which is what makes this worth spelling out.
+    """
+    root = np.sqrt(complex(alpha_sq_fwap))
+    if leaky:
+        if root.imag < 0.0:
+            root = -root
+        return -1j * root
+    if root.real < 0.0:
+        root = -root
+    return 1j * root
+
+
+def _sinha_appendix_determinant(
+    n: int,
+    kz: complex,
+    omega: float,
+    *,
+    vp: float,
+    vs: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    leaky_p: bool = False,
+    leaky_s: bool = False,
+) -> complex:
+    """``det L`` from Sinha & Asvadurov (2004) Appendix (A2)-(A15).
+
+    Their ``zeta`` is the axial wavenumber, ``alpha_f`` / ``alpha`` /
+    ``beta`` the fluid / P / S radial wavenumbers, ``J`` the fluid
+    Bessel function and ``H`` the outgoing Hankel function. Entries not
+    listed in the appendix are zero (the fluid carries no shear).
+    """
+    from scipy import special
+
+    zeta = complex(kz)
+    f_sq = zeta**2 - (omega / vf) ** 2
+    alpha_f = _sinha_wavenumber(f_sq, bool(f_sq.real < 0.0))
+    alpha = _sinha_wavenumber(zeta**2 - (omega / vp) ** 2, leaky_p)
+    beta = _sinha_wavenumber(zeta**2 - (omega / vs) ** 2, leaky_s)
+
+    mu = rho * vs * vs
+    lam = rho * (vp * vp - 2.0 * vs * vs)
+    lam_f = rho_f * vf * vf
+
+    jn, jn1 = special.jv(n, alpha_f * a), special.jv(n + 1, alpha_f * a)
+    hna, hn1a = special.hankel1(n, alpha * a), special.hankel1(n + 1, alpha * a)
+    hnb, hn1b = special.hankel1(n, beta * a), special.hankel1(n + 1, beta * a)
+
+    L = np.zeros((4, 4), dtype=complex)
+    L[0, 0] = -n * jn / a + alpha_f * jn1
+    L[0, 1] = n * hna / a - alpha * hn1a
+    L[0, 2] = 1j * zeta * hn1b
+    L[0, 3] = n * hnb / a
+
+    L[1, 0] = lam_f * (alpha_f**2 + zeta**2) * jn
+    L[1, 1] = (
+        -(lam * (alpha**2 + zeta**2) + 2.0 * mu * (alpha**2 - n * (n - 1) / a**2)) * hna
+        + 2.0 * mu * alpha * hn1a / a
+    )
+    L[1, 2] = 2j * mu * zeta * beta * (hnb - (n + 1) * hn1b / (beta * a))
+    L[1, 3] = 2.0 * mu * (n * (n - 1) * hnb / a**2 - n * beta * hn1b / a)
+
+    L[2, 1] = -2.0 * n * (n - 1) * hna / a**2 + 2.0 * n * alpha * hn1a / a
+    L[2, 2] = 1j * zeta * beta * hnb - 2j * zeta * (n + 1) * hn1b / a
+    L[2, 3] = (beta**2 - 2.0 * n * (n - 1) / a**2) * hnb - 2.0 * beta * hn1b / a
+
+    L[3, 1] = 2j * zeta * n * hna / a - 2j * zeta * alpha * hn1a
+    L[3, 2] = -n * beta * hnb / a + (beta**2 - zeta**2) * hn1b
+    L[3, 3] = 1j * zeta * n * hnb / a
+    return complex(np.linalg.det(L))
+
+
+def _sinha_root_depth(n, kz, omega, medium, **flags):
+    """Decades ``|det L|`` drops at ``kz`` relative to its neighbourhood."""
+    here = abs(_sinha_appendix_determinant(n, kz, omega, **medium, **flags))
+    around = np.median(
+        [
+            abs(_sinha_appendix_determinant(n, kz * g, omega, **medium, **flags))
+            for g in (0.97, 0.98, 1.02, 1.03)
+        ]
+    )
+    return float(np.log10(around / here))
+
+
+def test_sinha_appendix_matrix_vanishes_at_fwaps_bound_roots():
+    """The published matrix agrees with fwap's, at n=1 and n=2 alike.
+
+    Establishes the oracle before it is used on the leaky branch: two
+    orders, two solvers, two independent formulations of the same
+    boundary-value problem.
+    """
+    from fwap import flexural_dispersion, quadrupole_dispersion
+
+    for order, solver, freq in (
+        (1, flexural_dispersion, np.array([4000.0, 6000.0, 8000.0, 11000.0])),
+        (2, quadrupole_dispersion, np.array([6000.0, 8000.0, 10000.0, 13000.0])),
+    ):
+        mode = solver(freq, **_LQ_SINHA)
+        checked = 0
+        for f, s in zip(freq, mode.slowness):
+            if not np.isfinite(s):
+                continue
+            omega = 2.0 * np.pi * f
+            depth = _sinha_root_depth(order, omega * s, omega, _LQ_SINHA)
+            assert depth > 8.0, (order, f, depth)
+            checked += 1
+        assert checked >= 3, (order, checked)
+
+
+def test_sinha_appendix_matrix_vanishes_at_fwaps_leaky_quadrupole_roots():
+    """And on the leaky branch -- which is what #128 left open.
+
+    The drift against fig 10(a) is concentrated exactly here, so if
+    fwap's n=2 leaky determinant were wrong, this is where the paper's
+    own equations would part company with it. They do not.
+    """
+    from fwap import leaky_quadrupole_dispersion
+
+    freq = np.arange(3100.0, 5460.0, 10.0)
+    mode = leaky_quadrupole_dispersion(freq, **_LQ_SINHA)
+    live = np.isfinite(mode.slowness)
+    f_live = freq[live]
+    slowness = mode.slowness[live]
+    damping = mode.attenuation_per_meter[live]
+
+    checked = 0
+    for target in (3240.0, 3600.0, 4000.0, 4500.0, 5000.0):
+        i = int(np.argmin(np.abs(f_live - target)))
+        omega = 2.0 * np.pi * f_live[i]
+        kz = omega * slowness[i] + 1j * damping[i]
+        depth = _sinha_root_depth(2, kz, omega, _LQ_SINHA, leaky_s=True)
+        assert depth > 8.0, (f_live[i], depth)
+        checked += 1
+    assert checked == 5, checked
+
+
+def test_the_published_equations_and_the_published_figure_disagree():
+    """The finding: fig 10(a)'s low-frequency limb is the outlier.
+
+    At the strongly radiating end fwap and fig 10(a) differ by up to
+    1.4 %. Sinha & Asvadurov's own appendix equations are checked
+    against both. They land on fwap -- to a part in 1e10, which is
+    root-solver tolerance, not agreement within a budget -- while
+    differing from the curve plotted in the same paper by the full
+    drift.
+
+    Asserted as the *contrast* between those two distances, which is
+    the whole content of the finding and needs no fitted budget.
+    """
+    from scipy import optimize
+
+    from fwap import leaky_quadrupole_dispersion
+
+    data = Path(__file__).resolve().parents[1] / "docs" / "notebooks" / "_data"
+    reference = np.loadtxt(
+        data / "sinha_asvadurov_2004_fig10a_quadrupole_fast.csv", delimiter=","
+    )
+    freq = np.arange(3100.0, 5460.0, 10.0)
+    mode = leaky_quadrupole_dispersion(freq, **_LQ_SINHA)
+    live = np.isfinite(mode.slowness)
+    f_live = freq[live]
+    slowness = mode.slowness[live]
+    damping = mode.attenuation_per_meter[live]
+
+    def _root_of_the_paper(omega, seed):
+        def residual(v):
+            kz = complex(v[0], v[1])
+            value = _sinha_appendix_determinant(2, kz, omega, **_LQ_SINHA, leaky_s=True)
+            scale = (
+                abs(
+                    _sinha_appendix_determinant(
+                        2, kz * 1.02, omega, **_LQ_SINHA, leaky_s=True
+                    )
+                )
+                or 1.0
+            )
+            return [value.real / scale, value.imag / scale]
+
+        found = optimize.root(
+            residual, [seed.real, seed.imag], method="hybr", tol=1e-14
+        )
+        return complex(found.x[0], found.x[1]) if found.success else None
+
+    from_fwap, from_figure = [], []
+    for target in (3241.8, 3625.4, 4003.4, 4375.7, 4745.2):
+        i = int(np.argmin(np.abs(f_live - target)))
+        omega = 2.0 * np.pi * f_live[i]
+        seed = omega * slowness[i] + 1j * damping[i]
+        root = _root_of_the_paper(omega, seed)
+        assert root is not None, target
+
+        j = int(np.argmin(np.abs(reference[:, 0] - target)))
+        from_fwap.append(abs(root.real - seed.real) / seed.real)
+        # root.real is a wavenumber; the reference column is a slowness.
+        from_figure.append(abs(root.real / omega - reference[j, 1]) / reference[j, 1])
+
+    from_fwap = np.array(from_fwap)
+    from_figure = np.array(from_figure)
+
+    # The paper's equations reproduce fwap to solver tolerance ...
+    assert from_fwap.max() < 1.0e-8, from_fwap.max()
+    # ... while differing from the paper's own figure by the drift,
+    # which grows toward the strongly radiating end.
+    assert from_figure.max() > 0.008, from_figure.max()
+    assert from_figure[0] > from_figure[-1], from_figure
+    # Six orders of magnitude between the two distances.
+    assert from_figure.min() > 1.0e5 * max(from_fwap.max(), 1e-16), (
+        from_fwap.max(),
+        from_figure.min(),
+    )

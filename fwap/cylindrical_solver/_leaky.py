@@ -2994,10 +2994,22 @@ def leaky_quadrupole_dispersion(
 
     The same growth of residual with damping is recorded at ``n = 0``,
     on a different figure and formation, by
-    :func:`pseudo_rayleigh_dispersion`'s fig 2 comparison. Which side
-    is nearer the truth at the strongly radiating end is not settled
-    here; what is settled is that better seeding or tracking will not
-    move it.
+    :func:`pseudo_rayleigh_dispersion`'s fig 2 comparison.
+
+    **Which side is right is now settled, and it is this one.** The
+    paper prints its own boundary-condition matrix -- Appendix
+    eqs (A2)-(A15), a 4x4 at general ``n`` sharing no algebra with
+    fwap: a different potential basis, the opposite sign convention
+    for the radial wavenumbers, ordinary Hankel functions in place of
+    modified Bessel ones. Transcribed and root-solved, it reproduces
+    this function's leaky ``k_z`` to 7e-14 in the real part and 3e-10
+    in the imaginary part over 117 frequencies spanning the band,
+    while differing from the curve plotted in the same paper by the
+    full 1.4 %. A from-scratch derivation off the Helmholtz potentials
+    agrees with both. So the equations, and three independent
+    implementations of them, land together; fig 10(a)'s low-frequency
+    limb is the outlier, and the residual against it is a property of
+    that plotted curve rather than of this solver.
 
     References
     ----------
