@@ -7,6 +7,48 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **The ceiling dead band is withdrawn**, and its justification turned
+  out to have expired the same way `_LEAKY_CASED_SEED_FLOOR`'s did.
+  Schmitt & Cheng's cased branch reaches 13.00 kHz instead of 13.25;
+  nothing else moves.
+
+  `_LEAKY_CASED_DEGENERACY_TOL` was applied **twice**: once to reject a
+  candidate coinciding with a named `exclude` velocity, and again as the
+  width of a dead band held off the window ceiling. Only the first is
+  what its recorded reasoning asks for. That reasoning is that the
+  ceiling *is* a layer shear speed whenever the softest layer is slower
+  than the fluid, so a root pinned at it is that layer's vanishing
+  radial wavenumber rather than a mode — and when that holds the ceiling
+  is in `exclude` and `_degenerate` already rejects it. When it does not
+  hold (`ceiling = V_f`, a fluid-slower-than-cement stack, which is
+  Schmitt & Cheng's) there is no degeneracy at the ceiling at all, and
+  the dead band was the only thing acting.
+
+  So the guard was redundant exactly where its justification applies and
+  active only where it does not. Measured three ways before removing it:
+
+  * **The recorded failure does not reproduce.** At band widths 2e-3,
+    5e-4, 1e-4 and **zero** the annulus-stiffness sweep gives identical
+    answers — 804.99, 808.13, 821.20, 838.04, 854.49, 870.33 m/s over
+    ratios 1.30 to 1.50 — with `c/ceiling` between 0.725 and 0.774.
+  * **Over 96 cased geometries × 25 frequencies**, removing it adds 5
+    points out of 2192 and moves **none**. No configuration returns a run
+    of points flat in frequency at the ceiling, with it or without it.
+  * **What it adds is a mode.** On Schmitt & Cheng's stack the recovered
+    stretch runs 1498.4 → 1486.9 m/s over 12.90 → 14.00 kHz with
+    `Im(k_z)` 0.658 → 0.543, both smooth and monotone, and `c/ceiling`
+    sweeping 0.9989 → 0.9912 rather than sitting at 1.0000 — which is the
+    pinned signature the withdrawn paragraph describes. A contour counts
+    one root at 13.00 and none at 12.75, where the branch has left
+    through `V_f`.
+
+  What still holds the search off the ceiling is `_LEAKY_CASED_EDGE_EPS`
+  alone, a 0.05 % scan-window margin rather than a claim about modes.
+
+  One test re-baselined (the leg boundary, 13.25 → 13.00) and two added:
+  the structural split of which guard protects which ceiling, and the
+  moves-like-a-branch check on the recovered stretch.
+
 - **A downward continuation pass for the leaky cased marcher.** Both
   marching passes run in ascending frequency, so a branch leg is only
   ever entered from below — at whichever frequency the scan or the sweep
