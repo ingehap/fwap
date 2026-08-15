@@ -25348,6 +25348,12 @@ def test_leaky_quadrupole_rejects_bad_input() -> None:
 # c/V_S = 1.0047; and |det| at the published value bottoms out in a
 # 22x dip, which is not a root. Flipping the leaky sheet does not put
 # one there either.
+#
+# These tests establish that the drift is not a search defect. They do
+# not say which side is nearer the truth -- that was left open here and
+# is settled further down by the Sinha-appendix oracle, in fwap's
+# favour: see `test_the_published_equations_and_the_published_figure_
+# disagree`.
 # ----------------------------------------------------------------------
 
 
@@ -25542,7 +25548,7 @@ def _sinha_wavenumber(alpha_sq_fwap: complex, leaky: bool) -> complex:
     return 1j * root
 
 
-def _sinha_appendix_determinant(
+def _sinha_appendix_matrix(
     n: int,
     kz: complex,
     omega: float,
@@ -25555,8 +25561,8 @@ def _sinha_appendix_determinant(
     a: float,
     leaky_p: bool = False,
     leaky_s: bool = False,
-) -> complex:
-    """``det L`` from Sinha & Asvadurov (2004) Appendix (A2)-(A15).
+) -> np.ndarray:
+    """``L`` from Sinha & Asvadurov (2004) Appendix (A2)-(A15).
 
     Their ``zeta`` is the axial wavenumber, ``alpha_f`` / ``alpha`` /
     ``beta`` the fluid / P / S radial wavenumbers, ``J`` the fluid
@@ -25600,7 +25606,12 @@ def _sinha_appendix_determinant(
     L[3, 1] = 2j * zeta * n * hna / a - 2j * zeta * alpha * hn1a
     L[3, 2] = -n * beta * hnb / a + (beta**2 - zeta**2) * hn1b
     L[3, 3] = 1j * zeta * n * hnb / a
-    return complex(np.linalg.det(L))
+    return L
+
+
+def _sinha_appendix_determinant(n, kz, omega, **kw) -> complex:
+    """``det L`` for the matrix above."""
+    return complex(np.linalg.det(_sinha_appendix_matrix(n, kz, omega, **kw)))
 
 
 def _sinha_root_depth(n, kz, omega, medium, **flags):
@@ -25740,4 +25751,105 @@ def test_the_published_equations_and_the_published_figure_disagree():
     assert from_figure.min() > 1.0e5 * max(from_fwap.max(), 1e-16), (
         from_fwap.max(),
         from_figure.min(),
+    )
+
+
+def test_sinha_appendix_matrix_degenerates_correctly_at_n0():
+    """At axisymmetry the torsional column decouples, as it must.
+
+    The paper says the axisymmetric case follows by setting ``n = 0``
+    in the flexural equations. Structurally that has to strip the
+    borehole of any coupling between torsion and the Stoneley /
+    pseudo-Rayleigh family, and it does: at ``n = 0`` the fourth column
+    keeps a single nonzero entry, in the ``sigma_r_theta`` row. The
+    determinant therefore factorises into a torsional condition times
+    an axisymmetric 3x3, which is the physical statement that a
+    borehole cannot excite torsion with an axisymmetric source.
+
+    Checked as structure rather than as a number, so it holds for any
+    medium.
+    """
+    for medium in (_LQ_SINHA, _LC_SLOW):
+        for freq in (2000.0, 5000.0, 11000.0):
+            omega = 2.0 * np.pi * freq
+            L = _sinha_appendix_matrix(0, omega / 1800.0, omega, **medium)
+            column = np.abs(L[:, 3])
+            assert column[2] > 0.0, (medium, freq)
+            assert np.all(column[[0, 1, 3]] == 0.0), column
+            # ... and the same column is fully populated at n >= 1,
+            # so this is degeneracy at n = 0 rather than a dead column.
+            for order in (1, 2):
+                busy = np.abs(
+                    _sinha_appendix_matrix(order, omega / 1800.0, omega, **medium)[:, 3]
+                )
+                assert np.count_nonzero(busy) >= 3, (order, busy)
+
+
+def test_sinha_appendix_matrix_vanishes_at_fwaps_n0_roots():
+    """The oracle carries down to n = 0, bound and leaky alike.
+
+    Four axisymmetric solvers, two formations, both regimes. With the
+    n=1 and n=2 checks above this puts every open-hole order fwap
+    solves under one independently published matrix.
+
+    On ``leaky_p``: it stays False across the whole leaky
+    pseudo-Rayleigh band, including where ``Re(p^2)`` dips negative near
+    9.2 kHz. That dip is not a change of branch -- with complex ``k_z``
+    the ``Im(k_z)^2`` term alone can push ``Re(p^2)`` below zero while
+    the P wave is still bound -- so ``Re(p^2) < 0`` is not a usable
+    leaky-P test once ``k_z`` leaves the real axis. Selecting the leaky
+    P branch there costs all 14 decades.
+    """
+    from fwap import stoneley_dispersion
+    from fwap.cylindrical_solver import (
+        leaky_compressional_dispersion,
+        pseudo_rayleigh_dispersion,
+        trapped_pseudo_rayleigh_dispersion,
+    )
+
+    def _check(label, medium, freq, mode, leaky):
+        live = np.isfinite(mode.slowness)
+        assert live.sum() >= 3, (label, live.sum())
+        f_live = freq[live]
+        slowness = mode.slowness[live]
+        damping = (
+            mode.attenuation_per_meter[live] if leaky else np.zeros(int(live.sum()))
+        )
+        checked = 0
+        for i in range(0, len(f_live), max(1, len(f_live) // 4)):
+            omega = 2.0 * np.pi * f_live[i]
+            kz = omega * slowness[i] + 1j * damping[i]
+            depth = _sinha_root_depth(0, kz, omega, medium, leaky_s=leaky)
+            assert depth > 8.0, (label, f_live[i], depth)
+            checked += 1
+        assert checked >= 3, (label, checked)
+
+    freq = np.arange(2000.0, 13000.0, 250.0)
+    _check("stoneley", _LQ_SINHA, freq, stoneley_dispersion(freq, **_LQ_SINHA), False)
+
+    freq = np.arange(9000.0, 15200.0, 250.0)
+    _check(
+        "trapped pseudo-Rayleigh",
+        _LQ_SINHA,
+        freq,
+        trapped_pseudo_rayleigh_dispersion(freq, **_LQ_SINHA, branch=0),
+        False,
+    )
+
+    freq = np.arange(9000.0, 15200.0, 100.0)
+    _check(
+        "leaky pseudo-Rayleigh",
+        _PR_SINHA_FAST,
+        freq,
+        pseudo_rayleigh_dispersion(freq, **_PR_SINHA_FAST, branch=1),
+        True,
+    )
+
+    freq = np.arange(2500.0, 14000.0, 250.0)
+    _check(
+        "leaky compressional",
+        _LC_SLOW,
+        freq,
+        leaky_compressional_dispersion(freq, **_LC_SLOW),
+        True,
     )

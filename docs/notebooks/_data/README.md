@@ -255,14 +255,44 @@ the curve plotted in the paper is the outlier. The residual is a
 property of that plotted limb, not of the solver, and is carried as a
 measured budget on the *reference*.
 
-One subtlety cost real time and is worth recording: in Sinha's sign
-convention the branch rule differs **per wave** — the bound P needs
-`Im(α) > 0` so `H⁽¹⁾` decays, while the radiating S needs the principal
-root. With real `k_z` the two coincide, so a principal-root
-transcription reproduces every bound mode and then silently selects the
-*growing* P wave the moment `k_z` goes complex. That produced a matrix
-which agreed with fwap at n=1 and n=2 bound and had no leaky root at
-all — a false negative that looked exactly like a real disagreement.
+The matrix is kept in `tests/test_cylindrical_solver.py` as a standing
+oracle, and it reaches **every open-hole order fwap solves**:
+
+| order | solver | regime | depth |
+| --- | --- | --- | --- |
+| n=0 | `stoneley_dispersion` | bound | 11.9–14.4 decades |
+| n=0 | `trapped_pseudo_rayleigh_dispersion` | bound | 14.5–15.2 |
+| n=0 | `pseudo_rayleigh_dispersion` (branch 1) | leaky | 12.5–14.8 |
+| n=0 | `leaky_compressional_dispersion` | leaky | 13.5–14.7 |
+| n=1 | `flexural_dispersion` | bound | 11.2–13.2 |
+| n=2 | `quadrupole_dispersion` | bound | 11.0–13.6 |
+| n=2 | `leaky_quadrupole_dispersion` | leaky | 10.8–12.9 |
+
+This is a different kind of check from everything else in this
+directory. Every row of the table at the top compares fwap against a
+*digitised curve*, and so is limited by the reading; the oracle compares
+fwap against an independently *published equation*, and lands 11 to 15
+orders of magnitude down. It constrains the determinants where no figure
+can — which is exactly what was needed to settle fig 10(a).
+
+At n=0 the matrix also degenerates the way it must: the fourth column
+keeps a single nonzero entry, in the `σ_rθ` row, so the determinant
+factorises into a torsional condition times an axisymmetric 3×3 — a
+borehole cannot excite torsion with an axisymmetric source.
+
+**Two traps, both recorded in code**, because each produced a false
+negative that looked exactly like a real disagreement:
+
+1. In Sinha's sign convention the branch rule differs **per wave** — the
+   bound P needs `Im(α) > 0` so `H⁽¹⁾` decays, the radiating S needs the
+   principal root. With real `k_z` the two coincide, so a principal-root
+   transcription reproduces every bound mode and then silently selects
+   the *growing* P wave the moment `k_z` goes complex. That version
+   agreed with fwap at n=1 and n=2 bound and had no leaky root at all.
+2. `Re(p²) < 0` is **not** a usable leaky-P test once `k_z` is complex.
+   On the leaky pseudo-Rayleigh branch near 9.2 kHz the `Im(k_z)²` term
+   alone pushes `Re(p²)` negative while the P wave is still bound;
+   selecting the leaky P branch there costs all 14 decades.
 
 The attenuation floor is 0.2 dB/m — 1 % of that panel's 0–20 axis, and
 about four times its digitising resolution. Below it the reference is a
