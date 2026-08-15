@@ -123,6 +123,47 @@ separate question from this one.
 
 The slow panel never had this edge and was always covered to 20 kHz.
 
+### The quadrupole's low-frequency plateau is not a coverage gap
+
+Both quadrupole phase rows are still scored over part of their range —
+286/391 and 279/391 — and the missing 105 and 112 points are the flat
+stretch fig 3.7 draws at the formation shear slowness, 152.40 µs/ft,
+from 200 Hz up to about 6 kHz. That looks like the `V_f` edge above and
+is a different thing.
+
+There, a real root sat on the far side of a branch point and the search
+was not looking. Here **there is no root to find**. Scanning the
+determinant from `1 − c/V_S = 1e-10` out to `1e-1` — five orders of
+magnitude closer to the branch point than the search margin — finds no
+sign change at all below the cut-off, on four different rocks. Pushed
+further in, to about `1e-13`, sign changes do appear, and they are
+round-off: a genuine root drives `|det|` toward zero and these do not
+dip at all, sitting at order `1e41` on both sides. Relaxing the margin
+would therefore not recover a mode; it would return `c = V_S`, which is
+where the shear radial wavenumber vanishes.
+
+What is actually below the cut-off is a **leaky** quadrupole: a complex
+root with the shear branch radiating, phase velocity *above* `V_S` by
+about 1 % at its peak, over a narrow band (roughly 3–5 kHz on these
+rocks) rather than running to zero frequency.
+
+**So the plateau is at `V_S`, and nothing in the physics is.** It
+matches neither the trapped mode, which has ended, nor the leaky one,
+which is above `V_S`. Sinha & Asvadurov fig 10(a) is the check on that
+reading: on near-identical rock (`V_S` 2032 vs 2000, `a` 0.1016 vs 0.1)
+its quadrupole curve continues below the cut-off **rising above `V_S`**,
+to 1.019 `V_S` at 3.2 kHz, rather than lying flat on it. The two
+published figures disagree with each other here, and the flat one has
+the shape of a modal solver returning the branch point below cut-off.
+
+fwap's leaky root agrees with Sinha's at the crossing — 0.00 % and
+0.01 % at the two points nearest it — and then diverges to 1.37 % at
+3.2 kHz, peaking at 1.009 `V_S` where Sinha reaches 1.019. That
+disagreement is unresolved, and is recorded rather than tuned away.
+Turning the leaky branch into a public dispersion function would be a
+new leaky regime and a new public name, which `CONTRIBUTING.md` asks to
+raise as an issue first.
+
 **The twelve Sinha & Asvadurov rows are extracted, not traced**, and that is why
 they score two orders of magnitude tighter than everything else here.
 Sinha & Asvadurov's figures are *vector* artwork, so the curve
