@@ -6,6 +6,42 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **The bound VTI flexural window is no longer truncated** (roadmap
+  A.11 phase 3). `flexural_dispersion_vti` returned `NaN` wherever the
+  Christoffel discriminant went negative, which cost **77 % of the
+  bound window on Thomsen (1986) Mesaverde shale(5) and 57 % on
+  Mesaverde sandstone**. The row builders now consume the complex
+  radial solve, and the qP/qSV columns are put on a real basis by
+  `_recombine_conjugate_columns`.
+
+  **All six Thomsen table-1 media now converge 34/34 over 3-20 kHz and
+  monotonically**, against 7/34 on the two truncated ones. Mesaverde
+  shale(5) runs 2070.94 → 1474.71 m/s over 3-19 kHz with its four
+  bound-regime values unchanged to the digit; the four media that were
+  already clean are unchanged over their whole range.
+
+  Two silent failures on the way, both worth knowing about. Feeding
+  complex columns through the existing `det(M.real)` drops the
+  imaginary halves of two independent solutions and moved the 3 kHz
+  root from 2070.94 to 1500.33 m/s, scattering the band between 750 and
+  1470 — spurious sign changes wearing the shape of a dispersion curve.
+  And a plain conjugate split leaves the determinant vanishing at the
+  branch point where the columns merge, so the finder locked onto that
+  degeneracy and returned the cutoff velocity at every frequency whose
+  true root lay above it. The symmetric divided difference removes
+  both, tending to `df/dalpha` at the merge rather than to zero.
+
+  **Validated by homotopy, because the isotropic oracle cannot reach
+  this.** In the isotropic limit the discriminant is identically the
+  perfect square `A^2 (p^2 - s^2)^2`, so the conjugate regime never
+  arises there (`disc < 0` in zero of 2000 random isotropic media).
+  Scaling Thomsen's parameters from 0 to their Mesaverde values instead
+  anchors the family at the independent `flexural_dispersion` (agreeing
+  to 0.00e+00) and carries it across the point where the conjugate
+  region swallows the mode: 21/21 finite, steps falling monotonically
+  2.014 → 1.313, max second difference 0.053, no kink at the crossing.
+
 ### Added
 - **Sinha & Asvadurov's own published matrix, as a standing independent
   oracle.** The paper prints its boundary-condition matrix (Appendix
