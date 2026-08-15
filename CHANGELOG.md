@@ -6,6 +6,42 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **The bound VTI flexural window is no longer truncated** (roadmap
+  A.11 phase 3). `flexural_dispersion_vti` returned `NaN` wherever the
+  Christoffel discriminant went negative, which cost **77 % of the
+  bound window on Thomsen (1986) Mesaverde shale(5) and 57 % on
+  Mesaverde sandstone**. The row builders now consume the complex
+  radial solve, and the qP/qSV columns are put on a real basis by
+  `_recombine_conjugate_columns`.
+
+  **All six Thomsen table-1 media now converge 34/34 over 3-20 kHz and
+  monotonically**, against 7/34 on the two truncated ones. Mesaverde
+  shale(5) runs 2070.94 → 1474.71 m/s over 3-19 kHz with its four
+  bound-regime values unchanged to the digit; the four media that were
+  already clean are unchanged over their whole range.
+
+  Two silent failures on the way, both worth knowing about. Feeding
+  complex columns through the existing `det(M.real)` drops the
+  imaginary halves of two independent solutions and moved the 3 kHz
+  root from 2070.94 to 1500.33 m/s, scattering the band between 750 and
+  1470 — spurious sign changes wearing the shape of a dispersion curve.
+  And a plain conjugate split leaves the determinant vanishing at the
+  branch point where the columns merge, so the finder locked onto that
+  degeneracy and returned the cutoff velocity at every frequency whose
+  true root lay above it. The symmetric divided difference removes
+  both, tending to `df/dalpha` at the merge rather than to zero.
+
+  **Validated by homotopy, because the isotropic oracle cannot reach
+  this.** In the isotropic limit the discriminant is identically the
+  perfect square `A^2 (p^2 - s^2)^2`, so the conjugate regime never
+  arises there (`disc < 0` in zero of 2000 random isotropic media).
+  Scaling Thomsen's parameters from 0 to their Mesaverde values instead
+  anchors the family at the independent `flexural_dispersion` (agreeing
+  to 0.00e+00) and carries it across the point where the conjugate
+  region swallows the mode: 21/21 finite, steps falling monotonically
+  2.014 → 1.313, max second difference 0.053, no kink at the crossing.
+
 ### Added
 - **Sinha & Asvadurov's own published matrix, as a standing independent
   oracle.** The paper prints its boundary-condition matrix (Appendix
@@ -71,7 +107,40 @@ the project uses [Semantic Versioning](https://semver.org/).
   `Re(p²)` negative while the P wave is still bound, and selecting the
   leaky P branch there costs all 14 decades of agreement.
 
+### Added
+- **`_radial_wavenumbers_vti_complex`** — the VTI Christoffel solve
+  without the real-root restriction (roadmap A.11 phase 2). The existing
+  `_radial_wavenumbers_vti` returns `(nan, nan, nan)` wherever the
+  discriminant goes negative, on the grounds that complex roots are
+  "not physical in the bound regime"; complex-conjugate `alpha^2` pairs
+  are a real feature of TI media, and discarding them costs **77 % of
+  the bound flexural window on Thomsen (1986) Mesaverde shale(5) and
+  57 % on Mesaverde sandstone**.
+
+  **Additive on purpose, and no behaviour changes yet.** Changing the
+  existing function's return type would turn today's `NaN` into a
+  `TypeError` inside the row builders' `float(special.kv(...))` casts —
+  a regression — so the solvers are untouched and phase 3 flips the
+  consumers. The window above is **not** recovered by this entry.
+
+  Validated against the governing equation rather than against the
+  solver that could not produce these values: Christoffel residual
+  ≤ 1.9e-13 for both roots across the conjugate region, agreement with
+  the real solver to 1.8e-13 over 2898 samples where both are defined,
+  `Re(alpha) ≥ 0` in all 3600 samples, continuity through the `disc = 0`
+  branch point, isotropic limit reducing to `(p, s)` at 1e-14, and
+  complex-`k_z` arithmetic sound at 2e-16. The radiating branch is
+  deliberately not offered — no caller exercises it, and an unexercised
+  branch rule is what produced three rootless determinants here.
+
 ### Fixed
+- **`_radial_wavenumbers_vti`'s docstring named the wrong root** (A.11
+  phase 1, documentation only). It said `alpha_qP` was the *smaller*
+  root, in two places, while the code takes `max` and is correct —
+  `V_P > V_S` makes the qP wave decay faster in `r`. Anyone
+  implementing from the docstring would have swapped the labels, and
+  once the roots go complex there is no ordering left to catch it.
+
 - **The VTI determinants accept `complex(kz, 0.0)` instead of crashing,
   and refuse a genuinely complex `k_z` with an explanation.** Handed a
   complex-typed argument they used to raise

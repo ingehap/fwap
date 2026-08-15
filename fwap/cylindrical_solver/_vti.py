@@ -14,7 +14,7 @@ from scipy import optimize, special
 from fwap._common import logger
 from fwap.cylindrical_solver._bessel import (
     _as_real_kz,
-    _radial_wavenumbers_vti,
+    _radial_wavenumbers_vti_complex,
 )
 from fwap.cylindrical_solver._dataclasses import BoreholeMode
 from fwap.cylindrical_solver._n0_isotropic import (
@@ -1169,7 +1169,7 @@ def _modal_row1_at_a_vti(
         ``alpha_qSV`` (the Christoffel roots).
     """
     F_f = float(np.sqrt(kz * kz - (omega / vf) ** 2))
-    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti(
+    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti_complex(
         kz,
         omega,
         c11=c11,
@@ -1181,8 +1181,8 @@ def _modal_row1_at_a_vti(
     )
 
     I1_Ff_a = float(special.iv(1, F_f * a))
-    K1_qP_a = float(special.kv(1, alpha_qP * a))
-    K1_qSV_a = float(special.kv(1, alpha_qSV * a))
+    K1_qP_a = complex(special.kv(1, alpha_qP * a))
+    K1_qSV_a = complex(special.kv(1, alpha_qSV * a))
 
     row: np.ndarray = np.zeros(3, dtype=complex)
     # A column: fluid u_r contribution (matches M11 at any C-matrix).
@@ -1360,7 +1360,7 @@ def _modal_row2_at_a_vti(
         H.c.1.b tests).
     """
     F_f = float(np.sqrt(kz * kz - (omega / vf) ** 2))
-    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti(
+    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti_complex(
         kz,
         omega,
         c11=c11,
@@ -1372,10 +1372,10 @@ def _modal_row2_at_a_vti(
     )
 
     I0_Ff_a = float(special.iv(0, F_f * a))
-    K0_qP_a = float(special.kv(0, alpha_qP * a))
-    K1_qP_a = float(special.kv(1, alpha_qP * a))
-    K0_qSV_a = float(special.kv(0, alpha_qSV * a))
-    K1_qSV_a = float(special.kv(1, alpha_qSV * a))
+    K0_qP_a = complex(special.kv(0, alpha_qP * a))
+    K1_qP_a = complex(special.kv(1, alpha_qP * a))
+    K0_qSV_a = complex(special.kv(0, alpha_qSV * a))
+    K1_qSV_a = complex(special.kv(1, alpha_qSV * a))
 
     rho_omega_sq = rho * omega * omega
     # Stress factor Q_qX = (C44 (C11 alpha_qX^2 + C13 kz^2) - C13 rho omega^2)
@@ -1502,7 +1502,7 @@ def _modal_row3_at_a_vti(
         ``row[2] = M33`` bit-exactly.
     """
     del vf, rho_f  # fluid carries no shear; not used by row 3
-    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti(
+    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti_complex(
         kz,
         omega,
         c11=c11,
@@ -1512,8 +1512,8 @@ def _modal_row3_at_a_vti(
         c66=c66,
         rho=rho,
     )
-    K1_qP_a = float(special.kv(1, alpha_qP * a))
-    K1_qSV_a = float(special.kv(1, alpha_qSV * a))
+    K1_qP_a = complex(special.kv(1, alpha_qP * a))
+    K1_qSV_a = complex(special.kv(1, alpha_qSV * a))
 
     rho_omega_sq = rho * omega * omega
     # Stress factor P_qX = C11 alpha_qX^2 + C13 kz^2 + rho omega^2.
@@ -1829,7 +1829,7 @@ def _modal_row1_at_a_n1_vti(
         K_0 to K_1 for the qP scalar potential.
     """
     F_f, I0_Ff_a, I1_Ff_a = _fluid_bessels_n1_vti(kz, omega, vf, a)
-    alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti(
+    alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti_complex(
         kz,
         omega,
         c11=c11,
@@ -1840,11 +1840,11 @@ def _modal_row1_at_a_n1_vti(
         rho=rho,
     )
 
-    K0_qP_a = float(special.kv(0, alpha_qP * a))
-    K1_qP_a = float(special.kv(1, alpha_qP * a))
-    K0_qSV_a = float(special.kv(0, alpha_qSV * a))
-    K1_qSV_a = float(special.kv(1, alpha_qSV * a))
-    K1_SH_a = float(special.kv(1, alpha_SH * a))
+    K0_qP_a = complex(special.kv(0, alpha_qP * a))
+    K1_qP_a = complex(special.kv(1, alpha_qP * a))
+    K0_qSV_a = complex(special.kv(0, alpha_qSV * a))
+    K1_qSV_a = complex(special.kv(1, alpha_qSV * a))
+    K1_SH_a = complex(special.kv(1, alpha_SH * a))
 
     row: np.ndarray = np.zeros(4, dtype=complex)
     # A column: fluid u_r contribution (matches M11 at any C-matrix).
@@ -1992,7 +1992,7 @@ def _modal_row2_at_a_n1_vti(
         column and the extra K_1/r^2 azimuthal-derivative term.
     """
     _F_f, _I0_Ff_a, I1_Ff_a = _fluid_bessels_n1_vti(kz, omega, vf, a)
-    alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti(
+    alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti_complex(
         kz,
         omega,
         c11=c11,
@@ -2003,12 +2003,12 @@ def _modal_row2_at_a_n1_vti(
         rho=rho,
     )
 
-    K0_qP_a = float(special.kv(0, alpha_qP * a))
-    K1_qP_a = float(special.kv(1, alpha_qP * a))
-    K0_qSV_a = float(special.kv(0, alpha_qSV * a))
-    K1_qSV_a = float(special.kv(1, alpha_qSV * a))
-    K0_SH_a = float(special.kv(0, alpha_SH * a))
-    K1_SH_a = float(special.kv(1, alpha_SH * a))
+    K0_qP_a = complex(special.kv(0, alpha_qP * a))
+    K1_qP_a = complex(special.kv(1, alpha_qP * a))
+    K0_qSV_a = complex(special.kv(0, alpha_qSV * a))
+    K1_qSV_a = complex(special.kv(1, alpha_qSV * a))
+    K0_SH_a = complex(special.kv(0, alpha_SH * a))
+    K1_SH_a = complex(special.kv(1, alpha_SH * a))
 
     rho_omega_sq = rho * omega * omega
     # Q_qX = (C44 (C11 alpha_qX^2 + C13 kz^2) - C13 rho omega^2)
@@ -2156,7 +2156,7 @@ def _modal_row3_at_a_n1_vti(
         ``row[2] = M33``, ``row[3] = M34`` bit-exactly.
     """
     del vf, rho_f  # not used by row 3 (fluid no shear)
-    alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti(
+    alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti_complex(
         kz,
         omega,
         c11=c11,
@@ -2167,12 +2167,12 @@ def _modal_row3_at_a_n1_vti(
         rho=rho,
     )
 
-    K0_qP_a = float(special.kv(0, alpha_qP * a))
-    K1_qP_a = float(special.kv(1, alpha_qP * a))
-    K0_qSV_a = float(special.kv(0, alpha_qSV * a))
-    K1_qSV_a = float(special.kv(1, alpha_qSV * a))
-    K0_SH_a = float(special.kv(0, alpha_SH * a))
-    K1_SH_a = float(special.kv(1, alpha_SH * a))
+    K0_qP_a = complex(special.kv(0, alpha_qP * a))
+    K1_qP_a = complex(special.kv(1, alpha_qP * a))
+    K0_qSV_a = complex(special.kv(0, alpha_qSV * a))
+    K1_qSV_a = complex(special.kv(1, alpha_qSV * a))
+    K0_SH_a = complex(special.kv(0, alpha_SH * a))
+    K1_SH_a = complex(special.kv(1, alpha_SH * a))
 
     row: np.ndarray = np.zeros(4, dtype=complex)
     # A column: fluid carries no shear at the wall.
@@ -2310,7 +2310,7 @@ def _modal_row4_at_a_n1_vti(
         K_1 at n=0).
     """
     del vf, rho_f  # not used by row 4 (fluid no shear)
-    alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti(
+    alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti_complex(
         kz,
         omega,
         c11=c11,
@@ -2321,11 +2321,11 @@ def _modal_row4_at_a_n1_vti(
         rho=rho,
     )
 
-    K0_qP_a = float(special.kv(0, alpha_qP * a))
-    K1_qP_a = float(special.kv(1, alpha_qP * a))
-    K0_qSV_a = float(special.kv(0, alpha_qSV * a))
-    K1_qSV_a = float(special.kv(1, alpha_qSV * a))
-    K1_SH_a = float(special.kv(1, alpha_SH * a))
+    K0_qP_a = complex(special.kv(0, alpha_qP * a))
+    K1_qP_a = complex(special.kv(1, alpha_qP * a))
+    K0_qSV_a = complex(special.kv(0, alpha_qSV * a))
+    K1_qSV_a = complex(special.kv(1, alpha_qSV * a))
+    K1_SH_a = complex(special.kv(1, alpha_SH * a))
 
     rho_omega_sq = rho * omega * omega
     p_qP = c11 * alpha_qP * alpha_qP + c13 * kz * kz + rho_omega_sq
@@ -2449,6 +2449,77 @@ def _modal_determinant_n1_vti(
     return float(np.linalg.det(M.real))
 
 
+def _recombine_conjugate_columns(
+    M: np.ndarray,
+    kz: complex,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+) -> np.ndarray:
+    r"""
+    Put the qP / qSV columns on a real basis when their radial
+    wavenumbers are a conjugate pair.
+
+    The two builders share one functional form ``f`` and differ only
+    by a real factor: ``col_qP = f(alpha_qP)`` and
+    ``col_qSV = k_z f(alpha_qSV)`` (verified to the digit -- the
+    residual ``||col_qSV - k_z conj(col_qP)||`` vanishes where the
+    roots are conjugate). The pair is replaced by
+
+    ``(f(alpha_qP) + f(alpha_qSV)) / 2``  and
+    ``(f(alpha_qP) - f(alpha_qSV)) / (alpha_qP - alpha_qSV)``
+
+    which span the same space, so every root survives, and which are
+    **real in both regimes**: real roots give real ``f``, and a
+    conjugate pair gives ``Re f`` and ``Im f / Im(alpha)``.
+
+    Two failures this avoids, both silent. Taking ``det(M.real)``
+    across genuinely complex columns drops the imaginary halves of two
+    independent solutions and returns a determinant whose sign changes
+    are spurious -- on Mesaverde shale(5) it moves the 3 kHz root from
+    2070.94 to 1500.33 m/s and scatters the band between 750 and 1470.
+    And a plain conjugate split, correct on its own side, leaves the
+    determinant vanishing at the branch point itself, where the two
+    columns merge: the root finder then locks onto that degeneracy and
+    reports the cutoff velocity (1760.58 m/s) at every frequency whose
+    true root lies above it. The divided difference removes both,
+    because it tends to ``df/dalpha`` at the merge instead of to
+    zero -- the secular solution a repeated root actually calls for.
+
+    Parameters
+    ----------
+    M : ndarray
+        ``(4, 4)`` assembled modal matrix; columns 1 and 2 are qP and
+        qSV.
+    kz, omega, c11, c13, c33, c44, c66, rho
+        As for the row builders, used to recover the root pair.
+
+    Returns
+    -------
+    ndarray
+        ``M`` unchanged where the roots are real, or with columns 1
+        and 2 replaced by a real-spanning pair where they are
+        conjugate.
+    """
+    alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti_complex(
+        kz, omega, c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho
+    )
+    split = alpha_qP - alpha_qSV
+    if split == 0.0 or kz == 0.0:
+        return M
+    out = M.copy()
+    g_qP = M[:, 1]
+    g_qSV = M[:, 2] / kz
+    out[:, 1] = 0.5 * (g_qP + g_qSV)
+    out[:, 2] = (g_qP - g_qSV) / split
+    return out
+
+
 def _modal_matrix_n1_vti(
     kz: complex,
     omega: float,
@@ -2488,13 +2559,24 @@ def _modal_matrix_n1_vti(
         rho_f=rho_f,
         a=a,
     )
-    return np.vstack(
+    M = np.vstack(
         [
             _modal_row1_at_a_n1_vti(kz, omega, **kw),
             _modal_row2_at_a_n1_vti(kz, omega, **kw),
             _modal_row3_at_a_n1_vti(kz, omega, **kw),
             _modal_row4_at_a_n1_vti(kz, omega, **kw),
         ]
+    )
+    return _recombine_conjugate_columns(
+        M,
+        kz,
+        omega,
+        c11=c11,
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c66,
+        rho=rho,
     )
 
 

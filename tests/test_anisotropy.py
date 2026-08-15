@@ -1913,3 +1913,454 @@ def test_vti_group_wavefront_cartesian_coordinates_form_smooth_curve():
     assert np.all(np.diff(x) > 0)
     # z is monotonically decreasing.
     assert np.all(np.diff(z) < 0)
+
+
+# ----------------------------------------------------------------------
+# A.11 phase 0: where the VTI radial solve gives up, and what it costs
+# ----------------------------------------------------------------------
+
+#: Thomsen (1986) table 1, as ``(V_P0, V_S0, rho, epsilon, delta, gamma)``.
+_THOMSEN_TABLE_1 = {
+    "Green River shale": (3292.0, 1768.0, 2075.0, 0.195, -0.220, 0.180),
+    "Mesaverde shale(5)": (3794.0, 2074.0, 2560.0, 0.189, 0.204, 0.175),
+    "Mesaverde sandstone": (4529.0, 2703.0, 2460.0, 0.033, 0.040, 0.019),
+    "Pierre shale": (2074.0, 869.0, 2250.0, 0.110, 0.090, 0.165),
+    "Taylor sandstone": (3368.0, 1829.0, 2500.0, 0.110, -0.035, 0.255),
+    "Dog Creek shale": (1875.0, 826.0, 2000.0, 0.225, 0.100, 0.345),
+}
+
+
+def _thomsen_stiffness(entry: tuple[float, ...]) -> dict[str, float]:
+    vp0, vs0, rho, eps, delta, gamma = entry
+    c33, c44 = rho * vp0**2, rho * vs0**2
+    c13 = np.sqrt(max(2 * c33 * (c33 - c44) * delta + (c33 - c44) ** 2, 0.0)) - c44
+    return dict(
+        c11=c33 * (1.0 + 2.0 * eps),
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c44 * (1.0 + 2.0 * gamma),
+        rho=rho,
+    )
+
+
+def _christoffel_discriminant(kz: float, omega: float, s: dict[str, float]) -> float:
+    r = s["rho"] * omega * omega
+    a_eff = s["c11"] * s["c44"]
+    b_eff = (s["c11"] + s["c44"]) * r - (
+        s["c11"] * s["c33"] + s["c44"] * s["c44"] - (s["c13"] + s["c44"]) ** 2
+    ) * kz * kz
+    c_eff = s["c44"] * s["c33"] * kz**4 - (s["c44"] + s["c33"]) * r * kz * kz + r * r
+    return float(b_eff * b_eff - 4.0 * a_eff * c_eff)
+
+
+def test_the_vti_radial_solve_gives_up_where_the_discriminant_turns_negative():
+    """Measured limitation, recorded so the fix has a target.
+
+    ``_radial_wavenumbers_vti`` returns ``(nan, nan, nan)`` when the
+    Christoffel quadratic's discriminant goes negative, on the stated
+    grounds that complex roots are "not physical in the bound regime".
+    Complex-conjugate ``alpha^2`` pairs are a real feature of TI media
+    rather than an error state, so that early return costs a genuine
+    part of the bound window -- on two of Thomsen's six table-1 media,
+    most of it.
+
+    This is A.11 phase 0. It pins the size of the gap rather than
+    asserting the mode continues past it: showing that needs the
+    conjugate-pair handling itself, which is phase 2, and this test is
+    what phase 2 has to move.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti
+
+    omega = 2.0 * np.pi * 8000.0
+    clean, truncated = [], {}
+    for name, entry in _THOMSEN_TABLE_1.items():
+        s = _thomsen_stiffness(entry)
+        v_sv = np.sqrt(s["c44"] / s["rho"])
+        speeds = np.linspace(700.0, v_sv * 0.999, 700)
+        negative = np.array(
+            [_christoffel_discriminant(omega / c, omega, s) < 0.0 for c in speeds]
+        )
+        if not negative.any():
+            clean.append(name)
+            continue
+        cutoff = speeds[negative].max()
+        truncated[name] = (cutoff, float(negative.mean()))
+        # Where the discriminant is negative the solve reports nothing ...
+        below = _radial_wavenumbers_vti(omega / (cutoff * 0.99), omega, **s)
+        assert all(np.isnan(x) for x in below), (name, below)
+        # ... and just above it the three wavenumbers are finite and real.
+        above = _radial_wavenumbers_vti(omega / (cutoff * 1.02), omega, **s)
+        assert all(np.isfinite(x) and x > 0.0 for x in above), (name, above)
+
+    assert set(truncated) == {"Mesaverde shale(5)", "Mesaverde sandstone"}, truncated
+    assert len(clean) == 4, clean
+    # The cost is most of the window on both, not a sliver at the edge.
+    assert truncated["Mesaverde shale(5)"][1] > 0.70, truncated
+    assert truncated["Mesaverde sandstone"][1] > 0.50, truncated
+
+
+def test_the_bound_vti_flexural_branch_now_crosses_that_cutoff():
+    """A.11 phase 3 moved this: the branch used to stop at the cutoff.
+
+    Before phase 3 ``flexural_dispersion_vti`` descended 2071 -> 1783
+    m/s over 3-6 kHz on Mesaverde shale(5) and returned ``NaN`` from
+    7 kHz up, stopping just above the discriminant cutoff near 1759 and
+    far above every physical edge (``V_f`` is 1500). With the conjugate
+    columns recombined it runs the whole band, and the four frequencies
+    that already worked are unchanged to the digit.
+    """
+    from fwap import flexural_dispersion_vti
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Mesaverde shale(5)"])
+    freq = np.arange(3000.0, 20000.0, 1000.0)
+    c = (
+        1.0
+        / flexural_dispersion_vti(freq, **s, vf=1500.0, rho_f=1000.0, a=0.10).slowness
+    )
+
+    assert np.isfinite(c).all(), c
+
+    # The bound-regime values are a regression guard: phase 3 must not
+    # have moved what already worked.
+    for freq_hz, expected in (
+        (3000.0, 2070.94),
+        (4000.0, 2042.40),
+        (5000.0, 1934.83),
+        (6000.0, 1782.65),
+    ):
+        got = c[freq == freq_hz][0]
+        assert abs(got - expected) < 0.01, (freq_hz, got, expected)
+
+    # Monotone descent, with the step shrinking -- a dispersion curve,
+    # not a scatter. The pre-phase-3 mechanical change (complex columns
+    # through ``det(M.real)``) produced 1500 -> 1470 -> nan -> 817 ->
+    # 1470 here, which this rejects.
+    steps = np.diff(c)
+    assert np.all(steps < 0.0), c
+    assert np.all(np.diff(steps[3:]) > 0.0), steps
+    # It descends past the cutoff the discriminant sets.
+    omega = 2.0 * np.pi * 8000.0
+    speeds = np.linspace(700.0, np.sqrt(s["c44"] / s["rho"]) * 0.999, 700)
+    negative = np.array(
+        [_christoffel_discriminant(omega / v, omega, s) < 0.0 for v in speeds]
+    )
+    assert c.min() < speeds[negative].max(), (c.min(), speeds[negative].max())
+
+
+def test_the_recovered_vti_branch_is_continuous_in_the_anisotropy_homotopy():
+    """The oracle for phase 3, and the reason it is trustworthy at all.
+
+    The isotropic limit **cannot** validate this: there the Christoffel
+    discriminant is identically the perfect square
+    ``A^2 (p^2 - s^2)^2``, so the conjugate regime never arises and the
+    oracle that anchored #131, #132 and phase 2 has nothing to say.
+
+    What replaces it is a homotopy. Scaling Thomsen's parameters from 0
+    to their Mesaverde shale(5) values sweeps the medium from isotropic
+    -- where an independent solver, ``flexural_dispersion``, gives the
+    answer -- to the one whose window was truncated. The conjugate
+    region grows with ``t`` and swallows the mode near ``t = 0.55``, so
+    before phase 3 the family broke there. The recovered branch must
+    continue it *smoothly*: a different mode, or the same mode on the
+    wrong branch, would show as a kink exactly at that crossing.
+    """
+    from fwap import flexural_dispersion, flexural_dispersion_vti
+
+    vp0, vs0, rho = 3794.0, 2074.0, 2560.0
+    eps0, delta0, gamma0 = 0.189, 0.204, 0.175
+    c33, c44 = rho * vp0**2, rho * vs0**2
+
+    def stiffness(t: float) -> dict[str, float]:
+        eps, delta, gamma = eps0 * t, delta0 * t, gamma0 * t
+        c13 = np.sqrt(max(2 * c33 * (c33 - c44) * delta + (c33 - c44) ** 2, 0.0)) - c44
+        return dict(
+            c11=c33 * (1 + 2 * eps),
+            c13=c13,
+            c33=c33,
+            c44=c44,
+            c66=c44 * (1 + 2 * gamma),
+            rho=rho,
+        )
+
+    freq = np.array([8000.0])
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+    speeds = np.array(
+        [
+            1.0 / flexural_dispersion_vti(freq, **stiffness(t), **fluid).slowness[0]
+            for t in np.arange(0.0, 1.001, 0.05)
+        ]
+    )
+    assert np.isfinite(speeds).all(), speeds
+
+    # Anchored at the isotropic end by a different code path entirely.
+    isotropic = (
+        1.0 / flexural_dispersion(freq, vp=vp0, vs=vs0, rho=rho, **fluid).slowness[0]
+    )
+    assert abs(speeds[0] - isotropic) < 1e-9, (speeds[0], isotropic)
+
+    # Smooth all the way across, including the t ~ 0.55 crossing where
+    # the conjugate region takes the mode and the family used to end.
+    steps = np.diff(speeds)
+    assert np.all(steps > 0.0), steps
+    assert np.all(np.diff(steps) < 0.0), steps
+    assert np.max(np.abs(np.diff(steps))) < 0.2, steps
+
+
+def test_the_isotropic_limit_cannot_reach_the_conjugate_regime():
+    """Why phase 3 needed a new oracle, pinned as a fact.
+
+    With ``c11 = c33``, ``c44 = c66`` and ``c13 = c11 - 2 c44`` the
+    Christoffel quadratic factors as ``A (x - p^2)(x - s^2)``, so its
+    discriminant is ``A^2 (p^2 - s^2)^2`` -- a perfect square, never
+    negative. No isotropic medium at any frequency produces the
+    conjugate pair, so the isotropic oracle cannot test the path phase 3
+    opens.
+    """
+    rng = np.random.default_rng(0)
+    worst, negative = 0.0, 0
+    for _ in range(2000):
+        rho = rng.uniform(1800.0, 2900.0)
+        vs = rng.uniform(600.0, 3200.0)
+        vp = vs * rng.uniform(1.45, 2.4)
+        mu = rho * vs * vs
+        lam = rho * vp * vp - 2 * mu
+        s = dict(
+            c11=lam + 2 * mu,
+            c13=lam,
+            c33=lam + 2 * mu,
+            c44=mu,
+            c66=mu,
+            rho=rho,
+        )
+        omega = 2.0 * np.pi * rng.uniform(2000.0, 20000.0)
+        kz = omega / rng.uniform(500.0, 4000.0)
+        disc = _christoffel_discriminant(kz, omega, s)
+        if disc < 0.0:
+            negative += 1
+        predicted = (
+            s["c11"]
+            * s["c44"]
+            * ((kz**2 - (omega / vp) ** 2) - (kz**2 - (omega / vs) ** 2))
+        ) ** 2
+        worst = max(worst, abs(disc - predicted) / max(abs(predicted), 1e-30))
+    assert negative == 0, negative
+    assert worst < 1e-9, worst
+
+
+# ----------------------------------------------------------------------
+# A.11 phase 2: the radial solve, without the real-root restriction
+#
+# Nothing consumes this yet -- the row builders still cast their
+# formation Bessels to float, so the 77 % / 57 % window phase 0
+# measured is not recovered until phase 3 flips them. What is
+# established here is that the values are right where the old solver
+# gives up, checked against the governing equation rather than against
+# the solver that could not produce them.
+# ----------------------------------------------------------------------
+
+
+def _christoffel_residual(alpha: complex, kz: complex, omega: float, s) -> float:
+    """``|A x^2 + B x + C| / scale`` at ``x = alpha^2``: how well a
+    returned wavenumber satisfies the quadratic it came from."""
+    r = s["rho"] * omega * omega
+    a_eff = s["c11"] * s["c44"]
+    b_eff = (s["c11"] + s["c44"]) * r - (
+        s["c11"] * s["c33"] + s["c44"] * s["c44"] - (s["c13"] + s["c44"]) ** 2
+    ) * kz * kz
+    c_eff = s["c44"] * s["c33"] * kz**4 - (s["c44"] + s["c33"]) * r * kz * kz + r * r
+    x = complex(alpha) ** 2
+    scale = max(abs(a_eff * x * x), abs(b_eff * x), abs(c_eff), 1.0)
+    return float(abs(a_eff * x * x + b_eff * x + c_eff) / scale)
+
+
+def test_the_complex_radial_solve_matches_the_real_one_where_both_are_defined():
+    """Additive, not a replacement: identical wherever the old one answers."""
+    from fwap.cylindrical_solver._bessel import (
+        _radial_wavenumbers_vti,
+        _radial_wavenumbers_vti_complex,
+    )
+
+    worst, compared = 0.0, 0
+    for entry in _THOMSEN_TABLE_1.values():
+        s = _thomsen_stiffness(entry)
+        v_sv = np.sqrt(s["c44"] / s["rho"])
+        for freq in (3000.0, 8000.0, 15000.0):
+            omega = 2.0 * np.pi * freq
+            for c in np.linspace(760.0, v_sv * 0.999, 60):
+                real = _radial_wavenumbers_vti(omega / c, omega, **s)
+                if not all(np.isfinite(x) for x in real):
+                    continue
+                got = _radial_wavenumbers_vti_complex(omega / c, omega, **s)
+                for u, v in zip(real, got):
+                    assert abs(complex(v).imag) < 1e-12, (u, v)
+                    worst = max(worst, abs(u - complex(v)) / max(abs(u), 1e-30))
+                    compared += 1
+    assert compared > 1000, compared
+    assert worst < 1e-11, worst
+
+
+def test_the_complex_radial_solve_answers_where_the_real_one_gives_up():
+    """The conjugate-pair regime, checked against the governing equation.
+
+    This is the claim phase 0 could not make: on the two media whose
+    discriminant turns negative the solve now returns a conjugate pair
+    that satisfies the Christoffel quadratic to ~1e-13, over exactly
+    the window the real solver reports as ``NaN``. Both members decay
+    (``Re(alpha) >= 0``), so they are admissible bound-mode columns.
+    """
+    from fwap.cylindrical_solver._bessel import (
+        _radial_wavenumbers_vti,
+        _radial_wavenumbers_vti_complex,
+    )
+
+    omega = 2.0 * np.pi * 8000.0
+    for name in ("Mesaverde shale(5)", "Mesaverde sandstone"):
+        s = _thomsen_stiffness(_THOMSEN_TABLE_1[name])
+        v_sv = np.sqrt(s["c44"] / s["rho"])
+        conjugate, worst = 0, 0.0
+        for c in np.linspace(760.0, v_sv * 0.999, 300):
+            kz = omega / c
+            if all(np.isfinite(x) for x in _radial_wavenumbers_vti(kz, omega, **s)):
+                continue  # the real solver handles this one
+            qp, qsv, sh = _radial_wavenumbers_vti_complex(kz, omega, **s)
+            assert abs(qp - np.conj(qsv)) < 1e-9 * abs(qp), (name, c, qp, qsv)
+            for alpha in (qp, qsv, sh):
+                assert complex(alpha).real >= -1e-12, (name, c, alpha)
+            # Only qP and qSV are roots of the quadratic; SH comes from
+            # its own closed form and is checked against that instead.
+            worst = max(
+                worst,
+                _christoffel_residual(qp, kz, omega, s),
+                _christoffel_residual(qsv, kz, omega, s),
+            )
+            sh_expected = np.sqrt(
+                complex((s["c44"] * kz * kz - s["rho"] * omega**2) / s["c66"])
+            )
+            assert abs(sh - sh_expected) < 1e-9 * max(abs(sh_expected), 1.0), (
+                name,
+                c,
+                sh,
+            )
+            conjugate += 1
+        assert conjugate > 100, (name, conjugate)
+        assert worst < 1e-10, (name, worst)
+
+
+def test_the_complex_radial_solve_is_continuous_through_the_branch_point():
+    """The roots merge and split rather than jumping.
+
+    ``disc = 0`` is a square-root branch point: approached from the
+    real side the two roots converge, and past it they separate into a
+    conjugate pair with the same real part. A labelling that swapped
+    them, or a branch that flipped sign, would show as a step here.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti_complex
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Mesaverde shale(5)"])
+    omega = 2.0 * np.pi * 8000.0
+    lo, hi = 1700.0, 1800.0
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        if _christoffel_discriminant(omega / mid, omega, s) < 0.0:
+            lo = mid
+        else:
+            hi = mid
+
+    offsets = (5.0, 2.0, 1.0, 0.2, 0.05, -0.05, -0.2, -1.0, -2.0, -5.0)
+    previous, steps = None, []
+    for d in offsets:
+        qp, qsv, _ = _radial_wavenumbers_vti_complex(omega / (hi + d), omega, **s)
+        if d < 0.0:
+            assert abs(qp - np.conj(qsv)) < 1e-9 * abs(qp), (d, qp, qsv)
+            assert abs(qp.imag) > 0.0, (d, qp)
+        else:
+            assert abs(qp.imag) < 1e-9 and abs(qsv.imag) < 1e-9, (d, qp, qsv)
+            assert qp.real >= qsv.real, (d, qp, qsv)
+        if previous is not None:
+            steps.append(abs(qp - previous[0]) + abs(qsv - previous[1]))
+        previous = (qp, qsv)
+    # Small and smooth across the crossing, not a jump at one point.
+    assert max(steps) < 1.0, steps
+    assert max(steps) < 8.0 * min(steps), steps
+
+
+def test_the_complex_radial_solve_reduces_to_p_and_s_and_handles_complex_kz():
+    """Isotropic limit, and the leaky-side arithmetic.
+
+    At isotropic constants the three wavenumbers must be the ordinary
+    ``p``, ``s``, ``s``. Complex ``k_z`` is not a supported solver
+    regime -- no driver reaches it and the radiating branch is not
+    offered -- but the arithmetic must not fall over, since phase 4 is
+    where it becomes load-bearing.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti_complex
+
+    vp, vs, rho = 3658.0, 2032.0, 2350.0
+    c44 = rho * vs**2
+    c11 = rho * vp**2
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+    for freq, c in ((6000.0, 1700.0), (11000.0, 1400.0)):
+        omega = 2.0 * np.pi * freq
+        kz = omega / c
+        qp, qsv, sh = _radial_wavenumbers_vti_complex(kz, omega, **iso)
+        assert abs(qp - np.sqrt(kz**2 - (omega / vp) ** 2)) < 1e-12
+        assert abs(qsv - np.sqrt(kz**2 - (omega / vs) ** 2)) < 1e-12
+        assert abs(sh - np.sqrt(kz**2 - (omega / vs) ** 2)) < 1e-12
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Mesaverde shale(5)"])
+    omega = 2.0 * np.pi * 8000.0
+    for c in (1500.0, 1800.0, 2000.0):
+        for damping in (0.01, 0.1, 0.5, 1.0):
+            kz = omega / c + 1j * damping
+            qp, qsv, sh = _radial_wavenumbers_vti_complex(kz, omega, **s)
+            for alpha in (qp, qsv, sh):
+                assert np.isfinite(complex(alpha))
+                assert complex(alpha).real >= -1e-12, (c, damping, alpha)
+            assert _christoffel_residual(qp, kz, omega, s) < 1e-10
+            assert _christoffel_residual(qsv, kz, omega, s) < 1e-10
+
+
+def test_the_qsv_column_is_the_qp_column_conjugated_and_scaled():
+    """The structural fact the recombination rests on.
+
+    ``_recombine_conjugate_columns`` replaces the qP / qSV pair with a
+    divided difference, which is only a change of basis if the two
+    columns really are one function evaluated at the two roots. They
+    are: the builders differ by a factor ``k_z``, so where the roots
+    are conjugate ``col_qSV = k_z conj(col_qP)`` exactly. Checked on
+    the raw rows, before recombination.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti_complex
+    from fwap.cylindrical_solver._vti import (
+        _modal_row1_at_a_n1_vti,
+        _modal_row2_at_a_n1_vti,
+        _modal_row3_at_a_n1_vti,
+        _modal_row4_at_a_n1_vti,
+    )
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Mesaverde shale(5)"])
+    kw = dict(**s, vf=1500.0, rho_f=1000.0, a=0.10)
+    omega = 2.0 * np.pi * 8000.0
+
+    checked, worst = 0, 0.0
+    for c in (1200.0, 1400.0, 1600.0, 1700.0, 1750.0):
+        kz = omega / c
+        qp, qsv, _ = _radial_wavenumbers_vti_complex(kz, omega, **s)
+        if qp.imag == 0.0:
+            continue
+        assert abs(qp - qsv.conjugate()) < 1e-9 * abs(qp), (c, qp, qsv)
+        raw = np.vstack(
+            [
+                _modal_row1_at_a_n1_vti(kz, omega, **kw),
+                _modal_row2_at_a_n1_vti(kz, omega, **kw),
+                _modal_row3_at_a_n1_vti(kz, omega, **kw),
+                _modal_row4_at_a_n1_vti(kz, omega, **kw),
+            ]
+        )
+        col_qP, col_qSV = raw[:, 1], raw[:, 2]
+        residual = np.linalg.norm(col_qSV - kz * np.conj(col_qP))
+        worst = max(worst, residual / max(np.linalg.norm(col_qSV), 1e-30))
+        checked += 1
+    assert checked >= 4, checked
+    assert worst < 1e-12, worst
