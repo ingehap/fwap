@@ -26271,3 +26271,100 @@ def _n1_isotropic_module():
     from fwap.cylindrical_solver import _n1_isotropic
 
     return _n1_isotropic
+
+
+def test_the_vti_determinants_accept_a_complex_with_zero_imaginary_part():
+    """``complex(kz, 0.0)`` is a real number and is treated as one.
+
+    The isotropic drivers call their complex determinant as
+    ``_modal_determinant_n1_complex(complex(kz, 0.0), ...)``. Handed the
+    same thing the VTI determinants used to raise
+    ``'<' not supported between instances of 'complex' and 'float'``
+    from inside a private wavenumber helper, which made the two
+    families gratuitously incompatible over a value that carries no
+    imaginary part at all.
+
+    Bit-identical, not merely close: the coercion happens before any
+    arithmetic, so the float path is untouched.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti
+    from fwap.cylindrical_solver._vti import _modal_determinant_n1_vti_complex
+
+    medium = _LQ_SINHA
+    stiffness = _iso_stiffness_from(medium)
+    shale = dict(**_green_river_shale_stiffness(), vf=1500.0, rho_f=1000.0, a=0.10)
+    dets = (
+        _modal_determinant_n0_vti,
+        _modal_determinant_n1_vti,
+        _modal_determinant_n1_vti_complex,
+    )
+    checked = 0
+    for kwargs in (stiffness, shale):
+        for freq in (3000.0, 7000.0, 11000.0):
+            omega = 2.0 * np.pi * freq
+            for c in (1200.0, 1450.0, 1700.0, 2100.0):
+                kz = omega / c
+                for det in dets:
+                    got = det(kz, omega, **kwargs)
+                    same = det(complex(kz, 0.0), omega, **kwargs)
+                    if np.isnan(np.real(got)):
+                        assert np.isnan(np.real(same)), (det.__name__, freq, c)
+                    else:
+                        assert got == same, (det.__name__, freq, c, got, same)
+                    checked += 1
+            # and the shared wavenumber helper underneath them
+            real = _radial_wavenumbers_vti(
+                omega / 1700.0,
+                omega,
+                **{k: v for k, v in kwargs.items() if k not in ("vf", "rho_f", "a")},
+            )
+            widened = _radial_wavenumbers_vti(
+                complex(omega / 1700.0, 0.0),
+                omega,
+                **{k: v for k, v in kwargs.items() if k not in ("vf", "rho_f", "a")},
+            )
+            assert real == widened, (freq, real, widened)
+    assert checked >= 60, checked
+
+
+def test_a_genuinely_complex_kz_is_refused_with_an_explanation():
+    """No leaky VTI path, and the error says so.
+
+    This is deliberately not made to work. The VTI stack is real-``k_z``
+    by construction rather than by convention: ``_radial_wavenumbers_vti``
+    returns ``tuple[float, float, float]`` and every row builder casts
+    its formation Bessels with ``float(special.kv(...))``. Supporting a
+    complex ``k_z`` means continuing the qP, qSV and SH columns onto
+    radiating branches -- a per-wave choice the isotropic path spells
+    out as explicit ``leaky_p`` / ``leaky_s`` flags, and one that on
+    this codebase has three times produced a determinant with no root
+    where the wrong branch was picked. Silently continuing on the
+    principal branch would be the plausible-looking version of that
+    mistake.
+
+    So the contract is enforced where it can be seen, with a message
+    that names what is missing rather than surfacing a comparison
+    failure from a helper the caller never invoked.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti
+    from fwap.cylindrical_solver._vti import _modal_determinant_n1_vti_complex
+
+    medium = _LQ_SINHA
+    stiffness = _iso_stiffness_from(medium)
+    omega = 2.0 * np.pi * 6000.0
+    kz = complex(omega / 1700.0, 0.05)
+
+    for det in (
+        _modal_determinant_n0_vti,
+        _modal_determinant_n1_vti,
+        _modal_determinant_n1_vti_complex,
+    ):
+        with pytest.raises(NotImplementedError, match="k_z must be real"):
+            det(kz, omega, **stiffness)
+
+    with pytest.raises(NotImplementedError, match="leaky_p"):
+        _radial_wavenumbers_vti(
+            kz,
+            omega,
+            **{k: v for k, v in stiffness.items() if k not in ("vf", "rho_f", "a")},
+        )

@@ -71,6 +71,36 @@ the project uses [Semantic Versioning](https://semver.org/).
   `Re(p²)` negative while the P wave is still bound, and selecting the
   leaky P branch there costs all 14 decades of agreement.
 
+### Fixed
+- **The VTI determinants accept `complex(kz, 0.0)` instead of crashing,
+  and refuse a genuinely complex `k_z` with an explanation.** Handed a
+  complex-typed argument they used to raise
+  ``'<' not supported between instances of 'complex' and 'float'`` from
+  inside `_radial_wavenumbers_vti` — a message naming neither the
+  caller's mistake nor what was missing.
+
+  Two separate things were wrong. A `complex` with zero imaginary part
+  *is* a real number, and the isotropic drivers call their complex
+  determinant exactly that way (`complex(kz, 0.0)`), so refusing it made
+  the two families gratuitously incompatible; it is now coerced before
+  any arithmetic and the float path is untouched — **17,472 evaluations
+  across two media, 56 frequencies and 52 velocities are bit-identical**.
+
+  A genuinely complex `k_z` is a different matter and is **deliberately
+  not made to work**. The VTI stack is real-`k_z` by construction, not
+  by convention: `_radial_wavenumbers_vti` returns
+  `tuple[float, float, float]` and every row builder casts its formation
+  Bessels with `float(special.kv(...))`. Supporting one means continuing
+  the qP, qSV and SH columns onto radiating branches — a per-wave choice
+  the isotropic path spells out as explicit `leaky_p` / `leaky_s` flags,
+  and one that on this codebase has three times produced a determinant
+  with no root where the wrong branch was taken. Silently continuing on
+  the principal branch would be the plausible-looking version of that
+  mistake, so the contract is enforced at the four determinants and at
+  the shared wavenumber helper, with a message that says what is
+  missing. **Leaky VTI remains unimplemented**; this makes that visible
+  rather than fixing it.
+
 ### Changed
 - **The sub-fluid continuation now lives inside the marcher**, and
   `real_det` is a required keyword argument of

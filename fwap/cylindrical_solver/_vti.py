@@ -12,7 +12,10 @@ import numpy as np
 from scipy import optimize, special
 
 from fwap._common import logger
-from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti
+from fwap.cylindrical_solver._bessel import (
+    _as_real_kz,
+    _radial_wavenumbers_vti,
+)
 from fwap.cylindrical_solver._dataclasses import BoreholeMode
 from fwap.cylindrical_solver._n0_isotropic import (
     stoneley_dispersion,
@@ -1562,7 +1565,7 @@ def _modal_row3_at_a_vti(
 
 
 def _modal_determinant_n0_vti(
-    kz: float,
+    kz: complex,
     omega: float,
     *,
     c11: float,
@@ -1612,6 +1615,7 @@ def _modal_determinant_n0_vti(
         ``det(M)`` of the 3x3 VTI Stoneley modal matrix, real-
         valued in the bound regime. NaN outside the bound regime.
     """
+    kz = _as_real_kz(kz, caller="_modal_determinant_n0_vti")
     rows = [
         _modal_row1_at_a_vti(
             kz,
@@ -2368,7 +2372,7 @@ def _modal_row4_at_a_n1_vti(
 
 
 def _modal_determinant_n1_vti(
-    kz: float,
+    kz: complex,
     omega: float,
     *,
     c11: float,
@@ -2418,6 +2422,7 @@ def _modal_determinant_n1_vti(
         ``det(M)`` of the 4x4 VTI flexural modal matrix, real-
         valued in the bound regime. NaN outside the bound regime.
     """
+    kz = _as_real_kz(kz, caller="_modal_determinant_n1_vti")
     if kz * kz - (omega / vf) ** 2 < 0.0:
         # Fast-formation regime: the fluid Bessels are oscillatory and
         # the rows are genuinely complex, so ``M.real`` would be a
@@ -2445,7 +2450,7 @@ def _modal_determinant_n1_vti(
 
 
 def _modal_matrix_n1_vti(
-    kz: float,
+    kz: complex,
     omega: float,
     *,
     c11: float,
@@ -2471,6 +2476,7 @@ def _modal_matrix_n1_vti(
     ndarray
         ``(4, 4)`` complex array.
     """
+    kz = _as_real_kz(kz, caller="_modal_matrix_n1_vti")
     kw = dict(
         c11=c11,
         c13=c13,
@@ -2493,7 +2499,7 @@ def _modal_matrix_n1_vti(
 
 
 def _modal_determinant_n1_vti_complex(
-    kz: float,
+    kz: complex,
     omega: float,
     *,
     c11: float,
@@ -2534,8 +2540,11 @@ def _modal_determinant_n1_vti_complex(
 
     Parameters
     ----------
-    kz : float
-        Trial axial wavenumber (rad / m), real.
+    kz : complex
+        Trial axial wavenumber (rad / m). Real-valued: a ``float``, or
+        a ``complex`` whose imaginary part is zero. See
+        :func:`_as_real_kz` for why a genuinely complex one is refused
+        rather than continued onto some branch.
     omega : float
         Angular frequency (rad / s).
     c11, c13, c33, c44, c66 : float
@@ -2554,6 +2563,7 @@ def _modal_determinant_n1_vti_complex(
         floating-point precision and the real part equals
         :func:`_modal_determinant_n1_vti`.
     """
+    kz = _as_real_kz(kz, caller="_modal_determinant_n1_vti_complex")
     M = _modal_matrix_n1_vti(
         kz,
         omega,
