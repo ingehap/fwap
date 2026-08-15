@@ -830,10 +830,23 @@ def _fill_slow_cased_leaky_n1(
     two misses into one, then extended the upper leg down from 14.00 to
     13.25 kHz -- and on the ``_A2`` stack from 5.00 to 4.25 kHz, closing
     a one-sample hole at 8.0 kHz that fixture had carried since it was
-    first measured. One frequency is still missed at each leg's lower
-    edge (13.00 and 4.00 respectively, both with a root by contour):
-    the march is one-directional, so it re-acquires at a sweep pick and
-    continues upward, never revisiting the frequency just below.
+    first measured. A **downward pass** then walks each leg back from
+    the frequency it was entered at, which both marching passes reach
+    from below; on ``_A2`` that recovers 4.00 kHz and the leg ends where
+    the roots do, with a contour counting none at 3.75.
+
+    **Schmitt & Cheng's 13.00 kHz is a different cause, and an earlier
+    note here got it wrong.** It was attributed to the march being
+    one-directional, which is what ``_A2``'s 4.00 kHz was. Measured: the
+    descent does reach 13.00 and finds a root at **1497.11 m/s**, inside
+    the window's 1499.25 ceiling but inside the 0.2 % dead band held off
+    it, so ``_valid`` declines it. At 12.75 the same branch is at
+    1500.44, genuinely above ``V_f`` and outside the window. The dead
+    band exists because the ceiling is itself a branch point and a
+    *fresh seed* landing there is the degeneracy rather than a mode --
+    but this root arrives by continuation, which is the distinction
+    ``_LEAKY_CASED_SEED_FLOOR`` already draws at the other end of the
+    window. Left alone here rather than changed on the way past.
 
     What is left besides that is the ceiling. Between roughly 3 and 13 kHz the branch
     is above ``V_f``, outside the window this searches at all, and no

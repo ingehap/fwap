@@ -14872,6 +14872,17 @@ def test_the_seed_sweep_only_ever_adds_to_what_the_scan_found():
     value to the last bit.
 
     Asserted by disabling the sweep outright and comparing.
+
+    **The comparison is to a tolerance rather than bit for bit, and the
+    reason is the downward pass.** A frequency below a leg's entry point
+    can now be reached two ways -- by descent from a higher leg, or by
+    continuation up from a sweep re-acquisition beneath it -- and which
+    one applies depends on whether the sweep ran. Both land on the same
+    root; they do not land on the same last bit. On this fixture that
+    affects exactly the five frequencies the descent reaches, 4.00-4.75
+    and 8.00 kHz, which agree to twelve figures. What is still exact by
+    construction is that neither the sweep nor the descent may write
+    where a value already exists.
     """
     import fwap.cylindrical_solver._leaky as leaky_module
 
@@ -14894,18 +14905,30 @@ def test_the_seed_sweep_only_ever_adds_to_what_the_scan_found():
     # Never takes anything away.
     assert np.all(swept[scanned]), "the sweep lost a frequency the scan had"
     # Never changes anything it did not add.
-    assert np.array_equal(
-        with_sweep.slowness[scanned], without_sweep.slowness[scanned]
-    ), "the sweep changed a value the scan had already found"
-    # And on this fixture it does add, in two ways: the 1.0-2.0 kHz leg
-    # that pass one never sees, and -- since pass two re-acquires after a
-    # gap rather than stopping -- the lower edge of the upper leg and a
-    # one-sample hole inside it.
-    added = int(swept.sum()) - int(scanned.sum())
-    assert added >= 8, f"the sweep added only {added} frequencies"
-    lower = np.flatnonzero(swept & ~scanned)
-    assert lower[0] == 0, "the second leg should start at the bottom of the band"
-    assert swept.sum() / swept.size > 0.8, f"coverage {swept.mean():.2f}"
+    np.testing.assert_allclose(
+        with_sweep.slowness[scanned],
+        without_sweep.slowness[scanned],
+        rtol=1.0e-9,
+        err_msg="the sweep changed a value the scan had already found",
+    )
+    # What the sweep adds on this fixture is exactly the 1.0-2.0 kHz
+    # leg, which nothing else can reach: pass one's scan never sees it,
+    # and no descent reaches it either because the gap above it is wider
+    # than the miss budget.
+    #
+    # **That count has been 5, then 9, then 5 again**, and the round trip
+    # is worth recording rather than smoothing over. It was 5 when the
+    # sweep was the only way past pass one's stopping point; 9 once pass
+    # two could re-acquire, which also picked up the upper leg's lower
+    # edge and an interior hole; and 5 again once the downward pass could
+    # reach those five from the leg above without the sweep's help. The
+    # sweep's unique contribution was always this leg.
+    added = np.flatnonzero(swept & ~scanned)
+    assert added.size == 5, f"the sweep added {added.size} frequencies, expected 5"
+    assert np.array_equal(added, np.arange(5)), (
+        f"expected the leg at the bottom of the band, got {added}"
+    )
+    assert swept.mean() > 0.8, f"coverage {swept.mean():.2f}"
 
 
 def test_the_seed_survey_reaches_a_strongly_damped_branch():
@@ -14985,7 +15008,8 @@ def test_pass_two_re_acquires_the_branch_after_a_gap():
     Both fixtures with this shape gain from it, and both gains are
     checked against a root count rather than against themselves:
     Schmitt & Cheng's upper leg starts at 13.25 kHz instead of 14.0, and
-    ``_A2``'s at 4.25 instead of 5.0.
+    ``_A2``'s at 4.25 instead of 5.0 -- and then at 4.00 once the
+    downward pass walks the leg back from its entry point.
     """
     radius, layers = _sc87_stack(1729.0, 1920.0, 0.03)
     freq = np.arange(1000.0, 15001.0, 250.0)
@@ -15012,7 +15036,59 @@ def test_pass_two_re_acquires_the_branch_after_a_gap():
     a2_where = np.flatnonzero(a2_found)
     a2_gaps = np.where(np.diff(a2_where) > 2)[0]
     assert a2_gaps.size == 1
-    assert _A2_FREQ[a2_where[int(a2_gaps[0]) + 1]] == pytest.approx(4250.0)
+    assert _A2_FREQ[a2_where[int(a2_gaps[0]) + 1]] == pytest.approx(4000.0)
+
+
+def test_the_downward_pass_walks_a_leg_back_from_its_entry_point():
+    """Both marching passes go up, so a leg is only entered from below.
+
+    Whichever frequency the scan or the sweep first resolved becomes the
+    leg's floor, and everything under it stays ``NaN`` even where the
+    root is there to be found. The entry point is set by where a sweep
+    attempt happened to land, not by where the branch begins.
+
+    On the ``_A2`` stack the upper leg entered at 4.25 kHz with a root
+    at 4.00 -- one frequency, real, invisible for want of a step in the
+    other direction. The descent adds it, and stops where the roots
+    stop: an argument-principle contour counts one root at 4.00 and
+    **none** at 3.75, which is where the curve still ends.
+    """
+    mode = flexural_dispersion_layered(
+        _A2_FREQ, **_A2_SLOW, **_A2_BOREHOLE, layers=(_A2_CASING, _A2_CEMENT)
+    )
+    found = np.isfinite(mode.slowness)
+    assert found.mean() > 0.83, f"coverage {found.mean():.2f}"
+    where = np.flatnonzero(found)
+    gaps = np.where(np.diff(where) > 2)[0]
+    assert gaps.size == 1
+    upper_start = _A2_FREQ[where[int(gaps[0]) + 1]]
+    assert upper_start == pytest.approx(4000.0), upper_start
+    # The descent stops at a real boundary, not at a budget: 3.75 kHz
+    # is the last frequency below it and it carries no root.
+    below = _A2_FREQ < 4000.0
+    assert not np.isfinite(mode.slowness[below & (_A2_FREQ > 2500.0)]).any()
+
+
+def test_the_downward_pass_never_writes_over_an_existing_value():
+    """It fills ``NaN`` and nothing else.
+
+    The guarantee is the same one the sweep merge carries, and it has to
+    hold for the same reason: the ascending passes' answers are the
+    authoritative ones. Asserted by shortening the frequency grid so the
+    descent has nowhere to run and requiring the shared frequencies to
+    come back unchanged.
+    """
+    radius, layers = _sc87_stack(1729.0, 1920.0, 0.03)
+    full = np.arange(13250.0, 15001.0, 250.0)
+    got_full = flexural_dispersion_layered(full, **_SC87_SLOW, a=radius, layers=layers)
+    assert np.isfinite(got_full.slowness).all()
+    # The same band with room below it for a descent to attempt.
+    wide = np.arange(12000.0, 15001.0, 250.0)
+    got_wide = flexural_dispersion_layered(wide, **_SC87_SLOW, a=radius, layers=layers)
+    shared = np.isin(wide, full)
+    np.testing.assert_allclose(
+        got_wide.slowness[shared], got_full.slowness, rtol=1.0e-9
+    )
 
 
 def test_the_seed_sweep_is_bounded_when_there_is_nothing_to_find():
