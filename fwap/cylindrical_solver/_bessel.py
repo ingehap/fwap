@@ -378,8 +378,67 @@ def _layered_n0_bessel_pack(
 # F.2 helpers' brentq-safe convention.
 
 
+def _as_real_kz(kz: complex, *, caller: str) -> float:
+    """
+    Accept a real trial wavenumber given as ``float`` or as a
+    ``complex`` with zero imaginary part; reject a genuinely complex
+    one with an explanation.
+
+    The VTI determinants are real-``k_z`` by construction, and not only
+    by docstring. :func:`_radial_wavenumbers_vti` returns
+    ``tuple[float, float, float]``, and every row builder casts its
+    formation Bessels with ``float(special.kv(...))``, so the three
+    formation wavenumbers are assumed real all the way down. Passing a
+    genuinely complex ``k_z`` used to surface as
+    ``'<' not supported between instances of 'complex' and 'float'``
+    from inside a private wavenumber helper -- a message that names
+    neither the caller's mistake nor what is missing.
+
+    ``complex(kz, 0.0)`` is a different matter and is simply accepted:
+    a complex with zero imaginary part *is* a real number, and the
+    isotropic sister :func:`~fwap.cylindrical_solver._n1_isotropic._modal_determinant_n1_complex`
+    is called exactly that way by its drivers. Refusing it made the two
+    families gratuitously incompatible.
+
+    Parameters
+    ----------
+    kz : complex
+        Trial axial wavenumber (rad / m). Must be real-valued.
+    caller : str
+        Name used in the error message.
+
+    Returns
+    -------
+    float
+        ``k_z`` as a float, bit-identical to the real part.
+
+    Raises
+    ------
+    NotImplementedError
+        If ``k_z`` has a nonzero imaginary part. Supporting one means
+        continuing the qP, qSV and SH columns onto their radiating
+        branches, which is a per-wave choice with no single right
+        answer -- the isotropic path spells it out as explicit
+        ``leaky_p`` / ``leaky_s`` flags, and getting it wrong yields a
+        determinant with no root rather than an obvious failure. VTI
+        has no leaky path, and this is where that becomes visible.
+    """
+    imag = float(np.imag(kz))
+    if imag != 0.0:
+        raise NotImplementedError(
+            f"{caller}: k_z must be real; got {kz!r} with imaginary part "
+            f"{imag!r}. The VTI determinants are real-k_z by construction "
+            "(_radial_wavenumbers_vti returns floats and every row casts "
+            "its formation Bessels to float), so there is no leaky VTI "
+            "path yet. Adding one means choosing radiating branches for "
+            "the qP, qSV and SH columns explicitly, as leaky_p / leaky_s "
+            "do in the isotropic case."
+        )
+    return float(np.real(kz))
+
+
 def _radial_wavenumbers_vti(
-    kz: float,
+    kz: complex,
     omega: float,
     *,
     c11: float,
@@ -428,6 +487,7 @@ def _radial_wavenumbers_vti(
         C-matrix substitution, ``alpha_qP -> p`` and
         ``alpha_qSV -> s`` to floating-point precision.
     """
+    kz = _as_real_kz(kz, caller="_radial_wavenumbers_vti")
     # Christoffel quadratic in alpha^2 (substep H.a.2 corrected
     # form for the decay-rate convention):
     rho_omega_sq = rho * omega * omega
