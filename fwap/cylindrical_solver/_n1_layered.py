@@ -826,7 +826,16 @@ def _fill_slow_cased_leaky_n1(
     contour confirms it is exactly the window's contents: one root at
     each of those five frequencies and none at 1.00, 1.25, 2.75 or 3.00.
 
-    What is left is the ceiling. Between roughly 3 and 13 kHz the branch
+    Letting pass two **re-acquire** after a gap, rather than stopping
+    two misses into one, then extended the upper leg down from 14.00 to
+    13.25 kHz -- and on the ``_A2`` stack from 5.00 to 4.25 kHz, closing
+    a one-sample hole at 8.0 kHz that fixture had carried since it was
+    first measured. One frequency is still missed at each leg's lower
+    edge (13.00 and 4.00 respectively, both with a root by contour):
+    the march is one-directional, so it re-acquires at a sweep pick and
+    continues upward, never revisiting the frequency just below.
+
+    What is left besides that is the ceiling. Between roughly 3 and 13 kHz the branch
     is above ``V_f``, outside the window this searches at all, and no
     amount of seeding reaches it -- a contour still counts one root
     there at 3.0, 5.5 and 8.0 kHz. Raising the ceiling is the remaining

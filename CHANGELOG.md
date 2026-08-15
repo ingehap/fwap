@@ -56,14 +56,29 @@ the project uses [Semantic Versioning](https://semver.org/).
   toward the annulus ceiling, coverage 0.62 → 0.73, with winding counts
   confirming one root where it is found and none in the gap above it.
 
-  **What is left is bounded and named rather than implied.** On `_A2` a
-  contour counts one root at 4.00, 4.25, 4.50 and 4.75 kHz where the
-  marcher still returns `NaN`; the cause is `_LEAKY_CASED_MAX_INVALID`,
-  which stops the march after two consecutive misses, so the gap between
-  legs ends it before it can re-acquire. On Schmitt & Cheng's geometry
-  the ceiling half of the original gap survives untouched — between
-  roughly 3 and 13 kHz the branch is above `V_f`, outside the searched
-  window entirely. Neither is touched here.
+  **Pass two now re-acquires after a gap** instead of stopping two
+  misses into one. `_LEAKY_CASED_MAX_INVALID` is right for pass one,
+  whose answers are authoritative, and was wrong for pass two: a branch
+  with two legs was only ever followed to the first. Pass two drops its
+  continuation state and keeps walking, which is safe only there —
+  it merges into pass one's gaps and cannot overwrite them, so the worst
+  a bad re-acquisition can do is fill a frequency that was going to stay
+  `NaN`. Both fixtures gain: Schmitt & Cheng's upper leg starts at
+  13.25 kHz instead of 14.00 (10 → 13 points), and `_A2`'s at 4.25
+  instead of 5.00, taking coverage 0.73 → **0.82** and closing the
+  one-sample hole at 8.0 kHz that fixture had carried since it was first
+  measured.
+
+  **What is left is one frequency per leg edge, and the cause is
+  named.** A contour counts a root at 13.00 kHz (Schmitt & Cheng) and
+  4.00 kHz (`_A2`) where the marcher returns `NaN`. The march is
+  one-directional: it re-acquires at a sweep pick and continues upward,
+  never revisiting the frequency immediately below. Closing that needs a
+  downward continuation from each re-acquisition.
+
+  Beyond it, the ceiling half of the original gap survives untouched —
+  between roughly 3 and 13 kHz the branch is above `V_f`, outside the
+  searched window entirely.
 
   Three tests were re-baselined, all deliberately, including the one
   written in the previous entry that promised to fail the day either
