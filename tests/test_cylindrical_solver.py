@@ -14522,8 +14522,13 @@ def test_cased_slow_formation_dipole_is_leaky_and_the_leaky_branch_finds_it():
     a ``log|det|`` survey in place of a blind sweep, a two-sided slope
     rule in place of a monotone one, and pass two merging into pass one
     instead of replacing it -- recovered a second leg at **1.0-2.0 kHz**,
-    rising 1033.9 -> 1282.9 m/s toward the annulus ceiling. Coverage
-    goes 0.62 -> 0.73.
+    rising 1033.9 -> 1282.9 m/s toward the annulus ceiling.
+
+    **Sixth: letting pass two re-acquire after a gap** rather than
+    stopping after two consecutive misses extended the upper leg down
+    from 5.00 to 4.25 kHz and closed the one-sample hole it had carried
+    at 8.0 kHz since it was first measured. Coverage 0.62 -> 0.73 ->
+    **0.82**, and the upper leg is contiguous over 4.25-12.00 kHz.
 
     The new leg is not the marcher finding more of what it already had:
     an argument-principle contour over the whole window counts **one**
@@ -14532,14 +14537,13 @@ def test_cased_slow_formation_dipole_is_leaky_and_the_leaky_branch_finds_it():
     through the ceiling and comes back, and this fixture has the same
     two-leg shape as Schmitt & Cheng's.
 
-    **What is still missed is bounded and named.** The same contour
-    counts one root at 4.00, 4.25, 4.50 and 4.75 kHz, and the marcher
-    returns ``NaN`` at all four. The cause is
-    ``_LEAKY_CASED_MAX_INVALID``: the march stops after two consecutive
-    misses, so the gap between the legs ends it before it can re-acquire
-    the upper one, and those four frequencies are only reached by pass
-    one's scan, which does not see them. That is a separate knob from
-    the seeding and is left alone here.
+    **What is still missed is one frequency, and the cause is named.**
+    The contour counts a root at 4.00 kHz and the marcher returns
+    ``NaN`` there, while 4.25 and everything above it is found. That is
+    the march being one-directional: pass two re-acquires at a sweep
+    pick and continues *upward*, so the frequency immediately below the
+    pick is never revisited. Closing it needs a downward continuation
+    from each re-acquisition, which is a separate change.
 
     The structural assertions -- above ``V_S``, below the annulus
     ceiling, attenuation strictly positive -- are unchanged and still
@@ -14575,6 +14579,12 @@ def test_cased_slow_formation_dipole_is_leaky_and_the_leaky_branch_finds_it():
     # The lower leg rises toward the ceiling and leaves through it.
     assert np.all(np.diff(lower) > 0.0), lower
     assert lower[-1] < min(_A2_BOREHOLE["vf"], _A2_CEMENT.vs)
+    # The upper leg is contiguous once pass two can re-acquire: the
+    # 8.0 kHz hole it used to carry is a tracker stumble, and stopping
+    # at it was what left the hole in place.
+    assert np.array_equal(where[split:], np.arange(where[split], where[-1] + 1)), (
+        "the upper leg is not contiguous"
+    )
     # The upper leg keeps its one Airy minimum.
     turns = int((np.diff(np.sign(np.diff(upper))) != 0).sum())
     assert turns == 1, f"upper leg has {turns} turning points, expected 1"
@@ -14887,11 +14897,15 @@ def test_the_seed_sweep_only_ever_adds_to_what_the_scan_found():
     assert np.array_equal(
         with_sweep.slowness[scanned], without_sweep.slowness[scanned]
     ), "the sweep changed a value the scan had already found"
-    # And on this fixture it does add: the second leg is the whole point.
-    assert int(swept.sum()) - int(scanned.sum()) == 5, (
-        f"expected the 1.0-2.0 kHz leg, got "
-        f"{int(swept.sum()) - int(scanned.sum())} extra frequencies"
-    )
+    # And on this fixture it does add, in two ways: the 1.0-2.0 kHz leg
+    # that pass one never sees, and -- since pass two re-acquires after a
+    # gap rather than stopping -- the lower edge of the upper leg and a
+    # one-sample hole inside it.
+    added = int(swept.sum()) - int(scanned.sum())
+    assert added >= 8, f"the sweep added only {added} frequencies"
+    lower = np.flatnonzero(swept & ~scanned)
+    assert lower[0] == 0, "the second leg should start at the bottom of the band"
+    assert swept.sum() / swept.size > 0.8, f"coverage {swept.mean():.2f}"
 
 
 def test_the_seed_survey_reaches_a_strongly_damped_branch():
@@ -14952,6 +14966,53 @@ def test_the_step_rule_is_two_sided_and_carries_a_frequency():
     # And rising -- which the old rule forbade outright at this step size.
     assert np.all(np.diff(1.0 / got_coarse.slowness) > 0.0)
     assert (1.0 / got_coarse.slowness)[-1] / (1.0 / got_coarse.slowness)[0] > 1.15
+
+
+def test_pass_two_re_acquires_the_branch_after_a_gap():
+    """A branch with two legs is followed through the gap, not stopped at.
+
+    ``_LEAKY_CASED_MAX_INVALID`` ends a march after two consecutive
+    misses. That is right for pass one, whose answers are authoritative,
+    and it was wrong for pass two: a branch that leaves the search
+    window and comes back has two legs, and stopping at the first gap
+    means only the leg the marcher reached first is ever returned.
+
+    Pass two now drops its continuation state and keeps walking. It is
+    safe to do only there, because pass two merges into pass one's gaps
+    and cannot overwrite them -- the worst a bad re-acquisition can do
+    is fill a frequency that was going to stay ``NaN``.
+
+    Both fixtures with this shape gain from it, and both gains are
+    checked against a root count rather than against themselves:
+    Schmitt & Cheng's upper leg starts at 13.25 kHz instead of 14.0, and
+    ``_A2``'s at 4.25 instead of 5.0.
+    """
+    radius, layers = _sc87_stack(1729.0, 1920.0, 0.03)
+    freq = np.arange(1000.0, 15001.0, 250.0)
+    mode = flexural_dispersion_layered(freq, **_SC87_SLOW, a=radius, layers=layers)
+    found = np.isfinite(mode.slowness)
+    # Two legs, and the upper one now reaches down to 13.25 kHz.
+    where = np.flatnonzero(found)
+    gaps = np.where(np.diff(where) > 2)[0]
+    assert gaps.size == 1, f"expected two legs, got {gaps.size + 1}"
+    upper_start = freq[where[int(gaps[0]) + 1]]
+    assert upper_start == pytest.approx(13250.0), upper_start
+    # Every value in both legs sits inside the search window.
+    velocity = 1.0 / mode.slowness[found]
+    assert np.all(velocity > _SC87_SLOW["vs"])
+    assert np.all(velocity < _SC87_SLOW["vf"])
+
+    # The same on the _A2 stack, where the upper leg also loses the
+    # one-sample hole it used to carry at 8.0 kHz.
+    a2 = flexural_dispersion_layered(
+        _A2_FREQ, **_A2_SLOW, **_A2_BOREHOLE, layers=(_A2_CASING, _A2_CEMENT)
+    )
+    a2_found = np.isfinite(a2.slowness)
+    assert a2_found.mean() > 0.8, f"coverage {a2_found.mean():.2f}"
+    a2_where = np.flatnonzero(a2_found)
+    a2_gaps = np.where(np.diff(a2_where) > 2)[0]
+    assert a2_gaps.size == 1
+    assert _A2_FREQ[a2_where[int(a2_gaps[0]) + 1]] == pytest.approx(4250.0)
 
 
 def test_the_seed_sweep_is_bounded_when_there_is_nothing_to_find():

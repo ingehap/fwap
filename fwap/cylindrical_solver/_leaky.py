@@ -1233,12 +1233,13 @@ def _march_leaky_cased_branch(
             if kz_prev is not None and omega_prev is not None:
                 root = _refine(kz_prev * (omega / omega_prev), omega, band)
             if root is None and not (use_sweep and kz_prev is None):
-                # Skipped only where it is provably redundant: the sweep
-                # pass runs at all because pass one found nothing, and
-                # while no root has been found this pass either, the
-                # scan sees exactly what it saw then -- no previous root,
-                # so an infinite ceiling and the same window. It returned
-                # None, and would again.
+                # Skipped only where it is provably redundant. With no
+                # previous root the scan sees exactly what it saw in pass
+                # one at this frequency -- same window, same unbounded
+                # band -- and pass one keeps whatever it found, so a
+                # second look can only return the same answer. That holds
+                # both before pass two has found anything and after it has
+                # dropped a leg and is walking to the next.
                 root = _scan(omega, band)
             if root is None and use_sweep and int(i) in sweep_at:
                 root = _sweep(omega, band)
@@ -1253,7 +1254,20 @@ def _march_leaky_cased_branch(
                 if kz_prev is not None:
                     misses += 1
                     if misses > _LEAKY_CASED_MAX_INVALID:
-                        break
+                        if not use_sweep:
+                            # Pass one stops, so its answers are exactly
+                            # what they have always been.
+                            break
+                        # Pass two re-acquires instead: drop the
+                        # continuation state and keep walking, so a later
+                        # leg of the same branch is seeded fresh rather
+                        # than written off. Safe to do only here, because
+                        # pass two cannot overwrite pass one -- the worst
+                        # a bad re-acquisition can do is fill a frequency
+                        # that was going to stay NaN.
+                        kz_prev = None
+                        omega_prev = None
+                        misses = 0
                 continue
 
             misses = 0
