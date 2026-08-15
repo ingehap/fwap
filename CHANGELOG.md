@@ -14,8 +14,24 @@ the project uses [Semantic Versioning](https://semver.org/).
   fwap's), the opposite sign convention for the radial wavenumbers,
   ordinary Hankel functions instead of modified Bessel ones, and rows
   scaled without the shear modulus. `tests/test_cylindrical_solver.py`
-  now carries it as an oracle for the n=1 and n=2 determinants, bound
-  and leaky alike.
+  now carries it as an oracle across **every open-hole order fwap
+  solves** — n=0, n=1 and n=2, bound and leaky alike:
+
+  | order | solver | regime | depth |
+  | --- | --- | --- | --- |
+  | n=0 | `stoneley_dispersion` | bound | 11.9–14.4 decades |
+  | n=0 | `trapped_pseudo_rayleigh_dispersion` | bound | 14.5–15.2 |
+  | n=0 | `pseudo_rayleigh_dispersion` (branch 1) | leaky | 12.5–14.8 |
+  | n=0 | `leaky_compressional_dispersion` | leaky | 13.5–14.7 |
+  | n=1 | `flexural_dispersion` | bound | 11.2–13.2 |
+  | n=2 | `quadrupole_dispersion` | bound | 11.0–13.6 |
+  | n=2 | `leaky_quadrupole_dispersion` | leaky | 10.8–12.9 |
+
+  At n=0 the matrix also degenerates the way it must: the fourth column
+  keeps a single nonzero entry, in the `sigma_r_theta` row, so the
+  determinant factorises into a torsional condition times an
+  axisymmetric 3×3 — a borehole cannot excite torsion with an
+  axisymmetric source. Asserted structurally rather than numerically.
 
   **This settles the question #128 left open, in fwap's favour.**
   Root-solved, the paper's own equations reproduce
@@ -39,6 +55,12 @@ the project uses [Semantic Versioning](https://semver.org/).
   matrix which agrees at n=1 and n=2 bound and has no leaky root at
   all — a false negative indistinguishable from a real disagreement.
 
+  A second trap surfaced applying the oracle at n=0: `Re(p²) < 0` is
+  **not** a usable leaky-P test once `k_z` is complex. On the leaky
+  pseudo-Rayleigh branch near 9.2 kHz the `Im(k_z)²` term alone pushes
+  `Re(p²)` negative while the P wave is still bound, and selecting the
+  leaky P branch there costs all 14 decades of agreement.
+
 ### Changed
 - **The leaky quadrupole's low-frequency phase drift is documented as a
   measured budget, not a defect.** `leaky_quadrupole_dispersion` peaks at
@@ -61,9 +83,15 @@ the project uses [Semantic Versioning](https://semver.org/).
   `leaky_s=False` — so it is uniformly right exactly where the phase
   drifts, which a lost or mis-sheeted root would not be. The same growth
   of residual with damping is already recorded at `n = 0` on a different
-  figure and formation. Which side is nearer the truth at the strongly
-  radiating end is left open; that better seeding or tracking will not
-  move it is not. Three tests and the solver docstring now carry this.
+  figure and formation. Three tests and the solver docstring carry this.
+
+  This entry left open which side was nearer the truth at the strongly
+  radiating end. The Sinha-appendix oracle above **settles it in fwap's
+  favour**: the paper's own equations reproduce fwap's `k_z` to 7e-14
+  and differ from the paper's plotted curve by the full drift. The
+  measurements below stand as written; what has changed is that the
+  1.39 % is now attributed to fig 10(a)'s plotted limb rather than left
+  unassigned.
 
 ### Added
 - **`leaky_quadrupole_dispersion`** — the radiating n=2 branch below the
