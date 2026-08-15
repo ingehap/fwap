@@ -327,7 +327,8 @@ anyway. Rebuilding the seeding recovers that leg in full — 1235.9,
 confirms it is exactly the window's contents: one root at each of those
 five frequencies and none at 1.00, 1.25, 2.75 or 3.00. Letting the
 marcher **re-acquire** after a gap rather than stopping two misses into
-one then extended the upper leg down from 14.00 to 13.25 kHz.
+one then extended the upper leg down from 14.00 to 13.25 kHz, and a
+**downward pass** now walks each leg back from wherever it was entered.
 
 What remains is the ceiling. Between roughly 3 and 13 kHz the branch is
 above `V_f`, outside the window the marcher searches at all; a contour

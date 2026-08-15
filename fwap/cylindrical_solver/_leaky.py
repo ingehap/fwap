@@ -1278,6 +1278,64 @@ def _march_leaky_cased_branch(
 
         return out_s, out_a
 
+    def _extend_downward(out_s: np.ndarray, out_a: np.ndarray) -> None:
+        """Walk each leg back down in frequency, filling only ``NaN``.
+
+        Both marching passes run in ascending frequency, so a leg is
+        only ever entered from below -- at whichever frequency the scan
+        or the sweep first resolved it. Everything under that entry
+        point stays ``NaN`` even where the root is there to be found,
+        and the entry point is set by where a sweep attempt happened to
+        land rather than by where the branch begins.
+
+        Measured before this existed: on Schmitt & Cheng's (1987) slow
+        cased stack the upper leg entered at 13.25 kHz and an
+        argument-principle contour counts a root at 13.00; on the
+        standard ``_A2`` stack it entered at 4.25 with a root at 4.00.
+        One frequency each, both real, both invisible for want of a
+        step in the other direction.
+
+        This adds that step. It reconstructs ``k_z`` from what the
+        ascending passes stored -- ``Re`` from the slowness, ``Im`` from
+        the attenuation -- and continues from it downward under the same
+        rules, the same band and the same miss budget. It writes only
+        where the result is ``NaN``, so no value any pass produced can
+        move, and a run with nothing found anywhere costs nothing at all
+        because there is never a root to continue from.
+        """
+        order = np.argsort(f_arr)[::-1]
+        kz_prev: complex | None = None
+        omega_prev: float | None = None
+        misses = 0
+        for i in order:
+            omega = 2.0 * np.pi * float(f_arr[i])
+            if np.isfinite(out_s[i]):
+                kz_prev = complex(out_s[i] * omega, out_a[i])
+                omega_prev = omega
+                misses = 0
+                continue
+            if kz_prev is None or omega_prev is None:
+                continue
+            root = _refine(
+                kz_prev * (omega / omega_prev),
+                omega,
+                _band(kz_prev, omega_prev, omega),
+            )
+            if root is None:
+                misses += 1
+                if misses > _LEAKY_CASED_MAX_INVALID:
+                    # The leg has ended; stop continuing it, but keep
+                    # walking so the next leg down gets its own descent.
+                    kz_prev = None
+                    omega_prev = None
+                    misses = 0
+                continue
+            misses = 0
+            out_s[i] = root.real / omega
+            out_a[i] = root.imag
+            kz_prev = root
+            omega_prev = omega
+
     # Pass one scans only; pass two may also seed off the axis. Pass two
     # never overwrites pass one -- it fills the frequencies pass one left
     # empty and nothing else.
@@ -1307,6 +1365,7 @@ def _march_leaky_cased_branch(
         fill = ~np.isfinite(slowness) & np.isfinite(swept_s)
         slowness[fill] = swept_s[fill]
         attenuation[fill] = swept_a[fill]
+        _extend_downward(slowness, attenuation)
 
     return slowness, attenuation
 

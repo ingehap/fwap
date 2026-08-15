@@ -7,6 +7,46 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **A downward continuation pass for the leaky cased marcher.** Both
+  marching passes run in ascending frequency, so a branch leg is only
+  ever entered from below — at whichever frequency the scan or the sweep
+  first resolved it — and everything under that entry point stayed `NaN`
+  even where the root was there to be found. The entry point was set by
+  where a sweep attempt happened to land, not by where the branch begins.
+
+  The pass reconstructs `k_z` from what the ascending passes stored
+  (`Re` from the slowness, `Im` from the attenuation) and continues
+  downward under the same band and miss budget. It writes only where the
+  result is `NaN`, so no value any pass produced can move, and a run with
+  nothing found anywhere costs nothing because there is never a root to
+  continue from.
+
+  On the `_A2` fixture it recovers 4.00 kHz — coverage **0.82 → 0.84** —
+  and stops where the roots stop: a contour counts one root at 4.00 and
+  none at 3.75.
+
+  **It also corrects a misattribution from the previous entry.** Schmitt
+  & Cheng's missing 13.00 kHz was recorded there as the same
+  one-directional-march cause. It is not. The descent does reach 13.00
+  and finds a root at **1497.11 m/s**, inside the window's 1499.25
+  ceiling but inside the 0.2 % dead band held off it, so `_valid`
+  declines it; at 12.75 the branch is at 1500.44, genuinely above `V_f`.
+  The dead band exists because the ceiling is itself a branch point and a
+  *fresh seed* landing there is the degeneracy rather than a mode — but
+  this root arrives by continuation, which is the distinction
+  `_LEAKY_CASED_SEED_FLOOR` already draws at the other end of the window.
+  Recorded rather than changed.
+
+  One test re-baselined. The count of frequencies the sweep uniquely
+  contributes has now been 5, then 9, then 5 again: 5 when the sweep was
+  the only way past pass one's stopping point, 9 once pass two could
+  re-acquire, and 5 again now the descent reaches those from the leg
+  above. The sweep's unique contribution was always the 1.0–2.0 kHz leg.
+  That test's value comparison also relaxes from bit-exact to 1e-9,
+  because a frequency below a leg's entry can now be reached two ways —
+  by descent from above or by continuation up from a re-acquisition —
+  which agree as roots but not in the last bit.
+
 - **The leaky cased marcher's seeding rebuilt, and it recovers a whole
   branch leg that four separate assumptions were hiding.** No public API
   change; `flexural_dispersion_layered` and
