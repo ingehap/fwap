@@ -209,6 +209,35 @@ and `leaky_quadrupole_dispersion` for the 34 below the cut-off. The two
 never both claim a frequency, and the handover is one grid step wide;
 `tests/test_cylindrical_solver.py` asserts both.
 
+**The low-frequency phase drift was chased and is not a search defect.**
+The residual sits entirely at the strongly radiating end, so the obvious
+reading is that the complex search loses the root there. Five
+measurements say otherwise:
+
+| what was checked | result |
+| --- | --- |
+| does the phase residual track the damping? | yes — correlation **0.974**, monotone across five frequency bins, falling from 1.12 % to **0.02 %** as `Im(k_z)` → 0 |
+| does the *attenuation* residual track it too? | **no** — correlation **0.063**, flat at 1.0–2.6 % across the same band |
+| is there a second root near the published value? | no — one zero over `c ∈ (V_S, 1.30 V_S)` × `Im(k_z) ∈ (0, 8)` at 3.24 kHz, 13.2 decades down; the published value sits in a 22× dip, which is not a root |
+| is it the other Riemann sheet? | no — flipping the leaky root puts no root there either |
+| is it a mis-read medium constant? | no — the peak is exactly invariant under borehole radius and moves only within 1.0089–1.0102 under ±10–15 % on every other constant |
+
+The second row is the discriminating one. `Im(k_z)` is what the leaky
+machinery produces — the trapped search runs the *same* matrix with
+`leaky_s=False` — and it is uniformly right exactly where the phase
+drifts. A lost or mis-sheeted root would miss in both. Nor do the curves
+differ by registration: the figure's peak lies above fwap's maximum, so
+no frequency shift reconciles them.
+
+The same growth of residual with damping is already recorded at `n = 0`,
+on a different figure and formation, by the fig 2 comparison — the more
+damped half of that curve misses by more than 2×, and the weakly damped
+slow-formation mode does better still. So it is a property of these
+comparisons rather than of the quadrupole. **Which side is nearer the
+truth at the strongly radiating end is not settled here.** What is
+settled is that better seeding or tracking will not move it, so the
+1.39 % is carried as a measured budget rather than chased.
+
 The attenuation floor is 0.2 dB/m — 1 % of that panel's 0–20 axis, and
 about four times its digitising resolution. Below it the reference is a
 couple of pixel rows off zero and a *relative* budget stops meaning

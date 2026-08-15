@@ -6,6 +6,32 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **The leaky quadrupole's low-frequency phase drift is documented as a
+  measured budget, not a defect.** `leaky_quadrupole_dispersion` peaks at
+  1.009 `V_S` against Sinha & Asvadurov fig 10(a)'s 1.019, reaching
+  1.39 % at 3.24 kHz. Chasing it excluded every search-side cause: the
+  determinant has exactly one zero over `c ∈ (V_S, 1.30 V_S)` ×
+  `Im(k_z) ∈ (0, 8)` at that frequency, 13.2 decades below its
+  surroundings, and none at the published value — which sits in a 22×
+  dip, not a root. The opposite Riemann sheet has no root there either;
+  the peak is exactly invariant under borehole radius and moves only
+  within 1.0089–1.0102 under ±10–15 % on every other medium constant;
+  and no frequency shift reconciles the curves, since the figure's peak
+  lies above fwap's maximum.
+
+  The discriminating measurement is that the phase residual correlates
+  with `Im(k_z)` at **0.974** and falls to 0.02 % as the damping
+  vanishes, while the *attenuation* residual correlates at **0.063** and
+  is flat at 1.0–2.6 % across the same band. `Im(k_z)` is what the leaky
+  machinery produces — the trapped search runs the same matrix with
+  `leaky_s=False` — so it is uniformly right exactly where the phase
+  drifts, which a lost or mis-sheeted root would not be. The same growth
+  of residual with damping is already recorded at `n = 0` on a different
+  figure and formation. Which side is nearer the truth at the strongly
+  radiating end is left open; that better seeding or tracking will not
+  move it is not. Three tests and the solver docstring now carry this.
+
 ### Added
 - **`leaky_quadrupole_dispersion`** — the radiating n=2 branch below the
   trapped screw mode's cut-off. New public name (189 total); validation

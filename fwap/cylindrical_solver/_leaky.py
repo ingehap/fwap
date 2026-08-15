@@ -2968,11 +2968,36 @@ def leaky_quadrupole_dispersion(
     curve cannot see, so a solver could get the radiation entirely
     wrong and still score well on fig 10(a).
 
-    The residual is concentrated at the low-frequency end of the phase
-    curve, where fwap peaks at 1.009 ``V_S`` against the figure's
-    1.019. That disagreement is recorded rather than tuned away; the
-    imaginary part agrees there to about 2 %, so it is not a
-    wrong-branch error.
+    **The low-frequency phase drift.** The residual is concentrated at
+    the strongly radiating end of the phase curve, where fwap peaks at
+    1.009 ``V_S`` against the figure's 1.019, reaching 1.39 % at
+    3.24 kHz. That disagreement is recorded rather than tuned away,
+    because it is not a search defect. What was measured:
+
+    * the phase residual correlates with ``Im(k_z)`` at 0.974 and falls
+      to 0.02 % where the damping vanishes, while the *attenuation*
+      residual correlates at 0.063 and is flat at 1.0-2.6 % across the
+      whole band. ``Im(k_z)`` is what the leaky machinery produces --
+      the trapped search runs the same matrix with ``leaky_s=False`` --
+      and it is uniformly right exactly where the phase drifts;
+    * at 3.24 kHz the determinant has exactly one zero over
+      ``c`` in ``(V_S, 1.30 V_S)`` and ``Im(k_z)`` in ``(0, 8)``, 13.2
+      decades below its surroundings. At the published value ``|det|``
+      shows a 22x dip, which is not a root, and flipping the leaky
+      sheet does not put one there;
+    * the 1.009 peak is exactly invariant under borehole radius, as a
+      dimensionless peak must be, and moves only within 1.0089-1.0102
+      under +/-10-15 % on every other medium constant, so no plausible
+      mis-reading of the paper's table reaches 1.019;
+    * no frequency shift reconciles the two: the figure's peak lies
+      above fwap's maximum, so the curves do not differ by registration.
+
+    The same growth of residual with damping is recorded at ``n = 0``,
+    on a different figure and formation, by
+    :func:`pseudo_rayleigh_dispersion`'s fig 2 comparison. Which side
+    is nearer the truth at the strongly radiating end is not settled
+    here; what is settled is that better seeding or tracking will not
+    move it.
 
     References
     ----------
