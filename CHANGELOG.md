@@ -71,6 +71,28 @@ the project uses [Semantic Versioning](https://semver.org/).
   `Re(p²)` negative while the P wave is still bound, and selecting the
   leaky P branch there costs all 14 decades of agreement.
 
+### Changed
+- **The sub-fluid continuation now lives inside the marcher**, and
+  `real_det` is a required keyword argument of
+  `_march_fast_flexural_branch`. Behaviour is unchanged — all five
+  fast-formation paths return bit-identical slowness, NaN patterns
+  included — but the omission that produced three separate bugs is no
+  longer representable.
+
+  `_extend_below_fluid` was a post-processing step applied at the call
+  site, so every driver opted out by default and nothing noticed. Three
+  of the five were written without it: the layered n=1 and n=2 paths
+  (#131) and the VTI one (#132), each returning `NaN` over a band where
+  its own determinant had the root, each found separately by a
+  different oracle. Nothing in the signature said the march was only
+  half the branch.
+
+  It does now: a driver that forgets `real_det` fails at the call
+  instead of silently returning a truncated branch. Two tests hold the
+  shape — one that the parameter stays keyword-only with no default,
+  one that `_extend_below_fluid` is still called from exactly one place,
+  since a driver growing its own copy would slip the requirement again.
+
 ### Fixed
 - **`flexural_dispersion_vti` now follows the branch below the fluid
   velocity.** Third and last driver missing `_extend_below_fluid`: it

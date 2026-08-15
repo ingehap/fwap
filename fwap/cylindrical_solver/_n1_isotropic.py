@@ -2512,17 +2512,30 @@ def _march_fast_flexural_branch(
     *,
     vs: float,
     vf: float,
+    real_det: Callable[[float, float], float],
     exclude: tuple[float, ...] = (),
     max_roots: int | None = None,
 ) -> np.ndarray:
     """
-    Follow the fundamental fast-formation n=1 branch and return its
-    phase slowness (s/m), NaN where the branch is not a real-``k_z``
-    root.
+    Follow the fundamental fast-formation branch across the whole of
+    its range and return the phase slowness (s/m), NaN only where the
+    branch is not a real-``k_z`` root.
 
-    Shared by the open-hole and cased-hole fast-formation drivers so
-    the two cannot drift apart; ``im_det(k_z, omega)`` supplies the
-    imaginary part of whichever modal determinant applies.
+    Shared by the open-hole, cased-hole and VTI fast-formation drivers;
+    ``im_det(k_z, omega)`` supplies the imaginary part of whichever
+    modal determinant applies above ``V_f``, and ``real_det`` the real
+    determinant that applies below it.
+
+    **``real_det`` is required on purpose.** The branch does not end at
+    ``V_f``, and continuing it across the crossing is
+    :func:`_extend_below_fluid`, which this function now calls itself.
+    It used to be the caller's job, one line after the march, and three
+    of the five drivers were written without it -- the layered n=1 and
+    n=2 paths and the VTI one, each found separately and each returning
+    ``NaN`` over a band where its own determinant had the root. A
+    default here would restore exactly that failure mode for the sixth
+    driver, so there is none: a caller that cannot supply a real
+    determinant does not get a march.
 
     Parameters
     ----------
@@ -2533,7 +2546,11 @@ def _march_fast_flexural_branch(
         Frequencies in Hz, any order.
     vs, vf : float
         Formation shear and borehole-fluid velocities (m/s). The
-        search runs over phase velocity in ``(vf, vs)``.
+        search above ``V_f`` runs over phase velocity in ``(vf, vs)``.
+    real_det : callable
+        ``real_det(k_z, omega) -> float``, the real-valued modal
+        determinant that applies below ``V_f``, where all three radial
+        wavenumbers are real again. Required; see above.
     exclude : tuple of float, optional
         Phase velocities (m/s) at which the determinant is degenerate
         rather than modal, to be rejected if the scan lands on them.
@@ -2555,13 +2572,17 @@ def _march_fast_flexural_branch(
     Returns
     -------
     ndarray, shape (n,)
-        Phase slowness in s/m, aligned with ``freq``.
+        Phase slowness in s/m, aligned with ``freq``, covering both
+        sides of the ``V_f`` crossing.
 
     Notes
     -----
     See :func:`_flexural_dispersion_fast_formation` for why the window
     is ``(V_f, V_S)`` rather than ``(V_R, V_S)``, and why the slowest
     root that is no faster than the previous one is the fundamental.
+    See :func:`_extend_below_fluid` for what happens on the far side,
+    including the one sample at the crossing itself that neither
+    search brackets.
     """
     f_arr = np.asarray(freq, dtype=float)
     slowness = np.full(f_arr.size, np.nan, dtype=float)
@@ -2663,7 +2684,7 @@ def _march_fast_flexural_branch(
         slowness[i] = 1.0 / velocity
         velocity_prev = velocity
 
-    return slowness
+    return _extend_below_fluid(real_det, f_arr, slowness, vf=vf)
 
 
 def _extend_below_fluid(
@@ -2919,13 +2940,13 @@ def _flexural_dispersion_fast_formation(
     # Roadmap A.7: which part of the determinant carries the signal is
     # measured, not assumed. It is Im at n=1 and Re at n=2, and the
     # n=2 path tracked the wrong one for as long as it existed.
-    root_fn = _real_root_function(_det, f_arr, vs=vs, vf=vf)
-    slowness = _march_fast_flexural_branch(root_fn, f_arr, vs=vs, vf=vf)
-
     def _real_det(kz: float, _omega: float) -> float:
         return _modal_determinant_n1(kz, _omega, vp, vs, rho, vf, rho_f, a)
 
-    slowness = _extend_below_fluid(_real_det, f_arr, slowness, vf=vf)
+    root_fn = _real_root_function(_det, f_arr, vs=vs, vf=vf)
+    slowness = _march_fast_flexural_branch(
+        root_fn, f_arr, vs=vs, vf=vf, real_det=_real_det
+    )
 
     return BoreholeMode(
         name="flexural",

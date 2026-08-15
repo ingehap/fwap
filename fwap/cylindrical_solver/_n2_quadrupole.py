@@ -444,20 +444,19 @@ def _quadrupole_dispersion_fast_formation(
         )
 
     from fwap.cylindrical_solver._n1_isotropic import (
-        _extend_below_fluid,
         _march_fast_flexural_branch,
         _real_root_function,
     )
 
     # Roadmap A.7: at n=2 the signal is in Re(det), not Im(det).
     # Measured rather than assumed -- see _real_root_function.
-    root_fn = _real_root_function(_det, f_arr, vs=vs, vf=vf)
-    slowness = _march_fast_flexural_branch(root_fn, f_arr, vs=vs, vf=vf)
-
     def _real_det(kz: float, _omega: float) -> float:
         return _modal_determinant_n2(kz, _omega, vp, vs, rho, vf, rho_f, a)
 
-    slowness = _extend_below_fluid(_real_det, f_arr, slowness, vf=vf)
+    root_fn = _real_root_function(_det, f_arr, vs=vs, vf=vf)
+    slowness = _march_fast_flexural_branch(
+        root_fn, f_arr, vs=vs, vf=vf, real_det=_real_det
+    )
 
     return BoreholeMode(
         name="quadrupole",
@@ -712,7 +711,6 @@ def _quadrupole_dispersion_fast_formation_layered(
     from fwap.cylindrical_solver._cased import _modal_determinant_n2_cased
     from fwap.cylindrical_solver._n1_isotropic import (
         _FAST_FLEXURAL_MAX_CASED_ROOTS,
-        _extend_below_fluid,
         _march_fast_flexural_branch,
         _real_root_function,
     )
@@ -720,20 +718,6 @@ def _quadrupole_dispersion_fast_formation_layered(
     # Roadmap A.7: the n=2 signal is in Re(det). This was the whole of
     # A.7 -- the path was tracking round-off, and the propagator chain,
     # which the roadmap blamed, is accurate to 1e-16.
-    root_fn = _real_root_function(_det, f_arr, vs=vs, vf=vf)
-    slowness = _march_fast_flexural_branch(
-        root_fn,
-        f_arr,
-        vs=vs,
-        vf=vf,
-        exclude=tuple(layer.vs for layer in layers),
-        max_roots=_FAST_FLEXURAL_MAX_CASED_ROOTS,
-    )
-
-    # Same sub-fluid continuation the unlayered n=2 driver already does.
-    # The screw branch crosses V_f near 17 kHz on a fast formation, and
-    # without this the layered path returned NaN from there up while the
-    # unlayered one tracked the mode.
     def _real_det(kz: float, _omega: float) -> float:
         return _modal_determinant_n2_cased(
             kz,
@@ -747,7 +731,16 @@ def _quadrupole_dispersion_fast_formation_layered(
             layers=layers,
         )
 
-    slowness = _extend_below_fluid(_real_det, f_arr, slowness, vf=vf)
+    root_fn = _real_root_function(_det, f_arr, vs=vs, vf=vf)
+    slowness = _march_fast_flexural_branch(
+        root_fn,
+        f_arr,
+        vs=vs,
+        vf=vf,
+        real_det=_real_det,
+        exclude=tuple(layer.vs for layer in layers),
+        max_roots=_FAST_FLEXURAL_MAX_CASED_ROOTS,
+    )
 
     return BoreholeMode(
         name="quadrupole",
