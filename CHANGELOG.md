@@ -6,6 +6,51 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Investigated
+- **The quadrupole's low-frequency plateau is not a coverage gap**, and
+  closing it the obvious way would manufacture an artefact. No code
+  change; four tests and the reasoning behind them.
+
+  Claro fig 3.7 draws the quadrupole flat at the formation shear
+  slowness from 200 Hz to about 6 kHz, and fwap returns NaN over all of
+  it — 105 of the fast panel's 391 points, 112 of the slow panel's. The
+  natural reading is that this is the same shape as the `V_f` window
+  edge closed above, with the root hiding inside the `eps` margin at
+  `V_S`.
+
+  It is not. Scanning the determinant from `1 − c/V_S = 1e-10` out to
+  `1e-1` — five orders of magnitude closer to the branch point than the
+  margin — finds **no sign change below the cut-off on four different
+  rocks**. Pushed to about `1e-13` sign changes do appear, and they are
+  round-off: a genuine root drives `|det|` to zero, and these do not dip
+  at all, sitting at order `1e41` on both sides. So relaxing the margin
+  would not recover a mode; it would return `c = V_S`, the point where
+  the shear radial wavenumber vanishes — which is what the published
+  plateau looks like.
+
+  What is below the cut-off is a **leaky** quadrupole: a complex root
+  with the shear branch radiating, phase velocity *above* `V_S` by about
+  1 % at its peak, over a narrow band (roughly 3–5 kHz) rather than
+  running to zero frequency. Its roots carry a positive `Im(k_z)`;
+  seeded negative the solver walks off and the branch looks absent, so
+  the test seeds it correctly and says why.
+
+  Sinha & Asvadurov fig 10(a) adjudicates. On near-identical rock its
+  quadrupole continues below the cut-off **rising above `V_S`**, to
+  1.019 `V_S` at 3.2 kHz, not lying flat on it — so the two published
+  figures disagree, and the flat one has the shape of a modal solver
+  returning a branch point. fwap's leaky root matches Sinha's at the
+  crossing (0.00 % and 0.01 % at the two nearest points) and diverges to
+  1.37 % at 3.2 kHz, peaking at 1.009 `V_S` against Sinha's 1.019. That
+  residual disagreement is recorded, not tuned away.
+
+  Also named while chasing it: in a **slow** formation `V_f` lies above
+  `V_S`, and the determinant has a sign change pinned exactly at it. The
+  complex search converges onto 2200.72 m/s — `V_f` to six figures — and
+  reports it as a mode unless `V_f` is excluded by name. Same class as
+  the `c = V_S` degeneracy, and the same class as the two leaky-cased
+  constants withdrawn in #121/#122.
+
 ### Fixed
 - **The fast-formation dipole and quadrupole now follow their branch
   below the fluid velocity**, instead of stopping at it. No public API

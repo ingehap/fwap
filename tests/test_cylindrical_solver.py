@@ -24975,3 +24975,178 @@ def test_the_sub_fluid_search_never_returns_its_own_floor() -> None:
         # And where it cannot answer it says so, rather than handing
         # back the higher-order mode still sitting above V_f.
         assert not np.all(live), solver.__name__
+
+
+# ----------------------------------------------------------------------
+# The quadrupole's low-frequency plateau: why it is not a coverage gap
+#
+# Claro fig 3.7 draws the quadrupole flat at the formation shear
+# slowness from 200 Hz up to about 6 kHz, and fwap returns NaN over all
+# of it -- 105 of the fast panel's 391 points and 112 of the slow
+# panel's 391. That looks like the V_f window edge #124 closed, and it
+# is not the same thing.
+#
+# There, a real root existed on the far side of a branch point and the
+# search was not looking. Here there is no root to find: the trapped
+# quadrupole has a genuine cut-off, and below it the mode is *leaky*,
+# with phase velocity ABOVE V_S and complex k_z. Closing this "gap" by
+# relaxing the eps margin at V_S would return a value pinned at V_S,
+# which is not a mode -- it is the shear branch point wearing a mode's
+# clothes, and it is what the published plateau looks like.
+# ----------------------------------------------------------------------
+
+_QUAD_PLATEAU_STACKS = {
+    "claro fast": dict(_CLARO_FAST),
+    "claro slow": dict(_CLARO_SLOW),
+    "sinha fast": dict(
+        vp=3658.0, vs=2032.0, rho=2350.0, vf=1500.0, rho_f=1000.0, a=0.1016
+    ),
+    "limestone": dict(
+        vp=4000.0, vs=2300.0, rho=2500.0, vf=1500.0, rho_f=1000.0, a=0.10
+    ),
+}
+
+
+def _n2_real_axis_determinant(medium: dict, omega: float, velocity: float) -> float:
+    """The n=2 determinant on the real ``k_z`` axis, either regime."""
+    from fwap.cylindrical_solver._n2_quadrupole import (
+        _modal_determinant_n2,
+        _modal_determinant_n2_complex,
+    )
+
+    if velocity > medium["vf"]:
+        return float(
+            _modal_determinant_n2_complex(
+                complex(omega / velocity, 0.0),
+                omega,
+                **medium,
+                leaky_p=False,
+                leaky_s=False,
+            ).real
+        )
+    return float(_modal_determinant_n2(omega / velocity, omega, **medium))
+
+
+@pytest.mark.parametrize("name", sorted(_QUAD_PLATEAU_STACKS))
+def test_the_quadrupole_cut_off_is_real_not_a_margin(name: str) -> None:
+    """Below the cut-off there is no trapped root to have missed.
+
+    The search excludes a thin ``eps`` band at ``V_S``, so the obvious
+    reading of the plateau is that the root is hiding inside it. It is
+    not: scanning the determinant from ``1 - c/V_S = 1e-10`` out to
+    ``1e-1`` -- five orders of magnitude closer to the branch point than
+    the margin -- finds **no sign change at all** below the cut-off, on
+    four different rocks.
+
+    A relaxed margin would therefore not recover a mode. It would return
+    ``c = V_S``, which is where the shear radial wavenumber vanishes and
+    the determinant degenerates.
+    """
+    medium = _QUAD_PLATEAU_STACKS[name]
+    velocity = medium["vs"] * (1.0 - np.logspace(-10.0, -1.0, 900))
+    for f in (500.0, 1000.0, 2000.0, 3000.0):
+        omega = 2.0 * np.pi * f
+        values = np.array(
+            [_n2_real_axis_determinant(medium, omega, v) for v in velocity]
+        )
+        finite = np.isfinite(values)
+        sign = np.sign(values)
+        changes = int(np.sum((sign[:-1] * sign[1:] < 0) & finite[:-1] & finite[1:]))
+        assert changes == 0, (name, f, changes)
+
+
+def test_the_only_sign_changes_near_v_s_are_round_off() -> None:
+    """And the ones further in are noise, told apart by magnitude.
+
+    Pushed to ``1 - c/V_S ~ 1e-13`` the scan does report sign changes,
+    which is why the test above stops at ``1e-10``. They are round-off:
+    a genuine root drives ``|det|`` toward zero, and these do not dip at
+    all -- the determinant is order ``1e41`` on both sides of every one
+    of them. Recording the discriminator matters more than recording the
+    count, since the count depends on the grid and the discriminator
+    does not.
+    """
+    medium = _QUAD_PLATEAU_STACKS["claro fast"]
+    omega = 2.0 * np.pi * 500.0
+    velocity = medium["vs"] * (1.0 - np.logspace(-13.5, -12.5, 400))
+    values = np.array([_n2_real_axis_determinant(medium, omega, v) for v in velocity])
+    finite = np.isfinite(values)
+    sign = np.sign(values)
+    flips = np.flatnonzero((sign[:-1] * sign[1:] < 0) & finite[:-1] & finite[1:])
+
+    assert flips.size > 0, "expected round-off flips this close to the branch point"
+    magnitude = np.abs(values[finite])
+    # No dip: the smallest |det| anywhere in the window is within a
+    # couple of decades of the largest, so nothing is heading for zero.
+    assert magnitude.min() > magnitude.max() * 1.0e-3, (
+        magnitude.min(),
+        magnitude.max(),
+    )
+
+
+@pytest.mark.parametrize("name", ["claro fast", "claro slow", "sinha fast"])
+def test_below_the_cut_off_the_quadrupole_is_leaky_and_above_v_s(name: str) -> None:
+    """What is actually down there, and why the plateau cannot be it.
+
+    A complex root does exist below the cut-off, with the shear branch
+    radiating (``leaky_s``) -- but its phase velocity is *above* ``V_S``,
+    by around 1 % at the peak, and it lives in a narrow band rather than
+    running to zero frequency. The published plateau sits *at* ``V_S``
+    across the whole band, so it is neither this mode nor the trapped
+    one.
+
+    This is recorded rather than solved: turning it into a public
+    dispersion function would be a new leaky regime and a new public
+    name, which the contributor guide asks to raise as an issue first.
+    """
+    from fwap.cylindrical_solver._leaky import _track_complex_root
+    from fwap.cylindrical_solver._n2_quadrupole import _modal_determinant_n2_complex
+
+    medium = _QUAD_PLATEAU_STACKS[name]
+    vs = medium["vs"]
+    found = []
+    for f in (3500.0, 4000.0, 4500.0):
+        omega = 2.0 * np.pi * f
+
+        def det(kz: complex, omega: float = omega) -> complex:
+            return _modal_determinant_n2_complex(
+                kz, omega, **medium, leaky_p=False, leaky_s=True
+            )
+
+        best = None
+        # The seeds carry a *positive* imaginary part because that is
+        # where these roots are; seeded negative, the solver mostly
+        # walks off and the branch looks absent on two of the three
+        # rocks.
+        for seed_v in np.linspace(1.002, 1.03, 10) * vs:
+            for seed_im in (0.05, 0.2, 0.5, 0.9):
+                root = _track_complex_root(det, complex(omega / seed_v, seed_im))
+                if root is None or root.real <= 0.0:
+                    continue
+                c = omega / root.real
+                # Reject the fluid branch point. In a slow formation
+                # V_f sits above V_S and inside this range, and the
+                # determinant has a sign change pinned exactly at it
+                # where the fluid radial wavenumber vanishes. It is the
+                # same class of artefact as c = V_S itself, and on the
+                # slow panel the search converges onto it (2200.72 m/s,
+                # which is V_f to six figures) unless it is named.
+                if abs(c / medium["vf"] - 1.0) < 1.0e-3:
+                    continue
+                if vs < c < 1.05 * vs and 0.0 < root.imag < 10.0:
+                    best = (c, root.imag)
+                    break
+            if best is not None:
+                break
+        assert best is not None, (name, f)
+        found.append(best)
+
+    speeds = np.array([c for c, _ in found])
+    losses = np.array([q for _, q in found])
+    # Above the shear speed, by about a percent -- not at it.
+    assert np.all(speeds > vs), (name, speeds)
+    assert np.all(speeds < vs * 1.02), (name, speeds)
+    assert speeds.max() > vs * 1.005, (name, speeds)
+    # Genuinely radiating, and less so as the cut-off is approached.
+    assert np.all(losses > 0.0), (name, losses)
+    assert losses[0] > losses[-1], (name, losses)
