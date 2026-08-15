@@ -26233,6 +26233,11 @@ def test_the_marcher_cannot_be_called_without_a_sub_fluid_determinant():
         _im_det, freq, vs=medium["vs"], vf=medium["vf"], real_det=_real_det
     )
     assert np.isfinite(marched).all(), marched
+    # Spelled out rather than left to the comparison: 9 kHz sits above
+    # the crossing on this formation and 11 kHz below it, so this call
+    # exercises both legs and a marcher that stopped at V_f would give
+    # NaN for the second sample.
+    assert 1.0 / marched[0] > medium["vf"] > 1.0 / marched[1]
     np.testing.assert_allclose(
         marched, flexural_dispersion(freq, **medium).slowness, rtol=1e-12
     )
