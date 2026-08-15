@@ -72,6 +72,29 @@ the project uses [Semantic Versioning](https://semver.org/).
   leaky P branch there costs all 14 decades of agreement.
 
 ### Fixed
+- **`flexural_dispersion_vti` now follows the branch below the fluid
+  velocity.** Third and last driver missing `_extend_below_fluid`: it
+  was written for the unlayered isotropic paths, reached neither
+  layered one (fixed below) and did not reach the VTI one either. On
+  Thomsen (1986) Green River shale the solver returned `NaN` from about
+  **7.7 kHz** up — while its own real determinant, which documents
+  itself as valid exactly in that regime, had the root the whole time
+  (1489 m/s at 11 kHz, descending smoothly from the 1504 m/s reported
+  at 10 kHz).
+
+  Found by the same technique as the layered gap: the VTI determinants
+  evaluated at isotropic constants have to satisfy Sinha's published
+  4x4, and asking them to is what showed the driver stopping short of
+  what the determinant supports.
+
+  **Not** fixed, and now pinned rather than implied: both this driver
+  and the isotropic one drop exactly one sample at the crossing, the
+  frequency whose root lands inside the epsilon of `V_f` that neither
+  the above-`V_f` marcher nor the sub-fluid search brackets. Closing it
+  means widening a bracket across the regime boundary, which is a
+  change to the isotropic driver rather than a VTI question.
+
+
 - **The layered fast-formation drivers now follow the branch below the
   fluid velocity**, as the unlayered ones already did.
   `_extend_below_fluid` landed on `flexural_dispersion` and
@@ -96,6 +119,22 @@ the project uses [Semantic Versioning](https://semver.org/).
   appendix matrix (below), which is a different paper.
 
 ### Added
+- **The VTI determinants are checked against the published isotropic
+  matrix.** Nothing did, and the public API structurally cannot:
+  `stoneley_dispersion_vti` and `flexural_dispersion_vti` both dispatch
+  to the isotropic solvers when `_is_isotropic_stiffness` holds, so
+  `_modal_determinant_n0_vti` and `_modal_determinant_n1_vti` were
+  never *exercised* in the one limit where an independent answer
+  exists. Called directly at isotropic constants they agree with
+  Sinha's 4x4 across three regimes — n=0 across the band, n=1 on a slow
+  formation, and n=1 sub-fluid on a fast one — at 11.1–13.9 decades.
+
+  The depths are deliberately not asserted equal: Sinha's formulation
+  has its own potential basis and row scaling, so the two determinants
+  differ by a smooth non-vanishing factor and their curvature at the
+  root differs with it (0.0–1.2 decades apart here). The shared root is
+  the claim.
+
 - **The Schmitt & Cheng appendix is now a cased-hole oracle**, reaching
   what Sinha's open-hole 4x4 structurally cannot: a real stack of steel
   and cement. `_appendix_sigma_min_stack` generalises the existing
