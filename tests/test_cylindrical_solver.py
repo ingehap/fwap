@@ -25318,3 +25318,168 @@ def test_leaky_quadrupole_rejects_bad_input() -> None:
     empty = leaky_quadrupole_dispersion(np.array([]), **good)
     assert empty.slowness.size == 0
     assert empty.azimuthal_order == 2
+
+
+# ----------------------------------------------------------------------
+# Why the low-frequency phase drift is not a search defect
+#
+# fwap's leaky quadrupole peaks at 1.009 V_S against fig 10(a)'s 1.019,
+# so what residual there is sits at the strongly radiating end. The
+# obvious reading is that the complex search loses the root there. It
+# does not, and these tests pin the measurements that exclude it:
+#
+#   * the peak is a property of the determinant, not of the medium
+#     constants or the grid (`..._peak_is_robust_...`);
+#   * the one discontinuous branch test in the n=2 matrix never fires
+#     along the branch (`..._branch_selection_is_not_in_play`);
+#   * and, the discriminating one, the *attenuation* residual is flat
+#     in damping while the phase residual is not
+#     (`..._residual_tracks_damping_but_the_attenuation_does_not`).
+#
+# The last is why this is recorded rather than tuned away. Im(k_z) is
+# what the leaky machinery produces -- the trapped search runs the same
+# matrix with leaky_s=False -- and it is uniformly right exactly where
+# the phase drifts. A lost or mis-sheeted root would miss in both.
+#
+# Two further exclusions are not tests because they assert about a
+# root that does not exist, which no assertion can hold onto: a survey
+# of c in (V_S, 1.30 V_S) x Im(k_z) in (0, 8) at 3.2418 kHz finds
+# exactly one genuine zero, 13.2 decades below its surroundings, at
+# c/V_S = 1.0047; and |det| at the published value bottoms out in a
+# 22x dip, which is not a root. Flipping the leaky sheet does not put
+# one there either.
+# ----------------------------------------------------------------------
+
+
+def test_the_leaky_quadrupole_residual_tracks_damping_but_the_attenuation_does_not():
+    """The measurement that separates "fwap is lost" from "they differ".
+
+    Asserted as a contrast between two correlations rather than as
+    fitted budgets, so it pins the finding without pinning noise. The
+    phase residual is very nearly a function of the damping and falls
+    away with it; the attenuation residual has no such trend at all.
+
+    The same damping law is already recorded at ``n = 0``, on a
+    different figure and formation, by
+    ``test_pseudo_rayleigh_attenuation_matches_sinha_fig2c_m3`` -- so
+    it is a property of these comparisons, not of the quadrupole.
+    """
+    from fwap import leaky_quadrupole_dispersion
+
+    data = Path(__file__).resolve().parents[1] / "docs" / "notebooks" / "_data"
+    freq = np.arange(3100.0, 5460.0, 10.0)
+    f_live, phase, _, decibels = _lq_curves(_LQ_SINHA, freq)
+    mode = leaky_quadrupole_dispersion(freq, **_LQ_SINHA)
+    damping_curve = mode.attenuation_per_meter[np.isfinite(mode.slowness)]
+
+    def _versus_damping(name, curve, floor=None):
+        reference = np.loadtxt(data / name, delimiter=",")
+        keep = (reference[:, 0] >= f_live.min()) & (reference[:, 0] <= f_live.max())
+        if floor is not None:
+            keep &= reference[:, 1] > floor
+        x, y = reference[keep, 0], reference[keep, 1]
+        got = np.interp(x, f_live, curve)
+        damping = np.interp(x, f_live, damping_curve)
+        residual = np.abs(got - y) / y
+        split = float(np.median(damping))
+        low, high = residual[damping < split], residual[damping >= split]
+        return (
+            int(keep.sum()),
+            float(np.corrcoef(residual, damping)[0, 1]),
+            float(high.mean() / low.mean()),
+        )
+
+    n_phase, corr_phase, ratio_phase = _versus_damping(
+        "sinha_asvadurov_2004_fig10a_quadrupole_fast.csv", phase
+    )
+    n_atten, corr_atten, ratio_atten = _versus_damping(
+        "sinha_asvadurov_2004_fig10c_quadrupole_attenuation_fast.csv",
+        decibels,
+        floor=0.2,
+    )
+    assert n_phase >= 30 and n_atten >= 25, (n_phase, n_atten)
+
+    # The phase residual is essentially a function of the damping.
+    assert corr_phase > 0.9, corr_phase
+    assert ratio_phase > 4.0, ratio_phase
+
+    # The attenuation residual is not. This is the discriminating fact.
+    assert abs(corr_atten) < 0.4, corr_atten
+    assert ratio_atten < 1.5, ratio_atten
+
+    # And the two are not merely different, they are far apart.
+    assert corr_phase > corr_atten + 0.6, (corr_phase, corr_atten)
+    assert ratio_phase > 3.0 * ratio_atten, (ratio_phase, ratio_atten)
+
+
+def test_the_leaky_quadrupole_peak_is_robust_to_the_medium_constants():
+    """The 1.009 peak is a property of the determinant, not of inputs.
+
+    Reaching fig 10(a)'s 1.019 would need a medium far outside anything
+    the paper's table supports, so a mis-read constant is not the
+    explanation. The radius check is the sharp one: the peak is
+    dimensionless, so scaling ``a`` must move the frequency and leave
+    the value alone -- a statement about the solver that needs no
+    reference curve at all.
+    """
+    from fwap import leaky_quadrupole_dispersion
+
+    def _peak(medium):
+        freq = np.arange(2900.0, 5500.0, 20.0)
+        mode = leaky_quadrupole_dispersion(freq, **medium)
+        live = np.isfinite(mode.slowness)
+        assert live.sum() > 20, medium
+        ratio = 1.0 / mode.slowness[live] / medium["vs"]
+        i = int(np.argmax(ratio))
+        return float(ratio[i]), float(freq[live][i])
+
+    base, base_freq = _peak(_LQ_SINHA)
+    assert 1.005 < base < 1.015, base
+
+    # Dimensionless: radius rescales the frequency and not the peak.
+    for factor in (0.9, 1.1):
+        scaled, scaled_freq = _peak({**_LQ_SINHA, "a": _LQ_SINHA["a"] * factor})
+        assert abs(scaled - base) < 5.0e-4, (factor, scaled, base)
+        # ... and moves it the other way, as f ~ 1/a.
+        assert (scaled_freq - base_freq) * (factor - 1.0) < 0.0, (factor, scaled_freq)
+
+    # Every other constant, pushed well past any plausible mis-reading,
+    # leaves the peak inside a fifth of the gap to the figure's 1.019.
+    for key, factors in (
+        ("vp", (0.90, 1.10)),
+        ("rho", (0.85, 1.15)),
+        ("rho_f", (0.85, 1.15)),
+        ("vf", (0.90, 1.10)),
+    ):
+        for factor in factors:
+            moved, _ = _peak({**_LQ_SINHA, key: _LQ_SINHA[key] * factor})
+            assert abs(moved - base) < 0.002, (key, factor, moved, base)
+
+
+def test_the_leaky_quadrupole_branch_selection_is_not_in_play():
+    """The fluid branch test never fires along the branch.
+
+    ``_modal_determinant_n2_complex`` picks the fluid radial wavenumber
+    with ``leaky = F_sq.real < 0``, a discontinuous test on a complex
+    quantity -- the shape of thing that puts a kink in a marched branch.
+    Here ``Re(F^2)`` stays negative by a wide margin from end to end, so
+    the same side is taken at every frequency.
+
+    Also checks the regime the selection exists to express: P bound and
+    S radiating throughout, which is what makes this the leaky branch.
+    """
+    from fwap import leaky_quadrupole_dispersion
+
+    freq = np.arange(3100.0, 5460.0, 10.0)
+    mode = leaky_quadrupole_dispersion(freq, **_LQ_SINHA)
+    live = np.isfinite(mode.slowness)
+    assert live.sum() > 200, live.sum()
+    omega = 2.0 * np.pi * freq[live]
+    kz = omega * mode.slowness[live] + 1j * mode.attenuation_per_meter[live]
+
+    f_sq = (kz * kz - (omega / _LQ_SINHA["vf"]) ** 2).real
+    assert np.all(f_sq < 0.0), f_sq.max()
+    assert f_sq.max() < -50.0, f_sq.max()
+
+    assert np.all((kz * kz - (omega / _LQ_SINHA["vp"]) ** 2).real > 0.0)
+    assert np.all((kz * kz - (omega / _LQ_SINHA["vs"]) ** 2).real < 0.0)
