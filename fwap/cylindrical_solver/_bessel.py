@@ -437,6 +437,143 @@ def _as_real_kz(kz: complex, *, caller: str) -> float:
     return float(np.real(kz))
 
 
+def _radial_wavenumbers_vti_complex(
+    kz: complex,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    reference: tuple[complex, complex] | None = None,
+) -> tuple[complex, complex, complex]:
+    r"""
+    Radial wavenumbers for the VTI Christoffel equation, without the
+    real-root restriction.
+
+    Same quadratic as :func:`_radial_wavenumbers_vti`, solved in
+    complex arithmetic so it keeps answering where that one returns
+    ``NaN``. Two regimes it reaches and the real version does not:
+
+    **Complex-conjugate ``alpha^2`` at real ``k_z``.** The real solver
+    returns ``(nan, nan, nan)`` when the discriminant goes negative, on
+    the grounds that complex roots are "not physical in the bound
+    regime". They are physical: a TI medium admits *inhomogeneous*
+    qP/qSV pairs whose vertical wavenumbers are complex conjugates, and
+    the pair together carries a real field. Discarding them costs a
+    measured **77 % of the bound flexural window on Thomsen (1986)
+    Mesaverde shale(5) and 57 % on Mesaverde sandstone** (roadmap A.11
+    phase 0), which is why this exists.
+
+    **Complex ``k_z``.** The leaky case, where the quadratic's
+    coefficients themselves go complex.
+
+    Branch selection is the **decaying** one throughout: ``numpy``'s
+    principal square root gives ``Re(alpha) >= 0``, which is what
+    ``K_n(alpha r)`` needs to fall off with ``r``. The *radiating*
+    branch a leaky mode needs is deliberately **not** offered here --
+    it is a per-wave choice with no caller yet to exercise it, and an
+    unexercised branch rule is exactly what produced three
+    determinants with no root on this codebase. It belongs with the
+    driver that needs it.
+
+    Labelling
+    ---------
+    With two real roots the convention matches
+    :func:`_radial_wavenumbers_vti`: ``alpha_qP`` is the larger, since
+    ``V_P > V_S`` makes it decay faster.
+
+    With a conjugate pair there is **no ordering to inherit**, and the
+    two waves are not separately qP and qSV -- they are one coupled
+    inhomogeneous pair. The labels are then a convention, taken as
+    ``Im(alpha_qP) >= 0``, and callers must treat the two columns as a
+    pair rather than attach physical meaning to which is which.
+
+    With genuinely complex ``k_z`` neither rule applies and ``reference``
+    is used: the assignment that keeps each root nearest its value at a
+    neighbouring ``(kz, omega)``. Without it the labels fall back to
+    descending ``|alpha|``, which is stable away from the branch point
+    and arbitrary near it.
+
+    Parameters
+    ----------
+    kz : complex
+        Trial axial wavenumber (rad / m). Real or complex.
+    omega : float
+        Angular frequency (rad / s).
+    c11, c13, c33, c44, c66 : float
+        VTI stiffness tensor entries (Pa).
+    rho : float
+        Formation density (kg / m^3).
+    reference : tuple of complex, optional
+        ``(alpha_qP, alpha_qSV)`` from a neighbouring evaluation, used
+        to carry the labelling across a step. Only consulted when the
+        roots are neither both real nor a conjugate pair.
+
+    Returns
+    -------
+    tuple of complex
+        ``(alpha_qP, alpha_qSV, alpha_SH)``, each with
+        ``Re(alpha) >= 0``.
+
+    See Also
+    --------
+    _radial_wavenumbers_vti : The real-root version the solvers still
+        use; bit-identical wherever both are defined.
+    """
+    kz_c = complex(kz)
+    rho_omega_sq = rho * omega * omega
+    a_eff = c11 * c44
+    b_eff = (c11 + c44) * rho_omega_sq - (
+        c11 * c33 + c44 * c44 - (c13 + c44) ** 2
+    ) * kz_c * kz_c
+    c_eff = (
+        c44 * c33 * kz_c**4
+        - (c44 + c33) * rho_omega_sq * kz_c * kz_c
+        + rho_omega_sq * rho_omega_sq
+    )
+    disc = b_eff * b_eff - 4.0 * a_eff * c_eff
+    sqrt_disc = np.sqrt(complex(disc))
+    x_plus = (-b_eff + sqrt_disc) / (2.0 * a_eff)
+    x_minus = (-b_eff - sqrt_disc) / (2.0 * a_eff)
+
+    def _decaying(x: complex) -> complex:
+        alpha = np.sqrt(complex(x))
+        return complex(-alpha) if alpha.real < 0.0 else complex(alpha)
+
+    root_a, root_b = _decaying(x_plus), _decaying(x_minus)
+
+    real_roots = abs(x_plus.imag) == 0.0 and abs(x_minus.imag) == 0.0
+    if real_roots and x_plus.real >= 0.0 and x_minus.real >= 0.0:
+        # Same convention as the real solver: qP is the larger.
+        alpha_qP, alpha_qSV = (
+            max(root_a, root_b, key=lambda z: z.real),
+            min(root_a, root_b, key=lambda z: z.real),
+        )
+    elif abs(x_plus - x_minus.conjugate()) <= 1e-9 * max(abs(x_plus), 1.0):
+        # Conjugate pair: the labels are a convention, not a physical
+        # split. Fixed as Im(alpha_qP) >= 0 so repeated calls agree.
+        alpha_qP, alpha_qSV = (
+            (root_a, root_b) if root_a.imag >= root_b.imag else (root_b, root_a)
+        )
+    elif reference is not None:
+        ref_qP, ref_qSV = reference
+        straight = abs(root_a - ref_qP) + abs(root_b - ref_qSV)
+        swapped = abs(root_b - ref_qP) + abs(root_a - ref_qSV)
+        alpha_qP, alpha_qSV = (
+            (root_a, root_b) if straight <= swapped else (root_b, root_a)
+        )
+    else:
+        alpha_qP, alpha_qSV = (
+            (root_a, root_b) if abs(root_a) >= abs(root_b) else (root_b, root_a)
+        )
+
+    alpha_SH = _decaying((c44 * kz_c * kz_c - rho_omega_sq) / c66)
+    return alpha_qP, alpha_qSV, alpha_SH
+
+
 def _radial_wavenumbers_vti(
     kz: complex,
     omega: float,
@@ -455,8 +592,8 @@ def _radial_wavenumbers_vti(
 
     Solves the H.a.2 quadratic
     ``A_eff alpha^4 + B_eff alpha^2 + C_eff = 0`` for the qP / qSV
-    pair (with ``alpha_qP`` the smaller root and ``alpha_qSV`` the
-    larger), and the H.a.4 closed form
+    pair (with ``alpha_qP`` the **larger** root and ``alpha_qSV`` the
+    smaller), and the H.a.4 closed form
     ``alpha_SH^2 = (C44 k_z^2 - rho omega^2) / C66`` for the SH
     branch.
 
@@ -476,8 +613,14 @@ def _radial_wavenumbers_vti(
     tuple of three floats
         ``(alpha_qP, alpha_qSV, alpha_SH)``. Each is real positive
         in the bound regime ``k_z > omega / min(V_Sv, V_Sh)``;
-        NaN otherwise. Sorted so ``alpha_qP <= alpha_qSV`` per
-        substep H.a.3 convention.
+        NaN otherwise. Sorted so ``alpha_qP >= alpha_qSV`` per
+        substep H.a.3 convention -- the faster wave decays *faster*
+        in ``r``, since ``V_P > V_S`` makes
+        ``k_z^2 - (omega/V_P)^2`` the larger of the two in the
+        isotropic limit. This docstring said the opposite in two
+        places until A.11 phase 1; the code was right throughout, and
+        the labels matter because once the roots go complex there is
+        no ordering left to fall back on.
 
     See Also
     --------

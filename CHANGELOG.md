@@ -71,7 +71,40 @@ the project uses [Semantic Versioning](https://semver.org/).
   `Re(p²)` negative while the P wave is still bound, and selecting the
   leaky P branch there costs all 14 decades of agreement.
 
+### Added
+- **`_radial_wavenumbers_vti_complex`** — the VTI Christoffel solve
+  without the real-root restriction (roadmap A.11 phase 2). The existing
+  `_radial_wavenumbers_vti` returns `(nan, nan, nan)` wherever the
+  discriminant goes negative, on the grounds that complex roots are
+  "not physical in the bound regime"; complex-conjugate `alpha^2` pairs
+  are a real feature of TI media, and discarding them costs **77 % of
+  the bound flexural window on Thomsen (1986) Mesaverde shale(5) and
+  57 % on Mesaverde sandstone**.
+
+  **Additive on purpose, and no behaviour changes yet.** Changing the
+  existing function's return type would turn today's `NaN` into a
+  `TypeError` inside the row builders' `float(special.kv(...))` casts —
+  a regression — so the solvers are untouched and phase 3 flips the
+  consumers. The window above is **not** recovered by this entry.
+
+  Validated against the governing equation rather than against the
+  solver that could not produce these values: Christoffel residual
+  ≤ 1.9e-13 for both roots across the conjugate region, agreement with
+  the real solver to 1.8e-13 over 2898 samples where both are defined,
+  `Re(alpha) ≥ 0` in all 3600 samples, continuity through the `disc = 0`
+  branch point, isotropic limit reducing to `(p, s)` at 1e-14, and
+  complex-`k_z` arithmetic sound at 2e-16. The radiating branch is
+  deliberately not offered — no caller exercises it, and an unexercised
+  branch rule is what produced three rootless determinants here.
+
 ### Fixed
+- **`_radial_wavenumbers_vti`'s docstring named the wrong root** (A.11
+  phase 1, documentation only). It said `alpha_qP` was the *smaller*
+  root, in two places, while the code takes `max` and is correct —
+  `V_P > V_S` makes the qP wave decay faster in `r`. Anyone
+  implementing from the docstring would have swapped the labels, and
+  once the roots go complex there is no ordering left to catch it.
+
 - **The VTI determinants accept `complex(kz, 0.0)` instead of crashing,
   and refuse a genuinely complex `k_z` with an explanation.** Handed a
   complex-typed argument they used to raise

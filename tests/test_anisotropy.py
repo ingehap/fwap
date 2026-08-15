@@ -2033,3 +2033,176 @@ def test_the_bound_vti_flexural_branch_stops_at_that_cutoff_not_at_a_physical_ed
     last = c[live][-1]
     assert cutoff < last < cutoff * 1.05, (cutoff, last)
     assert last > kwargs["vf"] * 1.15, (last, kwargs["vf"])
+
+
+# ----------------------------------------------------------------------
+# A.11 phase 2: the radial solve, without the real-root restriction
+#
+# Nothing consumes this yet -- the row builders still cast their
+# formation Bessels to float, so the 77 % / 57 % window phase 0
+# measured is not recovered until phase 3 flips them. What is
+# established here is that the values are right where the old solver
+# gives up, checked against the governing equation rather than against
+# the solver that could not produce them.
+# ----------------------------------------------------------------------
+
+
+def _christoffel_residual(alpha: complex, kz: complex, omega: float, s) -> float:
+    """``|A x^2 + B x + C| / scale`` at ``x = alpha^2``: how well a
+    returned wavenumber satisfies the quadratic it came from."""
+    r = s["rho"] * omega * omega
+    a_eff = s["c11"] * s["c44"]
+    b_eff = (s["c11"] + s["c44"]) * r - (
+        s["c11"] * s["c33"] + s["c44"] * s["c44"] - (s["c13"] + s["c44"]) ** 2
+    ) * kz * kz
+    c_eff = s["c44"] * s["c33"] * kz**4 - (s["c44"] + s["c33"]) * r * kz * kz + r * r
+    x = complex(alpha) ** 2
+    scale = max(abs(a_eff * x * x), abs(b_eff * x), abs(c_eff), 1.0)
+    return float(abs(a_eff * x * x + b_eff * x + c_eff) / scale)
+
+
+def test_the_complex_radial_solve_matches_the_real_one_where_both_are_defined():
+    """Additive, not a replacement: identical wherever the old one answers."""
+    from fwap.cylindrical_solver._bessel import (
+        _radial_wavenumbers_vti,
+        _radial_wavenumbers_vti_complex,
+    )
+
+    worst, compared = 0.0, 0
+    for entry in _THOMSEN_TABLE_1.values():
+        s = _thomsen_stiffness(entry)
+        v_sv = np.sqrt(s["c44"] / s["rho"])
+        for freq in (3000.0, 8000.0, 15000.0):
+            omega = 2.0 * np.pi * freq
+            for c in np.linspace(760.0, v_sv * 0.999, 60):
+                real = _radial_wavenumbers_vti(omega / c, omega, **s)
+                if not all(np.isfinite(x) for x in real):
+                    continue
+                got = _radial_wavenumbers_vti_complex(omega / c, omega, **s)
+                for u, v in zip(real, got):
+                    assert abs(complex(v).imag) < 1e-12, (u, v)
+                    worst = max(worst, abs(u - complex(v)) / max(abs(u), 1e-30))
+                    compared += 1
+    assert compared > 1000, compared
+    assert worst < 1e-11, worst
+
+
+def test_the_complex_radial_solve_answers_where_the_real_one_gives_up():
+    """The conjugate-pair regime, checked against the governing equation.
+
+    This is the claim phase 0 could not make: on the two media whose
+    discriminant turns negative the solve now returns a conjugate pair
+    that satisfies the Christoffel quadratic to ~1e-13, over exactly
+    the window the real solver reports as ``NaN``. Both members decay
+    (``Re(alpha) >= 0``), so they are admissible bound-mode columns.
+    """
+    from fwap.cylindrical_solver._bessel import (
+        _radial_wavenumbers_vti,
+        _radial_wavenumbers_vti_complex,
+    )
+
+    omega = 2.0 * np.pi * 8000.0
+    for name in ("Mesaverde shale(5)", "Mesaverde sandstone"):
+        s = _thomsen_stiffness(_THOMSEN_TABLE_1[name])
+        v_sv = np.sqrt(s["c44"] / s["rho"])
+        conjugate, worst = 0, 0.0
+        for c in np.linspace(760.0, v_sv * 0.999, 300):
+            kz = omega / c
+            if all(np.isfinite(x) for x in _radial_wavenumbers_vti(kz, omega, **s)):
+                continue  # the real solver handles this one
+            qp, qsv, sh = _radial_wavenumbers_vti_complex(kz, omega, **s)
+            assert abs(qp - np.conj(qsv)) < 1e-9 * abs(qp), (name, c, qp, qsv)
+            for alpha in (qp, qsv, sh):
+                assert complex(alpha).real >= -1e-12, (name, c, alpha)
+            # Only qP and qSV are roots of the quadratic; SH comes from
+            # its own closed form and is checked against that instead.
+            worst = max(
+                worst,
+                _christoffel_residual(qp, kz, omega, s),
+                _christoffel_residual(qsv, kz, omega, s),
+            )
+            sh_expected = np.sqrt(
+                complex((s["c44"] * kz * kz - s["rho"] * omega**2) / s["c66"])
+            )
+            assert abs(sh - sh_expected) < 1e-9 * max(abs(sh_expected), 1.0), (
+                name,
+                c,
+                sh,
+            )
+            conjugate += 1
+        assert conjugate > 100, (name, conjugate)
+        assert worst < 1e-10, (name, worst)
+
+
+def test_the_complex_radial_solve_is_continuous_through_the_branch_point():
+    """The roots merge and split rather than jumping.
+
+    ``disc = 0`` is a square-root branch point: approached from the
+    real side the two roots converge, and past it they separate into a
+    conjugate pair with the same real part. A labelling that swapped
+    them, or a branch that flipped sign, would show as a step here.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti_complex
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Mesaverde shale(5)"])
+    omega = 2.0 * np.pi * 8000.0
+    lo, hi = 1700.0, 1800.0
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        if _christoffel_discriminant(omega / mid, omega, s) < 0.0:
+            lo = mid
+        else:
+            hi = mid
+
+    offsets = (5.0, 2.0, 1.0, 0.2, 0.05, -0.05, -0.2, -1.0, -2.0, -5.0)
+    previous, steps = None, []
+    for d in offsets:
+        qp, qsv, _ = _radial_wavenumbers_vti_complex(omega / (hi + d), omega, **s)
+        if d < 0.0:
+            assert abs(qp - np.conj(qsv)) < 1e-9 * abs(qp), (d, qp, qsv)
+            assert abs(qp.imag) > 0.0, (d, qp)
+        else:
+            assert abs(qp.imag) < 1e-9 and abs(qsv.imag) < 1e-9, (d, qp, qsv)
+            assert qp.real >= qsv.real, (d, qp, qsv)
+        if previous is not None:
+            steps.append(abs(qp - previous[0]) + abs(qsv - previous[1]))
+        previous = (qp, qsv)
+    # Small and smooth across the crossing, not a jump at one point.
+    assert max(steps) < 1.0, steps
+    assert max(steps) < 8.0 * min(steps), steps
+
+
+def test_the_complex_radial_solve_reduces_to_p_and_s_and_handles_complex_kz():
+    """Isotropic limit, and the leaky-side arithmetic.
+
+    At isotropic constants the three wavenumbers must be the ordinary
+    ``p``, ``s``, ``s``. Complex ``k_z`` is not a supported solver
+    regime -- no driver reaches it and the radiating branch is not
+    offered -- but the arithmetic must not fall over, since phase 4 is
+    where it becomes load-bearing.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti_complex
+
+    vp, vs, rho = 3658.0, 2032.0, 2350.0
+    c44 = rho * vs**2
+    c11 = rho * vp**2
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+    for freq, c in ((6000.0, 1700.0), (11000.0, 1400.0)):
+        omega = 2.0 * np.pi * freq
+        kz = omega / c
+        qp, qsv, sh = _radial_wavenumbers_vti_complex(kz, omega, **iso)
+        assert abs(qp - np.sqrt(kz**2 - (omega / vp) ** 2)) < 1e-12
+        assert abs(qsv - np.sqrt(kz**2 - (omega / vs) ** 2)) < 1e-12
+        assert abs(sh - np.sqrt(kz**2 - (omega / vs) ** 2)) < 1e-12
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Mesaverde shale(5)"])
+    omega = 2.0 * np.pi * 8000.0
+    for c in (1500.0, 1800.0, 2000.0):
+        for damping in (0.01, 0.1, 0.5, 1.0):
+            kz = omega / c + 1j * damping
+            qp, qsv, sh = _radial_wavenumbers_vti_complex(kz, omega, **s)
+            for alpha in (qp, qsv, sh):
+                assert np.isfinite(complex(alpha))
+                assert complex(alpha).real >= -1e-12, (c, damping, alpha)
+            assert _christoffel_residual(qp, kz, omega, s) < 1e-10
+            assert _christoffel_residual(qsv, kz, omega, s) < 1e-10
