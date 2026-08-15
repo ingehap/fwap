@@ -1913,3 +1913,123 @@ def test_vti_group_wavefront_cartesian_coordinates_form_smooth_curve():
     assert np.all(np.diff(x) > 0)
     # z is monotonically decreasing.
     assert np.all(np.diff(z) < 0)
+
+
+# ----------------------------------------------------------------------
+# A.11 phase 0: where the VTI radial solve gives up, and what it costs
+# ----------------------------------------------------------------------
+
+#: Thomsen (1986) table 1, as ``(V_P0, V_S0, rho, epsilon, delta, gamma)``.
+_THOMSEN_TABLE_1 = {
+    "Green River shale": (3292.0, 1768.0, 2075.0, 0.195, -0.220, 0.180),
+    "Mesaverde shale(5)": (3794.0, 2074.0, 2560.0, 0.189, 0.204, 0.175),
+    "Mesaverde sandstone": (4529.0, 2703.0, 2460.0, 0.033, 0.040, 0.019),
+    "Pierre shale": (2074.0, 869.0, 2250.0, 0.110, 0.090, 0.165),
+    "Taylor sandstone": (3368.0, 1829.0, 2500.0, 0.110, -0.035, 0.255),
+    "Dog Creek shale": (1875.0, 826.0, 2000.0, 0.225, 0.100, 0.345),
+}
+
+
+def _thomsen_stiffness(entry: tuple[float, ...]) -> dict[str, float]:
+    vp0, vs0, rho, eps, delta, gamma = entry
+    c33, c44 = rho * vp0**2, rho * vs0**2
+    c13 = np.sqrt(max(2 * c33 * (c33 - c44) * delta + (c33 - c44) ** 2, 0.0)) - c44
+    return dict(
+        c11=c33 * (1.0 + 2.0 * eps),
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c44 * (1.0 + 2.0 * gamma),
+        rho=rho,
+    )
+
+
+def _christoffel_discriminant(kz: float, omega: float, s: dict[str, float]) -> float:
+    r = s["rho"] * omega * omega
+    a_eff = s["c11"] * s["c44"]
+    b_eff = (s["c11"] + s["c44"]) * r - (
+        s["c11"] * s["c33"] + s["c44"] * s["c44"] - (s["c13"] + s["c44"]) ** 2
+    ) * kz * kz
+    c_eff = s["c44"] * s["c33"] * kz**4 - (s["c44"] + s["c33"]) * r * kz * kz + r * r
+    return float(b_eff * b_eff - 4.0 * a_eff * c_eff)
+
+
+def test_the_vti_radial_solve_gives_up_where_the_discriminant_turns_negative():
+    """Measured limitation, recorded so the fix has a target.
+
+    ``_radial_wavenumbers_vti`` returns ``(nan, nan, nan)`` when the
+    Christoffel quadratic's discriminant goes negative, on the stated
+    grounds that complex roots are "not physical in the bound regime".
+    Complex-conjugate ``alpha^2`` pairs are a real feature of TI media
+    rather than an error state, so that early return costs a genuine
+    part of the bound window -- on two of Thomsen's six table-1 media,
+    most of it.
+
+    This is A.11 phase 0. It pins the size of the gap rather than
+    asserting the mode continues past it: showing that needs the
+    conjugate-pair handling itself, which is phase 2, and this test is
+    what phase 2 has to move.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti
+
+    omega = 2.0 * np.pi * 8000.0
+    clean, truncated = [], {}
+    for name, entry in _THOMSEN_TABLE_1.items():
+        s = _thomsen_stiffness(entry)
+        v_sv = np.sqrt(s["c44"] / s["rho"])
+        speeds = np.linspace(700.0, v_sv * 0.999, 700)
+        negative = np.array(
+            [_christoffel_discriminant(omega / c, omega, s) < 0.0 for c in speeds]
+        )
+        if not negative.any():
+            clean.append(name)
+            continue
+        cutoff = speeds[negative].max()
+        truncated[name] = (cutoff, float(negative.mean()))
+        # Where the discriminant is negative the solve reports nothing ...
+        below = _radial_wavenumbers_vti(omega / (cutoff * 0.99), omega, **s)
+        assert all(np.isnan(x) for x in below), (name, below)
+        # ... and just above it the three wavenumbers are finite and real.
+        above = _radial_wavenumbers_vti(omega / (cutoff * 1.02), omega, **s)
+        assert all(np.isfinite(x) and x > 0.0 for x in above), (name, above)
+
+    assert set(truncated) == {"Mesaverde shale(5)", "Mesaverde sandstone"}, truncated
+    assert len(clean) == 4, clean
+    # The cost is most of the window on both, not a sliver at the edge.
+    assert truncated["Mesaverde shale(5)"][1] > 0.70, truncated
+    assert truncated["Mesaverde sandstone"][1] > 0.50, truncated
+
+
+def test_the_bound_vti_flexural_branch_stops_at_that_cutoff_not_at_a_physical_edge():
+    """The truncation is visible in the public solver, and it is the
+    discriminant that ends the branch.
+
+    On Mesaverde shale(5) ``flexural_dispersion_vti`` descends 2071 ->
+    1783 m/s over 3-6 kHz and returns ``NaN`` from 7 kHz up. The last
+    value sits just above the discriminant cutoff near 1759 m/s and far
+    above every physical edge in the problem -- ``V_f`` is 1500 and the
+    branch on media without the discriminant gap runs well below that.
+    A mode that ended on its own would approach a limit; this one is
+    cut off mid-descent.
+    """
+    from fwap import flexural_dispersion_vti
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Mesaverde shale(5)"])
+    kwargs = dict(**s, vf=1500.0, rho_f=1000.0, a=0.10)
+    freq = np.arange(3000.0, 20000.0, 1000.0)
+    c = 1.0 / flexural_dispersion_vti(freq, **kwargs).slowness
+
+    live = np.isfinite(c)
+    assert live[:4].all(), c
+    assert not live[4:].any(), c
+    assert np.all(np.diff(c[live]) < 0.0), c
+
+    omega = 2.0 * np.pi * 8000.0
+    speeds = np.linspace(700.0, np.sqrt(s["c44"] / s["rho"]) * 0.999, 700)
+    negative = np.array(
+        [_christoffel_discriminant(omega / v, omega, s) < 0.0 for v in speeds]
+    )
+    cutoff = speeds[negative].max()
+    last = c[live][-1]
+    assert cutoff < last < cutoff * 1.05, (cutoff, last)
+    assert last > kwargs["vf"] * 1.15, (last, kwargs["vf"])
