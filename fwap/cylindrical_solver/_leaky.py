@@ -272,8 +272,9 @@ def _modal_determinant_n0_complex(
       (real ``kz``, both ``leaky_*`` flags False) the imaginary
       part is zero to floating-point precision and the real part
       matches the real-only :func:`_modal_determinant_n0` exactly
-      -- a regression invariant tested in
-      ``tests/test_cylindrical_solver.py``.
+      -- a regression invariant tested by
+      ``test_complex_n0_matches_real_in_bound_regime`` in
+      ``tests/test_solver_open_hole.py``.
 
     Parameters
     ----------
@@ -1700,7 +1701,7 @@ def _scan_bound_roots(
     samples : int, default 2000
         Scan resolution. The trapped roots are simple and well separated,
         so this sits far above the density where any are missed; see the
-        resolution-independence test in ``tests/test_cylindrical_solver.py``.
+        resolution-independence test in ``tests/test_solver_branches.py``.
 
     Returns
     -------
@@ -2346,7 +2347,7 @@ def pseudo_rayleigh_dispersion(
     capture is the geometry --- the measured cutoff scales as
     :math:`1/a` exactly as the formula says, to about 1 part in 300
     over a 3.3x range of radius, which is what
-    ``tests/test_cylindrical_solver.py`` pins.
+    ``tests/test_solver_branches.py`` pins.
 
     The offset is not a universal constant that could simply be
     folded in: it varies strongly with formation velocity, and for

@@ -46,7 +46,7 @@ from fwap.cylindrical_solver._n0_isotropic import (
 #     ``_modal_determinant_n0_layered`` only needs to change the
 #     dispatch branch below.
 #   * The layer=formation regression test in
-#     ``tests/test_cylindrical_solver.py`` is already passing with
+#     ``tests/test_solver_layered.py`` is already passing with
 #     ``layers=()`` and stays as the floating-point oracle for the
 #     non-trivial case.
 
@@ -1695,7 +1695,7 @@ def stoneley_dispersion_layered(
     every azimuthal order and for open-hole and cased stacks alike.
     That is a useful property to lean on -- it means a stack may be
     refined for convenience without perturbing the answer -- and
-    ``tests/test_cylindrical_solver.py`` pins it.
+    ``tests/test_solver_branches.py`` pins it.
 
     **A redundant layer is not always transparent, though.** Appending
     a layer whose properties equal the formation is physically a no-op,
@@ -1947,7 +1947,7 @@ def stoneley_dispersion_microannulus(
         (the Stoneley root sits just below the fluid velocity), so this
         sits far above the density at which the root moves; see the
         resolution-independence test in
-        ``tests/test_cylindrical_solver.py``.
+        ``tests/test_solver_branches.py``.
 
     Returns
     -------

@@ -357,7 +357,7 @@ sectors are genuinely independent.
 
 **~14 commits**, **~1200 lines solver + ~1100 lines tests**,
 **~64 new tests** on top of the 149 currently in
-``test_cylindrical_solver.py``. Estimated end-to-end: **8-10
+``test_solver_*.py``. Estimated end-to-end: **8-10
 days** of focused work, comparable to F.1's actual cadence.
 
 If F.2.b runs over budget on the cos sector, F.2.c (sin sector)

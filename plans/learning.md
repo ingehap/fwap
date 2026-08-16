@@ -328,7 +328,7 @@ alone. Conflating the two produced the repeated "nothing left to do here"
 conclusion, which was wrong every time it was written.
 
 **Defects found by an oracle should be pinned as defects, not fixed silently or
-left implicit.** The convention now in `tests/test_cylindrical_solver.py` is a
+left implicit.** The convention now in `tests/test_solver_*.py` is a
 comment block saying the tests pin defects, that a future fix will make them
 fail, and that they should then be rewritten rather than worked around. This
 keeps a known limitation from quietly becoming a guarantee.
@@ -419,7 +419,7 @@ repository. What caught it was mechanically applying failure mode 1 to a result
 that looked too good, rather than only to results that look suspicious. The
 rule earns its place by being applied when it feels unnecessary.
 
-`tests/test_cylindrical_solver.py` pins all three facts — that the balance
+`tests/test_solver_*.py` pins all three facts — that the balance
 reproduces `Im(k_z)` at roots, that it does so at non-roots too, and that the
 formation field grows — so the next attempt starts from the result rather than
 from the derivation. Nothing was added to the public API: shipping a check that

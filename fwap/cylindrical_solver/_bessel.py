@@ -10,8 +10,8 @@ radial-wavenumber + Bessel-pack helpers
 ``_radial_wavenumbers_vti``) from the 14 kLoC monolith into this
 submodule. The names remain re-exported from
 ``fwap.cylindrical_solver`` so neither the public API nor the
-private symbols imported by ``tests/test_cylindrical_solver.py``
-move.
+private symbols imported by the ``tests/test_solver_*.py``
+modules move.
 """
 
 from __future__ import annotations

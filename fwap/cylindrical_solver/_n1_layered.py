@@ -50,7 +50,7 @@ from fwap.cylindrical_solver._n1_isotropic import (
 #     (substeps F.2.b and F.2.c) only needs to swap the dispatch
 #     branch below.
 #   * The layer=formation regression test in
-#     ``tests/test_cylindrical_solver.py`` is already passing with
+#     ``tests/test_solver_layered.py`` is already passing with
 #     ``layers=()`` and stays as the floating-point oracle for the
 #     non-trivial case.
 

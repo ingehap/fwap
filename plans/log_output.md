@@ -352,6 +352,9 @@ to earlier statements made in the same session and the pattern is the point.
 `tests/test_cylindrical_solver.py`, 433 tests, run alone on an otherwise idle
 machine: **31.33 s**. Slowest entries:
 
+*(That file has since been split into the six `tests/test_solver_*.py`
+modules; the numbers below are left as they were measured.)*
+
 | test | duration |
 |---|---|
 | `test_n1_n2_cutoffs_are_shear_controlled_not_fluid_controlled` | 4.41 s |

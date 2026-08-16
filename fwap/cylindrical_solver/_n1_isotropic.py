@@ -2220,8 +2220,9 @@ def _modal_determinant_n1_complex(
       (real ``kz``, both ``leaky_*`` flags False) the imaginary
       part is zero to floating-point precision and the real
       part matches the real-only :func:`_modal_determinant_n1`
-      exactly -- a regression invariant tested in
-      ``tests/test_cylindrical_solver.py``.
+      exactly -- a regression invariant tested by
+      ``test_complex_n1_matches_real_in_bound_regime`` in
+      ``tests/test_solver_open_hole.py``.
 
     Parameters
     ----------

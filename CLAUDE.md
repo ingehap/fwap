@@ -42,6 +42,13 @@ pytest -x                               # bench suite auto-excluded
   only in the demos and plotting helpers (`fwap.demos`, `fwap._plotting`).
 - **Tests**: add a test for every new function. Core algorithm modules also
   get an end-to-end `demo_*` path covered by `tests/test_demos.py`.
+- **Cylindrical-solver tests live in six modules**, split by what they
+  constrain: `test_solver_open_hole` (n=0/1/2 open hole), `test_solver_layered`
+  (plan F), `test_solver_vti` (plan H), `test_solver_cased` (plans G/G'/G''),
+  `test_solver_branches` (where a branch exists, stops, and survives a change
+  of grid), `test_solver_figures` (ties to published curves). Media shared
+  across the seams are in `tests/_solver_media.py`. Leaky-VTI work goes in
+  `tests/test_anisotropy.py`.
 - Private modules are `_`-prefixed (e.g. `fwap/_common.py`,
   `fwap/cylindrical_solver/_bessel.py`); the public surface is re-exported
   from `fwap/__init__.py`.
