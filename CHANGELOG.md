@@ -6,6 +6,40 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **`tests/test_cylindrical_solver.py` is split into six modules.** It
+  had reached 26,376 lines and 741 test cases, which is past the point
+  where a file can be read, navigated, or selected against.
+
+  The seams are what the file was already organised by, so they are
+  boundaries rather than cuts: `test_solver_open_hole` (n=0/1/2 open
+  hole and the leaky scaffolding under it), `test_solver_layered`
+  (plan F, row by row), `test_solver_vti` (plan H),
+  `test_solver_cased` (plans G, G' and G''), `test_solver_branches`
+  (where a branch exists, where it stops, and whether it survives a
+  change of grid), and `test_solver_figures` (ties to published
+  curves). Media used across the seams — eighteen names, no more —
+  moved to `tests/_solver_media.py`; two modules referenced each
+  other's definitions in both directions, so a shared module was the
+  only acyclic option.
+
+  Verified by set equality of collected test ids before and after, not
+  by count: 741 ids, identical. Every reference to the old path in
+  `fwap/` was repointed to the module that actually holds the named
+  test.
+
+- **CI runs pytest in parallel** (`-n auto --dist loadfile`, adding
+  `pytest-xdist` to the `dev` extra). Measured on a 4-core box without
+  coverage: 590 s serial → 213 s, a 2.77× speedup, 1526 passed either
+  way; the full CI command with coverage lands at 325 s and still
+  reports 96.10%, so the `--cov-fail-under=95` gate is unaffected. Two
+  thirds of the serial time is ~50 root-finding tests, so this is
+  queueing removed rather than any test made faster. Per-file
+  distribution is
+  deliberate: the default per-test split would balance better, but it
+  also lets two tests from one module run at once, which is a property
+  this suite has never had to hold.
+
 ### Fixed
 - **Two false convention claims in docstrings**, found by executing
   them (`tests/test_stated_conventions.py`).

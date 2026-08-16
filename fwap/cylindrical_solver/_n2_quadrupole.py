@@ -864,7 +864,7 @@ def quadrupole_dispersion_layered(
     and against the digitised curves this path returns **0.58 % rms**
     for an 8 cm invaded zone -- better than the same solver's
     1.29 % on the virgin rock of the same figure. See
-    ``tests/test_cylindrical_solver.py`` (figure 15b / A.6).
+    ``tests/test_solver_figures.py`` (figure 15b / A.6).
 
     The correction does not touch the mode's onset, which remains
     late by the near-cutoff margin recorded for the slow screw mode

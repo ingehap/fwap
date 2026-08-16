@@ -62,7 +62,29 @@ jobs:
         # version-gated branches that differ between 3.11 and 3.12,
         # so the gate catches real regressions without going red on
         # interpreter differences. Raise it as coverage improves.
-        run: pytest -x --cov=fwap --cov-report=term-missing --cov-fail-under=95
+        #
+        # ``-n auto`` runs one worker per vCPU (4 on ubuntu-latest).
+        # Measured on a 4-core box, without coverage: 590 s serial ->
+        # 213 s, a 2.77x speedup, 1526 passed either way. This exact
+        # command, coverage included, lands at 325 s and still reports
+        # 96.10% -- pytest-cov combines the workers' data, so the gate
+        # below is unaffected.
+        #
+        # Two thirds of the serial time sits in ~50 root-finding tests,
+        # so parallelism is the whole win here: no test got faster,
+        # they stopped queueing behind each other. The floor is the
+        # slowest single test (28 s), nowhere near binding yet.
+        #
+        # ``--dist loadfile`` keeps every test in a file on one worker.
+        # The default per-test distribution would be better balanced,
+        # but it also lets two tests from one module run at once, and
+        # that is a property this suite has never had to hold. Per-file
+        # is the conservative choice and there are enough files to fill
+        # four workers. If the balance ever becomes the bottleneck,
+        # measure before loosening it.
+        run: >-
+          pytest -x -n auto --dist loadfile
+          --cov=fwap --cov-report=term-missing --cov-fail-under=95
 
       - name: Validate open-hole tutorial notebooks (nbval)
         # These two use only fwap (no torch), so they belong in the core gate --

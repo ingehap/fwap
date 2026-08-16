@@ -228,7 +228,7 @@ from fwap.cylindrical_solver._cased import (
 # extracted to a sibling submodule in the Phase 1 package split. The
 # explicit ``X as X`` form preserves backwards-compatible imports
 # (``from fwap.cylindrical_solver import BoreholeLayer`` and the
-# private validators consumed by ``tests/test_cylindrical_solver.py``)
+# private validators consumed by the ``tests/test_solver_*.py`` modules)
 # without ruff F401-flagging the private names.
 from fwap.cylindrical_solver._dataclasses import BoreholeLayer as BoreholeLayer
 from fwap.cylindrical_solver._dataclasses import BoreholeMode as BoreholeMode

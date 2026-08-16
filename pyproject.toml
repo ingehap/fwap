@@ -53,6 +53,11 @@ dev = [
     "pytest>=7,<9",
     "pytest-benchmark>=4,<6",
     "pytest-cov>=4,<7",
+    # Wall-clock, not correctness: the suite is ~10 minutes serial and
+    # two thirds of that sits in ~50 root-finding tests. CI runs it as
+    # ``-n auto --dist loadfile`` -- see the Pytest step in
+    # .github/workflows/ci.yml for why the distribution is per-file.
+    "pytest-xdist>=3,<4",
     "hypothesis>=6,<7",
     "mypy>=1.8,<2",
     "ruff>=0.6,<1",
@@ -149,7 +154,7 @@ ignore = [
 # Tests intentionally import inside functions and use wildcard helpers.
 # B023 fires on closures that capture a loop variable and are called
 # immediately within the same iteration (a benign pattern used by the
-# brentq oracle blocks in test_cylindrical_solver.py); rewriting every
+# brentq oracle blocks in the test_solver_*.py modules); rewriting every
 # such closure with a default-binding shim would be pure ceremony.
 "tests/*" = ["F401", "F811", "E402", "B023"]
 # __init__.py re-exports a lot, which ruff flags as unused imports;

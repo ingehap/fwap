@@ -77,7 +77,7 @@ those two. (The other four are safe at 5 %: substituting the phase curve
 costs 8.2 % to 21.3 % there. They are still given tighter budgets,
 because there is no reason to grant slack that was not needed.)
 The budgets used are 0.2 % (Stoneley), 0.5–1.5 % (quadrupole) and
-1.0–3.0 % (flexural), and `tests/test_cylindrical_solver.py` asserts for
+1.0–3.0 % (flexural), and `tests/test_solver_*.py` asserts for
 every row that the undifferentiated phase curve *fails* the budget that
 row is granted.
 
@@ -207,7 +207,7 @@ Note that fig 10(a) is now scored by **two** solvers over disjoint
 parts of one curve — `quadrupole_dispersion` for the 223 trapped points
 and `leaky_quadrupole_dispersion` for the 34 below the cut-off. The two
 never both claim a frequency, and the handover is one grid step wide;
-`tests/test_cylindrical_solver.py` asserts both.
+`tests/test_solver_*.py` asserts both.
 
 **The low-frequency phase drift was chased and is not a search defect.**
 The residual sits entirely at the strongly radiating end, so the obvious
@@ -255,7 +255,7 @@ the curve plotted in the paper is the outlier. The residual is a
 property of that plotted limb, not of the solver, and is carried as a
 measured budget on the *reference*.
 
-The matrix is kept in `tests/test_cylindrical_solver.py` as a standing
+The matrix is kept in `tests/test_solver_*.py` as a standing
 oracle, and it reaches **every open-hole order fwap solves**:
 
 | order | solver | regime | depth |
@@ -529,7 +529,7 @@ solver runs faster than a `Q` = 20 medium here, and all four overlays come
 in 2-3 % high with the same sign. Read them as ties with a physical floor.
 
 These are deliberately *independent* of the reads recorded under roadmap
-A.1, which live as constants in `tests/test_cylindrical_solver.py` rather
+A.1, which live as constants in `tests/test_solver_*.py` rather
 than as CSVs — different session, different resolution (400 dpi here),
 different tracer. They agree: this trace puts fig 2(a) at 1494 m/s at
 24.5 kHz against A.1's 1493 m/s at 24.9 kHz. Exporting A.1's constants
@@ -579,7 +579,7 @@ excited either by a dipole or a quadrupole source will then also be
 leaky", travelling "with a velocity higher than that of the formation
 shear wave". Schmitt & Cheng illustrate that case with **waveforms**
 (figs 24 and 25), not a dispersion curve, so there is nothing to trace.
-`tests/test_cylindrical_solver.py` carries the claim as a test instead,
+`tests/test_solver_*.py` carries the claim as a test instead,
 and scanning the real cased determinant over the whole bound window at
 their parameters finds no sign change at any frequency from 0.5 to
 14 kHz — to within 1e-9 of `V_S`, so not a resolution artefact.

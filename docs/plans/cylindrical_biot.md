@@ -48,7 +48,7 @@ is retained for historical context.
 
 **Status.** Shipped in `d79bd69`. Public
 `pseudo_rayleigh_dispersion` exported from `fwap`. Cutoff
-regression validated in `tests/test_cylindrical_solver.py`.
+regression validated in `tests/test_solver_*.py`.
 
 ⚠ **This entry used to claim a "Paillet & Cheng 1991 fig 4.5 match
 validated" in that file. There is no such test and never was** — the

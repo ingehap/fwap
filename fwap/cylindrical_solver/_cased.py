@@ -427,7 +427,7 @@ def _layer_e_matrix_n0(
 
     Notes
     -----
-    Per-element oracles vs F.1.b in :mod:`tests.test_cylindrical_solver`:
+    Per-element oracles vs F.1.b in :mod:`tests.test_solver_cased`:
 
     * Row 0 (``u_r``): cols match
       ``-_layered_n0_row1_at_a[1:5]`` (negation from the BC's
@@ -1087,7 +1087,7 @@ def _modal_determinant_n0_microannulus(
     this module was exactly this failure -- a bracket that assumed one
     root and returned whichever the grid straddled.
 
-    Checks used in :mod:`tests.test_cylindrical_solver`, and what each
+    Checks used in :mod:`tests.test_solver_cased`, and what each
     can and cannot catch:
 
     * **The Krauklis crack wave.** The slow root is the wave guided by

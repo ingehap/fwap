@@ -20,7 +20,7 @@ and G' (n=1).
 | G''.b.2 — `_layer_propagator_n2` | ✅ | `fwap/cylindrical_solver.py:10951` | 5 / 5 |
 | G''.c — `_modal_determinant_n2_cased` | ✅ | `fwap/cylindrical_solver.py:11121` | 5 / 5 (one moved to G''.0) |
 | G''.d — public-API hook + brentq loop | ✅ | `fwap/cylindrical_solver.py:4865` (`_quadrupole_kz_bracket_cased`) and `:4896` (`quadrupole_dispersion_layered` brentq path) | 6 / 6 |
-| G''.e — n=2 hardening | ✅ | tests/test_cylindrical_solver.py (4 tests added; no production code) | 4 / 4 |
+| G''.e — n=2 hardening | ✅ | tests/test_solver_*.py (4 tests added; no production code) | 4 / 4 |
 | G''.f — cross-cutting docs | ✅ | this PR (master plan + G/G' plan + module docstring + plan-doc closure) | n/a |
 
 **All G'' substeps shipped.** G''.0 + G''.a + G''.b.1 +
