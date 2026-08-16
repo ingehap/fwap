@@ -2345,3 +2345,131 @@ def test_the_e_normalisation_window_narrowed_when_the_bounds_were_corrected():
         0.686, abs=0.001
     )
     assert RICKMAN_E_MAX_PA - RICKMAN_E_MIN_PA < 8.0e10 - 1.0e10
+
+
+# ----------------------------------------------------------------------
+# W1 group B: Lacy, where the oracle was reached and the citation broke
+#
+# Chang et al. (2006) was obtained and checked. It does not contain the
+# formula this module implements, its eq. (7) is a density-and-velocity
+# relation rather than a modulus one, and it never cites Lacy. The
+# formula is left in place and pinned: replacing a shipped correlation
+# needs the *right* one confirmed, and SPE 38716 is still unread.
+# ----------------------------------------------------------------------
+
+
+def test_the_lacy_si_conversion_is_exact():
+    """The Rickman failure mode, checked here before it can happen.
+
+    The docstring states the correlation in GPa and MPa while the API
+    is SI, so there are two unit conversions between what is written
+    and what is returned. Rickman's bounds were wrong by exactly this:
+    a conversion written down and not performed.
+
+    Here it is performed, and exactly -- ``0.0`` difference against
+    the stated form evaluated by hand, not merely close.
+    """
+    young = np.array([1.0e9, 1.0e10, 2.5e10, 4.0e10])
+
+    stated = (0.278 * (young / 1.0e9) ** 2 + 2.458 * (young / 1.0e9)) * 1.0e6
+
+    assert np.max(np.abs(unconfined_compressive_strength(young) - stated)) == 0.0
+
+
+def test_an_uncorrected_dynamic_modulus_moves_lacy_ucs_superlinearly():
+    """Why "upper bound" understates it.
+
+    The correlation is quadratic, so the dynamic-to-static gap is not
+    a scale factor on the answer. Halving ``E`` from 40 to 20 GPa
+    divides UCS by **3.4**, not by 2 -- the error changes the order of
+    magnitude rather than shifting it.
+
+    And the result leaves the rock type's own range. At 40 GPa, an
+    ordinary sonic-derived modulus, this returns 543 MPa, against
+    ~168 MPa for a *strong* sandstone in the standard classification
+    (Mansour et al. 2020). A value in the hundreds is the signature of
+    an uncorrected modulus, not of a strong rock.
+
+    Monotonicity is pinned too, since that is the one thing that does
+    survive and the docstring leans on it.
+    """
+
+    def ucs_mpa(e_gpa: float) -> float:
+        return float(unconfined_compressive_strength(e_gpa * 1.0e9)) / 1.0e6
+
+    assert ucs_mpa(40.0) / ucs_mpa(20.0) == pytest.approx(3.39, abs=0.02)
+    assert ucs_mpa(30.0) / ucs_mpa(15.0) == pytest.approx(3.26, abs=0.02)
+
+    # Out of range at ordinary sonic-derived moduli.
+    assert ucs_mpa(30.0) == pytest.approx(324.0, abs=1.0)
+    assert ucs_mpa(40.0) == pytest.approx(543.0, abs=1.0)
+    strong_sandstone_mpa = 168.0
+    assert ucs_mpa(40.0) > 3.0 * strong_sandstone_mpa
+
+    # ... and inside it once a plausible correction is applied.
+    assert ucs_mpa(40.0 / 2.0) < strong_sandstone_mpa
+    assert ucs_mpa(40.0 / 3.0) < strong_sandstone_mpa
+
+    # Monotone, which is what keeps the profile shape usable.
+    grid = np.linspace(1.0, 60.0, 200)
+    values = np.array([ucs_mpa(e) for e in grid])
+    assert np.all(np.diff(values) > 0.0)
+
+
+def test_the_ucs_formula_is_not_the_one_chang_table_1_publishes():
+    """The citation was checkable and it was wrong. Pinned.
+
+    ``unconfined_compressive_strength`` claimed "Lacy (1997, SPE
+    38716) ... in the form compiled by Chang et al. (2006, eq. 7)".
+    Chang et al. was obtained. Its Table 1 has exactly two ``E``-based
+    sandstone relations, neither of them a quadratic:
+
+        eq. (8)  UCS = 46.2 exp(0.027 E)
+        eq. (9)  UCS = 2.28 + 4.1089 E     (Bradford et al. 1998)
+
+    and its eq. (7) is ``3.87 exp(1.14e-10 rho Vp^2)`` -- density and
+    velocity, not modulus. "Lacy" appears nowhere in the paper.
+
+    So this test does not check the formula against Chang; it records
+    that the two **disagree**, which is what a future reader needs. The
+    shipped correlation runs 1.9x to 3.9x above both of Chang's above
+    20 GPa, agreeing only near 10 GPa.
+
+    **When SPE 38716 is read this test must be revisited.** If the
+    quadratic is Lacy's, keep it and say so properly; if it is not, the
+    correlation itself is wrong and this becomes a re-baseline.
+    """
+
+    def chang_eq8(e_gpa: float) -> float:
+        return 46.2 * float(np.exp(0.027 * e_gpa))
+
+    def chang_eq9(e_gpa: float) -> float:
+        return 2.28 + 4.1089 * e_gpa
+
+    def shipped(e_gpa: float) -> float:
+        return float(unconfined_compressive_strength(e_gpa * 1.0e9)) / 1.0e6
+
+    # Near 10 GPa the three are comparable, which is presumably why
+    # nobody noticed.
+    assert shipped(10.0) / max(chang_eq8(10.0), chang_eq9(10.0)) == pytest.approx(
+        0.87, abs=0.02
+    )
+
+    # Above 20 GPa they part company, monotonically and badly.
+    ratios = {
+        20.0: 1.90,
+        30.0: 2.58,
+        40.0: 3.26,
+        50.0: 3.94,
+    }
+    for e_gpa, expected in ratios.items():
+        worst_published = max(chang_eq8(e_gpa), chang_eq9(e_gpa))
+        assert shipped(e_gpa) / worst_published == pytest.approx(expected, abs=0.03)
+
+    # Chang's own two agree with each other far better than either
+    # agrees with what ships here -- so the outlier is ours.
+    for e_gpa in (20.0, 30.0, 40.0, 50.0):
+        between_published = max(chang_eq8(e_gpa), chang_eq9(e_gpa)) / min(
+            chang_eq8(e_gpa), chang_eq9(e_gpa)
+        )
+        assert between_published < 1.35, e_gpa

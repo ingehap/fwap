@@ -228,7 +228,8 @@ they pin, not by how many there are.
 | `geomechanics/vertical.py` (Hubbert & Willis 1957) | closed-form fracture-initiation limit | identity only |
 | `geomechanics/pressures.py` (Eaton 1975, Bowers 1995) | published basin calibrations; *unconfirmed* whether a checkable worked curve is reachable | **gap** |
 | `geomechanics/indices.py` — **Rickman 2008** | published bounds *and* the linear form they imply, both quoted in the secondary literature | **external** — found, and it caught a defect |
-| `geomechanics/indices.py` (Lacy 1997, Bratli & Risnes) | published correlations; same uncertainty | **gap** |
+| `geomechanics/indices.py` — **Lacy 1997** | Chang et al. (2006) obtained: it does **not** contain the shipped formula, and never cites Lacy | **oracle reached, citation broke** |
+| `geomechanics/indices.py` (Bratli & Risnes) | published heuristic; same uncertainty | **gap** |
 | `geomechanics/inclined.py` (Kirsch/Hiramatsu-Oka, Fairhurst) | analytic stress solution at the wall | reachable, unused |
 | `stoneley.py` (Tang & Cheng, Winkler & Plumb) | its *input* dispersion inherits the solver's external tie; the permeability step does not | partial |
 
@@ -291,6 +292,57 @@ said to replace it with.
 re-baselined.** Nothing had encoded the old numbers; they were used
 symbolically throughout. That is the same fact from both sides — no
 test had to change, and no test could have caught it.
+
+### Lacy — the oracle was reached, and the citation broke
+
+Recorded first as "reachable, not from here" after three routes were
+refused. The paper then arrived, and the outcome is sharper than either
+branch anticipated: **the formula this module ships is not in Chang et
+al. at all.**
+
+`unconfined_compressive_strength` claimed "Lacy (1997, SPE 38716) ...
+in the form compiled by Chang et al. (2006, eq. 7)". Checked against
+the paper, three separate parts of that are false:
+
+* **Chang's Table 1 contains no quadratic in `E`.** Its only two
+  `E`-based sandstone relations are eq. (8) `UCS = 46.2 exp(0.027 E)`
+  and eq. (9) `UCS = 2.28 + 4.1089 E` (Bradford et al. 1998).
+* **Chang's eq. (7) is `3.87 exp(1.14e-10 rho Vp^2)`** for the Gulf of
+  Mexico — density and velocity, not modulus. The body text confirms
+  the grouping: "Eqs. (5)–(7) utilize both density and Vp data".
+* **"Lacy" appears nowhere in Chang et al.** — not in Table 1, not in
+  the references.
+
+**How wrong the formula is, against what Chang does publish:**
+
+| `E` (GPa) | Chang eq. 8 | Chang eq. 9 | shipped | ratio |
+|---:|---:|---:|---:|---:|
+| 10 | 60.5 | 43.4 | 52.4 | 0.87x |
+| 20 | 79.3 | 84.5 | 160.4 | **1.90x** |
+| 30 | 103.9 | 125.5 | 323.9 | **2.58x** |
+| 40 | 136.0 | 166.6 | 543.1 | **3.26x** |
+| 50 | 178.2 | 207.7 | 817.9 | **3.94x** |
+
+Chang's two agree with each other to better than 1.35x throughout, so
+the outlier is ours, not a spread between published fits. Near 10 GPa
+all three are comparable — presumably why it went unnoticed.
+
+**Left in place and pinned**, per `plans/learning.md`. Removing a wrong
+citation is not the same as knowing the right correlation, and SPE
+38716 is still unread. What is fixed is the citation, which was
+checkable and false; what is pinned is the formula, whose provenance is
+now simply unknown.
+
+**Still to do, and now a narrower question**: read SPE 38716. If the
+quadratic is Lacy's, restore a correct attribution. If it is not, the
+correlation itself is wrong and this becomes a re-baseline of every UCS
+value fwap has produced.
+
+**The lesson is about the shape of the claim, not the numbers.** A
+citation naming a specific numbered equation is the most checkable kind
+of statement in this codebase and among the least checked. Rickman's
+was right and its constants wrong; Lacy's constants may be right and
+its citation is wrong. Both were found by opening the paper.
 
 **Published constants sit in defaults with second-hand provenance.**
 `bowers_A = 14.02` is documented as "a commonly cited SI conversion of
