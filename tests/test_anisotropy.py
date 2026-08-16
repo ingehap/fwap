@@ -3728,3 +3728,71 @@ def test_the_public_cased_vti_entry_point_validates_its_input():
         fwap.flexural_dispersion_layered_vti(np.ones((2, 2)) * 5000.0, **s, **fluid)
     with pytest.raises(ValueError, match="strictly positive"):
         fwap.flexural_dispersion_layered_vti(np.array([5000.0, -1.0]), **s, **fluid)
+
+
+def test_the_a9_ceiling_is_a_window_choice_not_a_fluid_limitation():
+    """A.9's note on its own ceiling is wrong about the cause.
+
+    It records that the branch between roughly 3 and 13 kHz sits above
+    ``V_f``, outside the searched window, and that reaching it "would
+    need the fluid field handled as oscillatory rather than
+    evanescent". The fluid is **already** handled: ``scipy.special.iv``
+    continues analytically to ``i^n J_n`` on a complex argument, so
+    above ``V_f``, where ``F_f^2 < 0``, the cased determinant evaluates
+    finitely and correctly. The ceiling is a choice of search window,
+    not an inability.
+
+    Raising it to the next natural bound would also buy nothing. The
+    band between ``V_f`` and the cement shear speed is **empty at every
+    frequency** -- the argument principle counts zero roots there.
+    """
+    from fwap.cylindrical_solver._cased import (
+        _modal_determinant_n1_cased_complex,
+    )
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+    from fwap.cylindrical_solver._leaky import _detect_leaky_branches
+
+    layers = (
+        BoreholeLayer(vp=5900.0, vs=3200.0, rho=7850.0, thickness=0.01),
+        BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02),
+    )
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10, layers=layers)
+    vp, vs, rho = 2500.0, 800.0, 2200.0
+
+    def det(z, omega):
+        _, leaky_p, leaky_s = _detect_leaky_branches(z, omega, vp, vs, 1500.0)
+        return complex(
+            _modal_determinant_n1_cased_complex(
+                z,
+                omega,
+                vp=vp,
+                vs=vs,
+                rho=rho,
+                **fluid,
+                leaky_p=leaky_p,
+                leaky_s=leaky_s,
+            )
+        )
+
+    # 1. Above V_f the fluid radial wavenumber squared is negative and
+    #    the determinant is still finite and non-zero.
+    omega = 2.0 * np.pi * 8000.0
+    for c in (1510.0, 1600.0, 1900.0, 2400.0):
+        kz = complex(omega / c, 0.1)
+        assert ((kz * kz).real - (omega / 1500.0) ** 2) < 0.0, c
+        value = det(kz, omega)
+        assert np.isfinite(value) and value != 0.0, (c, value)
+
+    # 2. And the band it would open is empty.
+    for freq in (3000.0, 8000.0, 13000.0):
+        omega = 2.0 * np.pi * freq
+        count = _winding_number(
+            lambda z, omega=omega: det(z, omega),
+            omega / 1595.0,
+            omega / 1505.0,
+            0.001,
+            3.0,
+            n=200,
+        )
+        assert count is not None, freq
+        assert abs(count) < 0.05, (freq, count)

@@ -7,6 +7,25 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **A.9's note on its own ceiling carried the wrong diagnosis.** It
+  said reaching the branch above `V_f` "would need the fluid field
+  handled as oscillatory rather than evanescent". The fluid is already
+  handled — `scipy.special.iv` continues analytically to `i^n J_n` on a
+  complex argument, so above `V_f` the cased determinant evaluates
+  finitely and correctly. The ceiling is a search-window choice.
+
+  Raising it to the next bound would gain nothing either: the band
+  between `V_f` and the cement shear speed is empty at every frequency
+  by the argument principle. The roots that exist sit above the
+  *cement* shear speed — one in `(1605, 2400)` at 8, 11 and 13 kHz,
+  none at 3.0 or 5.5, which does not reproduce A.9's recorded claim.
+
+  The real obstacle is the branch flips at `V_S`, `V_f` and `V_P`,
+  across which the determinant is a different function: contour counts
+  straddling `V_P` came back at `-1`, which is not a root count.
+  Documentation and a test only; no solver behaviour changes.
+
+### Fixed
 - **Two VTI traction rows were named the wrong way round.**
   `_modal_row3_at_a_n1_vti` carries `sigma_r_theta` and
   `_modal_row4_at_a_n1_vti` carries `sigma_rz`, not the reverse. The
