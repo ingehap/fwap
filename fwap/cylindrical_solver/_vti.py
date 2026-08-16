@@ -17,7 +17,7 @@ from fwap.cylindrical_solver._bessel import (
     _k_or_hankel,
     _radial_wavenumbers_vti_complex,
 )
-from fwap.cylindrical_solver._dataclasses import BoreholeMode
+from fwap.cylindrical_solver._dataclasses import BoreholeLayer, BoreholeMode
 from fwap.cylindrical_solver._n0_isotropic import (
     stoneley_dispersion,
 )
@@ -25,6 +25,18 @@ from fwap.cylindrical_solver._n1_isotropic import (
     _march_fast_flexural_branch,
     _real_root_function,
     flexural_dispersion,
+)
+from fwap.cylindrical_solver._n1_layered import (
+    _layered_n1_row1_at_a,
+    _layered_n1_row2_at_a,
+    _layered_n1_row3_at_a,
+    _layered_n1_row4_at_a,
+    _layered_n1_row5_at_b,
+    _layered_n1_row6_at_b,
+    _layered_n1_row7_at_b,
+    _layered_n1_row8_at_b,
+    _layered_n1_row9_at_b,
+    _layered_n1_row10_at_b,
 )
 
 # =====================================================================
@@ -1904,6 +1916,244 @@ def _formation_displacements_n1_vti(
     return np.column_stack(columns)
 
 
+#: Row -> (formation quantity, per-row factor) for the layered ``n = 1``
+#: stack, calibrated against `_modal_determinant_n1_layered` in the
+#: isotropic limit to ~1e-15. Rows 5-10 are the six continuity
+#: conditions at ``r = b``; rows 1-4 sit at ``r = a`` and carry no
+#: formation column at all.
+_LAYERED_N1_FORMATION_ROWS: tuple[tuple[str, complex], ...] = (
+    ("u_r", 1.0 + 0.0j),
+    ("u_theta", 1.0j),
+    ("u_z", 1.0j),
+    ("sigma_rr", 1.0 + 0.0j),
+    ("sigma_rz", -1.0 + 0.0j),
+    ("sigma_rtheta", -1.0 + 0.0j),
+)
+
+#: Columns of the 10x10 layered matrix carrying the formation
+#: half-space (qP, qSV, SH). Everything else is fluid or layer and is
+#: bit-identical whatever the formation is -- checked by building the
+#: matrix for two very different formations.
+_LAYERED_N1_FORMATION_COLUMNS: tuple[int, int, int] = (5, 6, 9)
+
+
+def _modal_matrix_n1_layered_vti(
+    kz: float,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
+) -> np.ndarray:
+    r"""
+    The 10x10 dipole matrix for a layered borehole in a **VTI**
+    formation.
+
+    Same stack as :func:`_modal_determinant_n1_layered` -- fluid, one
+    annular layer, formation half-space -- with the formation replaced
+    by the VTI columns. Roadmap A.12.
+
+    How it is put together, and why that is safe. The formation
+    occupies **columns 6, 7 and 10** and appears **only in rows 5-10**,
+    the six continuity conditions at ``r = b``; rows 1-4 sit at
+    ``r = a`` and never see it. Every other entry is *bit-identical*
+    whatever the formation is, so the substep-F.2.a.5 phase rescale
+    does not couple the layer block to formation parameters and the
+    three columns can be replaced without disturbing the rest. That was
+    measured, by building the isotropic matrix for two very different
+    formations and differencing it, rather than assumed from the
+    derivation.
+
+    Which quantity each row carries was calibrated the same way, in the
+    isotropic limit where the VTI columns must reproduce the isotropic
+    ones: rows 5-10 are ``u_r``, ``u_theta``, ``u_z``, ``sigma_rr``,
+    ``sigma_rz``, ``sigma_r_theta``, with per-row factors ``1, i, i, 1,
+    -1, -1``. The factors are **per row**, constant across the three
+    columns, which is the part that matters -- it says the isotropic
+    assembly and the VTI columns already share a per-column
+    normalisation, so no column rescale is needed and none is applied.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    c11, c13, c33, c44, c66 : float
+        Formation VTI stiffnesses (Pa).
+    rho : float
+        Formation density (kg / m^3).
+    vf, rho_f : float
+        Borehole-fluid velocity (m / s) and density (kg / m^3).
+    a : float
+        Borehole radius (m). The formation begins at
+        ``b = a + layer.thickness``.
+    layer : BoreholeLayer
+        The annulus between fluid and formation.
+    radiating : tuple of bool
+        Per-wave ``(qP, qSV, SH)`` outgoing-branch selection.
+
+    Returns
+    -------
+    ndarray
+        ``(10, 10)`` complex array.
+
+    See Also
+    --------
+    _modal_determinant_n1_layered : The isotropic stack this borrows
+        its fluid and layer blocks from unchanged.
+    """
+    b = a + layer.thickness
+    # Placeholder isotropic formation: these three columns are
+    # overwritten below, and every other entry is independent of them.
+    vp_placeholder = float(np.sqrt(c33 / rho))
+    vs_placeholder = float(np.sqrt(c44 / rho))
+    builders = (
+        _layered_n1_row1_at_a,
+        _layered_n1_row2_at_a,
+        _layered_n1_row3_at_a,
+        _layered_n1_row4_at_a,
+        _layered_n1_row5_at_b,
+        _layered_n1_row6_at_b,
+        _layered_n1_row7_at_b,
+        _layered_n1_row8_at_b,
+        _layered_n1_row9_at_b,
+        _layered_n1_row10_at_b,
+    )
+    M = np.vstack(
+        [
+            builder(
+                kz,
+                omega,
+                vp=vp_placeholder,
+                vs=vs_placeholder,
+                rho=rho,
+                vf=vf,
+                rho_f=rho_f,
+                a=a,
+                layer=layer,
+            )
+            for builder in builders
+        ]
+    ).astype(complex)
+
+    stiffness = dict(c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho)
+    displacements = _formation_displacements_n1_vti(
+        kz, omega, **stiffness, r=b, radiating=radiating
+    )
+    quantities = {
+        "u_r": displacements[0],
+        "u_theta": displacements[1],
+        "u_z": displacements[2],
+        "sigma_rr": _modal_row2_at_a_n1_vti(
+            kz, omega, **stiffness, vf=vf, rho_f=rho_f, a=b, radiating=radiating
+        )[1:4],
+        "sigma_rz": _modal_row3_at_a_n1_vti(
+            kz, omega, **stiffness, vf=vf, rho_f=rho_f, a=b, radiating=radiating
+        )[1:4],
+        "sigma_rtheta": _modal_row4_at_a_n1_vti(
+            kz, omega, **stiffness, vf=vf, rho_f=rho_f, a=b, radiating=radiating
+        )[1:4],
+    }
+    for offset, (name, factor) in enumerate(_LAYERED_N1_FORMATION_ROWS):
+        row = 4 + offset
+        for column, value in zip(_LAYERED_N1_FORMATION_COLUMNS, quantities[name]):
+            M[row, column] = factor * value
+    return M
+
+
+def _modal_determinant_n1_layered_vti(
+    kz: float,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
+) -> float:
+    r"""
+    10x10 dipole modal determinant for a layered borehole in a VTI
+    formation (roadmap A.12).
+
+    Assembles :func:`_modal_matrix_n1_layered_vti`, puts any conjugate
+    qP / qSV pair back on a real basis, and returns a real scalar --
+    the same contract as :func:`_modal_determinant_n1_layered`, which
+    it **reproduces exactly** at isotropic stiffnesses: the ratio of
+    the two determinants is ``1 + 0j`` to 6e-14 over fast and slow
+    formations alike, not merely proportional.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    c11, c13, c33, c44, c66 : float
+        Formation VTI stiffnesses (Pa).
+    rho : float
+        Formation density (kg / m^3).
+    vf, rho_f : float
+        Borehole-fluid velocity (m / s) and density (kg / m^3).
+    a : float
+        Borehole radius (m).
+    layer : BoreholeLayer
+        The annulus between fluid and formation.
+    radiating : tuple of bool
+        Per-wave ``(qP, qSV, SH)`` outgoing-branch selection.
+
+    Returns
+    -------
+    float
+        ``det(M)``, real-valued. NaN where the assembly is not finite.
+    """
+    M = _modal_matrix_n1_layered_vti(
+        kz,
+        omega,
+        c11=c11,
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c66,
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
+        layer=layer,
+        radiating=radiating,
+    )
+    if not np.all(np.isfinite(M)):
+        return float("nan")
+    M = _recombine_conjugate_columns(
+        M,
+        kz,
+        omega,
+        c11=c11,
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c66,
+        rho=rho,
+        radiating=radiating,
+        columns=(_LAYERED_N1_FORMATION_COLUMNS[0], _LAYERED_N1_FORMATION_COLUMNS[1]),
+    )
+    return float(np.linalg.det(M.real))
+
+
 def _fluid_bessels_n1_vti(
     kz: complex,
     omega: float,
@@ -2756,6 +3006,7 @@ def _recombine_conjugate_columns(
     c66: float,
     rho: float,
     radiating: tuple[bool, bool, bool] = (False, False, False),
+    columns: tuple[int, int] = (1, 2),
 ) -> np.ndarray:
     r"""
     Put the qP / qSV columns on a real basis when their radial
@@ -2790,10 +3041,16 @@ def _recombine_conjugate_columns(
     Parameters
     ----------
     M : ndarray
-        ``(4, 4)`` assembled modal matrix; columns 1 and 2 are qP and
-        qSV.
+        Assembled modal matrix. ``(4, 4)`` for the open hole and
+        ``(10, 10)`` for the layered stack.
     kz, omega, c11, c13, c33, c44, c66, rho
         As for the row builders, used to recover the root pair.
+    radiating : tuple of bool
+        Per-wave outgoing-branch selection, which must match the one
+        the rows were built with.
+    columns : tuple of int, default (1, 2)
+        Indices of the qP and qSV columns -- ``(1, 2)`` open hole,
+        ``(5, 6)`` in the 10x10 layered stack.
 
     Returns
     -------
@@ -2817,10 +3074,11 @@ def _recombine_conjugate_columns(
     if split == 0.0 or kz == 0.0:
         return M
     out = M.copy()
-    g_qP = M[:, 1]
-    g_qSV = M[:, 2] / kz
-    out[:, 1] = 0.5 * (g_qP + g_qSV)
-    out[:, 2] = (g_qP - g_qSV) / split
+    first, second = columns
+    g_qP = M[:, first]
+    g_qSV = M[:, second] / kz
+    out[:, first] = 0.5 * (g_qP + g_qSV)
+    out[:, second] = (g_qP - g_qSV) / split
     return out
 
 

@@ -30,6 +30,35 @@ the project uses [Semantic Versioning](https://semver.org/).
   Corrected, along with a note that there is no leaky VTI curve and why.
 
 ### Added
+- **`_modal_matrix_n1_layered_vti` / `_modal_determinant_n1_layered_vti`** —
+  the 10x10 cased dipole determinant for a VTI formation (roadmap
+  A.12). The fluid and layer blocks come from the isotropic stack
+  unchanged; only the formation columns are replaced.
+
+  The substitution is justified by measurement: building the isotropic
+  matrix for two very different formations shows the formation occupies
+  **columns 6, 7, 10 and appears only in rows 5-10**, every other entry
+  bit-identical, so the F.2.a.5 phase rescale does not couple the layer
+  block to formation parameters. The row-to-quantity map was calibrated
+  in the isotropic limit — rows 5-10 are `u_r`, `u_theta`, `u_z`,
+  `sigma_rr`, `sigma_rz`, `sigma_r_theta` with factors `1, i, i, 1, -1,
+  -1`, matched to ~1e-15 — and the factors are per row, constant across
+  the three columns, so no column rescale is applied.
+
+  **The oracle is exact**: at isotropic stiffnesses the VTI 10x10 *is*
+  the isotropic 10x10, determinant ratio `1 + 0j` to 6e-14, and
+  `_modal_determinant_n1_layered` is itself tied to Schmitt & Cheng
+  figures 20 and 21 at 0.21-0.27 %. Roots coincide to four decimals on
+  a fast formation.
+
+  **No driver, and one boundary is wrong.** On a slow formation the
+  isotropic determinant correctly returns nothing above `V_S`, where
+  the mode is leaky; this one still reports a sign change, because it
+  evaluates with `alpha^2 < 0` on a branch chosen by the bound rule
+  without the radiating flags set. That crossing is not a certified
+  mode. Bound fast-formation cased VTI is what this supports today.
+
+### Added
 - **Groundwork for a cased VTI solver** (roadmap A.12), measured rather
   than assumed. A.9's isotropic cased leaky dipole converges 13/13 over
   3-15 kHz on slow formations matching Thomsen's slow media, at

@@ -3168,3 +3168,216 @@ def test_the_vti_stoneley_curve_is_unchanged_by_the_n0_recombination():
     a = stoneley_dispersion_vti(freq, **iso, **fluid).slowness
     b = stoneley_dispersion(freq, vp=vp, vs=vs, rho=rho, **fluid).slowness
     assert np.array_equal(a, b), np.nanmax(np.abs(a - b))
+
+
+# ----------------------------------------------------------------------
+# A.12: the 10x10 cased VTI assembly
+# ----------------------------------------------------------------------
+
+_CASED_LAYER = dict(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02)
+
+
+def _cased_fluid():
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+
+    return dict(vf=1500.0, rho_f=1000.0, a=0.10, layer=BoreholeLayer(**_CASED_LAYER))
+
+
+def test_the_layered_matrix_isolates_the_formation_to_three_columns():
+    """The structural fact the substitution rests on, measured.
+
+    The formation occupies columns 6, 7 and 10 and appears only in rows
+    5-10 -- the six continuity conditions at ``r = b``. Every other
+    entry is *bit-identical* whatever the formation is, so the
+    substep-F.2.a.5 phase rescale does not couple the layer block to
+    formation parameters and the three columns can be replaced without
+    disturbing anything else. If that ever stops holding, swapping in
+    VTI columns silently corrupts the rescale, so it is checked rather
+    than assumed.
+    """
+    import fwap.cylindrical_solver._n1_layered as layered
+    from fwap.cylindrical_solver._vti import (
+        _LAYERED_N1_FORMATION_COLUMNS,
+    )
+
+    builders = [getattr(layered, f"_layered_n1_row{i}_at_a") for i in (1, 2, 3, 4)]
+    builders += [getattr(layered, f"_layered_n1_row{i}_at_b") for i in range(5, 11)]
+    fluid = _cased_fluid()
+    omega = 2.0 * np.pi * 8000.0
+    kz = omega / 1300.0
+
+    def build(vp, vs, rho):
+        return np.vstack(
+            [b(kz, omega, vp=vp, vs=vs, rho=rho, **fluid) for b in builders]
+        )
+
+    first = build(3000.0, 1700.0, 2300.0)
+    second = build(4200.0, 2400.0, 2600.0)
+    differs = np.abs(first - second) > 1e-12 * np.maximum(
+        np.maximum(np.abs(first), np.abs(second)), 1e-300
+    )
+
+    formation_columns = sorted(j for j in range(10) if differs[:, j].any())
+    assert tuple(formation_columns) == _LAYERED_N1_FORMATION_COLUMNS, formation_columns
+    formation_rows = sorted(i for i in range(10) if differs[i].any())
+    assert formation_rows == [4, 5, 6, 7, 8, 9], formation_rows
+    others = [j for j in range(10) if j not in formation_columns]
+    assert np.array_equal(first[:, others], second[:, others])
+
+
+def test_each_layered_row_carries_the_calibrated_formation_quantity():
+    """The row -> quantity map, and that its factors are per row.
+
+    Rows 5-10 carry ``u_r``, ``u_theta``, ``u_z``, ``sigma_rr``,
+    ``sigma_rz``, ``sigma_r_theta`` with factors ``1, i, i, 1, -1, -1``.
+    What matters is not the values but that each factor is **constant
+    across the three columns**: that is what says the isotropic
+    assembly and the VTI columns already share a per-column
+    normalisation, so no column rescale is needed. A per-column
+    discrepancy would produce a determinant that still looks plausible.
+    """
+    import fwap.cylindrical_solver._n1_layered as layered
+    from fwap.cylindrical_solver._vti import (
+        _LAYERED_N1_FORMATION_COLUMNS,
+        _LAYERED_N1_FORMATION_ROWS,
+        _formation_displacements_n1_vti,
+        _modal_row2_at_a_n1_vti,
+        _modal_row3_at_a_n1_vti,
+        _modal_row4_at_a_n1_vti,
+    )
+
+    vp, vs, rho = 3400.0, 1900.0, 2400.0
+    c44, c11 = rho * vs * vs, rho * vp * vp
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+    fluid = _cased_fluid()
+    b = fluid["a"] + fluid["layer"].thickness
+    omega = 2.0 * np.pi * 8000.0
+    kz = omega / 1300.0
+
+    builders = [getattr(layered, f"_layered_n1_row{i}_at_a") for i in (1, 2, 3, 4)]
+    builders += [getattr(layered, f"_layered_n1_row{i}_at_b") for i in range(5, 11)]
+    matrix = np.vstack(
+        [bld(kz, omega, vp=vp, vs=vs, rho=rho, **fluid) for bld in builders]
+    )
+
+    displacements = _formation_displacements_n1_vti(kz, omega, **iso, r=b)
+    traction = dict(**iso, vf=fluid["vf"], rho_f=fluid["rho_f"], a=b)
+    quantities = {
+        "u_r": displacements[0],
+        "u_theta": displacements[1],
+        "u_z": displacements[2],
+        "sigma_rr": _modal_row2_at_a_n1_vti(kz, omega, **traction)[1:4],
+        "sigma_rz": _modal_row3_at_a_n1_vti(kz, omega, **traction)[1:4],
+        "sigma_rtheta": _modal_row4_at_a_n1_vti(kz, omega, **traction)[1:4],
+    }
+
+    for offset, (name, factor) in enumerate(_LAYERED_N1_FORMATION_ROWS):
+        row = 4 + offset
+        mine = quantities[name]
+        for slot, column in enumerate(_LAYERED_N1_FORMATION_COLUMNS):
+            expected = factor * mine[slot]
+            got = matrix[row, column]
+            assert abs(got - expected) < 1e-9 * max(abs(got), 1.0), (
+                name,
+                row,
+                column,
+                got,
+                expected,
+            )
+
+
+def test_the_cased_vti_matrix_reproduces_the_isotropic_one_exactly():
+    """The oracle, and it is the strongest in this line of work.
+
+    At isotropic stiffnesses the VTI 10x10 must *be* the isotropic
+    10x10 -- and it is, determinant ratio ``1 + 0j`` rather than merely
+    proportional. `_modal_determinant_n1_layered` is itself tied to
+    Schmitt & Cheng figures 20 and 21 at 0.21-0.27 %, so this inherits
+    an external tie that no open-hole VTI path has.
+    """
+    from fwap.cylindrical_solver._n1_layered import _modal_determinant_n1_layered
+    from fwap.cylindrical_solver._vti import _modal_matrix_n1_layered_vti
+
+    fluid = _cased_fluid()
+    ratios, checked = [], 0
+    for vp, vs, rho in ((3400.0, 1900.0, 2400.0), (4500.0, 2700.0, 2450.0)):
+        c44, c11 = rho * vs * vs, rho * vp * vp
+        iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+        for freq in (5000.0, 9000.0, 14000.0):
+            for c in (1100.0, 1350.0):
+                omega = 2.0 * np.pi * freq
+                kz = omega / c
+                vti = complex(
+                    np.linalg.det(
+                        _modal_matrix_n1_layered_vti(kz, omega, **iso, **fluid)
+                    )
+                )
+                isotropic = _modal_determinant_n1_layered(
+                    kz, omega, vp=vp, vs=vs, rho=rho, **fluid
+                )
+                if not np.isfinite(isotropic) or isotropic == 0.0:
+                    continue
+                ratios.append(vti / isotropic)
+                checked += 1
+    assert checked >= 10, checked
+    assert np.abs(np.array(ratios) - 1.0).max() < 1e-11, ratios
+
+
+def test_the_cased_vti_determinant_has_the_isotropic_roots():
+    """Roots, not values -- the recombination rescales the determinant.
+
+    `_modal_determinant_n1_layered_vti` recombines, so it differs from
+    the isotropic determinant by that Jacobian; dividing it out leaves
+    exactly ``-1``. What has to hold for the solver is that the roots
+    coincide, and on a fast formation they do to four decimals.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti_complex
+    from fwap.cylindrical_solver._n1_layered import _modal_determinant_n1_layered
+    from fwap.cylindrical_solver._vti import _modal_determinant_n1_layered_vti
+
+    fluid = _cased_fluid()
+    vp, vs, rho = 3400.0, 1900.0, 2400.0
+    c44, c11 = rho * vs * vs, rho * vp * vp
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+
+    adjusted = []
+    for freq in (5000.0, 9000.0, 14000.0):
+        omega = 2.0 * np.pi * freq
+        for c in (1050.0, 1250.0, 1400.0):
+            kz = omega / c
+            vti = _modal_determinant_n1_layered_vti(kz, omega, **iso, **fluid)
+            isotropic = _modal_determinant_n1_layered(
+                kz, omega, vp=vp, vs=vs, rho=rho, **fluid
+            )
+            if not np.isfinite(isotropic) or isotropic == 0.0:
+                continue
+            qp, qsv, _ = _radial_wavenumbers_vti_complex(kz, omega, **iso)
+            adjusted.append(vti / isotropic * (qp - qsv) * kz)
+    assert len(adjusted) >= 6, len(adjusted)
+    assert np.abs(np.array(adjusted) + 1.0).max() < 1e-10, adjusted
+
+    omega = 2.0 * np.pi * 9000.0
+    speeds = np.linspace(950.0, 1450.0, 900)
+
+    def root_of(fn):
+        values = np.array([fn(omega / c) for c in speeds])
+        finite = np.isfinite(values)
+        sign = np.sign(values[finite])
+        idx = np.where(np.diff(sign) != 0)[0]
+        out = []
+        for i in idx:
+            x0, x1 = speeds[finite][i], speeds[finite][i + 1]
+            y0, y1 = values[finite][i], values[finite][i + 1]
+            out.append(x0 - y0 * (x1 - x0) / (y1 - y0))
+        return out
+
+    vti_roots = root_of(
+        lambda kz: _modal_determinant_n1_layered_vti(kz, omega, **iso, **fluid)
+    )
+    iso_roots = root_of(
+        lambda kz: _modal_determinant_n1_layered(
+            kz, omega, vp=vp, vs=vs, rho=rho, **fluid
+        )
+    )
+    assert len(vti_roots) == len(iso_roots) == 1, (vti_roots, iso_roots)
+    assert abs(vti_roots[0] - iso_roots[0]) < 1e-3, (vti_roots, iso_roots)
