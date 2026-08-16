@@ -237,10 +237,22 @@ def phase_slowness_from_f_k(
         eliminated.
     ``"spatial_unwrap"``
         Unwrap across receivers at each frequency. Fails when the
-        total phase swing across the aperture exceeds pi, i.e. above
-        roughly ``1 / (2 * aperture * s)`` Hz; prefer
-        ``"frequency_unwrap"`` unless replicating a specific reference
-        output.
+        phase step **between adjacent receivers** exceeds pi, i.e.
+        above roughly ``1 / (2 * dr * s)`` Hz, where ``dr`` is the
+        receiver spacing. Prefer ``"frequency_unwrap"`` unless
+        replicating a specific reference output.
+
+        This said ``1 / (2 * aperture * s)`` -- the *total* swing
+        across the array -- until it was measured, which understated
+        the usable band by a factor of ``n_rec - 1``. The spacing is
+        what an unwrap can resolve; the aperture is what sets the
+        slowness *precision* once it has. Measured onsets track
+        ``1 / (2 * dr * s)`` to better than 0.6 % over ``dr`` of
+        0.076-0.305 m, and holding ``dr`` fixed while changing
+        ``n_rec`` from 8 to 4 moves the aperture bound from 852 to
+        1988 Hz and the actual onset not at all -- see
+        ``test_the_spatial_unwrap_limit_is_set_by_receiver_spacing``
+        in ``tests/test_dispersion.py``.
 
     Validity band
     -------------

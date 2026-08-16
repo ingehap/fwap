@@ -134,6 +134,41 @@ inputs, because the solver produces the dispersion curves and
 monotonicity, broadcasting and input rejection. Nothing here is
 blocked; the oracle is sitting unused.
 
+**Spending the first two changed the table.** `tomography` and
+`dispersion` are done, and neither behaved the way the row above
+predicted.
+
+*`tomography` — the oracle is weaker than "strong" and the reason is
+structural.* The naive round-trip is **impossible**: the intercept-time
+design matrix is rank-deficient by exactly three at every grid length
+tested (40, 80, 160, 320), and sixty columns are never touched at all —
+a count set by the tool geometry, not the log length, so it does not
+improve with more data. `mean_delay_zero=True` removes two of the
+three; one survives, which is why regularisation is not optional here
+and why the pre-existing test could only check the *mean* slowness to
+2 %. It was not being cautious.
+
+What replaces it is sharper than what was there: plant a varying
+profile and **distinct** source and receiver delays, forward exactly,
+invert unregularised, and split the error against the null space. The
+identifiable component vanishes to 1.7e-13 of the total. The one
+nameable ambiguity — a constant traded between the delay blocks — is
+**exactly** null, `max|G v| == 0.0`.
+
+*`dispersion` — the oracle worked, and executing the module's stated
+validity bound found it wrong.* The solver's flexural curve, planted
+through `_dispersive_arrival` and recovered by `frequency_unwrap`,
+comes back to better than 1e-3 relative across 1.5-6 kHz, with 20 % of
+shape in it — so this is the path by which the untied half of the
+package inherits the solver's published-figure validation. But
+`spatial_unwrap` was documented as failing "above roughly
+`1 / (2 * aperture * s)` Hz". The real onset is `1 / (2 * dr * s)`,
+set by receiver *spacing*: 5965 Hz rather than 852 for a standard
+array, understating the usable band **sevenfold**. Holding `dr` fixed
+and dropping `n_rec` from 8 to 4 moves the aperture bound 852 → 1988 Hz
+and the measured onset not at all. Corrected in place; no behaviour
+change, the code was right throughout.
+
 ### Group B — empirical correlations: no round-trip exists at all
 
 | module | oracle | strength |

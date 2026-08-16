@@ -467,3 +467,124 @@ def test_classify_flexural_rejects_inverted_bands():
             f_low_band=(2500.0, 1000.0),
             f_high_band=(4000.0, 8000.0),
         )
+
+
+# ----------------------------------------------------------------------
+# W1 group A: the solver's curve, carried through the processing chain
+#
+# The estimators here are tested for internal consistency -- the two
+# `phase_slowness_from_f_k` methods agree with each other, the matrix
+# pencil recovers a *constant* slowness. None of that can tell a
+# dispersion estimator from one that returns the band mean, because a
+# constant curve has no shape to get wrong.
+#
+# fwap already owns the missing piece. The cylindrical solver is tied to
+# published figures at 0.04-0.5 %, and `_dispersive_arrival` is an exact
+# forward model, so a solver curve can be planted in a synthetic array
+# and demanded back. That is the one path by which the untied half of
+# the package inherits the tied half's validation.
+# ----------------------------------------------------------------------
+
+
+def _planted_flexural_array(f0: float = 3000.0, dr: float = 0.1524, n_rec: int = 8):
+    """An 8-receiver array carrying a real flexural dispersion curve."""
+    from fwap import flexural_dispersion
+    from fwap.synthetic import _dispersive_arrival
+
+    rock = dict(vp=3658.0, vs=2032.0, rho=2350.0, vf=1500.0, rho_f=1000.0, a=0.1016)
+    f_grid = np.linspace(1000.0, 8000.0, 141)
+    mode = flexural_dispersion(f_grid, **rock)
+    finite = np.isfinite(mode.slowness)
+
+    def slowness_of_f(f: np.ndarray) -> np.ndarray:
+        return np.interp(f, f_grid[finite], mode.slowness[finite])
+
+    dt, n_samp = 4.0e-6, 4096
+    t = np.arange(n_samp) * dt
+    offsets = 3.0 + np.arange(n_rec) * dr
+    data = np.array(
+        [_dispersive_arrival(t, x, f0, slowness_of_f, 0.0, 0.5) for x in offsets]
+    )
+    return data, dt, offsets, slowness_of_f
+
+
+def test_the_solver_dispersion_curve_survives_the_processing_chain():
+    """Plant the solver's flexural curve, demand it back.
+
+    ``frequency_unwrap`` returns it to **better than 1e-3 relative**
+    across 1.5-6 kHz -- measured max relative error 0.0000 to four
+    places.
+
+    The curve is genuinely dispersive: it spans 20 % of its own mean
+    over the band, so this is not the constant-slowness case restated.
+    An estimator that flattened the curve to its band mean would pass
+    every other test in this file and fail the second assertion here.
+    """
+    data, dt, offsets, truth_of_f = _planted_flexural_array()
+
+    curve = phase_slowness_from_f_k(
+        data, dt, offsets, f_range=(1500.0, 6000.0), method="frequency_unwrap"
+    )
+    truth = truth_of_f(curve.freq)
+
+    assert curve.freq.size > 50
+    assert np.max(np.abs(curve.slowness - truth) / truth) < 1.0e-3
+
+    # The planted curve has real shape, and the recovered one has the
+    # same shape rather than the same average.
+    spread = np.ptp(truth) / truth.mean()
+    assert spread > 0.15, spread
+    assert np.ptp(curve.slowness) / curve.slowness.mean() == pytest.approx(
+        spread, rel=0.02
+    )
+
+
+def test_the_spatial_unwrap_limit_is_set_by_receiver_spacing():
+    """The documented validity bound, executed -- and it was wrong.
+
+    ``phase_slowness_from_f_k`` said ``spatial_unwrap`` fails "when the
+    total phase swing across the aperture exceeds pi, i.e. above
+    roughly ``1 / (2 * aperture * s)`` Hz". Measured, the onset is
+    ``1 / (2 * dr * s)`` -- set by the spacing between adjacent
+    receivers, not by the array's length. For a standard 8 x 6 in array
+    that is 5965 Hz rather than 852: the stated bound understated the
+    usable band **sevenfold**.
+
+    The discriminator is holding ``dr`` fixed and changing ``n_rec``,
+    which moves the aperture and not the spacing. From 8 receivers to
+    4, the aperture bound goes 852 -> 1988 Hz and the measured onset
+    does not move at all.
+    """
+    from fwap.synthetic import _dispersive_arrival
+
+    slowness = 5.5e-4
+    dt, n_samp = 4.0e-6, 8192
+    t = np.arange(n_samp) * dt
+
+    def onset(dr: float, n_rec: int) -> float:
+        offsets = 3.0 + np.arange(n_rec) * dr
+        data = np.array(
+            [
+                _dispersive_arrival(
+                    t, x, 4000.0, lambda f: np.full_like(f, slowness), 0.0, 0.9
+                )
+                for x in offsets
+            ]
+        )
+        curve = phase_slowness_from_f_k(
+            data, dt, offsets, f_range=(500.0, 12000.0), method="spatial_unwrap"
+        )
+        bad = np.abs(curve.slowness - slowness) / slowness > 0.05
+        return float(curve.freq[bad].min()) if bad.any() else float("inf")
+
+    for dr, n_rec in ((0.1524, 8), (0.0762, 8), (0.3048, 8), (0.2286, 6)):
+        spacing_bound = 1.0 / (2.0 * dr * slowness)
+        assert onset(dr, n_rec) == pytest.approx(spacing_bound, rel=0.01), (dr, n_rec)
+
+    # Aperture is not the governing scale: halving the receiver count
+    # more than doubles the aperture bound and moves the onset by
+    # nothing.
+    eight, four = onset(0.1524, 8), onset(0.1524, 4)
+    assert eight == pytest.approx(four, rel=1.0e-6)
+    aperture_bound = lambda n: 1.0 / (2.0 * (n - 1) * 0.1524 * slowness)  # noqa: E731
+    assert aperture_bound(4) / aperture_bound(8) == pytest.approx(7.0 / 3.0)
