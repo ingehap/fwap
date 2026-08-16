@@ -1926,8 +1926,8 @@ _LAYERED_N1_FORMATION_ROWS: tuple[tuple[str, complex], ...] = (
     ("u_theta", 1.0j),
     ("u_z", 1.0j),
     ("sigma_rr", 1.0 + 0.0j),
-    ("sigma_rz", -1.0 + 0.0j),
     ("sigma_rtheta", -1.0 + 0.0j),
+    ("sigma_rz", -1.0 + 0.0j),
 )
 
 #: Columns of the 10x10 layered matrix carrying the formation
@@ -2056,10 +2056,15 @@ def _modal_matrix_n1_layered_vti(
         "sigma_rr": _modal_row2_at_a_n1_vti(
             kz, omega, **stiffness, vf=vf, rho_f=rho_f, a=b, radiating=radiating
         )[1:4],
-        "sigma_rz": _modal_row3_at_a_n1_vti(
+        # Row 3 carries sigma_r_theta and row 4 carries sigma_rz, not
+        # the other way round -- checked against both built directly
+        # from the displacements via the constitutive law, where the
+        # per-column ratio is a clean -i for the pairing below and
+        # varies by a factor of 60 for the swapped one.
+        "sigma_rtheta": _modal_row3_at_a_n1_vti(
             kz, omega, **stiffness, vf=vf, rho_f=rho_f, a=b, radiating=radiating
         )[1:4],
-        "sigma_rtheta": _modal_row4_at_a_n1_vti(
+        "sigma_rz": _modal_row4_at_a_n1_vti(
             kz, omega, **stiffness, vf=vf, rho_f=rho_f, a=b, radiating=radiating
         )[1:4],
     }
@@ -2152,6 +2157,182 @@ def _modal_determinant_n1_layered_vti(
         columns=(_LAYERED_N1_FORMATION_COLUMNS[0], _LAYERED_N1_FORMATION_COLUMNS[1]),
     )
     return float(np.linalg.det(M.real))
+
+
+def _formation_state_vector_n1_vti(
+    kz: complex,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    r: float,
+    vf: float,
+    rho_f: float,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
+) -> np.ndarray:
+    r"""
+    The VTI formation half-space block for the cased stack.
+
+    Returns the ``(6, 3)`` state vector the complex cased determinant
+    expects at ``r = b``: rows ``(u_r, u_z, u_theta, sigma_rr,
+    sigma_rz, sigma_r_theta)``, columns ``(qP, qSV, SH)``. Passing it
+    as ``formation_block`` to
+    :func:`_modal_determinant_n1_cased_complex` replaces the isotropic
+    half-space, which is how a **complex** ``k_z`` reaches the VTI
+    formation -- the layered real-``k_z`` path cannot express one.
+
+    The per-row factors ``(-1, -i, -i, -1, 1, 1)`` were calibrated
+    against the isotropic block rather than derived, and the pairing
+    behind the last two is the part worth stating: the cased block's
+    ``sigma_rz`` row is fed by :func:`_modal_row4_at_a_n1_vti` and its
+    ``sigma_r_theta`` row by :func:`_modal_row3_at_a_n1_vti`, which is
+    the opposite of what the open-hole row numbering suggests. Both
+    were checked against the constitutive law, not against the
+    numbering.
+
+    Parameters
+    ----------
+    kz : complex
+        Axial wavenumber (rad / m). Real or complex.
+    omega : float
+        Angular frequency (rad / s).
+    c11, c13, c33, c44, c66 : float
+        Formation VTI stiffnesses (Pa).
+    rho : float
+        Formation density (kg / m^3).
+    r : float
+        Radius of the formation contact (m), ``b`` for a cased stack.
+    vf, rho_f : float
+        Fluid parameters, needed only to reach the traction rows; they
+        touch the fluid column, which is discarded here.
+    radiating : tuple of bool
+        Per-wave ``(qP, qSV, SH)`` outgoing-branch selection. This is
+        the flag the leaky case turns on.
+
+    Returns
+    -------
+    ndarray
+        ``(6, 3)`` complex array.
+    """
+    stiffness = dict(c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho)
+    displacements = _formation_displacements_n1_vti(
+        kz, omega, **stiffness, r=r, radiating=radiating
+    )
+    sigma_rr = _modal_row2_at_a_n1_vti(
+        kz, omega, **stiffness, vf=vf, rho_f=rho_f, a=r, radiating=radiating
+    )[1:4]
+    sigma_rtheta = _modal_row3_at_a_n1_vti(
+        kz, omega, **stiffness, vf=vf, rho_f=rho_f, a=r, radiating=radiating
+    )[1:4]
+    sigma_rz = _modal_row4_at_a_n1_vti(
+        kz, omega, **stiffness, vf=vf, rho_f=rho_f, a=r, radiating=radiating
+    )[1:4]
+
+    block = np.zeros((6, 3), dtype=complex)
+    block[0] = -1.0 * displacements[0]
+    block[1] = -1.0j * displacements[2]
+    block[2] = -1.0j * displacements[1]
+    block[3] = -1.0 * sigma_rr
+    block[4] = sigma_rz
+    block[5] = sigma_rtheta
+    return block
+
+
+def _modal_determinant_n1_cased_vti_complex(
+    kz: complex,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...],
+    radiating: tuple[bool, bool, bool] = (False, False, False),
+) -> complex:
+    r"""
+    Complex-``k_z`` cased dipole determinant for a VTI formation.
+
+    The leaky cased path (roadmap A.12). Everything but the formation
+    half-space comes from :func:`_modal_determinant_n1_cased_complex`
+    unchanged -- fluid, every layer, the propagator, the branch
+    handling on the real axis -- with
+    :func:`_formation_state_vector_n1_vti` substituted for the
+    isotropic block.
+
+    Only the formation needs radiating branches. The fluid and the
+    layers occupy bounded annuli and carry both Bessel families, so
+    their condition is regularity rather than radiation; the half-space
+    is the only part that can carry energy away.
+
+    Parameters
+    ----------
+    kz : complex
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    c11, c13, c33, c44, c66 : float
+        Formation VTI stiffnesses (Pa).
+    rho : float
+        Formation density (kg / m^3).
+    vf, rho_f : float
+        Borehole-fluid velocity (m / s) and density (kg / m^3).
+    a : float
+        Borehole radius (m).
+    layers : tuple of BoreholeLayer
+        Annuli between fluid and formation, innermost first.
+    radiating : tuple of bool
+        Per-wave ``(qP, qSV, SH)`` outgoing-branch selection.
+
+    Returns
+    -------
+    complex
+        ``det M(k_z)``. NaN where the assembly is not finite.
+
+    See Also
+    --------
+    _modal_determinant_n1_cased_complex : The isotropic sister, which
+        this reproduces exactly at isotropic stiffnesses.
+    """
+    from fwap.cylindrical_solver._cased import _modal_determinant_n1_cased_complex
+
+    b = a + sum(layer.thickness for layer in layers)
+    block = _formation_state_vector_n1_vti(
+        kz,
+        omega,
+        c11=c11,
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c66,
+        rho=rho,
+        r=b,
+        vf=vf,
+        rho_f=rho_f,
+        radiating=radiating,
+    )
+    return _modal_determinant_n1_cased_complex(
+        kz,
+        omega,
+        vp=float(np.sqrt(c33 / rho)),
+        vs=float(np.sqrt(c44 / rho)),
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
+        layers=layers,
+        leaky_p=radiating[0],
+        leaky_s=radiating[1],
+        formation_block=block,
+    )
 
 
 def _fluid_bessels_n1_vti(

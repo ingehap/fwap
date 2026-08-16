@@ -6,6 +6,18 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Two VTI traction rows were named the wrong way round.**
+  `_modal_row3_at_a_n1_vti` carries `sigma_r_theta` and
+  `_modal_row4_at_a_n1_vti` carries `sigma_rz`, not the reverse. The
+  calibration against the layered stack could not catch this: it
+  matched *values* into the correct slots, so the determinant was right
+  while the labels on it were backwards. Settled against the
+  constitutive law, with both stresses built directly from the
+  displacements — the correct pairing gives a clean per-column ratio of
+  `-i`, the swapped one varies by a factor of sixty. Documentation and
+  dict keys only; no numerical output changes.
+
 ### Changed
 - **The `n = 0` VTI determinant puts its conjugate qP/qSV columns on an
   explicit real basis** before reducing over `M.real`
@@ -41,7 +53,7 @@ the project uses [Semantic Versioning](https://semver.org/).
   bit-identical, so the F.2.a.5 phase rescale does not couple the layer
   block to formation parameters. The row-to-quantity map was calibrated
   in the isotropic limit — rows 5-10 are `u_r`, `u_theta`, `u_z`,
-  `sigma_rr`, `sigma_rz`, `sigma_r_theta` with factors `1, i, i, 1, -1,
+  `sigma_rr`, `sigma_r_theta`, `sigma_rz` with factors `1, i, i, 1, -1,
   -1`, matched to ~1e-15 — and the factors are per row, constant across
   the three columns, so no column rescale is applied.
 
@@ -51,12 +63,26 @@ the project uses [Semantic Versioning](https://semver.org/).
   figures 20 and 21 at 0.21-0.27 %. Roots coincide to four decimals on
   a fast formation.
 
-  **No driver, and one boundary is wrong.** On a slow formation the
-  isotropic determinant correctly returns nothing above `V_S`, where
-  the mode is leaky; this one still reports a sign change, because it
-  evaluates with `alpha^2 < 0` on a branch chosen by the bound rule
-  without the radiating flags set. That crossing is not a certified
-  mode. Bound fast-formation cased VTI is what this supports today.
+  Bound fast-formation cased VTI. The leaky case goes through the
+  complex path below instead.
+
+- **`_formation_state_vector_n1_vti` /
+  `_modal_determinant_n1_cased_vti_complex`** — the leaky cased VTI
+  determinant. The real-`k_z` layered path cannot express a complex
+  `k_z`, so the VTI formation half-space is injected as a `(6, 3)`
+  block into `_modal_determinant_n1_cased_complex`, which already
+  carries A.9's leaky machinery; fluid, layers, propagator and
+  real-axis branch handling are the isotropic code untouched. Only the
+  formation takes radiating branches — the fluid and layers are
+  bounded annuli whose condition is regularity, so the half-space is
+  the only part that can radiate.
+
+  Validated at genuinely complex `k_z`: over 12 samples with `Im(k_z)`
+  up to 1.0 and `leaky_s` active, `max |ratio - 1| = 2.9e-14` against
+  the isotropic determinant.
+
+  **Still no driver** — seeding, marching and continuation are not
+  written, so there is no cased VTI dispersion curve.
 
 ### Added
 - **Groundwork for a cased VTI solver** (roadmap A.12), measured rather
