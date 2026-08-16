@@ -2335,6 +2335,15 @@ def _modal_determinant_n1_cased_vti_complex(
     )
 
 
+#: How far below ``V_P0`` to stop when A.13 raises the ceiling.
+_LEAKY_CASED_VP_MARGIN = 0.02
+
+#: A higher-branch point this close to the branch below it is
+#: that branch, reached by continuation. Rejected rather than
+#: returned under the wrong index.
+_LEAKY_CASED_BRANCH_DUP_TOL = 1.0e-6
+
+
 def _fill_slow_cased_leaky_n1_vti(
     freq: np.ndarray,
     *,
@@ -2348,6 +2357,7 @@ def _fill_slow_cased_leaky_n1_vti(
     rho_f: float,
     a: float,
     layers: tuple[BoreholeLayer, ...],
+    branch: int = 0,
 ) -> tuple[np.ndarray, np.ndarray] | None:
     r"""
     Follow the slow-formation leaky cased dipole branch, VTI formation.
@@ -2411,7 +2421,13 @@ def _fill_slow_cased_leaky_n1_vti(
         return None
     v_sv = float(np.sqrt(c44 / rho))
     v_p0 = float(np.sqrt(c33 / rho))
-    ceiling = min(vf, min(layer.vs for layer in layers))
+    if branch == 0:
+        # A.9's window, unchanged, so the fundamental is bit-identical.
+        ceiling = min(vf, min(layer.vs for layer in layers))
+    else:
+        # A.13: faster branches sit above min(V_f, layer V_S) but below
+        # V_P0, the only genuine branch transition.
+        ceiling = v_p0 * (1.0 - _LEAKY_CASED_VP_MARGIN)
     if not ceiling > v_sv:
         return None
 
@@ -2435,13 +2451,97 @@ def _fill_slow_cased_leaky_n1_vti(
             radiating=(leaky_p, leaky_s, leaky_s),
         )
 
-    return _march_leaky_cased_branch(
-        _det,
+    def _run(grid: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        return _march_leaky_cased_branch(
+            _det,
+            grid,
+            vs=v_sv,
+            ceiling=ceiling,
+            exclude=tuple(layer.vs for layer in layers),
+            branch=branch,
+        )
+
+    if branch == 0:
+        return _run(freq)
+
+    # The marcher walks ascending frequency and carries each root
+    # forward by continuation, so a higher-branch march begun below
+    # where that branch exists latches onto the fundamental and
+    # propagates it: on a 4-14 kHz grid branch 1 came back as the
+    # branch-0 curve at all eleven points, sharp determinant and all.
+    #
+    # So the march is anchored rather than started at the grid edge. A
+    # single-frequency grid begins at that frequency by construction,
+    # which makes it a direct existence test -- one that depends on the
+    # frequency and not on the grid, which is what two earlier attempts
+    # got wrong.
+    order = np.argsort(freq)
+    lower = _fill_slow_cased_leaky_n1_vti(
         freq,
-        vs=v_sv,
-        ceiling=ceiling,
-        exclude=tuple(layer.vs for layer in layers),
+        c11=c11,
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c66,
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
+        layers=layers,
+        branch=branch - 1,
     )
+    base_full = np.asarray(lower[0]) if lower is not None else None
+
+    def _distinct(value: float, position: int) -> bool:
+        if not np.isfinite(value):
+            return False
+        if base_full is None:
+            return True
+        other = base_full[position]
+        if not np.isfinite(other):
+            return True
+        return abs(value - other) > _LEAKY_CASED_BRANCH_DUP_TOL * abs(other)
+
+    anchor: int | None = None
+    for position in order:
+        probe = _run(np.array([float(freq[position])]))
+        if _distinct(float(np.asarray(probe[0])[0]), int(position)):
+            anchor = int(position)
+            break
+    if anchor is None:
+        empty = np.full(freq.shape, np.nan)
+        return empty, empty.copy()
+
+    slowness = np.full(freq.shape, np.nan)
+    attenuation = np.full(freq.shape, np.nan)
+    keep = order[list(order).index(anchor) :]
+    marched = _run(freq[keep])
+    slowness[keep] = np.asarray(marched[0])
+    attenuation[keep] = np.asarray(marched[1])
+
+    # Branches are ordered, so this one cannot exist at a frequency
+    # where the branch below it does not: with only one root present,
+    # any march must have landed on that one. Requiring the lower
+    # branch is what makes a far-out index come back empty rather than
+    # as a copy of the fundamental -- comparing against ``branch - 1``
+    # alone is a no-op once that is itself all-NaN.
+    if base_full is None:
+        empty = np.full(freq.shape, np.nan)
+        return empty, empty.copy()
+    reject = ~np.isfinite(base_full)
+    # And continuation can run past the branch's upper end; reject
+    # anything that has fallen back onto the branch below.
+    reject |= (
+        np.isfinite(slowness)
+        & np.isfinite(base_full)
+        & (
+            np.abs(slowness - base_full)
+            <= _LEAKY_CASED_BRANCH_DUP_TOL * np.abs(base_full)
+        )
+    )
+    slowness[reject] = np.nan
+    attenuation[reject] = np.nan
+    return slowness, attenuation
 
 
 def flexural_dispersion_layered_vti(
@@ -2457,6 +2557,7 @@ def flexural_dispersion_layered_vti(
     rho_f: float,
     a: float,
     layers: tuple[BoreholeLayer, ...] = (),
+    branch: int = 0,
 ) -> BoreholeMode:
     r"""
     Flexural-wave (n=1) dispersion for a **cased** borehole in a VTI
@@ -2498,6 +2599,12 @@ def flexural_dispersion_layered_vti(
         summed layer thicknesses.
     layers : tuple of BoreholeLayer, optional
         Casing and annulus, innermost first. Empty for an open hole.
+    branch : int, default 0
+        Which leaky branch to return, ordered slowest first. ``0`` is
+        the fundamental. ``1`` reaches the faster branch above
+        ``min(V_f, layer V_S)`` and below ``V_P0`` (roadmap A.13); it
+        exists over part of the band only and is NaN elsewhere.
+        Ignored when ``layers`` is empty.
 
     Returns
     -------
@@ -2554,6 +2661,7 @@ def flexural_dispersion_layered_vti(
     attenuation = np.full(f_arr.shape, np.nan)
     found = _fill_slow_cased_leaky_n1_vti(
         f_arr,
+        branch=branch,
         c11=c11,
         c13=c13,
         c33=c33,

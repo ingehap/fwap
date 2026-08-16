@@ -3947,3 +3947,127 @@ def test_the_second_cased_branch_is_coherent_across_frequency():
     assert np.all(np.diff(speeds) < 0.0), speeds
     assert np.all(np.diff(dampings) < 0.0), dampings
     assert 1600.0 < speeds[-1] < speeds[0] < 2300.0, speeds
+
+
+def _cased_iso_and_layers():
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+
+    layers = (
+        BoreholeLayer(vp=5900.0, vs=3200.0, rho=7850.0, thickness=0.01),
+        BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02),
+    )
+    vp, vs, rho = 2500.0, 800.0, 2200.0
+    c44, c11 = rho * vs * vs, rho * vp * vp
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+    return iso, dict(vf=1500.0, rho_f=1000.0, a=0.10, layers=layers), (vp, vs, rho)
+
+
+#: The A.13 branch, refined per frequency by an independent complex
+#: root search before any driver existed.
+_A13_BRANCH = {
+    7000.0: (2185.9, 1.2356),
+    8000.0: (2005.9, 1.0796),
+    9000.0: (1889.5, 0.9147),
+    10000.0: (1809.9, 0.7827),
+    11000.0: (1753.4, 0.6882),
+    12000.0: (1712.1, 0.6250),
+    13000.0: (1681.2, 0.5860),
+    14000.0: (1657.5, 0.5658),
+}
+
+
+def test_the_second_branch_is_found_independently_of_the_frequency_grid():
+    """A.13, and the property two earlier attempts failed on.
+
+    The marcher walks ascending frequency and carries roots forward by
+    continuation, so a ``branch > 0`` march begun below where that
+    branch exists latches onto the fundamental and propagates it. That
+    was measured directly: on a 4-14 kHz grid branch 1 returned the
+    branch-0 curve at all eleven points, sharp determinant and all.
+
+    The driver therefore *anchors* the march instead of starting it at
+    the grid edge, finding the first frequency where a single-point
+    march -- which begins there by construction -- yields a root
+    distinct from the branch below. That makes the answer a property of
+    the frequency rather than of the grid, which is what an earlier
+    per-frequency veto and an earlier duplicate filter both missed:
+    one dropped valid points, the other returned none at all on this
+    grid.
+    """
+    import fwap
+
+    iso, fluid, _ = _cased_iso_and_layers()
+    grids = (
+        np.arange(4000.0, 14001.0, 1000.0),
+        np.arange(7000.0, 13001.0, 1000.0),
+        np.arange(7000.0, 13001.0, 2000.0),
+        np.arange(5000.0, 14001.0, 3000.0),
+        np.arange(3000.0, 15001.0, 1000.0),
+    )
+    for freq in grids:
+        second = fwap.flexural_dispersion_layered_vti(freq, **iso, **fluid, branch=1)
+        fundamental = fwap.flexural_dispersion_layered_vti(freq, **iso, **fluid)
+
+        wanted = [f for f in freq if f in _A13_BRANCH]
+        assert wanted, freq
+        for f in wanted:
+            i = int(np.argmin(np.abs(freq - f)))
+            assert np.isfinite(second.slowness[i]), (freq[0], freq[-1], f)
+            speed = 1.0 / second.slowness[i]
+            want_c, want_a = _A13_BRANCH[f]
+            assert abs(speed - want_c) / want_c < 1e-4, (f, speed, want_c)
+            assert abs(second.attenuation_per_meter[i] - want_a) < 1e-3, f
+
+        # Never the fundamental wearing index 1.
+        both = np.isfinite(second.slowness) & np.isfinite(fundamental.slowness)
+        assert both.any()
+        assert np.all(
+            np.abs(second.slowness[both] - fundamental.slowness[both])
+            > 1e-6 * np.abs(fundamental.slowness[both])
+        ), (freq[0], freq[-1])
+
+
+def test_the_second_branch_is_nan_where_it_does_not_exist():
+    """Below ~7 kHz there is one root, and index 1 must say so.
+
+    Returning the fundamental there is the failure this guards: it is a
+    real root with a sharp determinant, so no root-quality check can
+    reject it -- only comparing against the branch below can.
+    """
+    import fwap
+
+    iso, fluid, _ = _cased_iso_and_layers()
+    freq = np.arange(4000.0, 14001.0, 1000.0)
+
+    fundamental = fwap.flexural_dispersion_layered_vti(freq, **iso, **fluid)
+    second = fwap.flexural_dispersion_layered_vti(freq, **iso, **fluid, branch=1)
+
+    low = freq < 6500.0
+    assert np.isfinite(fundamental.slowness[low]).all(), fundamental.slowness
+    assert not np.isfinite(second.slowness[low]).any(), second.slowness
+    assert np.isfinite(second.slowness[freq >= 7000.0]).all(), second.slowness
+
+    # An index beyond the last branch is empty, not a recycled one.
+    far = fwap.flexural_dispersion_layered_vti(freq, **iso, **fluid, branch=6)
+    assert not np.isfinite(far.slowness).any(), far.slowness
+
+
+def test_the_branch_index_leaves_the_fundamental_bit_for_bit():
+    """The marcher is shared with the isotropic paths tied to Schmitt &
+    Cheng figures 20 and 21, so index 0 has to be untouched -- both the
+    selection rule and the search ceiling, which is raised only for
+    higher indices."""
+    import fwap
+    from fwap import flexural_dispersion_layered
+
+    iso, fluid, (vp, vs, rho) = _cased_iso_and_layers()
+    freq = np.arange(4000.0, 14001.0, 1000.0)
+
+    mine = fwap.flexural_dispersion_layered_vti(freq, **iso, **fluid)
+    theirs = flexural_dispersion_layered(freq, vp=vp, vs=vs, rho=rho, **fluid)
+    both = np.isfinite(mine.slowness) & np.isfinite(theirs.slowness)
+    assert both.sum() >= 8, (mine.slowness, theirs.slowness)
+    rel = np.abs(mine.slowness[both] - theirs.slowness[both]) / np.abs(
+        theirs.slowness[both]
+    )
+    assert rel.max() < 1e-11, rel.max()

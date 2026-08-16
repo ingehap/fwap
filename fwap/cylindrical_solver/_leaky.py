@@ -1002,6 +1002,10 @@ _LEAKY_CASED_SEED_SURVEY_CANDIDATES = 4
 #: stays unrestricted, because a root arrived at along a dispersion
 #: curve carries evidence a fresh seed landing in the same place does
 #: not.
+#: Two refined roots closer than this (relative) are one root
+#: reached from different seeds.
+_LEAKY_CASED_BRANCH_MERGE_TOL = 1.0e-6
+
 _LEAKY_CASED_SEED_FLOOR = 0.002
 
 #: How many frequencies the sweep may be attempted at, spread across the
@@ -1046,6 +1050,7 @@ def _march_leaky_cased_branch(
     vs: float,
     ceiling: float,
     exclude: tuple[float, ...] = (),
+    branch: int = 0,
 ) -> tuple[np.ndarray, np.ndarray]:
     r"""
     Follow the fundamental leaky cased-hole branch of a slow formation.
@@ -1068,6 +1073,20 @@ def _march_leaky_cased_branch(
         Formation shear velocity (m/s); the window floor.
     ceiling : float
         Window ceiling (m/s), normally ``min(V_f, min layer V_S)``.
+    branch : int, default 0
+        Which leaky branch to seed, ordered slowest first. ``0`` is the
+        fundamental and reproduces the single-branch behaviour this
+        generalises.
+
+        **Seeding alone does not keep branches apart.** This marcher
+        walks the grid in ascending frequency and carries each root
+        forward by continuation, so a ``branch > 0`` march begun below
+        where that branch exists latches onto the fundamental and
+        propagates it across the whole grid -- measured, on a 4-14 kHz
+        grid, as branch 1 returning the branch-0 curve at all eleven
+        points. Callers must therefore start the march where the branch
+        exists and reject coincidences with lower branches on the
+        returned arrays; see `_fill_slow_cased_leaky_n1_vti`.
     exclude : tuple of float, optional
         Phase velocities at which the determinant is degenerate rather
         than modal -- each layer's shear speed. See
@@ -1236,7 +1255,7 @@ def _march_leaky_cased_branch(
         shadow. The selection rule is the scan's: keep the slowest
         accepted root, which is the fundamental.
         """
-        best: complex | None = None
+        accepted: list[complex] = []
         floor = vs * (1.0 + _LEAKY_CASED_SEED_FLOOR)
         for seed in _survey(omega):
             root = _refine(seed, omega, band)
@@ -1247,10 +1266,21 @@ def _march_leaky_cased_branch(
                 # are sharp and they are not modes; see
                 # ``_LEAKY_CASED_SEED_FLOOR``.
                 continue
-            # Slowest = largest Re(k_z).
-            if best is None or root.real > best.real:
-                best = root
-        return best
+            if any(
+                abs(root - seen) <= _LEAKY_CASED_BRANCH_MERGE_TOL * abs(seen)
+                for seen in accepted
+            ):
+                # Several seeds routinely converge on one root.
+                continue
+            accepted.append(root)
+        if not accepted:
+            return None
+        # Slowest first, so index 0 is the root the single-branch rule
+        # this replaces would have returned.
+        accepted.sort(key=lambda r: -r.real)
+        if branch >= len(accepted):
+            return None
+        return accepted[branch]
 
     def _march(use_sweep: bool) -> tuple[np.ndarray, np.ndarray]:
         out_s = np.full(f_arr.size, np.nan, dtype=float)
