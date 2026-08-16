@@ -29,7 +29,15 @@ References
   Rickman's normalisation bounds and that they are calibrated on
   *static* moduli; sect. 4 gives the 20-40 % static-dynamic gap. Used
   here because SPE 115258 itself is paywalled.
-* Lacy, L. L. (1997). SPE 38716 (sandstone UCS correlation).
+* Lacy, L. L. (1997). SPE 38716. Cited by `unconfined_compressive_
+  strength` for its sandstone UCS form; **unverified** -- the
+  attribution chain that named it was checked and broke (see that
+  function). Paywalled.
+* Chang, C., Zoback, M. D., & Khaksar, A. (2006). Empirical relations
+  between rock strength and physical properties in sedimentary rocks.
+  *J. Petroleum Science and Engineering* 51, 223-237. Its Table 1 is
+  the compilation the UCS docstring used to claim; it does not contain
+  that formula.
 * Eaton, B. A. (1969). *J. Petroleum Technology* 21(10), 1353-1360
   (uniaxial-strain closure stress).
 * Bratli, R. K., & Risnes, R. (1981). *SPE J.* 21(2), 236-248 (sand
@@ -316,8 +324,6 @@ def unconfined_compressive_strength(
     Available models
     ----------------
     ``"lacy_sandstone"`` (default)
-        Lacy (1997, SPE 38716) sandstone correlation, in the form
-        compiled by Chang et al. (2006, *J. Petr. Sci. Eng.* 51, eq. 7):
 
         .. math::
 
@@ -327,14 +333,59 @@ def unconfined_compressive_strength(
         with :math:`E` in GPa. Inputs and outputs are converted to
         Pa internally so the API stays SI.
 
+        ⚠ **The provenance of this formula is unverified, and the
+        citation it used to carry was wrong.** It said "Lacy (1997,
+        SPE 38716) ... in the form compiled by Chang et al. (2006,
+        eq. 7)". Chang et al. was checked and none of that holds:
+
+        * Chang's Table 1 contains **no** quadratic in :math:`E`. Its
+          only two :math:`E`-based sandstone relations are
+          eq. (8) ``UCS = 46.2 exp(0.027 E)`` and eq. (9)
+          ``UCS = 2.28 + 4.1089 E`` (Bradford et al. 1998).
+        * Chang's **eq. (7)** is ``UCS = 3.87 exp(1.14e-10 rho Vp^2)``
+          for the Gulf of Mexico — a density-and-velocity relation,
+          not a modulus one.
+        * **"Lacy" does not appear in Chang et al. at all**, in any
+          table or reference.
+
+        The formula may still be Lacy's own from SPE 38716, which is
+        paywalled and unchecked; what is certain is that it did not
+        come from where it said. It is **left in place and pinned**
+        rather than changed, per ``plans/learning.md`` — replacing a
+        shipped correlation needs the right one confirmed, not just
+        the wrong citation removed.
+
+        Against Chang's two published :math:`E` relations it runs
+        **1.9x to 3.9x high above 20 GPa** (2.58x at 30, 3.26x at 40),
+        agreeing with them only near 10 GPa. Treat values from the
+        stiff end of a log as unsupported.
+
     Static vs dynamic
     -----------------
     The Lacy correlation was fit on **static** core-derived Young's
     moduli, while sonic-log-derived ``young_pa`` is the **dynamic**
     modulus, which is generally larger by a factor of 1.5 to 3 for
-    porous rocks (Mavko et al. 2009, sect. 5.5). Without a dynamic-to-
-    static correction the returned UCS is an upper bound; the
-    depth-by-depth ranking is still informative.
+    porous rocks (Mavko et al. 2009, sect. 5.5).
+
+    **The error is superlinear, not a scale factor**, because the
+    correlation is quadratic: halving ``E`` from 40 to 20 GPa divides
+    the returned UCS by **3.4**, not by 2. So an uncorrected dynamic
+    modulus does not shift the answer, it changes its order of
+    magnitude.
+
+    At ordinary sonic-derived moduli the result also leaves the range
+    of the rock type it is for. This returns 324 MPa at 30 GPa and
+    **543 MPa at 40 GPa**, against **~168 MPa for a "strong sandstone"
+    and ~85 MPa for a "medium strong" one** -- figures quoted by
+    Mansour et al. (2020) from Agustawijaya (2007) and Kanji (2014),
+    in a classification that calls a rock "strong" above 100 MPa. A
+    value in the hundreds of MPa is the signature of an uncorrected
+    dynamic modulus rather than a strong rock, and is worth treating
+    as a units-style error rather than a conservative estimate.
+
+    The depth-by-depth *ranking* does survive -- the correlation is
+    monotone in ``E`` -- so the profile shape remains usable even
+    where the absolute values are not.
 
     Parameters
     ----------

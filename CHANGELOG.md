@@ -7,6 +7,48 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **`unconfined_compressive_strength`'s dynamic-modulus caveat said
+  "upper bound"; it is worse than that.** The Lacy correlation is
+  quadratic, so an uncorrected dynamic modulus is not a scale error:
+  halving `E` from 40 to 20 GPa divides UCS by **3.4**, not 2. At
+  ordinary sonic-derived moduli the output also leaves the rock type's
+  published range — 324 MPa at 30 GPa and **543 MPa at 40 GPa**,
+  against ~168 MPa for a *strong* sandstone in the standard
+  classification — figures quoted by Mansour et al. (2020) from
+  Agustawijaya (2007) and Kanji (2014). A value in the hundreds is the
+  signature of an uncorrected modulus rather than a strong rock.
+
+  *(An earlier draft attributed that classification to Hoek. Hoek
+  appears nowhere in the cited paper; it was inferred and written as
+  though read.)*
+
+  Both
+  facts are now tests; the monotonicity that keeps the profile *shape*
+  usable is pinned alongside them.
+
+- **⚠ `unconfined_compressive_strength`'s citation was wrong, and the
+  formula's provenance is now unknown.** It claimed "Lacy (1997, SPE
+  38716) ... in the form compiled by Chang et al. (2006, eq. 7)".
+  Chang et al. was obtained and checked; three separate parts of that
+  are false:
+
+  * Chang's Table 1 contains **no** quadratic in `E`. Its only two
+    `E`-based sandstone relations are eq. (8) `UCS = 46.2 exp(0.027 E)`
+    and eq. (9) `UCS = 2.28 + 4.1089 E` (Bradford et al. 1998).
+  * Chang's **eq. (7)** is `3.87 exp(1.14e-10 rho Vp^2)` — density and
+    velocity, not modulus.
+  * **"Lacy" appears nowhere in Chang et al.**
+
+  Against Chang's published `E` relations the shipped formula runs
+  **1.9x to 3.9x high above 20 GPa** (2.58x at 30 GPa, 3.26x at 40),
+  agreeing only near 10 GPa. Chang's own two agree with each other to
+  better than 1.35x throughout, so the outlier is ours.
+
+  **The citation is fixed; the formula is pinned, not changed.**
+  Removing a wrong citation is not the same as knowing the right
+  correlation, and SPE 38716 is still unread — if the quadratic is
+  Lacy's, restore a proper attribution; if it is not, every UCS value
+  fwap has produced needs re-baselining.
 - **`brittleness_index_rickman` now documents what feeding it a
   dynamic modulus costs**, with the number rather than a caveat.
   Rickman calibrated on *static* moduli — Rybacki et al. (2016) table
