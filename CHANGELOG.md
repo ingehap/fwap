@@ -25,6 +25,31 @@ the project uses [Semantic Versioning](https://semver.org/).
   to ~3e-15. Reaching it needs a higher ceiling and a way to tell two
   roots apart, not crossing machinery.
 
+### Added
+- **A `branch` index on the cased leaky drivers** (roadmap A.13).
+  `_march_leaky_cased_branch`, `_fill_slow_cased_leaky_n1_vti` and
+  `flexural_dispersion_layered_vti` take `branch`, ordering accepted
+  roots slowest-first so index 0 is the fundamental. Branch 1 reaches
+  the faster branch between `min(V_f, layer V_S)` and `V_P0`: 2185.9 →
+  1657.5 m/s over 7-14 kHz with attenuation 1.236 → 0.566 /m,
+  reproducing independently refined roots to 0.002 %.
+
+  The march is **anchored** rather than started at the grid edge. The
+  marcher walks ascending frequency and carries roots forward by
+  continuation, so a higher-branch march begun below where that branch
+  exists latches onto the fundamental and propagates it — measured, on
+  a 4-14 kHz grid, as branch 1 returning the branch-0 curve at all
+  eleven points. The driver finds the first frequency where a
+  single-point march yields a root distinct from the branch below, and
+  starts there, which makes the answer a property of the frequency
+  rather than of the grid: coverage is complete and identical across
+  five grids from 1 kHz/4-14 to 3 kHz/5-14, with zero duplicates.
+
+  Branch 0 is untouched — 6.1e-14 against the isotropic driver, which
+  matters because the marcher is shared with the isotropic paths tied
+  to Schmitt & Cheng figures 20 and 21. The raised ceiling applies only
+  for `branch > 0`.
+
 ### Fixed
 - **A.9's note on its own ceiling carried the wrong diagnosis.** It
   said reaching the branch above `V_f` "would need the fluid field
