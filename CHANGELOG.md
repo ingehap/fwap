@@ -98,8 +98,19 @@ the project uses [Semantic Versioning](https://semver.org/).
   `C13`, `C33`, and Pierre at 3 kHz sits 0.55 % below its `V_Sv` end.
 
   A.9's ceiling is inherited unchanged: a branch above `V_f` between
-  roughly 3 and 13 kHz is outside the searched window. The driver is
-  private; no public entry point is exposed yet.
+  roughly 3 and 13 kHz is outside the searched window.
+
+- **`flexural_dispersion_layered_vti`** — public entry point for cased
+  VTI flexural dispersion (roadmap A.12). With `layers=()` it delegates
+  to `flexural_dispersion_vti` bit-identically, so it is a strict
+  extension of the open-hole path; with layers and a slow formation it
+  follows the leaky cased dipole branch, returning `slowness` and
+  `attenuation_per_meter`. At isotropic stiffnesses it reproduces
+  `flexural_dispersion_layered` to <1e-9.
+
+  A fast formation returns all-NaN — the leaky branch does not exist
+  there and no bound cased VTI driver is written. Public-API guard:
+  189 → 190 names.
 
 ### Added
 - **Groundwork for a cased VTI solver** (roadmap A.12), measured rather

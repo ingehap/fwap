@@ -3658,3 +3658,73 @@ def test_the_cased_vti_branch_lands_inside_the_predicted_bracket():
 
     assert points_total >= 13, points_total
     assert inside_total >= points_total - 1, (inside_total, points_total)
+
+
+def test_the_public_cased_vti_entry_point():
+    """`flexural_dispersion_layered_vti`, the public face of A.12.
+
+    Three things it has to get right: delegate to the open-hole solver
+    when there are no layers, follow the leaky branch when there are
+    and the formation is slow, and reduce to the isotropic cased solver
+    at isotropic stiffnesses.
+    """
+    import fwap
+    from fwap import flexural_dispersion_layered, flexural_dispersion_vti
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+
+    layers = (
+        BoreholeLayer(vp=5900.0, vs=3200.0, rho=7850.0, thickness=0.01),
+        BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02),
+    )
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+    freq = np.arange(5000.0, 13001.0, 2000.0)
+    entry = fwap.flexural_dispersion_layered_vti
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Pierre shale"])
+    v_sv = np.sqrt(s["c44"] / s["rho"])
+
+    # 1. No layers -> the open-hole answer, bit for bit.
+    open_hole = entry(freq, **s, **fluid)
+    reference = flexural_dispersion_vti(freq, **s, **fluid)
+    assert np.array_equal(open_hole.slowness, reference.slowness)
+
+    # 2. Cased and slow -> a leaky branch above V_Sv, losing energy.
+    cased = entry(freq, **s, **fluid, layers=layers)
+    assert cased.name == "flexural"
+    assert cased.azimuthal_order == 1
+    assert np.array_equal(cased.freq, freq)
+    live = np.isfinite(cased.slowness)
+    assert live.sum() >= 4, cased.slowness
+    speeds = 1.0 / cased.slowness[live]
+    assert (speeds > v_sv).all(), (speeds, v_sv)
+    assert (cased.attenuation_per_meter[live] > 0.0).all()
+
+    # 3. Isotropic stiffnesses -> the isotropic cased branch.
+    vp, vs, rho = 2500.0, 800.0, 2200.0
+    c44, c11 = rho * vs * vs, rho * vp * vp
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+    mine = entry(freq, **iso, **fluid, layers=layers)
+    theirs = flexural_dispersion_layered(
+        freq, vp=vp, vs=vs, rho=rho, **fluid, layers=layers
+    )
+    both = np.isfinite(mine.slowness) & np.isfinite(theirs.slowness)
+    assert both.sum() >= 3, (mine.slowness, theirs.slowness)
+    rel = np.abs(mine.slowness[both] - theirs.slowness[both]) / np.abs(
+        theirs.slowness[both]
+    )
+    assert rel.max() < 1e-9, rel.max()
+
+
+def test_the_public_cased_vti_entry_point_validates_its_input():
+    """Bad frequency grids are rejected rather than propagated as NaN."""
+    import pytest
+
+    import fwap
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Pierre shale"])
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+
+    with pytest.raises(ValueError, match="1-D"):
+        fwap.flexural_dispersion_layered_vti(np.ones((2, 2)) * 5000.0, **s, **fluid)
+    with pytest.raises(ValueError, match="strictly positive"):
+        fwap.flexural_dispersion_layered_vti(np.array([5000.0, -1.0]), **s, **fluid)

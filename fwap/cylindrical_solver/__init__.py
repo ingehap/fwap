@@ -91,6 +91,15 @@ Scope (this module)
   in ``docs/plans/cylindrical_biot.md`` and the G / G' / G''
   sub-plan docs for the full breakdown.
 
+* **Cased hole, VTI formation** (roadmap A.12):
+  :func:`flexural_dispersion_layered_vti` follows the slow-
+  formation leaky dipole branch behind casing with an
+  anisotropic formation half-space. The casing and annulus stay
+  isotropic; only the formation carries qP / qSV / SH columns.
+  With ``layers=()`` it delegates to
+  :func:`flexural_dispersion_vti`, so it is a strict extension
+  of the open-hole path.
+
 Sign conventions
 ----------------
 * Time dependence ``e^{-i omega t}``.
@@ -471,6 +480,9 @@ from fwap.cylindrical_solver._vti import (
 # in Phase 1 step 10 of the package split (final extraction).
 from fwap.cylindrical_solver._vti import (
     _validate_vti_stiffness as _validate_vti_stiffness,
+)
+from fwap.cylindrical_solver._vti import (
+    flexural_dispersion_layered_vti as flexural_dispersion_layered_vti,
 )
 from fwap.cylindrical_solver._vti import (
     flexural_dispersion_vti as flexural_dispersion_vti,

@@ -2444,6 +2444,139 @@ def _fill_slow_cased_leaky_n1_vti(
     )
 
 
+def flexural_dispersion_layered_vti(
+    freq: np.ndarray,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...] = (),
+) -> BoreholeMode:
+    r"""
+    Flexural-wave (n=1) dispersion for a **cased** borehole in a VTI
+    formation.
+
+    The VTI sister of :func:`flexural_dispersion_layered`, and the
+    public face of roadmap A.12. With ``layers=()`` it delegates to
+    :func:`flexural_dispersion_vti`, so the open-hole answer is
+    unchanged and this is a strict extension.
+
+    With one or more layers and a **slow** formation -- one where the
+    ceiling ``min(V_f, min layer V_S)`` sits above
+    ``V_Sv = sqrt(C44 / rho)`` -- it follows the leaky cased dipole
+    branch. Behind steel the mode is faster than a slow formation's
+    shear speed, so it radiates shear into the formation and is
+    attenuated along the borehole even in a perfectly elastic medium;
+    ``attenuation_per_meter`` carries that rate.
+
+    Only the formation is anisotropic. The casing and annulus are
+    isotropic ``BoreholeLayer`` entries, and the whole stack inside
+    ``r = b`` is the isotropic machinery unchanged -- what differs is
+    the formation half-space, whose qP / qSV / SH columns replace the
+    isotropic P / SV / SH ones.
+
+    Parameters
+    ----------
+    freq : ndarray, shape (n_f,)
+        Frequency grid (Hz). Must be strictly positive.
+    c11, c13, c33, c44, c66 : float
+        Formation VTI stiffness tensor entries (Pa). The relevant
+        speeds are ``V_Sv = sqrt(C44 / rho)``,
+        ``V_Sh = sqrt(C66 / rho)`` and ``V_P0 = sqrt(C33 / rho)``.
+    rho : float
+        Formation density (kg / m^3).
+    vf, rho_f : float
+        Borehole-fluid velocity (m / s) and density (kg / m^3).
+    a : float
+        Borehole radius (m). The formation begins at ``a`` plus the
+        summed layer thicknesses.
+    layers : tuple of BoreholeLayer, optional
+        Casing and annulus, innermost first. Empty for an open hole.
+
+    Returns
+    -------
+    BoreholeMode
+        ``name="flexural"``, ``azimuthal_order=1``, with ``slowness``
+        in s/m and ``attenuation_per_meter`` in 1/m, both shape
+        ``(n_f,)`` and NaN where no root was found.
+
+    Notes
+    -----
+    Validated by reduction rather than against a published VTI cased
+    curve, of which there is none: at isotropic stiffnesses the
+    determinant *is* the isotropic cased determinant to 1e-14, and the
+    branch reproduces the isotropic one to <1e-9 in both slowness and
+    attenuation. The isotropic cased curves are themselves tied to
+    Schmitt & Cheng figures 20 and 21 at 0.21-0.27 %.
+
+    Two limits, both inherited from the isotropic path rather than
+    introduced here. A **fast** formation returns all-NaN: the leaky
+    branch this follows does not exist, and no bound cased VTI driver
+    is written. And A.9's ceiling applies, so a branch sitting above
+    ``V_f`` -- which happens between roughly 3 and 13 kHz -- is outside
+    the window searched at all; reaching it needs the fluid field
+    treated as oscillatory rather than evanescent.
+
+    See Also
+    --------
+    flexural_dispersion_vti : The open-hole sister, used when
+        ``layers`` is empty.
+    flexural_dispersion_layered : The isotropic sister, which this
+        reproduces exactly at isotropic stiffnesses.
+    """
+    f_arr = np.asarray(freq, dtype=float)
+    if f_arr.ndim != 1:
+        raise ValueError(f"freq must be 1-D; got shape {f_arr.shape}")
+    if f_arr.size and not np.all(f_arr > 0.0):
+        raise ValueError("freq must be strictly positive")
+
+    if not layers:
+        return flexural_dispersion_vti(
+            f_arr,
+            c11=c11,
+            c13=c13,
+            c33=c33,
+            c44=c44,
+            c66=c66,
+            rho=rho,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
+        )
+
+    slowness = np.full(f_arr.shape, np.nan)
+    attenuation = np.full(f_arr.shape, np.nan)
+    found = _fill_slow_cased_leaky_n1_vti(
+        f_arr,
+        c11=c11,
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c66,
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
+        layers=layers,
+    )
+    if found is not None:
+        slowness, attenuation = np.asarray(found[0]), np.asarray(found[1])
+
+    return BoreholeMode(
+        name="flexural",
+        azimuthal_order=1,
+        freq=f_arr,
+        slowness=slowness,
+        attenuation_per_meter=attenuation,
+    )
+
+
 def _fluid_bessels_n1_vti(
     kz: complex,
     omega: float,
