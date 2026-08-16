@@ -2895,3 +2895,179 @@ def test_the_cased_leaky_dipole_exists_and_anisotropy_would_move_it():
     assert (spreads > 0.0).all(), spreads
     assert spreads.min() > 1.0, spreads.min()
     assert spreads.max() > 6.0, spreads.max()
+
+
+# ----------------------------------------------------------------------
+# A.12: the u_theta / u_z derivation the cased stack needs
+# ----------------------------------------------------------------------
+
+
+def test_the_vti_polarisation_ratio_has_the_right_isotropic_limits():
+    """The sharp analytic check on ``gamma``.
+
+    ``gamma`` is fixed by the axial equation of motion. Two isotropic
+    limits pin it with no freedom at all: at the P root it must be
+    exactly ``1``, recovering ``u = grad phi``; at the S root exactly
+    ``alpha^2 / k_z^2``, which is the Hansen form ``u = curl curl(chi
+    z)`` the isotropic assembly already uses. A sign error, or the
+    wrong stiffness in the numerator, breaks one or both.
+    """
+    from fwap.cylindrical_solver._vti import _vti_polarisation_ratio
+
+    vp, vs, rho = 3658.0, 2032.0, 2350.0
+    mu = rho * vs * vs
+    lam = rho * vp * vp - 2 * mu
+    stiff = dict(c13=lam, c33=lam + 2 * mu, c44=mu, rho=rho)
+
+    for freq in (4000.0, 9000.0, 16000.0):
+        omega = 2.0 * np.pi * freq
+        for c in (1200.0, 1700.0, 2400.0):
+            kz = omega / c
+            alpha_p = np.sqrt(complex(kz**2 - (omega / vp) ** 2))
+            alpha_s = np.sqrt(complex(kz**2 - (omega / vs) ** 2))
+
+            gamma_p = _vti_polarisation_ratio(alpha_p, kz, omega, **stiff)
+            assert abs(gamma_p - 1.0) < 1e-12, (freq, c, gamma_p)
+
+            gamma_s = _vti_polarisation_ratio(alpha_s, kz, omega, **stiff)
+            expected = alpha_s**2 / kz**2
+            assert abs(gamma_s - expected) < 1e-12 * max(abs(expected), 1.0), (
+                freq,
+                c,
+                gamma_s,
+                expected,
+            )
+
+
+def test_the_formation_displacement_columns_reproduce_the_validated_row():
+    """The tie to code that is already trusted.
+
+    ``u_r`` is the one component the open-hole assembly already had, in
+    ``_modal_row1_at_a_n1_vti``. The new columns must reproduce those
+    entries exactly, which is what makes ``u_theta`` and ``u_z`` -- the
+    two the layered stack needs and which never existed here -- an
+    extension rather than a reimplementation.
+
+    It also pins the per-column normalisation: qP carries ``-1``, qSV
+    ``-k_z`` and SH ``+i``. Those are conventions of the existing
+    assembly, applied to whole columns, so they cancel out of any
+    determinant.
+    """
+    from fwap.cylindrical_solver._vti import (
+        _formation_displacements_n1_vti,
+        _modal_row1_at_a_n1_vti,
+    )
+
+    a = 0.10
+    for name in ("Green River shale", "Mesaverde sandstone", "Dog Creek shale"):
+        s = _thomsen_stiffness(_THOMSEN_TABLE_1[name])
+        for freq in (5000.0, 11000.0):
+            omega = 2.0 * np.pi * freq
+            for c in (1100.0, 1500.0):
+                kz = omega / c
+                row = _modal_row1_at_a_n1_vti(
+                    kz, omega, **s, vf=1500.0, rho_f=1000.0, a=a
+                )
+                columns = _formation_displacements_n1_vti(kz, omega, **s, r=a)
+                if not np.isfinite(columns).all():
+                    continue
+                for j in range(3):
+                    assert abs(columns[0, j] - row[j + 1]) < 1e-9 * max(
+                        abs(row[j + 1]), 1.0
+                    ), (name, freq, c, j, columns[0, j], row[j + 1])
+
+            # SH is curl(psi z): purely horizontal, no axial component.
+            columns = _formation_displacements_n1_vti(omega / 1300.0, omega, **s, r=a)
+            assert columns[2, 2] == 0.0, (name, freq, columns[2, 2])
+
+
+def test_the_formation_columns_satisfy_the_vti_equations_of_motion():
+    """The independent physics check: the columns are solutions.
+
+    ``div sigma + rho omega^2 u`` is formed from the returned
+    displacements by fourth-order finite differences in ``r``, with the
+    strains, VTI constitutive law and cylindrical divergence written
+    out here rather than taken from the module. Nothing in this test
+    shares algebra with the code it checks, so agreement is evidence
+    rather than a tautology.
+    """
+    from fwap.cylindrical_solver._vti import _formation_displacements_n1_vti
+
+    n = 1
+    r0, h = 0.12, 0.12e-4
+
+    def residual(s, kz, omega, column):
+        c11, c13, c33 = s["c11"], s["c13"], s["c33"]
+        c44, c66, rho = s["c44"], s["c66"], s["rho"]
+        c12 = c11 - 2 * c66
+
+        def u(r):
+            return _formation_displacements_n1_vti(kz, omega, **s, r=r)[:, column]
+
+        def stress(r):
+            ur, ut, uz = u(r)
+            d = (-u(r + 2 * h) + 8 * u(r + h) - 8 * u(r - h) + u(r - 2 * h)) / (12 * h)
+            e_rr, e_tt, e_zz = d[0], ur / r + (1j * n / r) * ut, 1j * kz * uz
+            e_rt = (1j * n / r) * ur + d[1] - ut / r
+            e_rz = 1j * kz * ur + d[2]
+            e_tz = (1j * n / r) * uz + 1j * kz * ut
+            return np.array(
+                [
+                    c11 * e_rr + c12 * e_tt + c13 * e_zz,
+                    c12 * e_rr + c11 * e_tt + c13 * e_zz,
+                    c13 * (e_rr + e_tt) + c33 * e_zz,
+                    c66 * e_rt,
+                    c44 * e_rz,
+                    c44 * e_tz,
+                ]
+            )
+
+        sig = stress(r0)
+        dsig = (
+            -stress(r0 + 2 * h)
+            + 8 * stress(r0 + h)
+            - 8 * stress(r0 - h)
+            + stress(r0 - 2 * h)
+        ) / (12 * h)
+        s_rr, s_tt, s_zz, s_rt, s_rz, s_tz = sig
+        ur, ut, uz = u(r0)
+        res = (
+            abs(
+                dsig[0]
+                + (1j * n / r0) * s_rt
+                + 1j * kz * s_rz
+                + (s_rr - s_tt) / r0
+                + rho * omega**2 * ur
+            ),
+            abs(
+                dsig[3]
+                + (1j * n / r0) * s_tt
+                + 1j * kz * s_tz
+                + 2 * s_rt / r0
+                + rho * omega**2 * ut
+            ),
+            abs(
+                dsig[4]
+                + (1j * n / r0) * s_tz
+                + 1j * kz * s_zz
+                + s_rz / r0
+                + rho * omega**2 * uz
+            ),
+        )
+        scale = max(abs(dsig[0]), abs(s_rr / r0), abs(rho * omega**2 * ur), 1e-300)
+        return max(res) / scale
+
+    checked = 0
+    for name in ("Green River shale", "Mesaverde sandstone", "Dog Creek shale"):
+        s = _thomsen_stiffness(_THOMSEN_TABLE_1[name])
+        omega = 2.0 * np.pi * 8000.0
+        for c in (1200.0, 1600.0):
+            kz = omega / c
+            if not np.isfinite(
+                _formation_displacements_n1_vti(kz, omega, **s, r=r0)
+            ).all():
+                continue
+            for column in range(3):
+                assert residual(s, kz, omega, column) < 1e-6, (name, c, column)
+                checked += 1
+    assert checked >= 12, checked

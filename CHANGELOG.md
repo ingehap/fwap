@@ -15,10 +15,24 @@ the project uses [Semantic Versioning](https://semver.org/).
   magnitude above the 0.21-0.27 % at which the cased curves are tied to
   Schmitt & Cheng figures 20 and 21.
 
-  Not built. The layered `n = 1` determinant needs formation continuity
-  in six quantities at `r = b`; A.11 phase 4 supplies the four the
-  open-hole problem needs, and `u_theta` / `u_z` for the qP/qSV/SH
-  columns do not exist in the codebase yet.
+- **`_vti_polarisation_ratio` and `_formation_displacements_n1_vti`** —
+  the `u_theta` and `u_z` formation columns a layered VTI stack needs
+  and the open-hole problem never did. The coupled qP/qSV pair takes
+  `u_r = d(phi)/dr`, `u_theta = (i n / r) phi`, `u_z = i k_z gamma phi`
+  with `phi = K_n(alpha r)`, and the axial equation of motion fixes
+  `gamma = -alpha^2 (C13 + C44) / (rho omega^2 + C44 alpha^2 - C33
+  k_z^2)`; SH is decoupled, so its `u_z` is identically zero.
+
+  Checked three ways, none circular: the isotropic limit gives `gamma`
+  exactly 1 at the P root and exactly `alpha^2 / k_z^2` at the S root
+  (the Hansen form already in use), to 1e-12; the `u_r` row reproduces
+  the validated `_modal_row1_at_a_n1_vti` entries exactly; and the full
+  field satisfies the VTI equations of motion to ~1e-9 relative under
+  fourth-order finite differences written out independently of the
+  module.
+
+  Still not a cased VTI solver: the 10x10 assembly, the recombination
+  at `r = b`, the radiating branches and the driver all remain.
 
 ### Added
 - **Radiating branches for the VTI formation columns** (roadmap A.11

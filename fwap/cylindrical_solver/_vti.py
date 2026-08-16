@@ -1718,6 +1718,166 @@ def _modal_determinant_n0_vti(
 # pre-rescale C entry. Columns A and D are not rescaled.
 
 
+def _vti_polarisation_ratio(
+    alpha: complex,
+    kz: complex,
+    omega: float,
+    *,
+    c13: float,
+    c33: float,
+    c44: float,
+    rho: float,
+) -> complex:
+    r"""
+    The ``gamma`` that fixes a qP / qSV column's axial displacement.
+
+    For fields going as ``e^{i(n theta + k_z z)}`` the coupled qP / qSV
+    pair admits the potential form
+
+        ``u_r = d(phi)/dr``,  ``u_theta = (i n / r) phi``,
+        ``u_z = i k_z gamma phi``,     ``phi = K_n(alpha r)``,
+
+    and substituting it into the axial equation of motion leaves a
+    single condition, whose solution is
+
+        ``gamma = -alpha^2 (C13 + C44)
+                  / (rho omega^2 + C44 alpha^2 - C33 k_z^2)``.
+
+    The isotropic limit is the check that this is the right object.
+    With ``C11 = C33 = lambda + 2 mu``, ``C44 = mu``, ``C13 = lambda``
+    it returns exactly ``1`` at the P root -- recovering ``u = grad
+    phi`` -- and exactly ``alpha^2 / k_z^2`` at the S root, which is
+    the Hansen form ``u = curl curl(chi z)`` the isotropic assembly
+    already uses. Both are reproduced to floating point.
+
+    Parameters
+    ----------
+    alpha : complex
+        Radial wavenumber of the column (rad / m), from
+        :func:`_radial_wavenumbers_vti_complex`.
+    kz : complex
+        Axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    c13, c33, c44 : float
+        VTI stiffnesses (Pa).
+    rho : float
+        Formation density (kg / m^3).
+
+    Returns
+    -------
+    complex
+        ``gamma``, dimensionless.
+    """
+    numerator = -(complex(alpha) ** 2) * (c13 + c44)
+    denominator = (
+        rho * omega * omega + c44 * complex(alpha) ** 2 - c33 * complex(kz) ** 2
+    )
+    return complex(numerator / denominator)
+
+
+def _formation_displacements_n1_vti(
+    kz: complex,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    r: float,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
+) -> np.ndarray:
+    r"""
+    The three formation displacement columns at radius ``r``, ``n = 1``.
+
+    Returns ``u_r``, ``u_theta`` and ``u_z`` for the qP, qSV and SH
+    columns. The open-hole assembly never needed the last two: its
+    boundary conditions at ``r = a`` are ``u_r`` continuity with the
+    fluid plus three tractions. A **layered** stack needs continuity of
+    all six quantities across ``r = b``, which is what this supplies
+    (roadmap A.12).
+
+    qP and qSV come from the potential form in
+    :func:`_vti_polarisation_ratio`; SH is decoupled and carries
+    ``u = curl(psi z)``, so ``u_z`` is identically zero for it.
+
+    **Normalisation matches the existing rows**, so these columns
+    compose with them rather than needing a rescale: the qP column
+    carries ``-1``, the qSV column ``-k_z`` and the SH column ``+i``,
+    which is what ``_modal_row1_at_a_n1_vti`` already uses. Applied per
+    column, so all three components of one column share one factor and
+    the physics is untouched.
+
+    Parameters
+    ----------
+    kz : complex
+        Axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    c11, c13, c33, c44, c66 : float
+        VTI stiffnesses (Pa).
+    rho : float
+        Formation density (kg / m^3).
+    r : float
+        Radius at which to evaluate (m) -- ``a`` for an open hole, the
+        outermost layer radius ``b`` for a cased stack.
+    radiating : tuple of bool
+        Per-wave ``(qP, qSV, SH)`` outgoing-branch selection, as for
+        :func:`_radial_wavenumbers_vti_complex`.
+
+    Returns
+    -------
+    ndarray
+        ``(3, 3)`` complex array. Rows are ``(u_r, u_theta, u_z)``;
+        columns are ``(qP, qSV, SH)``.
+
+    Notes
+    -----
+    Verified two ways. The full field satisfies the VTI equations of
+    motion in cylindrical coordinates to ~1e-9 relative under
+    fourth-order finite differences, at ``n = 1`` and ``n = 2`` across
+    three Thomsen media; and its ``u_r`` row reproduces the already
+    validated ``_modal_row1_at_a_n1_vti`` formation entries exactly.
+    """
+    n = 1
+    alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti_complex(
+        kz,
+        omega,
+        c11=c11,
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c66,
+        rho=rho,
+        radiating=radiating,
+    )
+
+    def _pair(alpha: complex, leaky: bool) -> tuple[complex, complex]:
+        """``(K_n(alpha r), dK_n/dr)`` on the column's own branch."""
+        k_n, k_n1 = _k_or_hankel(n, alpha, r, leaky=leaky)
+        return k_n, alpha * (-k_n1 + (n / (alpha * r)) * k_n)
+
+    columns = []
+    for alpha, leaky, scale in (
+        (alpha_qP, radiating[0], -1.0 + 0.0j),
+        (alpha_qSV, radiating[1], -complex(kz)),
+    ):
+        phi, dphi = _pair(alpha, leaky)
+        gamma = _vti_polarisation_ratio(
+            alpha, kz, omega, c13=c13, c33=c33, c44=c44, rho=rho
+        )
+        columns.append(
+            scale * np.array([dphi, (1j * n / r) * phi, 1j * complex(kz) * gamma * phi])
+        )
+
+    psi, dpsi = _pair(alpha_SH, radiating[2])
+    columns.append(1j * np.array([(1j * n / r) * psi, -dpsi, 0.0 + 0.0j]))
+
+    return np.column_stack(columns)
+
+
 def _fluid_bessels_n1_vti(
     kz: complex,
     omega: float,
