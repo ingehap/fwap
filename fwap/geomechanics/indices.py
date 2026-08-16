@@ -10,10 +10,25 @@ upstream (sonic-derived Young's modulus is the *dynamic* value while
 the published correlations were calibrated against *static* core
 measurements; see the module-level caveat in :mod:`fwap.geomechanics`).
 
+**What that costs, since "the caller is responsible" is not a
+magnitude.** Static ``E`` runs 20-40 % below dynamic for shales
+(Rybacki et al. 2016) and a factor 1.5-3 below it for porous rocks
+(Mavko et al. 2009). Skipping the correction overstates
+:func:`brittleness_index_rickman` by 8-17 index points and makes
+:func:`unconfined_compressive_strength` an upper bound. Both functions
+carry a *Static vs dynamic* section with the worked numbers, and both
+sets of numbers are executed in ``tests/test_geomechanics.py``.
+
 References
 ----------
 * Rickman, R., Mullen, M. J., Petre, J. E., Grieser, W. V., &
   Kundert, D. (2008). SPE 115258 (brittleness and fracability).
+* Rybacki, E., Meier, T., & Dresen, G. (2016). What controls the
+  mechanical properties of shale rocks? -- Part II: Brittleness.
+  *J. Petroleum Science and Engineering* 144, 39-58. Table A3 records
+  Rickman's normalisation bounds and that they are calibrated on
+  *static* moduli; sect. 4 gives the 20-40 % static-dynamic gap. Used
+  here because SPE 115258 itself is paywalled.
 * Lacy, L. L. (1997). SPE 38716 (sandstone UCS correlation).
 * Eaton, B. A. (1969). *J. Petroleum Technology* 21(10), 1353-1360
   (uniaxial-strain closure stress).
@@ -99,10 +114,40 @@ def brittleness_index_rickman(
     High Young's modulus and low Poisson's ratio map to high
     brittleness; the result is in ``[0, 1]``.
 
+    Static vs dynamic
+    -----------------
+    Rickman calibrated on **static** moduli -- Rybacki et al. (2016)
+    table A3 records the inputs to this equation as "``E`` = static
+    Young's modulus, ``nu`` = static Poisson's ratio" -- while
+    sonic-derived ``young_pa`` is the **dynamic** modulus. Static
+    values "may be **20-40 % lower** than (undrained) dynamic
+    ``E``-moduli" (Rybacki et al. 2016, sect. 4, after Yale & Jamieson
+    1994; Britt & Schoeffler 2009; Sone & Zoback 2013a).
+
+    Passing a dynamic modulus therefore **overstates** brittleness.
+    At ``E = 40 GPa``, ``nu = 0.25`` -- an ordinary sonic-derived pair
+    -- this returns 64.3 %, against 56.0 / 51.9 / 47.7 % for the same
+    rock at a static modulus 20 / 30 / 40 % lower: an overstatement of
+    **8.3 to 16.6 index points**.
+
+    That range widened when the normalisation bounds were corrected to
+    Rickman's published 1-8 Mpsi. The window is narrower than the
+    values that shipped before, so the same dynamic modulus now
+    normalises higher -- 0.686 against 0.429 on the ``E`` term at
+    40 GPa. The correction is right and it raises the cost of skipping
+    the conversion.
+
+    The depth-by-depth *ranking* survives, since the bias is
+    one-signed; absolute values do not. Apply a dynamic-to-static
+    correction upstream if you need them. The worked numbers above are
+    executed by
+    ``test_dynamic_moduli_overstate_brittleness_by_the_documented_amount``
+    in ``tests/test_geomechanics.py``.
+
     Parameters
     ----------
     young_pa : scalar or ndarray
-        Young's modulus (Pa).
+        Young's modulus (Pa). Static -- see above.
     poisson : scalar or ndarray
         Poisson's ratio (dimensionless).
     e_min_pa, e_max_pa : float
