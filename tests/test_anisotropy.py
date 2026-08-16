@@ -3168,3 +3168,563 @@ def test_the_vti_stoneley_curve_is_unchanged_by_the_n0_recombination():
     a = stoneley_dispersion_vti(freq, **iso, **fluid).slowness
     b = stoneley_dispersion(freq, vp=vp, vs=vs, rho=rho, **fluid).slowness
     assert np.array_equal(a, b), np.nanmax(np.abs(a - b))
+
+
+# ----------------------------------------------------------------------
+# A.12: the 10x10 cased VTI assembly
+# ----------------------------------------------------------------------
+
+_CASED_LAYER = dict(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02)
+
+
+def _cased_fluid():
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+
+    return dict(vf=1500.0, rho_f=1000.0, a=0.10, layer=BoreholeLayer(**_CASED_LAYER))
+
+
+def test_the_layered_matrix_isolates_the_formation_to_three_columns():
+    """The structural fact the substitution rests on, measured.
+
+    The formation occupies columns 6, 7 and 10 and appears only in rows
+    5-10 -- the six continuity conditions at ``r = b``. Every other
+    entry is *bit-identical* whatever the formation is, so the
+    substep-F.2.a.5 phase rescale does not couple the layer block to
+    formation parameters and the three columns can be replaced without
+    disturbing anything else. If that ever stops holding, swapping in
+    VTI columns silently corrupts the rescale, so it is checked rather
+    than assumed.
+    """
+    import fwap.cylindrical_solver._n1_layered as layered
+    from fwap.cylindrical_solver._vti import (
+        _LAYERED_N1_FORMATION_COLUMNS,
+    )
+
+    builders = [getattr(layered, f"_layered_n1_row{i}_at_a") for i in (1, 2, 3, 4)]
+    builders += [getattr(layered, f"_layered_n1_row{i}_at_b") for i in range(5, 11)]
+    fluid = _cased_fluid()
+    omega = 2.0 * np.pi * 8000.0
+    kz = omega / 1300.0
+
+    def build(vp, vs, rho):
+        return np.vstack(
+            [b(kz, omega, vp=vp, vs=vs, rho=rho, **fluid) for b in builders]
+        )
+
+    first = build(3000.0, 1700.0, 2300.0)
+    second = build(4200.0, 2400.0, 2600.0)
+    differs = np.abs(first - second) > 1e-12 * np.maximum(
+        np.maximum(np.abs(first), np.abs(second)), 1e-300
+    )
+
+    formation_columns = sorted(j for j in range(10) if differs[:, j].any())
+    assert tuple(formation_columns) == _LAYERED_N1_FORMATION_COLUMNS, formation_columns
+    formation_rows = sorted(i for i in range(10) if differs[i].any())
+    assert formation_rows == [4, 5, 6, 7, 8, 9], formation_rows
+    others = [j for j in range(10) if j not in formation_columns]
+    assert np.array_equal(first[:, others], second[:, others])
+
+
+def test_each_layered_row_carries_the_calibrated_formation_quantity():
+    """The row -> quantity map, and that its factors are per row.
+
+    Rows 5-10 carry ``u_r``, ``u_theta``, ``u_z``, ``sigma_rr``,
+    ``sigma_r_theta``, ``sigma_rz`` with factors ``1, i, i, 1, -1, -1``.
+    What matters is not the values but that each factor is **constant
+    across the three columns**: that is what says the isotropic
+    assembly and the VTI columns already share a per-column
+    normalisation, so no column rescale is needed. A per-column
+    discrepancy would produce a determinant that still looks plausible.
+    """
+    import fwap.cylindrical_solver._n1_layered as layered
+    from fwap.cylindrical_solver._vti import (
+        _LAYERED_N1_FORMATION_COLUMNS,
+        _LAYERED_N1_FORMATION_ROWS,
+        _formation_displacements_n1_vti,
+        _modal_row2_at_a_n1_vti,
+        _modal_row3_at_a_n1_vti,
+        _modal_row4_at_a_n1_vti,
+    )
+
+    vp, vs, rho = 3400.0, 1900.0, 2400.0
+    c44, c11 = rho * vs * vs, rho * vp * vp
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+    fluid = _cased_fluid()
+    b = fluid["a"] + fluid["layer"].thickness
+    omega = 2.0 * np.pi * 8000.0
+    kz = omega / 1300.0
+
+    builders = [getattr(layered, f"_layered_n1_row{i}_at_a") for i in (1, 2, 3, 4)]
+    builders += [getattr(layered, f"_layered_n1_row{i}_at_b") for i in range(5, 11)]
+    matrix = np.vstack(
+        [bld(kz, omega, vp=vp, vs=vs, rho=rho, **fluid) for bld in builders]
+    )
+
+    displacements = _formation_displacements_n1_vti(kz, omega, **iso, r=b)
+    traction = dict(**iso, vf=fluid["vf"], rho_f=fluid["rho_f"], a=b)
+    quantities = {
+        "u_r": displacements[0],
+        "u_theta": displacements[1],
+        "u_z": displacements[2],
+        "sigma_rr": _modal_row2_at_a_n1_vti(kz, omega, **traction)[1:4],
+        # Row 3 is sigma_r_theta and row 4 is sigma_rz -- see
+        # test_the_vti_traction_rows_are_not_named_in_the_obvious_order.
+        "sigma_rtheta": _modal_row3_at_a_n1_vti(kz, omega, **traction)[1:4],
+        "sigma_rz": _modal_row4_at_a_n1_vti(kz, omega, **traction)[1:4],
+    }
+
+    for offset, (name, factor) in enumerate(_LAYERED_N1_FORMATION_ROWS):
+        row = 4 + offset
+        mine = quantities[name]
+        for slot, column in enumerate(_LAYERED_N1_FORMATION_COLUMNS):
+            expected = factor * mine[slot]
+            got = matrix[row, column]
+            assert abs(got - expected) < 1e-9 * max(abs(got), 1.0), (
+                name,
+                row,
+                column,
+                got,
+                expected,
+            )
+
+
+def test_the_cased_vti_matrix_reproduces_the_isotropic_one_exactly():
+    """The oracle, and it is the strongest in this line of work.
+
+    At isotropic stiffnesses the VTI 10x10 must *be* the isotropic
+    10x10 -- and it is, determinant ratio ``1 + 0j`` rather than merely
+    proportional. `_modal_determinant_n1_layered` is itself tied to
+    Schmitt & Cheng figures 20 and 21 at 0.21-0.27 %, so this inherits
+    an external tie that no open-hole VTI path has.
+    """
+    from fwap.cylindrical_solver._n1_layered import _modal_determinant_n1_layered
+    from fwap.cylindrical_solver._vti import _modal_matrix_n1_layered_vti
+
+    fluid = _cased_fluid()
+    ratios, checked = [], 0
+    for vp, vs, rho in ((3400.0, 1900.0, 2400.0), (4500.0, 2700.0, 2450.0)):
+        c44, c11 = rho * vs * vs, rho * vp * vp
+        iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+        for freq in (5000.0, 9000.0, 14000.0):
+            for c in (1100.0, 1350.0):
+                omega = 2.0 * np.pi * freq
+                kz = omega / c
+                vti = complex(
+                    np.linalg.det(
+                        _modal_matrix_n1_layered_vti(kz, omega, **iso, **fluid)
+                    )
+                )
+                isotropic = _modal_determinant_n1_layered(
+                    kz, omega, vp=vp, vs=vs, rho=rho, **fluid
+                )
+                if not np.isfinite(isotropic) or isotropic == 0.0:
+                    continue
+                ratios.append(vti / isotropic)
+                checked += 1
+    assert checked >= 10, checked
+    assert np.abs(np.array(ratios) - 1.0).max() < 1e-11, ratios
+
+
+def test_the_cased_vti_determinant_has_the_isotropic_roots():
+    """Roots, not values -- the recombination rescales the determinant.
+
+    `_modal_determinant_n1_layered_vti` recombines, so it differs from
+    the isotropic determinant by that Jacobian; dividing it out leaves
+    exactly ``-1``. What has to hold for the solver is that the roots
+    coincide, and on a fast formation they do to four decimals.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti_complex
+    from fwap.cylindrical_solver._n1_layered import _modal_determinant_n1_layered
+    from fwap.cylindrical_solver._vti import _modal_determinant_n1_layered_vti
+
+    fluid = _cased_fluid()
+    vp, vs, rho = 3400.0, 1900.0, 2400.0
+    c44, c11 = rho * vs * vs, rho * vp * vp
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+
+    adjusted = []
+    for freq in (5000.0, 9000.0, 14000.0):
+        omega = 2.0 * np.pi * freq
+        for c in (1050.0, 1250.0, 1400.0):
+            kz = omega / c
+            vti = _modal_determinant_n1_layered_vti(kz, omega, **iso, **fluid)
+            isotropic = _modal_determinant_n1_layered(
+                kz, omega, vp=vp, vs=vs, rho=rho, **fluid
+            )
+            if not np.isfinite(isotropic) or isotropic == 0.0:
+                continue
+            qp, qsv, _ = _radial_wavenumbers_vti_complex(kz, omega, **iso)
+            adjusted.append(vti / isotropic * (qp - qsv) * kz)
+    assert len(adjusted) >= 6, len(adjusted)
+    assert np.abs(np.array(adjusted) + 1.0).max() < 1e-10, adjusted
+
+    omega = 2.0 * np.pi * 9000.0
+    speeds = np.linspace(950.0, 1450.0, 900)
+
+    def root_of(fn):
+        values = np.array([fn(omega / c) for c in speeds])
+        finite = np.isfinite(values)
+        sign = np.sign(values[finite])
+        idx = np.where(np.diff(sign) != 0)[0]
+        out = []
+        for i in idx:
+            x0, x1 = speeds[finite][i], speeds[finite][i + 1]
+            y0, y1 = values[finite][i], values[finite][i + 1]
+            out.append(x0 - y0 * (x1 - x0) / (y1 - y0))
+        return out
+
+    vti_roots = root_of(
+        lambda kz: _modal_determinant_n1_layered_vti(kz, omega, **iso, **fluid)
+    )
+    iso_roots = root_of(
+        lambda kz: _modal_determinant_n1_layered(
+            kz, omega, vp=vp, vs=vs, rho=rho, **fluid
+        )
+    )
+    assert len(vti_roots) == len(iso_roots) == 1, (vti_roots, iso_roots)
+    assert abs(vti_roots[0] - iso_roots[0]) < 1e-3, (vti_roots, iso_roots)
+
+
+def test_the_vti_traction_rows_are_not_named_in_the_obvious_order():
+    """Row 3 is ``sigma_r_theta`` and row 4 is ``sigma_rz``.
+
+    The reverse looks right from the row numbering and was assumed
+    while wiring the cased assembly. It is wrong, and the calibration
+    against the layered stack could not catch it: that matched *values*
+    into the correct slots, so the determinant was right while the
+    labels on it were not.
+
+    Settled against the constitutive law instead, with both stresses
+    built directly from the returned displacements. The pairing below
+    gives a clean per-column ratio of ``-i``; the swapped pairing gives
+    ratios spanning a factor of sixty.
+    """
+    from fwap.cylindrical_solver._vti import (
+        _formation_displacements_n1_vti,
+        _modal_row3_at_a_n1_vti,
+        _modal_row4_at_a_n1_vti,
+    )
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Green River shale"])
+    omega = 2.0 * np.pi * 8000.0
+    n, r = 1, 0.10
+    h = r * 1e-4
+
+    for c in (1200.0, 1500.0):
+        kz = omega / c
+
+        def u(radius, kz=kz):
+            return _formation_displacements_n1_vti(kz, omega, **s, r=radius)
+
+        here = u(r)
+        d = (-u(r + 2 * h) + 8 * u(r + h) - 8 * u(r - h) + u(r - 2 * h)) / (12 * h)
+        sigma_rz = s["c44"] * (1j * kz * here[0] + d[2])
+        sigma_rtheta = s["c66"] * ((1j * n / r) * here[0] + d[1] - here[1] / r)
+
+        fluid = dict(vf=1500.0, rho_f=1000.0, a=r)
+        row3 = _modal_row3_at_a_n1_vti(kz, omega, **s, **fluid)[1:4]
+        row4 = _modal_row4_at_a_n1_vti(kz, omega, **s, **fluid)[1:4]
+
+        for row, expected in ((row3, sigma_rtheta), (row4, sigma_rz)):
+            ratio = np.array([row[j] / expected[j] for j in range(3)])
+            assert np.allclose(ratio, ratio[0], rtol=1e-9, atol=0.0), (c, ratio)
+            assert abs(ratio[0] + 1j) < 1e-9, (c, ratio[0])
+
+        # And the swapped pairing is nowhere near constant.
+        swapped = np.array([row3[j] / sigma_rz[j] for j in range(3)])
+        assert np.max(np.abs(swapped - swapped[0])) > 0.5 * np.abs(swapped).max()
+
+
+def test_the_leaky_cased_vti_determinant_matches_the_isotropic_one():
+    """The radiating flags reach the formation through the cased stack.
+
+    The layered real-``k_z`` path cannot express a complex ``k_z`` at
+    all, so the leaky case goes through
+    `_modal_determinant_n1_cased_complex` with the VTI formation block
+    substituted for the isotropic one. Everything else -- fluid, every
+    layer, the propagator, the real-axis branch handling -- is the
+    isotropic machinery untouched.
+
+    Only the formation takes radiating branches, and that is physical
+    rather than a shortcut: the fluid and the layers occupy bounded
+    annuli and carry both Bessel families, so their condition is
+    regularity; the half-space is the only part that can carry energy
+    away.
+
+    Checked at genuinely complex ``k_z`` with ``leaky_s`` active, which
+    is the configuration the slow-formation cased dipole actually sits
+    in.
+    """
+    from fwap.cylindrical_solver._cased import (
+        _modal_determinant_n1_cased_complex,
+    )
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+    from fwap.cylindrical_solver._leaky import _detect_leaky_branches
+    from fwap.cylindrical_solver._vti import (
+        _modal_determinant_n1_cased_vti_complex,
+    )
+
+    layers = (
+        BoreholeLayer(vp=5900.0, vs=3200.0, rho=7850.0, thickness=0.01),
+        BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02),
+    )
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10, layers=layers)
+    omega = 2.0 * np.pi * 8000.0
+
+    ratios, leaky_seen = [], 0
+    for vp, vs, rho in ((2500.0, 800.0, 2200.0), (2074.0, 869.0, 2250.0)):
+        c44, c11 = rho * vs * vs, rho * vp * vp
+        iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+        for c in (1200.0, 1350.0):
+            for damping in (0.0, 0.3, 1.0):
+                kz = complex(omega / c, damping)
+                _, leaky_p, leaky_s = _detect_leaky_branches(kz, omega, vp, vs, 1500.0)
+                leaky_seen += int(leaky_s)
+                vti = _modal_determinant_n1_cased_vti_complex(
+                    kz, omega, **iso, **fluid, radiating=(leaky_p, leaky_s, leaky_s)
+                )
+                isotropic = _modal_determinant_n1_cased_complex(
+                    kz,
+                    omega,
+                    vp=vp,
+                    vs=vs,
+                    rho=rho,
+                    **fluid,
+                    leaky_p=leaky_p,
+                    leaky_s=leaky_s,
+                )
+                if not np.isfinite(vti) or not np.isfinite(isotropic):
+                    continue
+                if isotropic == 0.0:
+                    continue
+                ratios.append(vti / isotropic)
+
+    assert len(ratios) >= 10, len(ratios)
+    assert leaky_seen >= 10, leaky_seen
+    assert np.abs(np.array(ratios) - 1.0).max() < 1e-11, ratios
+
+
+def test_the_cased_formation_block_rejects_a_wrong_shape():
+    """The injected block is checked, not trusted.
+
+    `_modal_determinant_n1_cased_complex` indexes the block by row and
+    column; a wrongly shaped one would either raise deep inside the
+    assembly or, worse, broadcast.
+    """
+    import pytest
+
+    from fwap.cylindrical_solver._cased import (
+        _modal_determinant_n1_cased_complex,
+    )
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+
+    layers = (BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02),)
+    with pytest.raises(ValueError, match=r"\(6, 3\)"):
+        _modal_determinant_n1_cased_complex(
+            complex(20.0, 0.1),
+            2.0 * np.pi * 8000.0,
+            vp=2500.0,
+            vs=800.0,
+            rho=2200.0,
+            vf=1500.0,
+            rho_f=1000.0,
+            a=0.10,
+            layers=layers,
+            formation_block=np.zeros((3, 6), dtype=complex),
+        )
+
+
+def test_the_cased_vti_driver_reproduces_the_isotropic_driver():
+    """The strongest check on the driver: same branch, same numbers.
+
+    `_fill_slow_cased_leaky_n1_vti` mirrors the isotropic
+    ``_fill_slow_cased_leaky_n1`` -- same determinant closure shape,
+    same `_detect_leaky_branches` classification, same shared
+    `_march_leaky_cased_branch` -- so at isotropic stiffnesses it must
+    return the isotropic branch, seeding and stepping included.
+    """
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+    from fwap.cylindrical_solver._n1_layered import _fill_slow_cased_leaky_n1
+    from fwap.cylindrical_solver._vti import _fill_slow_cased_leaky_n1_vti
+
+    layers = (
+        BoreholeLayer(vp=5900.0, vs=3200.0, rho=7850.0, thickness=0.01),
+        BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02),
+    )
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+    freq = np.arange(3000.0, 15001.0, 2000.0)
+
+    vp, vs, rho = 2500.0, 800.0, 2200.0
+    c44, c11 = rho * vs * vs, rho * vp * vp
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+
+    mine = _fill_slow_cased_leaky_n1_vti(freq, **iso, **fluid, layers=layers)
+    assert mine is not None
+    mine_slowness, mine_attenuation = np.asarray(mine[0]), np.asarray(mine[1])
+
+    # The isotropic driver fills its ``slowness`` argument **in place**
+    # and returns the attenuation, so both have to be read out.
+    theirs_slowness = np.full(freq.shape, np.nan)
+    theirs_attenuation = _fill_slow_cased_leaky_n1(
+        theirs_slowness,
+        freq,
+        vp=vp,
+        vs=vs,
+        rho=rho,
+        **fluid,
+        layers=layers,
+    )
+    assert theirs_attenuation is not None
+
+    for mine_side, theirs_side, label in (
+        (mine_slowness, theirs_slowness, "slowness"),
+        (mine_attenuation, np.asarray(theirs_attenuation), "attenuation"),
+    ):
+        both = np.isfinite(mine_side) & np.isfinite(theirs_side)
+        assert both.sum() >= 4, (label, mine_side, theirs_side)
+        rel = np.abs(mine_side[both] - theirs_side[both]) / np.maximum(
+            np.abs(theirs_side[both]), 1e-300
+        )
+        assert rel.max() < 1e-9, (label, rel.max())
+
+
+def test_the_cased_vti_branch_lands_inside_the_predicted_bracket():
+    """The payoff, against a prediction made before the solver existed.
+
+    A.12 bracketed where a VTI answer must fall by running the
+    isotropic cased solver at ``V_Sv`` and again at ``V_Sh``, and put
+    the spread at +1.6 % to +8.9 %. The branch computed with a genuine
+    VTI formation lands inside that bracket at 13 of 14 points across
+    two Thomsen media, with a physically sensible attenuation that
+    falls with frequency.
+
+    **The bracket is a heuristic, not a bound**, which the one
+    excursion illustrates: it varies only the shear speeds, while
+    anisotropy also moves ``C11``, ``C13`` and ``C33`` through
+    ``epsilon`` and ``delta``. Pierre at 3 kHz sits 0.55 % below the
+    ``V_Sv`` end -- the lowest frequency, where the mode reaches
+    deepest into the formation and the P-wave anisotropy the bracket
+    ignores matters most. Treated as a sanity envelope, not a test of
+    correctness; the isotropic-limit test above is what pins the
+    numbers.
+    """
+    from fwap import flexural_dispersion_layered
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+    from fwap.cylindrical_solver._vti import _fill_slow_cased_leaky_n1_vti
+
+    layers = (
+        BoreholeLayer(vp=5900.0, vs=3200.0, rho=7850.0, thickness=0.01),
+        BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02),
+    )
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+    freq = np.arange(3000.0, 15001.0, 2000.0)
+
+    inside_total, points_total = 0, 0
+    for name in ("Pierre shale", "Dog Creek shale"):
+        vp0, vs0, rho, _, _, gamma = _THOMSEN_TABLE_1[name]
+        s = _thomsen_stiffness(_THOMSEN_TABLE_1[name])
+        v_sh = vs0 * np.sqrt(1.0 + 2.0 * gamma)
+
+        result = _fill_slow_cased_leaky_n1_vti(freq, **s, **fluid, layers=layers)
+        assert result is not None, name
+        slowness, attenuation = np.asarray(result[0]), np.asarray(result[1])
+        live = np.isfinite(slowness)
+        assert live.sum() >= 6, (name, slowness)
+        speeds = 1.0 / slowness[live]
+
+        # Leaky: above V_Sv, and losing energy.
+        assert (speeds > vs0).all(), (name, speeds, vs0)
+        assert (attenuation[live] > 0.0).all(), (name, attenuation)
+        assert attenuation[live][0] > attenuation[live][-1], name
+
+        low = 1.0 / np.asarray(
+            flexural_dispersion_layered(
+                freq, vp=vp0, vs=vs0, rho=rho, **fluid, layers=layers
+            ).slowness
+        )
+        high = 1.0 / np.asarray(
+            flexural_dispersion_layered(
+                freq, vp=vp0, vs=v_sh, rho=rho, **fluid, layers=layers
+            ).slowness
+        )
+        inside = (speeds >= low[live] - 1e-6) & (speeds <= high[live] + 1e-6)
+        inside_total += int(inside.sum())
+        points_total += int(live.sum())
+        # Never far outside, even where it steps out.
+        excursion = np.maximum(
+            (low[live] - speeds) / low[live], (speeds - high[live]) / high[live]
+        ).max()
+        assert excursion < 0.02, (name, excursion)
+
+    assert points_total >= 13, points_total
+    assert inside_total >= points_total - 1, (inside_total, points_total)
+
+
+def test_the_public_cased_vti_entry_point():
+    """`flexural_dispersion_layered_vti`, the public face of A.12.
+
+    Three things it has to get right: delegate to the open-hole solver
+    when there are no layers, follow the leaky branch when there are
+    and the formation is slow, and reduce to the isotropic cased solver
+    at isotropic stiffnesses.
+    """
+    import fwap
+    from fwap import flexural_dispersion_layered, flexural_dispersion_vti
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+
+    layers = (
+        BoreholeLayer(vp=5900.0, vs=3200.0, rho=7850.0, thickness=0.01),
+        BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02),
+    )
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+    freq = np.arange(5000.0, 13001.0, 2000.0)
+    entry = fwap.flexural_dispersion_layered_vti
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Pierre shale"])
+    v_sv = np.sqrt(s["c44"] / s["rho"])
+
+    # 1. No layers -> the open-hole answer, bit for bit.
+    open_hole = entry(freq, **s, **fluid)
+    reference = flexural_dispersion_vti(freq, **s, **fluid)
+    assert np.array_equal(open_hole.slowness, reference.slowness)
+
+    # 2. Cased and slow -> a leaky branch above V_Sv, losing energy.
+    cased = entry(freq, **s, **fluid, layers=layers)
+    assert cased.name == "flexural"
+    assert cased.azimuthal_order == 1
+    assert np.array_equal(cased.freq, freq)
+    live = np.isfinite(cased.slowness)
+    assert live.sum() >= 4, cased.slowness
+    speeds = 1.0 / cased.slowness[live]
+    assert (speeds > v_sv).all(), (speeds, v_sv)
+    assert (cased.attenuation_per_meter[live] > 0.0).all()
+
+    # 3. Isotropic stiffnesses -> the isotropic cased branch.
+    vp, vs, rho = 2500.0, 800.0, 2200.0
+    c44, c11 = rho * vs * vs, rho * vp * vp
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+    mine = entry(freq, **iso, **fluid, layers=layers)
+    theirs = flexural_dispersion_layered(
+        freq, vp=vp, vs=vs, rho=rho, **fluid, layers=layers
+    )
+    both = np.isfinite(mine.slowness) & np.isfinite(theirs.slowness)
+    assert both.sum() >= 3, (mine.slowness, theirs.slowness)
+    rel = np.abs(mine.slowness[both] - theirs.slowness[both]) / np.abs(
+        theirs.slowness[both]
+    )
+    assert rel.max() < 1e-9, rel.max()
+
+
+def test_the_public_cased_vti_entry_point_validates_its_input():
+    """Bad frequency grids are rejected rather than propagated as NaN."""
+    import pytest
+
+    import fwap
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Pierre shale"])
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+
+    with pytest.raises(ValueError, match="1-D"):
+        fwap.flexural_dispersion_layered_vti(np.ones((2, 2)) * 5000.0, **s, **fluid)
+    with pytest.raises(ValueError, match="strictly positive"):
+        fwap.flexural_dispersion_layered_vti(np.array([5000.0, -1.0]), **s, **fluid)

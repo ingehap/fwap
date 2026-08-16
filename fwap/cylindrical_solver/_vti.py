@@ -17,7 +17,7 @@ from fwap.cylindrical_solver._bessel import (
     _k_or_hankel,
     _radial_wavenumbers_vti_complex,
 )
-from fwap.cylindrical_solver._dataclasses import BoreholeMode
+from fwap.cylindrical_solver._dataclasses import BoreholeLayer, BoreholeMode
 from fwap.cylindrical_solver._n0_isotropic import (
     stoneley_dispersion,
 )
@@ -25,6 +25,18 @@ from fwap.cylindrical_solver._n1_isotropic import (
     _march_fast_flexural_branch,
     _real_root_function,
     flexural_dispersion,
+)
+from fwap.cylindrical_solver._n1_layered import (
+    _layered_n1_row1_at_a,
+    _layered_n1_row2_at_a,
+    _layered_n1_row3_at_a,
+    _layered_n1_row4_at_a,
+    _layered_n1_row5_at_b,
+    _layered_n1_row6_at_b,
+    _layered_n1_row7_at_b,
+    _layered_n1_row8_at_b,
+    _layered_n1_row9_at_b,
+    _layered_n1_row10_at_b,
 )
 
 # =====================================================================
@@ -1904,6 +1916,667 @@ def _formation_displacements_n1_vti(
     return np.column_stack(columns)
 
 
+#: Row -> (formation quantity, per-row factor) for the layered ``n = 1``
+#: stack, calibrated against `_modal_determinant_n1_layered` in the
+#: isotropic limit to ~1e-15. Rows 5-10 are the six continuity
+#: conditions at ``r = b``; rows 1-4 sit at ``r = a`` and carry no
+#: formation column at all.
+_LAYERED_N1_FORMATION_ROWS: tuple[tuple[str, complex], ...] = (
+    ("u_r", 1.0 + 0.0j),
+    ("u_theta", 1.0j),
+    ("u_z", 1.0j),
+    ("sigma_rr", 1.0 + 0.0j),
+    ("sigma_rtheta", -1.0 + 0.0j),
+    ("sigma_rz", -1.0 + 0.0j),
+)
+
+#: Columns of the 10x10 layered matrix carrying the formation
+#: half-space (qP, qSV, SH). Everything else is fluid or layer and is
+#: bit-identical whatever the formation is -- checked by building the
+#: matrix for two very different formations.
+_LAYERED_N1_FORMATION_COLUMNS: tuple[int, int, int] = (5, 6, 9)
+
+
+def _modal_matrix_n1_layered_vti(
+    kz: float,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
+) -> np.ndarray:
+    r"""
+    The 10x10 dipole matrix for a layered borehole in a **VTI**
+    formation.
+
+    Same stack as :func:`_modal_determinant_n1_layered` -- fluid, one
+    annular layer, formation half-space -- with the formation replaced
+    by the VTI columns. Roadmap A.12.
+
+    How it is put together, and why that is safe. The formation
+    occupies **columns 6, 7 and 10** and appears **only in rows 5-10**,
+    the six continuity conditions at ``r = b``; rows 1-4 sit at
+    ``r = a`` and never see it. Every other entry is *bit-identical*
+    whatever the formation is, so the substep-F.2.a.5 phase rescale
+    does not couple the layer block to formation parameters and the
+    three columns can be replaced without disturbing the rest. That was
+    measured, by building the isotropic matrix for two very different
+    formations and differencing it, rather than assumed from the
+    derivation.
+
+    Which quantity each row carries was calibrated the same way, in the
+    isotropic limit where the VTI columns must reproduce the isotropic
+    ones: rows 5-10 are ``u_r``, ``u_theta``, ``u_z``, ``sigma_rr``,
+    ``sigma_rz``, ``sigma_r_theta``, with per-row factors ``1, i, i, 1,
+    -1, -1``. The factors are **per row**, constant across the three
+    columns, which is the part that matters -- it says the isotropic
+    assembly and the VTI columns already share a per-column
+    normalisation, so no column rescale is needed and none is applied.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    c11, c13, c33, c44, c66 : float
+        Formation VTI stiffnesses (Pa).
+    rho : float
+        Formation density (kg / m^3).
+    vf, rho_f : float
+        Borehole-fluid velocity (m / s) and density (kg / m^3).
+    a : float
+        Borehole radius (m). The formation begins at
+        ``b = a + layer.thickness``.
+    layer : BoreholeLayer
+        The annulus between fluid and formation.
+    radiating : tuple of bool
+        Per-wave ``(qP, qSV, SH)`` outgoing-branch selection.
+
+    Returns
+    -------
+    ndarray
+        ``(10, 10)`` complex array.
+
+    See Also
+    --------
+    _modal_determinant_n1_layered : The isotropic stack this borrows
+        its fluid and layer blocks from unchanged.
+    """
+    b = a + layer.thickness
+    # Placeholder isotropic formation: these three columns are
+    # overwritten below, and every other entry is independent of them.
+    vp_placeholder = float(np.sqrt(c33 / rho))
+    vs_placeholder = float(np.sqrt(c44 / rho))
+    builders = (
+        _layered_n1_row1_at_a,
+        _layered_n1_row2_at_a,
+        _layered_n1_row3_at_a,
+        _layered_n1_row4_at_a,
+        _layered_n1_row5_at_b,
+        _layered_n1_row6_at_b,
+        _layered_n1_row7_at_b,
+        _layered_n1_row8_at_b,
+        _layered_n1_row9_at_b,
+        _layered_n1_row10_at_b,
+    )
+    M = np.vstack(
+        [
+            builder(
+                kz,
+                omega,
+                vp=vp_placeholder,
+                vs=vs_placeholder,
+                rho=rho,
+                vf=vf,
+                rho_f=rho_f,
+                a=a,
+                layer=layer,
+            )
+            for builder in builders
+        ]
+    ).astype(complex)
+
+    stiffness = dict(c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho)
+    displacements = _formation_displacements_n1_vti(
+        kz, omega, **stiffness, r=b, radiating=radiating
+    )
+    quantities = {
+        "u_r": displacements[0],
+        "u_theta": displacements[1],
+        "u_z": displacements[2],
+        "sigma_rr": _modal_row2_at_a_n1_vti(
+            kz, omega, **stiffness, vf=vf, rho_f=rho_f, a=b, radiating=radiating
+        )[1:4],
+        # Row 3 carries sigma_r_theta and row 4 carries sigma_rz, not
+        # the other way round -- checked against both built directly
+        # from the displacements via the constitutive law, where the
+        # per-column ratio is a clean -i for the pairing below and
+        # varies by a factor of 60 for the swapped one.
+        "sigma_rtheta": _modal_row3_at_a_n1_vti(
+            kz, omega, **stiffness, vf=vf, rho_f=rho_f, a=b, radiating=radiating
+        )[1:4],
+        "sigma_rz": _modal_row4_at_a_n1_vti(
+            kz, omega, **stiffness, vf=vf, rho_f=rho_f, a=b, radiating=radiating
+        )[1:4],
+    }
+    for offset, (name, factor) in enumerate(_LAYERED_N1_FORMATION_ROWS):
+        row = 4 + offset
+        for column, value in zip(_LAYERED_N1_FORMATION_COLUMNS, quantities[name]):
+            M[row, column] = factor * value
+    return M
+
+
+def _modal_determinant_n1_layered_vti(
+    kz: float,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layer: BoreholeLayer,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
+) -> float:
+    r"""
+    10x10 dipole modal determinant for a layered borehole in a VTI
+    formation (roadmap A.12).
+
+    Assembles :func:`_modal_matrix_n1_layered_vti`, puts any conjugate
+    qP / qSV pair back on a real basis, and returns a real scalar --
+    the same contract as :func:`_modal_determinant_n1_layered`, which
+    it **reproduces exactly** at isotropic stiffnesses: the ratio of
+    the two determinants is ``1 + 0j`` to 6e-14 over fast and slow
+    formations alike, not merely proportional.
+
+    Parameters
+    ----------
+    kz : float
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    c11, c13, c33, c44, c66 : float
+        Formation VTI stiffnesses (Pa).
+    rho : float
+        Formation density (kg / m^3).
+    vf, rho_f : float
+        Borehole-fluid velocity (m / s) and density (kg / m^3).
+    a : float
+        Borehole radius (m).
+    layer : BoreholeLayer
+        The annulus between fluid and formation.
+    radiating : tuple of bool
+        Per-wave ``(qP, qSV, SH)`` outgoing-branch selection.
+
+    Returns
+    -------
+    float
+        ``det(M)``, real-valued. NaN where the assembly is not finite.
+    """
+    M = _modal_matrix_n1_layered_vti(
+        kz,
+        omega,
+        c11=c11,
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c66,
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
+        layer=layer,
+        radiating=radiating,
+    )
+    if not np.all(np.isfinite(M)):
+        return float("nan")
+    M = _recombine_conjugate_columns(
+        M,
+        kz,
+        omega,
+        c11=c11,
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c66,
+        rho=rho,
+        radiating=radiating,
+        columns=(_LAYERED_N1_FORMATION_COLUMNS[0], _LAYERED_N1_FORMATION_COLUMNS[1]),
+    )
+    return float(np.linalg.det(M.real))
+
+
+def _formation_state_vector_n1_vti(
+    kz: complex,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    r: float,
+    vf: float,
+    rho_f: float,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
+) -> np.ndarray:
+    r"""
+    The VTI formation half-space block for the cased stack.
+
+    Returns the ``(6, 3)`` state vector the complex cased determinant
+    expects at ``r = b``: rows ``(u_r, u_z, u_theta, sigma_rr,
+    sigma_rz, sigma_r_theta)``, columns ``(qP, qSV, SH)``. Passing it
+    as ``formation_block`` to
+    :func:`_modal_determinant_n1_cased_complex` replaces the isotropic
+    half-space, which is how a **complex** ``k_z`` reaches the VTI
+    formation -- the layered real-``k_z`` path cannot express one.
+
+    The per-row factors ``(-1, -i, -i, -1, 1, 1)`` were calibrated
+    against the isotropic block rather than derived, and the pairing
+    behind the last two is the part worth stating: the cased block's
+    ``sigma_rz`` row is fed by :func:`_modal_row4_at_a_n1_vti` and its
+    ``sigma_r_theta`` row by :func:`_modal_row3_at_a_n1_vti`, which is
+    the opposite of what the open-hole row numbering suggests. Both
+    were checked against the constitutive law, not against the
+    numbering.
+
+    Parameters
+    ----------
+    kz : complex
+        Axial wavenumber (rad / m). Real or complex.
+    omega : float
+        Angular frequency (rad / s).
+    c11, c13, c33, c44, c66 : float
+        Formation VTI stiffnesses (Pa).
+    rho : float
+        Formation density (kg / m^3).
+    r : float
+        Radius of the formation contact (m), ``b`` for a cased stack.
+    vf, rho_f : float
+        Fluid parameters, needed only to reach the traction rows; they
+        touch the fluid column, which is discarded here.
+    radiating : tuple of bool
+        Per-wave ``(qP, qSV, SH)`` outgoing-branch selection. This is
+        the flag the leaky case turns on.
+
+    Returns
+    -------
+    ndarray
+        ``(6, 3)`` complex array.
+    """
+    stiffness = dict(c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho)
+    displacements = _formation_displacements_n1_vti(
+        kz, omega, **stiffness, r=r, radiating=radiating
+    )
+    sigma_rr = _modal_row2_at_a_n1_vti(
+        kz, omega, **stiffness, vf=vf, rho_f=rho_f, a=r, radiating=radiating
+    )[1:4]
+    sigma_rtheta = _modal_row3_at_a_n1_vti(
+        kz, omega, **stiffness, vf=vf, rho_f=rho_f, a=r, radiating=radiating
+    )[1:4]
+    sigma_rz = _modal_row4_at_a_n1_vti(
+        kz, omega, **stiffness, vf=vf, rho_f=rho_f, a=r, radiating=radiating
+    )[1:4]
+
+    block = np.zeros((6, 3), dtype=complex)
+    block[0] = -1.0 * displacements[0]
+    block[1] = -1.0j * displacements[2]
+    block[2] = -1.0j * displacements[1]
+    block[3] = -1.0 * sigma_rr
+    block[4] = sigma_rz
+    block[5] = sigma_rtheta
+    return block
+
+
+def _modal_determinant_n1_cased_vti_complex(
+    kz: complex,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...],
+    radiating: tuple[bool, bool, bool] = (False, False, False),
+) -> complex:
+    r"""
+    Complex-``k_z`` cased dipole determinant for a VTI formation.
+
+    The leaky cased path (roadmap A.12). Everything but the formation
+    half-space comes from :func:`_modal_determinant_n1_cased_complex`
+    unchanged -- fluid, every layer, the propagator, the branch
+    handling on the real axis -- with
+    :func:`_formation_state_vector_n1_vti` substituted for the
+    isotropic block.
+
+    Only the formation needs radiating branches. The fluid and the
+    layers occupy bounded annuli and carry both Bessel families, so
+    their condition is regularity rather than radiation; the half-space
+    is the only part that can carry energy away.
+
+    Parameters
+    ----------
+    kz : complex
+        Trial axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    c11, c13, c33, c44, c66 : float
+        Formation VTI stiffnesses (Pa).
+    rho : float
+        Formation density (kg / m^3).
+    vf, rho_f : float
+        Borehole-fluid velocity (m / s) and density (kg / m^3).
+    a : float
+        Borehole radius (m).
+    layers : tuple of BoreholeLayer
+        Annuli between fluid and formation, innermost first.
+    radiating : tuple of bool
+        Per-wave ``(qP, qSV, SH)`` outgoing-branch selection.
+
+    Returns
+    -------
+    complex
+        ``det M(k_z)``. NaN where the assembly is not finite.
+
+    See Also
+    --------
+    _modal_determinant_n1_cased_complex : The isotropic sister, which
+        this reproduces exactly at isotropic stiffnesses.
+    """
+    from fwap.cylindrical_solver._cased import _modal_determinant_n1_cased_complex
+
+    b = a + sum(layer.thickness for layer in layers)
+    block = _formation_state_vector_n1_vti(
+        kz,
+        omega,
+        c11=c11,
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c66,
+        rho=rho,
+        r=b,
+        vf=vf,
+        rho_f=rho_f,
+        radiating=radiating,
+    )
+    return _modal_determinant_n1_cased_complex(
+        kz,
+        omega,
+        vp=float(np.sqrt(c33 / rho)),
+        vs=float(np.sqrt(c44 / rho)),
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
+        layers=layers,
+        leaky_p=radiating[0],
+        leaky_s=radiating[1],
+        formation_block=block,
+    )
+
+
+def _fill_slow_cased_leaky_n1_vti(
+    freq: np.ndarray,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...],
+) -> tuple[np.ndarray, np.ndarray] | None:
+    r"""
+    Follow the slow-formation leaky cased dipole branch, VTI formation.
+
+    The A.12 driver, and a mirror of the isotropic
+    ``_fill_slow_cased_leaky_n1`` rather than a second search: it
+    builds the same determinant closure, applies the same
+    ``_detect_leaky_branches`` classification, and hands both to the
+    shared ``_march_leaky_cased_branch``, so the VTI and isotropic
+    branches cannot drift apart in seeding, stepping or the
+    degeneracy exclusions.
+
+    Only the formation differs -- the determinant is
+    :func:`_modal_determinant_n1_cased_vti_complex`, whose formation
+    half-space carries qP / qSV / SH columns with radiating branches
+    while everything inside ``r = b`` stays isotropic.
+
+    The window is A.9's: above ``V_Sv``, where the mode radiates shear
+    into the formation, and below ``min(V_f, min layer V_S)``, which is
+    the ceiling the fluid treatment imposes rather than a physical
+    edge. Returns ``None`` when the formation is not slow, since then
+    there is no leaky branch of this kind to follow.
+
+    Parameters
+    ----------
+    freq : ndarray, shape (n_f,)
+        Frequency grid (Hz), strictly positive.
+    c11, c13, c33, c44, c66 : float
+        Formation VTI stiffnesses (Pa). The relevant speeds are
+        ``V_Sv = sqrt(C44 / rho)`` and ``V_P0 = sqrt(C33 / rho)``.
+    rho : float
+        Formation density (kg / m^3).
+    vf, rho_f : float
+        Borehole-fluid velocity (m / s) and density (kg / m^3).
+    a : float
+        Borehole radius (m).
+    layers : tuple of BoreholeLayer
+        Casing and annulus, innermost first. At least one is required.
+
+    Returns
+    -------
+    tuple of ndarray, or None
+        ``(slowness, attenuation_per_meter)`` in s/m and 1/m, NaN where
+        the branch was not found; ``None`` when the configuration
+        admits no such branch.
+
+    Notes
+    -----
+    A.9's ceiling applies unchanged: between roughly 3 and 13 kHz the
+    branch can sit above ``V_f``, outside the window searched here, and
+    no amount of seeding reaches it. Raising it needs the fluid field
+    handled as oscillatory rather than evanescent, which is isotropic
+    work this inherits rather than adds.
+    """
+    from fwap.cylindrical_solver._leaky import (
+        _detect_leaky_branches,
+        _march_leaky_cased_branch,
+    )
+
+    if not layers:
+        return None
+    v_sv = float(np.sqrt(c44 / rho))
+    v_p0 = float(np.sqrt(c33 / rho))
+    ceiling = min(vf, min(layer.vs for layer in layers))
+    if not ceiling > v_sv:
+        return None
+
+    def _det(kz: complex, omega: float) -> complex:
+        # Classified on the vertical speeds: qSV radiates where the
+        # trial velocity is above V_Sv, qP where it is above V_P0.
+        _, leaky_p, leaky_s = _detect_leaky_branches(kz, omega, v_p0, v_sv, vf)
+        return _modal_determinant_n1_cased_vti_complex(
+            kz,
+            omega,
+            c11=c11,
+            c13=c13,
+            c33=c33,
+            c44=c44,
+            c66=c66,
+            rho=rho,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
+            layers=layers,
+            radiating=(leaky_p, leaky_s, leaky_s),
+        )
+
+    return _march_leaky_cased_branch(
+        _det,
+        freq,
+        vs=v_sv,
+        ceiling=ceiling,
+        exclude=tuple(layer.vs for layer in layers),
+    )
+
+
+def flexural_dispersion_layered_vti(
+    freq: np.ndarray,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...] = (),
+) -> BoreholeMode:
+    r"""
+    Flexural-wave (n=1) dispersion for a **cased** borehole in a VTI
+    formation.
+
+    The VTI sister of :func:`flexural_dispersion_layered`, and the
+    public face of roadmap A.12. With ``layers=()`` it delegates to
+    :func:`flexural_dispersion_vti`, so the open-hole answer is
+    unchanged and this is a strict extension.
+
+    With one or more layers and a **slow** formation -- one where the
+    ceiling ``min(V_f, min layer V_S)`` sits above
+    ``V_Sv = sqrt(C44 / rho)`` -- it follows the leaky cased dipole
+    branch. Behind steel the mode is faster than a slow formation's
+    shear speed, so it radiates shear into the formation and is
+    attenuated along the borehole even in a perfectly elastic medium;
+    ``attenuation_per_meter`` carries that rate.
+
+    Only the formation is anisotropic. The casing and annulus are
+    isotropic ``BoreholeLayer`` entries, and the whole stack inside
+    ``r = b`` is the isotropic machinery unchanged -- what differs is
+    the formation half-space, whose qP / qSV / SH columns replace the
+    isotropic P / SV / SH ones.
+
+    Parameters
+    ----------
+    freq : ndarray, shape (n_f,)
+        Frequency grid (Hz). Must be strictly positive.
+    c11, c13, c33, c44, c66 : float
+        Formation VTI stiffness tensor entries (Pa). The relevant
+        speeds are ``V_Sv = sqrt(C44 / rho)``,
+        ``V_Sh = sqrt(C66 / rho)`` and ``V_P0 = sqrt(C33 / rho)``.
+    rho : float
+        Formation density (kg / m^3).
+    vf, rho_f : float
+        Borehole-fluid velocity (m / s) and density (kg / m^3).
+    a : float
+        Borehole radius (m). The formation begins at ``a`` plus the
+        summed layer thicknesses.
+    layers : tuple of BoreholeLayer, optional
+        Casing and annulus, innermost first. Empty for an open hole.
+
+    Returns
+    -------
+    BoreholeMode
+        ``name="flexural"``, ``azimuthal_order=1``, with ``slowness``
+        in s/m and ``attenuation_per_meter`` in 1/m, both shape
+        ``(n_f,)`` and NaN where no root was found.
+
+    Notes
+    -----
+    Validated by reduction rather than against a published VTI cased
+    curve, of which there is none: at isotropic stiffnesses the
+    determinant *is* the isotropic cased determinant to 1e-14, and the
+    branch reproduces the isotropic one to <1e-9 in both slowness and
+    attenuation. The isotropic cased curves are themselves tied to
+    Schmitt & Cheng figures 20 and 21 at 0.21-0.27 %.
+
+    Two limits, both inherited from the isotropic path rather than
+    introduced here. A **fast** formation returns all-NaN: the leaky
+    branch this follows does not exist, and no bound cased VTI driver
+    is written. And A.9's ceiling applies, so a branch sitting above
+    ``V_f`` -- which happens between roughly 3 and 13 kHz -- is outside
+    the window searched at all; reaching it needs the fluid field
+    treated as oscillatory rather than evanescent.
+
+    See Also
+    --------
+    flexural_dispersion_vti : The open-hole sister, used when
+        ``layers`` is empty.
+    flexural_dispersion_layered : The isotropic sister, which this
+        reproduces exactly at isotropic stiffnesses.
+    """
+    f_arr = np.asarray(freq, dtype=float)
+    if f_arr.ndim != 1:
+        raise ValueError(f"freq must be 1-D; got shape {f_arr.shape}")
+    if f_arr.size and not np.all(f_arr > 0.0):
+        raise ValueError("freq must be strictly positive")
+
+    if not layers:
+        return flexural_dispersion_vti(
+            f_arr,
+            c11=c11,
+            c13=c13,
+            c33=c33,
+            c44=c44,
+            c66=c66,
+            rho=rho,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
+        )
+
+    slowness = np.full(f_arr.shape, np.nan)
+    attenuation = np.full(f_arr.shape, np.nan)
+    found = _fill_slow_cased_leaky_n1_vti(
+        f_arr,
+        c11=c11,
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c66,
+        rho=rho,
+        vf=vf,
+        rho_f=rho_f,
+        a=a,
+        layers=layers,
+    )
+    if found is not None:
+        slowness, attenuation = np.asarray(found[0]), np.asarray(found[1])
+
+    return BoreholeMode(
+        name="flexural",
+        azimuthal_order=1,
+        freq=f_arr,
+        slowness=slowness,
+        attenuation_per_meter=attenuation,
+    )
+
+
 def _fluid_bessels_n1_vti(
     kz: complex,
     omega: float,
@@ -2756,6 +3429,7 @@ def _recombine_conjugate_columns(
     c66: float,
     rho: float,
     radiating: tuple[bool, bool, bool] = (False, False, False),
+    columns: tuple[int, int] = (1, 2),
 ) -> np.ndarray:
     r"""
     Put the qP / qSV columns on a real basis when their radial
@@ -2790,10 +3464,16 @@ def _recombine_conjugate_columns(
     Parameters
     ----------
     M : ndarray
-        ``(4, 4)`` assembled modal matrix; columns 1 and 2 are qP and
-        qSV.
+        Assembled modal matrix. ``(4, 4)`` for the open hole and
+        ``(10, 10)`` for the layered stack.
     kz, omega, c11, c13, c33, c44, c66, rho
         As for the row builders, used to recover the root pair.
+    radiating : tuple of bool
+        Per-wave outgoing-branch selection, which must match the one
+        the rows were built with.
+    columns : tuple of int, default (1, 2)
+        Indices of the qP and qSV columns -- ``(1, 2)`` open hole,
+        ``(5, 6)`` in the 10x10 layered stack.
 
     Returns
     -------
@@ -2817,10 +3497,11 @@ def _recombine_conjugate_columns(
     if split == 0.0 or kz == 0.0:
         return M
     out = M.copy()
-    g_qP = M[:, 1]
-    g_qSV = M[:, 2] / kz
-    out[:, 1] = 0.5 * (g_qP + g_qSV)
-    out[:, 2] = (g_qP - g_qSV) / split
+    first, second = columns
+    g_qP = M[:, first]
+    g_qSV = M[:, second] / kz
+    out[:, first] = 0.5 * (g_qP + g_qSV)
+    out[:, second] = (g_qP - g_qSV) / split
     return out
 
 

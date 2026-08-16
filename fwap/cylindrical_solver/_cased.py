@@ -3154,6 +3154,7 @@ def _modal_determinant_n1_cased_complex(
     layers: tuple[BoreholeLayer, ...],
     leaky_p: bool = False,
     leaky_s: bool = False,
+    formation_block: np.ndarray | None = None,
 ) -> complex:
     r"""
     Complex-``k_z`` 10x10 cased-hole flexural modal determinant.
@@ -3292,6 +3293,19 @@ def _modal_determinant_n1_cased_complex(
     E_form_b[5, 2] = -mu_form * (
         s_form * s_form * K1sb + 2.0 * s_form * K0sb / b + 4.0 * K1sb / (b * b)
     )
+    if formation_block is not None:
+        # An externally supplied formation half-space -- used by the
+        # VTI cased path, which cannot express its columns in terms of
+        # the isotropic p / s wavenumbers above. Same row order,
+        # (u_r, u_z, u_theta, sigma_rr, sigma_rz, sigma_r_theta), and
+        # same column order (P/qP, SV/qSV, SH).
+        if formation_block.shape != (6, 3):
+            raise ValueError(
+                "formation_block must be (6, 3) in the order "
+                "(u_r, u_z, u_theta, sigma_rr, sigma_rz, "
+                f"sigma_r_theta); got {formation_block.shape}"
+            )
+        E_form_b = np.asarray(formation_block, dtype=complex)
     if not np.all(np.isfinite(E_form_b)):
         return complex("nan")
     v_at_b = P_total @ E_1_a

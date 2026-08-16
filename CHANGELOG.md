@@ -6,6 +6,18 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Two VTI traction rows were named the wrong way round.**
+  `_modal_row3_at_a_n1_vti` carries `sigma_r_theta` and
+  `_modal_row4_at_a_n1_vti` carries `sigma_rz`, not the reverse. The
+  calibration against the layered stack could not catch this: it
+  matched *values* into the correct slots, so the determinant was right
+  while the labels on it were backwards. Settled against the
+  constitutive law, with both stresses built directly from the
+  displacements — the correct pairing gives a clean per-column ratio of
+  `-i`, the swapped one varies by a factor of sixty. Documentation and
+  dict keys only; no numerical output changes.
+
 ### Changed
 - **The `n = 0` VTI determinant puts its conjugate qP/qSV columns on an
   explicit real basis** before reducing over `M.real`
@@ -28,6 +40,77 @@ the project uses [Semantic Versioning](https://semver.org/).
   complex-conjugate pair wherever the Christoffel discriminant turns
   negative — the case that recovered 77 %/57 % of the bound window.
   Corrected, along with a note that there is no leaky VTI curve and why.
+
+### Added
+- **`_modal_matrix_n1_layered_vti` / `_modal_determinant_n1_layered_vti`** —
+  the 10x10 cased dipole determinant for a VTI formation (roadmap
+  A.12). The fluid and layer blocks come from the isotropic stack
+  unchanged; only the formation columns are replaced.
+
+  The substitution is justified by measurement: building the isotropic
+  matrix for two very different formations shows the formation occupies
+  **columns 6, 7, 10 and appears only in rows 5-10**, every other entry
+  bit-identical, so the F.2.a.5 phase rescale does not couple the layer
+  block to formation parameters. The row-to-quantity map was calibrated
+  in the isotropic limit — rows 5-10 are `u_r`, `u_theta`, `u_z`,
+  `sigma_rr`, `sigma_r_theta`, `sigma_rz` with factors `1, i, i, 1, -1,
+  -1`, matched to ~1e-15 — and the factors are per row, constant across
+  the three columns, so no column rescale is applied.
+
+  **The oracle is exact**: at isotropic stiffnesses the VTI 10x10 *is*
+  the isotropic 10x10, determinant ratio `1 + 0j` to 6e-14, and
+  `_modal_determinant_n1_layered` is itself tied to Schmitt & Cheng
+  figures 20 and 21 at 0.21-0.27 %. Roots coincide to four decimals on
+  a fast formation.
+
+  Bound fast-formation cased VTI. The leaky case goes through the
+  complex path below instead.
+
+- **`_formation_state_vector_n1_vti` /
+  `_modal_determinant_n1_cased_vti_complex`** — the leaky cased VTI
+  determinant. The real-`k_z` layered path cannot express a complex
+  `k_z`, so the VTI formation half-space is injected as a `(6, 3)`
+  block into `_modal_determinant_n1_cased_complex`, which already
+  carries A.9's leaky machinery; fluid, layers, propagator and
+  real-axis branch handling are the isotropic code untouched. Only the
+  formation takes radiating branches — the fluid and layers are
+  bounded annuli whose condition is regularity, so the half-space is
+  the only part that can radiate.
+
+  Validated at genuinely complex `k_z`: over 12 samples with `Im(k_z)`
+  up to 1.0 and `leaky_s` active, `max |ratio - 1| = 2.9e-14` against
+  the isotropic determinant.
+
+- **`_fill_slow_cased_leaky_n1_vti`** — the driver, and with it the
+  first cased VTI leaky dipole dispersion curve. It mirrors the
+  isotropic `_fill_slow_cased_leaky_n1` rather than being a second
+  search: same determinant closure, same `_detect_leaky_branches`
+  classification, same shared `_march_leaky_cased_branch`, so the two
+  branches cannot drift apart in seeding, stepping or degeneracy
+  exclusions. At isotropic stiffnesses it reproduces the isotropic
+  branch to <1e-9 in both slowness and attenuation.
+
+  It lands inside the envelope predicted before the solver existed —
+  the isotropic cased solver run at `V_Sv` and at `V_Sh` — at 13 of 14
+  points across Pierre and Dog Creek over 3-15 kHz, with attenuation
+  falling 2.8 → 0.82 /m. That envelope is a heuristic, not a bound: it
+  varies only the shear speeds while anisotropy also moves `C11`,
+  `C13`, `C33`, and Pierre at 3 kHz sits 0.55 % below its `V_Sv` end.
+
+  A.9's ceiling is inherited unchanged: a branch above `V_f` between
+  roughly 3 and 13 kHz is outside the searched window.
+
+- **`flexural_dispersion_layered_vti`** — public entry point for cased
+  VTI flexural dispersion (roadmap A.12). With `layers=()` it delegates
+  to `flexural_dispersion_vti` bit-identically, so it is a strict
+  extension of the open-hole path; with layers and a slow formation it
+  follows the leaky cased dipole branch, returning `slowness` and
+  `attenuation_per_meter`. At isotropic stiffnesses it reproduces
+  `flexural_dispersion_layered` to <1e-9.
+
+  A fast formation returns all-NaN — the leaky branch does not exist
+  there and no bound cased VTI driver is written. Public-API guard:
+  189 → 190 names.
 
 ### Added
 - **Groundwork for a cased VTI solver** (roadmap A.12), measured rather
