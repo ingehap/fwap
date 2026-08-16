@@ -555,13 +555,15 @@ def _radial_wavenumbers_vti_complex(
     x_plus = (-b_eff + sqrt_disc) / (2.0 * a_eff)
     x_minus = (-b_eff - sqrt_disc) / (2.0 * a_eff)
 
+    # Both branches come from the shared selector rather than a local
+    # copy: A.10 is the record of what happens when the branch rule and
+    # the Bessel evaluation drift apart, and one source keeps them in
+    # step by construction.
     def _decaying(x: complex) -> complex:
-        alpha = np.sqrt(complex(x))
-        return complex(-alpha) if alpha.real < 0.0 else complex(alpha)
+        return _radial_wavenumber(x, leaky=False)
 
     def _outgoing(x: complex) -> complex:
-        alpha = np.sqrt(complex(x))
-        return complex(-alpha) if alpha.imag < 0.0 else complex(alpha)
+        return _radial_wavenumber(x, leaky=True)
 
     rad_qP, rad_qSV, rad_SH = radiating
     # Label on the squares, then take each root on its own sheet: the
@@ -570,22 +572,15 @@ def _radial_wavenumbers_vti_complex(
     # ordinary leaky case and must stay expressible.
     root_a, root_b = _decaying(x_plus), _decaying(x_minus)
 
-    real_roots = abs(x_plus.imag) == 0.0 and abs(x_minus.imag) == 0.0
-    if real_roots:
-        # Same convention as the real solver: qP is the larger root of
-        # the quadratic. The ordering is on ``alpha^2``, not on
-        # ``alpha``, and it must hold whatever the signs are. In the
-        # leaky window one square is negative, so its ``alpha`` is
-        # imaginary -- comparing ``Re(alpha)`` or ``|alpha|`` there
-        # silently swaps the two waves, which is what this did before
-        # A.11 phase 4 reached that window.
-        if x_plus.real >= x_minus.real:
-            alpha_qP, alpha_qSV = root_a, root_b
-        else:
-            alpha_qP, alpha_qSV = root_b, root_a
-    elif abs(x_plus - x_minus.conjugate()) <= 1e-9 * max(abs(x_plus), 1.0):
-        # Conjugate pair: the labels are a convention, not a physical
-        # split. Fixed as Im(alpha_qP) >= 0 so repeated calls agree.
+    conjugate_pair = (
+        abs(x_plus - x_minus.conjugate()) <= 1e-9 * max(abs(x_plus), 1.0)
+        and x_plus.imag != 0.0
+    )
+    if conjugate_pair:
+        # Conjugate pair: the two squares share a real part, so the
+        # ordering below cannot separate them. The labels are a
+        # convention here rather than a physical split, fixed as
+        # Im(alpha_qP) >= 0 so repeated calls agree.
         alpha_qP, alpha_qSV = (
             (root_a, root_b) if root_a.imag >= root_b.imag else (root_b, root_a)
         )
@@ -597,8 +592,22 @@ def _radial_wavenumbers_vti_complex(
             (root_a, root_b) if straight <= swapped else (root_b, root_a)
         )
     else:
+        # qP is the larger root of the quadratic, ordered on
+        # ``Re(alpha^2)``. This is exact rather than a heuristic: in
+        # the isotropic limit
+        # ``alpha_p^2 - alpha_s^2 = (omega/V_s)^2 - (omega/V_p)^2``,
+        # a positive real constant **independent of k_z**, so the
+        # ordering holds for a complex k_z exactly as for a real one.
+        #
+        # Ordering on ``alpha`` instead breaks in two separate places,
+        # both found the hard way: above ``V_Sv`` one square is
+        # negative so its ``alpha`` is imaginary, and at a complex
+        # ``k_z`` the radiating root has the larger ``|alpha|`` from
+        # roughly ``c > 1.2 V_Sv`` upward. Either way the two waves
+        # swap silently and the determinant stops matching the
+        # isotropic one.
         alpha_qP, alpha_qSV = (
-            (root_a, root_b) if abs(root_a) >= abs(root_b) else (root_b, root_a)
+            (root_a, root_b) if x_plus.real >= x_minus.real else (root_b, root_a)
         )
 
     if rad_qP:

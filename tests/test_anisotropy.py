@@ -2504,26 +2504,186 @@ def test_the_leaky_vti_determinant_reproduces_the_isotropic_one():
     assert np.allclose(adjusted, -1.0, rtol=1e-9, atol=1e-9), adjusted
 
 
-def test_a_complex_kz_is_still_refused_and_says_why():
-    """The fluid column is the remaining gap, and it is named.
+def test_a_complex_kz_is_refused_only_when_no_wave_radiates():
+    """The refusal narrowed rather than disappeared.
 
-    The formation columns take radiating branches now, but
-    `_fluid_bessels_n1_vti` branches on the sign of a real ``F_f^2``
-    and has no outgoing form, so a complex ``k_z`` would silently take
-    the bound fluid branch. Refused rather than half-supported.
+    This used to reject every complex ``k_z``, naming the fluid column
+    as the gap. The fluid column now takes one, so what is left is the
+    genuinely meaningless case: a complex ``k_z`` with every wave on
+    the bound branch describes a field that decays in ``r`` and grows
+    along ``z``, which is not a mode. That is still refused, and
+    saying which waves radiate is what makes the call well posed.
     """
     import pytest
 
     from fwap.cylindrical_solver._vti import _modal_matrix_n1_vti
 
     s = _thomsen_stiffness(_THOMSEN_TABLE_1["Green River shale"])
-    with pytest.raises(NotImplementedError, match="fluid column"):
-        _modal_matrix_n1_vti(
-            complex(20.0, 0.3),
-            2.0 * np.pi * 8000.0,
-            **s,
-            vf=1500.0,
-            rho_f=1000.0,
-            a=0.10,
-            radiating=(False, True, True),
-        )
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+    omega = 2.0 * np.pi * 8000.0
+
+    with pytest.raises(NotImplementedError, match="radiating"):
+        _modal_matrix_n1_vti(complex(20.0, 0.3), omega, **s, **fluid)
+
+    # Naming a radiating wave makes it well posed, and it answers.
+    matrix = _modal_matrix_n1_vti(
+        complex(20.0, 0.3), omega, **s, **fluid, radiating=(False, True, True)
+    )
+    assert matrix.shape == (4, 4)
+    assert np.isfinite(matrix).all()
+    assert abs(complex(np.linalg.det(matrix))) > 0.0
+
+    # A real k_z is unaffected either way.
+    bound = _modal_matrix_n1_vti(20.0, omega, **s, **fluid)
+    assert np.isfinite(bound).all()
+
+
+def test_the_fluid_column_needs_no_outgoing_form_and_takes_a_complex_kz():
+    """The fluid was the last blocker, and it wanted a smaller fix.
+
+    "Write the outgoing fluid form" was the wrong framing. The fluid
+    occupies ``0 <= r <= a``, so its condition is regularity at the
+    origin rather than radiation at infinity, and ``I_n`` -- entire for
+    integer ``n`` -- supplies that at any complex argument. All the
+    leaky case needed was for ``F_f^2`` to be allowed to go complex.
+
+    The branch of ``F_f`` does not matter to the modes either: the
+    fluid enters only rows 1 and 2, as ``(F_f I_0 - I_1/a)`` and
+    ``-I_1``, and ``I_0`` is even in its argument while ``I_1`` is odd,
+    so both combinations are odd in ``F_f``. Flipping the branch
+    negates the whole column, and with it the determinant, moving no
+    root.
+    """
+    from scipy import special
+
+    from fwap.cylindrical_solver._vti import _fluid_bessels_n1_vti
+
+    omega, vf, a = 2.0 * np.pi * 9000.0, 1500.0, 0.10
+
+    # The real path is bit-identical to what it was.
+    for c in (900.0, 1200.0, 1499.0, 1501.0, 1800.0, 2400.0):
+        real = _fluid_bessels_n1_vti(omega / c, omega, vf, a)
+        via_complex = _fluid_bessels_n1_vti(complex(omega / c, 0.0), omega, vf, a)
+        assert real == via_complex, (c, real, via_complex)
+
+    for c in (1200.0, 2400.0):
+        for damping in (0.05, 0.5, 1.5):
+            F_f, i0, i1 = _fluid_bessels_n1_vti(
+                complex(omega / c, damping), omega, vf, a
+            )
+            assert np.isfinite(complex(F_f))
+            assert np.isfinite(complex(i0)) and np.isfinite(complex(i1))
+
+            # I_0 even, I_1 odd, so each row entry flips sign with the
+            # branch and the column flips as a whole.
+            i0_flipped = complex(special.iv(0, -F_f * a))
+            i1_flipped = complex(special.iv(1, -F_f * a))
+            assert abs(i0_flipped - i0) < 1e-9 * max(abs(i0), 1.0)
+            assert abs(i1_flipped + i1) < 1e-9 * max(abs(i1), 1.0)
+
+            row1 = F_f * i0 - i1 / a
+            row1_flipped = (-F_f) * i0_flipped - i1_flipped / a
+            assert abs(row1_flipped + row1) < 1e-9 * max(abs(row1), 1.0)
+
+
+def test_the_leaky_vti_determinant_matches_the_isotropic_one_at_complex_kz():
+    """Phase 4's oracle, now over the regime a driver would search.
+
+    The real-``k_z`` version of this test passed while the labelling
+    was still swapping qP and qSV at a complex ``k_z``, so it did not
+    on its own establish the leaky path. This does: over ``c`` in
+    [2200, 3600] and ``Im(k_z)`` in [0, 1.5] the VTI determinant
+    reproduces `_modal_determinant_n1_complex` up to the recombination
+    Jacobian, to ~1e-14.
+
+    It fails at ``3.4`` rather than ``1e-14`` if the qP/qSV ordering
+    reverts to ``|alpha|``: above roughly ``1.2 V_Sv`` the radiating
+    root has the larger magnitude, so the two waves swap.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti_complex
+    from fwap.cylindrical_solver._leaky import _detect_leaky_branches
+    from fwap.cylindrical_solver._n1_isotropic import (
+        _modal_determinant_n1_complex,
+    )
+    from fwap.cylindrical_solver._vti import _modal_matrix_n1_vti
+
+    vp, vs, rho = 3658.0, 2032.0, 2350.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.10
+    c44, c11 = rho * vs * vs, rho * vp * vp
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+    omega = 2.0 * np.pi * 9000.0
+
+    ratios = []
+    for c in (2200.0, 2600.0, 3000.0, 3400.0, 3600.0):
+        for damping in (0.0, 0.02, 0.10, 0.35, 0.80, 1.5):
+            kz = complex(omega / c, damping)
+            _, leaky_p, leaky_s = _detect_leaky_branches(kz, omega, vp, vs, vf)
+            qp, qsv, _ = _radial_wavenumbers_vti_complex(
+                kz, omega, **iso, radiating=(leaky_p, leaky_s, leaky_s)
+            )
+            matrix = _modal_matrix_n1_vti(
+                kz,
+                omega,
+                **iso,
+                vf=vf,
+                rho_f=rho_f,
+                a=a,
+                radiating=(leaky_p, leaky_s, leaky_s),
+            )
+            isotropic = complex(
+                _modal_determinant_n1_complex(
+                    kz,
+                    omega,
+                    vp=vp,
+                    vs=vs,
+                    rho=rho,
+                    vf=vf,
+                    rho_f=rho_f,
+                    a=a,
+                    leaky_p=leaky_p,
+                    leaky_s=leaky_s,
+                )
+            )
+            ratios.append(complex(np.linalg.det(matrix)) / isotropic * (qp - qsv) * kz)
+
+    assert len(ratios) == 30
+    assert np.abs(np.array(ratios) + 1.0).max() < 1e-11, ratios
+
+
+def test_the_qp_qsv_ordering_is_on_the_squares_at_a_complex_kz_too():
+    """The rule is exact, not a heuristic.
+
+    In the isotropic limit ``alpha_p^2 - alpha_s^2`` is
+    ``(omega/V_s)^2 - (omega/V_p)^2`` -- a positive real constant that
+    does not depend on ``k_z`` at all -- so ordering the pair on
+    ``Re(alpha^2)`` labels them correctly for a complex ``k_z`` exactly
+    as for a real one. Ordering on ``|alpha|`` agrees only below about
+    ``1.2 V_Sv``, which is why the real-window tests missed it.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti_complex
+
+    vp, vs, rho = 3658.0, 2032.0, 2350.0
+    c44, c11 = rho * vs * vs, rho * vp * vp
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+    omega = 2.0 * np.pi * 9000.0
+
+    disagreements = 0
+    for c in (2200.0, 2600.0, 3000.0, 3400.0):
+        for damping in (0.02, 0.35, 0.80):
+            kz = complex(omega / c, damping)
+            qp, qsv, _ = _radial_wavenumbers_vti_complex(
+                kz, omega, **iso, radiating=(False, True, True)
+            )
+            p = np.sqrt(complex(kz**2 - (omega / vp) ** 2))
+            if p.real < 0:
+                p = -p
+            s = np.sqrt(complex(kz**2 - (omega / vs) ** 2))
+            if s.imag < 0:
+                s = -s
+            assert abs(qp - p) < 1e-9 * max(abs(p), 1.0), (c, damping, qp, p)
+            assert abs(qsv - s) < 1e-9 * max(abs(s), 1.0), (c, damping, qsv, s)
+            if abs(qp) < abs(qsv):
+                disagreements += 1
+    # The magnitude rule really does disagree over this window -- if it
+    # did not, this test would be vacuous.
+    assert disagreements >= 8, disagreements

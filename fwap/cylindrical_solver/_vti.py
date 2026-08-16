@@ -1719,7 +1719,7 @@ def _modal_determinant_n0_vti(
 
 
 def _fluid_bessels_n1_vti(
-    kz: float,
+    kz: complex,
     omega: float,
     vf: float,
     a: float,
@@ -1748,10 +1748,30 @@ def _fluid_bessels_n1_vti(
     At exactly ``F_f^2 == 0`` the bound branch is taken; ``I_n(0)`` is
     finite (1 and 0), so this is continuous.
 
+    **Complex ``k_z``** (A.11 phase 4) needs no third branch, and in
+    particular no outgoing form. The fluid occupies ``0 <= r <= a``,
+    so its boundary condition is regularity at the origin rather than
+    radiation at infinity, and ``I_n`` -- entire for integer ``n`` --
+    supplies that for any complex argument. What the leaky case adds
+    is only that ``F_f^2`` is now complex rather than real of either
+    sign.
+
+    The sign of ``F_f`` is immaterial to the modes. The fluid column
+    enters the ``n = 1`` matrix in two rows, ``(F_f I_0 - I_1 / a)``
+    and ``-I_1``, and both are **odd** in ``F_f`` (``I_0`` is even,
+    ``I_1`` odd), so flipping the branch negates the whole column and
+    multiplies the determinant by ``-1`` without moving a root. The
+    principal root is nonetheless the right one to take: over the
+    leaky search region ``Im(k_z) >= 0`` with ``c > V_f`` the argument
+    ``F_f^2`` sits in the closed upper half plane, where the principal
+    square root is continuous, and its value on the negative real axis
+    (``Im(k_z) = 0``) is the limit from above. So the determinant does
+    not pick up a spurious sign flip anywhere the search goes.
+
     Parameters
     ----------
-    kz : float
-        Trial axial wavenumber (rad / m).
+    kz : complex
+        Trial axial wavenumber (rad / m). Real or complex.
     omega : float
         Angular frequency (rad / s).
     vf : float
@@ -1765,15 +1785,15 @@ def _fluid_bessels_n1_vti(
         ``(F_f, I_0(F_f a), I_1(F_f a))``. Real-valued (zero imaginary
         part) in the bound regime; genuinely complex otherwise.
     """
-    arg2 = kz * kz - (omega / vf) ** 2
-    if arg2 >= 0.0:
-        F_f = float(np.sqrt(arg2))
+    arg2 = complex(kz) * complex(kz) - (omega / vf) ** 2
+    if arg2.imag == 0.0 and arg2.real >= 0.0:
+        F_f = float(np.sqrt(arg2.real))
         return (
             F_f,
             float(special.iv(0, F_f * a)),
             float(special.iv(1, F_f * a)),
         )
-    F_f_c = np.sqrt(complex(arg2))
+    F_f_c = np.sqrt(arg2)
     return (
         complex(F_f_c),
         complex(special.iv(0, F_f_c * a)),
@@ -1782,7 +1802,7 @@ def _fluid_bessels_n1_vti(
 
 
 def _modal_row1_at_a_n1_vti(
-    kz: float,
+    kz: complex,
     omega: float,
     *,
     c11: float,
@@ -1940,7 +1960,7 @@ def _modal_row1_at_a_n1_vti(
 
 
 def _modal_row2_at_a_n1_vti(
-    kz: float,
+    kz: complex,
     omega: float,
     *,
     c11: float,
@@ -2105,7 +2125,7 @@ def _modal_row2_at_a_n1_vti(
 
 
 def _modal_row3_at_a_n1_vti(
-    kz: float,
+    kz: complex,
     omega: float,
     *,
     c11: float,
@@ -2253,7 +2273,7 @@ def _modal_row3_at_a_n1_vti(
 
 
 def _modal_row4_at_a_n1_vti(
-    kz: float,
+    kz: complex,
     omega: float,
     *,
     c11: float,
@@ -2560,18 +2580,19 @@ def _modal_matrix_n1_vti(
     ndarray
         ``(4, 4)`` complex array.
     """
-    if complex(kz).imag != 0.0:
+    if complex(kz).imag == 0.0:
+        # A complex with zero imaginary part is a real number, and #134
+        # guarantees it takes the real path bit-for-bit. Leaving it
+        # complex would route the rows through complex arithmetic and
+        # shift the determinant by an ulp or two.
+        kz = float(complex(kz).real)
+    elif not any(radiating):
         raise NotImplementedError(
-            "_modal_matrix_n1_vti: k_z must be real. The "
-            "formation columns now take radiating branches (A.11 "
-            "phase 4) and the leaky determinant is validated against "
-            "the isotropic one at real k_z, but the fluid column is "
-            "not: _fluid_bessels_n1_vti branches on the sign of a real "
-            "F_f^2 and has no outgoing form, so a complex k_z would "
-            "silently take the bound fluid branch. That helper is the "
-            "remaining gap before a leaky VTI driver."
+            "_modal_matrix_n1_vti: a genuinely complex k_z needs "
+            "radiating=... naming which of (qP, qSV, SH) leave on the "
+            "outgoing branch. With every wave bound the columns all "
+            "decay while the field grows along z, which is not a mode."
         )
-    kz = float(complex(kz).real)
     kw = dict(
         c11=c11,
         c13=c13,

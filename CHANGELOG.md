@@ -20,21 +20,44 @@ the project uses [Semantic Versioning](https://semver.org/).
   det_iso = -1` at every sampled velocity, the factor being the column
   recombination's own non-vanishing Jacobian.
 
-  **No leaky VTI driver yet, and no leaky dispersion curve.**
-  `_fluid_bessels_n1_vti` branches on the sign of a real `F_f^2` and has
-  no outgoing form, so a complex `k_z` would silently take the bound
-  fluid branch. It is refused at `_modal_matrix_n1_vti` with that named
-  as the reason.
+  The fluid column takes a complex `k_z` too. It needed no outgoing
+  form: the fluid occupies `0 <= r <= a`, so its condition is
+  regularity at the origin rather than radiation at infinity, and `I_n`
+  is entire. The branch of `F_f` is immaterial — the fluid enters only
+  two rows, both odd in `F_f`, so flipping it negates the column and
+  the determinant without moving a root.
+
+  The oracle holds over the regime a driver would search: 30 samples
+  over `c` in [2200, 3600] and `Im(k_z)` in [0, 1.5], with
+  `max|ratio + 1| = 1.4e-14`.
+
+  **Still no leaky VTI driver and no leaky dispersion curve.** A
+  complex `k_z` is refused only when no wave radiates, which describes
+  a field decaying in `r` and growing along `z` — not a mode. The
+  `n = 0` and bound `n = 1` determinants keep the original #134
+  contract: they reduce over `M.real` and have no radiating branch.
+  `complex(kz, 0.0)` is still coerced to the real path bit-for-bit.
 
 ### Fixed
-- **`_radial_wavenumbers_vti_complex` was swapping qP and qSV above
-  `V_Sv`** (A.11 phase 4). The labelling ordered on `Re(alpha)`, but
+- **`_radial_wavenumbers_vti_complex` was swapping qP and qSV twice
+  over** (A.11 phase 4), in the same line, for two different reasons.
+  Above `V_Sv` at a real `k_z` it ordered on `Re(alpha)`, but
   once a root's square goes negative — which is exactly the leaky
   window — that `alpha` is imaginary and the comparison picks the wrong
   wave. Ordering is now on `alpha^2`, whatever the signs. The bug was
   introduced with the function in phase 2 and never surfaced because
   its tests sampled only the bound window; the isotropic limit goes
   from 23.1 to 2.1e-14 across the leaky window on the fix.
+
+  At a complex `k_z` neither the real nor the conjugate rule applied
+  and it fell to a `|alpha|` fallback — where, above roughly
+  `1.2 V_Sv`, the radiating root has the larger magnitude and the two
+  waves swap again. The real-`k_z` oracle passed throughout, which is
+  why this needed its own test. Ordering is now on `Re(alpha^2)`
+  everywhere, which is exact: in the isotropic limit
+  `alpha_p^2 - alpha_s^2 = (omega/V_s)^2 - (omega/V_p)^2`, a positive
+  real constant independent of `k_z`. The complex-`k_z` oracle goes
+  from `max|ratio + 1| = 3.4` to `1.4e-14`.
 
 - **The bound VTI flexural window is no longer truncated** (roadmap
   A.11 phase 3). `flexural_dispersion_vti` returned `NaN` wherever the
