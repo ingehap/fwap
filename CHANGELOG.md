@@ -6,6 +6,25 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Groundwork for a second cased leaky branch** (roadmap A.13),
+  measured rather than assumed — and the measurement retired the
+  "branch-crossing marcher" framing it started from.
+
+  Only `V_P` is a branch transition. At `V_f` and the cement `V_S` the
+  flags do not change: the fluid branch is handled inside the
+  determinant without a flag, and a layer is a bounded annulus with no
+  radiation condition. Forcing identical flags across those two changes
+  the step not at all; across `V_P` it drops from 2.0-2.5 to 0.05-0.39.
+  One contour spanning `(805, 2400)` returns a clean `+2`; extended
+  past `V_P` it loses a root and returns `+1`, which is what produced
+  the impossible negative windings in the first survey.
+
+  The branch is coherent: `c` descends 2185.9 → 1657.5 m/s over
+  7-14 kHz with `Im(k_z)` falling 1.236 → 0.566, both monotone, `|det|`
+  to ~3e-15. Reaching it needs a higher ceiling and a way to tell two
+  roots apart, not crossing machinery.
+
 ### Fixed
 - **A.9's note on its own ceiling carried the wrong diagnosis.** It
   said reaching the branch above `V_f` "would need the fluid field
