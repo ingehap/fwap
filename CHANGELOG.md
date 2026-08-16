@@ -7,6 +7,26 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **`tests/test_real_data.py` now actually runs**, in its own
+  `.github/workflows/real-data.yml` (W1 item 3). These are the only
+  tests in the repository that read files written by other software —
+  the one thing that can catch a convention the readers failed to
+  anticipate — and they had never once executed: every skip in every CI
+  run came from this file.
+
+  Weekly, on manual dispatch, and post-merge on `main` when a reader or
+  the processing chain changed. It stays out of the hermetic `ci.yml`
+  gate and out of every pull request, so no PR waits on KGS, OpenEI,
+  IODP or segyio being reachable. Datasets are cached on the registry's
+  content hash — they are immutable and SHA-256 pinned, so a hit is
+  provably the right bytes.
+
+  **The load-bearing step is `--verify`, not the fetch.** These tests
+  *skip* on a missing file, so a run that downloaded nothing would pass
+  green and prove nothing. `--verify` exits non-zero unless all four
+  datasets are present and correct, so nothing downstream can silently
+  no-op. Fetch and test are separate steps so upstream link rot and a
+  reader regression are distinguishable at a glance.
 - **Planted-truth round-trips for the rest of W1 group A** —
   `attenuation`, `coherence`, `wavesep` and `picker`. The 19-of-184
   count that motivated this turned out to be a poor proxy: two modules

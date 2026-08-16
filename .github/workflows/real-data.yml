@@ -1,0 +1,96 @@
+name: Real data
+
+# The only tests in this repository that read files written by other
+# software. Everything else runs on synthetics with planted answers,
+# which is what makes those tests assertable and also what bounds them:
+# a synthetic is produced by the same forward model the reader assumes,
+# so it cannot catch a convention the reader failed to anticipate.
+#
+# They live in their own workflow because they need the network and
+# third-party hosts, and `ci.yml` is deliberately hermetic. Putting
+# them there would make every pull request depend on KGS, OpenEI, IODP
+# and the segyio project being up, which is a bad trade for a gate.
+# Keeping them nowhere was the status quo, and it meant the strongest
+# external tie outside the cylindrical solver was never once exercised
+# -- all 11 skips in every CI run came from this file.
+
+on:
+  schedule:
+    # Weekly, off the hour. The datasets are immutable and checksummed,
+    # so this is not watching for new data: it is watching for link rot
+    # upstream and for reader regressions here.
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    # Post-merge, and only when something that parses or processes a
+    # real file changed. This gives feedback within minutes of a merge
+    # without any pull request waiting on a third-party host.
+    paths:
+      - "fwap/io/**"
+      - "fwap/coherence.py"
+      - "fwap/dispersion.py"
+      - "fwap/picker/**"
+      - "fwap/wavesep.py"
+      - "scripts/fetch_real_data.py"
+      - "tests/test_real_data.py"
+      - ".github/workflows/real-data.yml"
+
+concurrency:
+  group: real-data-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-data:
+    name: Third-party files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # One interpreter is enough. These tests constrain file
+          # conventions, not interpreter behaviour.
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Restore fetched datasets
+        uses: actions/cache@v4
+        with:
+          path: tests/data/real
+          # The registry pins every file by SHA-256, so its content
+          # hash is an exact key: if the pinned bytes change the key
+          # changes, and otherwise a cache hit is provably the right
+          # bytes. Re-downloading immutable files from other people's
+          # servers every week is discourtesy for no benefit.
+          key: real-data-${{ hashFiles('scripts/fetch_real_data.py') }}
+
+      - name: Fetch
+        # Skips anything already present and verified, so a cache hit
+        # makes this a no-op. A failure here is upstream -- link rot, a
+        # host down, a changed file -- and is deliberately a separate
+        # step from the tests so the two are distinguishable at a
+        # glance in the run summary.
+        run: python scripts/fetch_real_data.py --fetch all
+
+      - name: Verify all four are present
+        # The load-bearing step. `tests/test_real_data.py` *skips*
+        # when a file is absent, so a run that fetched nothing would
+        # otherwise pass green and prove nothing -- which is exactly
+        # the failure this workflow exists to end. `--verify` exits
+        # non-zero if any dataset is missing or its checksum is wrong,
+        # so nothing downstream can silently no-op.
+        run: python scripts/fetch_real_data.py --verify
+
+      - name: Pytest
+        # `-rs` reports any skip that survived the check above. There
+        # should be none; if one appears, read it rather than ignore
+        # it.
+        run: pytest tests/test_real_data.py -v -rs

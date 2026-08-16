@@ -9,12 +9,22 @@ convention the reader failed to anticipate. These tests can.
 The files are **not** in the repository -- they are third-party and fetched on
 demand (see ``scripts/fetch_real_data.py`` for the registry, provenance and
 licensing). Without them every test here skips with a pointer to that script, so
-a normal ``pytest`` run is unaffected and CI stays hermetic.
+a normal ``pytest`` run is unaffected and the ``ci.yml`` gate stays hermetic.
 
 Run them with::
 
     python scripts/fetch_real_data.py --fetch all
     pytest tests/test_real_data.py -v
+
+**Skipping is the danger, not the feature.** For a long time that skip was the
+whole story: these were the strongest external check outside the cylindrical
+solver and the only one that could catch a convention the readers failed to
+anticipate, and they had never once run -- every skip in every CI run came from
+this file. They now have their own ``.github/workflows/real-data.yml``, weekly
+and post-merge, which fetches the registry and then runs
+``fetch_real_data.py --verify`` *before* pytest. That verify step is the point:
+without it, a run that downloaded nothing would skip everything and report
+green.
 
 This file used to say that no openly redistributable full-waveform sonic gather
 was known to exist. ``iodp_u1347a_dsi`` is the counterexample -- an
