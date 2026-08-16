@@ -375,13 +375,13 @@ def unconfined_compressive_strength(
 
     At ordinary sonic-derived moduli the result also leaves the range
     of the rock type it is for. This returns 324 MPa at 30 GPa and
-    **543 MPa at 40 GPa**, against roughly 168 MPa for a *strong*
-    sandstone in the standard engineering classification (Mansour
-    et al. 2020, after Hoek; sandstone UCS is typically quoted over
-    ~20-170 MPa). A value in the hundreds of MPa is the signature of
-    an uncorrected dynamic modulus rather than a strong rock, and is
-    worth treating as a units-style error rather than a conservative
-    estimate.
+    **543 MPa at 40 GPa**, against **~168 MPa for a "strong sandstone"
+    and ~85 MPa for a "medium strong" one** -- figures quoted by
+    Mansour et al. (2020) from Agustawijaya (2007) and Kanji (2014),
+    in a classification that calls a rock "strong" above 100 MPa. A
+    value in the hundreds of MPa is the signature of an uncorrected
+    dynamic modulus rather than a strong rock, and is worth treating
+    as a units-style error rather than a conservative estimate.
 
     The depth-by-depth *ranking* does survive -- the correlation is
     monotone in ``E`` -- so the profile shape remains usable even

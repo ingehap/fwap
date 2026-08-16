@@ -2386,9 +2386,14 @@ def test_an_uncorrected_dynamic_modulus_moves_lacy_ucs_superlinearly():
 
     And the result leaves the rock type's own range. At 40 GPa, an
     ordinary sonic-derived modulus, this returns 543 MPa, against
-    ~168 MPa for a *strong* sandstone in the standard classification
-    (Mansour et al. 2020). A value in the hundreds is the signature of
-    an uncorrected modulus, not of a strong rock.
+    ~168 MPa for a "strong sandstone" and ~85 MPa for a "medium
+    strong" one -- quoted by Mansour et al. (2020) from Agustawijaya
+    (2007) and Kanji (2014). A value in the hundreds is the signature
+    of an uncorrected modulus, not of a strong rock.
+
+    The comparison figure is deliberately the *strong* end. Using the
+    medium-strong 85 MPa would make the gap look worse and would be
+    the easier argument; the harder one is the one worth asserting.
 
     Monotonicity is pinned too, since that is the one thing that does
     survive and the docstring leans on it.

@@ -14,8 +14,15 @@ the project uses [Semantic Versioning](https://semver.org/).
   ordinary sonic-derived moduli the output also leaves the rock type's
   published range — 324 MPa at 30 GPa and **543 MPa at 40 GPa**,
   against ~168 MPa for a *strong* sandstone in the standard
-  classification (Mansour et al. 2020). A value in the hundreds is the
-  signature of an uncorrected modulus rather than a strong rock. Both
+  classification — figures quoted by Mansour et al. (2020) from
+  Agustawijaya (2007) and Kanji (2014). A value in the hundreds is the
+  signature of an uncorrected modulus rather than a strong rock.
+
+  *(An earlier draft attributed that classification to Hoek. Hoek
+  appears nowhere in the cited paper; it was inferred and written as
+  though read.)*
+
+  Both
   facts are now tests; the monotonicity that keeps the profile *shape*
   usable is pinned alongside them.
 
