@@ -391,9 +391,29 @@ def flexural_dispersion_vti(
     signal-part measurement and branch marcher the isotropic
     fast-formation path uses. There ``F_f^2 < 0`` over the part of
     the band where the phase velocity exceeds ``V_f``, so the fluid
-    Bessels are oscillatory; the formation qP / qSV / SH
-    wavenumbers stay real and ``k_z`` stays real, so the root is a
-    genuine bound mode rather than a leaky one.
+    Bessels are oscillatory, and ``k_z`` stays real, so the root is
+    a genuine bound mode rather than a leaky one.
+
+    The qP / qSV wavenumbers do **not** always stay real, and this
+    said they did until roadmap A.11 phase 3. Where the Christoffel
+    discriminant turns negative they are a complex-conjugate pair --
+    an inhomogeneous qP / qSV pair, which is a real feature of a TI
+    medium rather than an error state. The solve used to return
+    ``NaN`` there, which silently truncated the bound window by
+    **77 % on Thomsen (1986) Mesaverde shale(5) and 57 % on
+    Mesaverde sandstone**. The pair is now carried through
+    :func:`_radial_wavenumbers_vti_complex`, and its two columns are
+    put back on a real basis by
+    :func:`_recombine_conjugate_columns`, so the mode is still bound
+    and the determinant is still real. ``k_z`` remains real
+    throughout; nothing here is a leaky path.
+
+    There is no leaky VTI dispersion curve. The determinant accepts a
+    complex ``k_z`` and is validated against the isotropic one
+    (A.11 phase 4), but A.11 phase 5 found no open-hole ``n = 1``
+    root in ``V_Sv < c < V_P0`` to march -- and none for the
+    isotropic determinant either, so that is a property of the
+    open-hole dipole problem rather than a gap here.
 
     Parameters and validation rules: identical to
     :func:`stoneley_dispersion_vti`.
@@ -1663,9 +1683,15 @@ def _modal_determinant_n0_vti(
         ),
     ]
     M = np.vstack(rows)
-    # Each row is real-valued post-rescale; imaginary parts are
-    # zero to floating-point precision in the bound regime. Take
-    # the real part to discard sub-machine-epsilon imaginary noise.
+    alpha_qP, _, _ = _radial_wavenumbers_vti_complex(
+        kz, omega, c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho
+    )
+    M = _recombine_conjugate_columns_n0(M, alpha_qP)
+    # Post-recombination every column is real, so `.real` discards
+    # only sub-machine-epsilon noise. It was already safe without the
+    # recombination -- the two determinants differ by the non-zero
+    # scalar Im(lambda) Im(alpha_qP) -- but only because Im(lambda)
+    # happened to be non-zero, which nothing checked.
     return float(np.linalg.det(M.real))
 
 
@@ -2630,6 +2656,92 @@ def _modal_determinant_n1_vti(
     # Each row is real-valued post-rescale; imaginary parts are
     # zero to floating-point precision in the bound regime.
     return float(np.linalg.det(M.real))
+
+
+def _recombine_conjugate_columns_n0(M: np.ndarray, alpha_qP: complex) -> np.ndarray:
+    r"""
+    Put the ``n = 0`` qP / qSV columns on a real basis.
+
+    The ``n = 1`` sister, :func:`_recombine_conjugate_columns`, divides
+    the qSV column by ``k_z`` because at that order the two builders
+    share a functional form and differ by exactly that factor. **At
+    ``n = 0`` the factor is different** -- a complex constant that
+    varies with ``(k_z, omega)`` -- so that helper cannot be reused,
+    and using it would rescale by the wrong thing.
+
+    What survives is the property the change of basis actually needs:
+    where the roots are a conjugate pair the two columns satisfy
+    ``col_qSV = lambda conj(col_qP)`` for a single non-zero constant
+    ``lambda``, so they span the same plane as ``Re(col_qP)`` and
+    ``Im(col_qP)``. Replacing them by that real pair changes the
+    determinant by a non-zero factor and moves no root, and it is the
+    proportionality rather than the value of ``lambda`` that matters --
+    so ``lambda`` is never formed. The proportionality is **checked**
+    here rather than assumed, and the matrix is returned untouched if
+    it does not hold.
+
+    **This does not fix a wrong answer, and it was written believing
+    it did.** The ``n = 0`` determinant reduces over ``M.real`` while
+    the qP / qSV columns carry imaginary parts of the same order as the
+    real ones -- 44 % on Thomsen (1986) Mesaverde shale(5) at the
+    velocity where the Stoneley mode sits -- which looks like it must
+    be discarding half of two independent solutions. It is not.
+    Because ``col_qSV = lambda conj(col_qP)``, taking real parts gives
+    ``Re(col_qSV) = Re(lambda) Re(col_qP) + Im(lambda) Im(col_qP)``,
+    which still spans the same plane as long as ``Im(lambda) != 0`` --
+    and the two determinants differ by exactly the non-zero scalar
+    ``Im(lambda) Im(alpha_qP)``, verified to 1e-8 across the band. The
+    Stoneley roots were always right.
+
+    What this buys is conditioning rather than correctness: the real
+    basis is explicit instead of resting on ``Im(lambda) != 0``, which
+    nothing was checking and which no test would have caught failing.
+
+    Parameters
+    ----------
+    M : ndarray
+        ``(3, 3)`` assembled ``n = 0`` matrix; columns 1 and 2 are qP
+        and qSV.
+    alpha_qP : complex
+        The qP radial wavenumber, whose imaginary part normalises the
+        second column.
+
+    Returns
+    -------
+    ndarray
+        ``M`` unchanged where the roots are real or the proportionality
+        fails, otherwise with columns 1 and 2 replaced by a
+        real-spanning pair.
+
+    Notes
+    -----
+    Unlike the ``n = 1`` path this does **not** use a divided
+    difference, so it does not stay conditioned as the two roots merge:
+    at the branch point ``Im(alpha_qP) -> 0`` and the second column
+    degenerates. The ``n = 0`` modes sampled here sit far from that
+    boundary -- the Stoneley root is at ~1430 m/s where the conjugate
+    region reaches 1760 -- but a mode approaching it would need the
+    symmetric treatment the ``n = 1`` helper uses.
+    """
+    imag = complex(alpha_qP).imag
+    if imag == 0.0:
+        return M
+    column = M[:, 1].copy()
+    other = M[:, 2]
+    if not (np.all(np.isfinite(column)) and np.all(np.isfinite(other))):
+        return M
+    conjugate = np.conj(column)
+    scale = np.abs(conjugate)
+    pivot = int(np.argmax(scale))
+    if scale[pivot] == 0.0:
+        return M
+    lam = other[pivot] / conjugate[pivot]
+    if not np.allclose(other, lam * conjugate, rtol=1e-9, atol=0.0):
+        return M
+    out = M.copy()
+    out[:, 1] = column.real
+    out[:, 2] = column.imag / imag
+    return out
 
 
 def _recombine_conjugate_columns(

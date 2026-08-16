@@ -3071,3 +3071,100 @@ def test_the_formation_columns_satisfy_the_vti_equations_of_motion():
                 assert residual(s, kz, omega, column) < 1e-6, (name, c, column)
                 checked += 1
     assert checked >= 12, checked
+
+
+def test_the_n0_real_reduction_was_already_a_valid_basis():
+    """Recorded because it looked like a bug and was not.
+
+    The ``n = 0`` determinant reduces over ``M.real`` while the qP /
+    qSV columns carry imaginary parts of the same order as the real
+    ones -- 44 % of them on Mesaverde shale(5) where the Stoneley mode
+    sits. That reads as throwing away half of two independent
+    solutions, which is exactly the defect A.11 phase 3 fixed at
+    ``n = 1``.
+
+    It is not the same defect. At ``n = 0`` the two columns are
+    proportional, ``col_qSV = lambda conj(col_qP)``, so taking real
+    parts still spans their plane whenever ``Im(lambda) != 0``, and the
+    two determinants differ by exactly the scalar
+    ``Im(lambda) Im(alpha_qP)``. The roots never moved. This pins that
+    identity so the reasoning is not re-litigated from the 44 % alone.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti_complex
+    from fwap.cylindrical_solver._vti import (
+        _modal_row1_at_a_vti,
+        _modal_row2_at_a_vti,
+        _modal_row3_at_a_vti,
+        _recombine_conjugate_columns_n0,
+    )
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Mesaverde shale(5)"])
+    kw = dict(**s, vf=1500.0, rho_f=1000.0, a=0.10)
+    omega = 2.0 * np.pi * 8000.0
+
+    checked = 0
+    for c in (1150.0, 1250.0, 1350.0, 1430.0, 1500.0):
+        kz = omega / c
+        alpha_qP, _, _ = _radial_wavenumbers_vti_complex(kz, omega, **s)
+        matrix = np.vstack(
+            [
+                _modal_row1_at_a_vti(kz, omega, **kw),
+                _modal_row2_at_a_vti(kz, omega, **kw),
+                _modal_row3_at_a_vti(kz, omega, **kw),
+            ]
+        )
+        if not np.isfinite(matrix).all() or alpha_qP.imag == 0.0:
+            continue
+
+        column, other = matrix[:, 1], matrix[:, 2]
+        conjugate = np.conj(column)
+        pivot = int(np.argmax(np.abs(conjugate)))
+        lam = other[pivot] / conjugate[pivot]
+        # Proportional to machine precision -- this is what makes the
+        # real reduction a change of basis rather than a loss.
+        assert np.allclose(other, lam * conjugate, rtol=1e-12, atol=0.0)
+        # And genuinely complex, so the 44 % is real, not noise.
+        assert np.max(np.abs(matrix.imag)) > 0.1 * np.max(np.abs(matrix.real))
+
+        recombined = _recombine_conjugate_columns_n0(matrix, alpha_qP)
+        assert not np.array_equal(recombined, matrix)
+        ratio = float(np.linalg.det(matrix.real)) / float(
+            np.linalg.det(recombined.real)
+        )
+        predicted = lam.imag * alpha_qP.imag
+        assert abs(ratio - predicted) < 1e-8 * max(abs(predicted), 1.0), (
+            c,
+            ratio,
+            predicted,
+        )
+        assert abs(predicted) > 1e-3, (c, predicted)
+        checked += 1
+
+    assert checked >= 4, checked
+
+
+def test_the_vti_stoneley_curve_is_unchanged_by_the_n0_recombination():
+    """The consequence of the identity above, stated as a regression.
+
+    Since the two determinants differ by a non-zero scalar, the
+    ``n = 0`` VTI dispersion curve must be exactly what it was, and the
+    isotropic limit must still reproduce `stoneley_dispersion` to the
+    bit.
+    """
+    from fwap import stoneley_dispersion, stoneley_dispersion_vti
+
+    freq = np.arange(3000.0, 16001.0, 1000.0)
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Mesaverde shale(5)"])
+    speeds = 1.0 / stoneley_dispersion_vti(freq, **s, **fluid).slowness
+    assert np.isfinite(speeds).all(), speeds
+    assert abs(speeds.min() - 1410.71) < 0.05, speeds.min()
+    assert abs(speeds.max() - 1448.76) < 0.05, speeds.max()
+
+    vp, vs, rho = 3658.0, 2032.0, 2350.0
+    c44, c11 = rho * vs * vs, rho * vp * vp
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+    a = stoneley_dispersion_vti(freq, **iso, **fluid).slowness
+    b = stoneley_dispersion(freq, vp=vp, vs=vs, rho=rho, **fluid).slowness
+    assert np.array_equal(a, b), np.nanmax(np.abs(a - b))

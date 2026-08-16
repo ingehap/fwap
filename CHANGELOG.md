@@ -6,6 +6,29 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **The `n = 0` VTI determinant puts its conjugate qP/qSV columns on an
+  explicit real basis** before reducing over `M.real`
+  (`_recombine_conjugate_columns_n0`). **No dispersion value changes**,
+  and the previous form was not wrong: because
+  `col_qSV = lambda conj(col_qP)`, taking real parts already spanned
+  the same plane, and the two determinants differ by exactly the
+  non-zero scalar `Im(lambda) Im(alpha_qP)` — verified to 1e-8 across
+  the band. The Stoneley roots were always right.
+
+  This was investigated as a suspected regression, on the strength of
+  the qP/qSV columns carrying imaginary parts at 44 % of the real ones
+  on Mesaverde shale(5). That reasoning was wrong and the identity
+  above is now pinned by a test so it is not re-litigated from the
+  44 % alone. What the change buys is conditioning: the real basis no
+  longer rests on `Im(lambda) != 0`, which nothing was checking.
+
+- **`flexural_dispersion_vti`'s docstring** said the formation
+  qP/qSV/SH wavenumbers "stay real". Since A.11 phase 3 they are a
+  complex-conjugate pair wherever the Christoffel discriminant turns
+  negative — the case that recovered 77 %/57 % of the bound window.
+  Corrected, along with a note that there is no leaky VTI curve and why.
+
 ### Added
 - **Groundwork for a cased VTI solver** (roadmap A.12), measured rather
   than assumed. A.9's isotropic cased leaky dipole converges 13/13 over
