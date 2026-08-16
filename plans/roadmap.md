@@ -26,6 +26,45 @@ Section labels (`A.1`, `A.2`, `A.5`, `D`, `F`, `G`) are load-bearing. Code
 comments in `fwap/`, `scripts/` and `tests/` cite them, so they are kept
 verbatim across this merge rather than renumbered.
 
+## Oracle inventory (P3)
+
+Which regimes of the cylindrical solver have an independent check, and
+which do not. Written after A.11-A.13, where twice a regime turned out
+to have **no** oracle and that was discovered mid-build rather than
+before it.
+
+| regime | oracle | strength |
+|---|---|---|
+| isotropic open hole, bound | Sinha appendix matrix; published figures (1a, 2a, 7a, 8a, 11b, 15) | **external**, 0.04-0.5 % |
+| isotropic cased / layered | Schmitt & Cheng figs 20, 21 | **external**, 0.21-0.27 % |
+| isotropic leaky, n=0 | argument principle + branch continuity | internal |
+| isotropic leaky, n=1/n=2 cased | argument principle; A.9 continuity | internal |
+| VTI open hole, bound, **real roots** | reduction to the isotropic solver at isotropic stiffnesses | **exact** (1e-14) |
+| VTI open hole, bound, **conjugate `alpha^2`** | *none* -- see below | **gap** |
+| VTI open hole, leaky | reduction to `_modal_determinant_n1_complex` | exact (1.4e-14) |
+| VTI cased, bound + leaky | reduction to the isotropic cased determinant, itself externally tied | **exact** (1e-14), inherits external |
+| VTI, `n=2` quadrupole | *not built* | n/a |
+
+**The conjugate-`alpha^2` gap is structural, not an oversight.** In the
+isotropic limit the Christoffel discriminant is identically the perfect
+square `A^2 (p^2 - s^2)^2`, so the conjugate regime never arises there
+and the isotropic oracle -- the workhorse for everything else in this
+table -- **cannot reach it**. What covers it instead is a homotopy in
+the Thomsen parameters, anchored at `t = 0` by the independent
+`flexural_dispersion` and required to stay smooth across the point
+where the conjugate region swallows the mode. That is weaker than a
+reduction and should be read as such.
+
+**Two regimes have no mode rather than no oracle**, which is a
+different thing and worth not confusing: the open-hole leaky dipole
+window `V_Sv < c < V_P0` holds no `n = 1` root at all, isotropic or
+VTI, so there is nothing there to validate.
+
+**Reading this table before building is the point.** A.11 phases 4-5
+built a validated determinant for a window that turned out to contain
+no mode; A.11 phase 3 opened a regime whose oracle did not exist. Both
+would have been visible here first.
+
 ## Where things stand
 
 Most of what the original roadmap was written to track has shipped. The book's
