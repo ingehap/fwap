@@ -275,15 +275,38 @@ the Gulf of Mexico shale calibration" — not as a value from Bowers
 `nu` 0.15-0.40) are attributed directly. Confirming the first against
 the paper is a W1 task in its own right, and cheaper than any test.
 
-**The strongest external tie outside the solver is off by default.**
+~~**The strongest external tie outside the solver is off by default.**~~
+*Done — `.github/workflows/real-data.yml`.*
 `tests/test_real_data.py` runs against third-party files written by
-other software — including an eight-receiver IODP DSI gather under CC0.
+other software, including an eight-receiver IODP DSI gather under CC0.
 It is the only thing in the package that can catch a convention the
-readers failed to anticipate, and it skips unless
-`scripts/fetch_real_data.py` has run, which is where the 11 skips in
-every CI run come from. Hermetic CI is the right default; leaving it
-*never* exercised is not the same decision, and it has not been taken
+readers failed to anticipate, and it skipped unless
+`scripts/fetch_real_data.py` had run — which is where the 11 skips in
+every CI run came from. Hermetic CI is the right default; leaving it
+*never* exercised was not the same decision, and had not been taken
 deliberately.
+
+It now has its own workflow: weekly, on manual dispatch, and post-merge
+on `main` when a reader or the processing chain changed. It stays out
+of `ci.yml` and out of every pull request, so no PR ever waits on KGS,
+OpenEI, IODP or the segyio project being up. The datasets are cached on
+the registry's content hash — they are immutable and SHA-256 pinned, so
+a hit is provably the right bytes and re-downloading other people's
+files weekly buys nothing.
+
+**The load-bearing step is `--verify`, not the fetch.** These tests
+*skip* on a missing file, so a run that downloaded nothing would pass
+green and prove nothing — the exact failure the workflow exists to end.
+`--verify` exits non-zero unless all four are present and correct, so
+nothing downstream can silently no-op. Fetch and test are separate
+steps so upstream link rot and a reader regression are distinguishable
+at a glance.
+
+Validated as far as this environment allows: `kgs_las` fetches and its
+arrival **unskips three tests** (11 skips → 8), so the mechanism is
+real rather than assumed. The other three hosts are refused by the
+sandbox's egress policy, not by anything in the repo, so the first
+scheduled run is the real proof.
 
 ### Reading order for W1
 

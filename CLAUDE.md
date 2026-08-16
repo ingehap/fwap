@@ -32,6 +32,14 @@ pytest -x                               # bench suite auto-excluded
   `pytest --nbval-lax docs/notebooks/sonic_ml_tutorial.ipynb docs/notebooks/cased_hole_tutorial.ipynb`.
   The solver-validation notebook is run on demand:
   `pytest --nbval-lax docs/notebooks/cylindrical_biot_validation.ipynb`.
+- **Real third-party files** run in their own `real-data.yml` workflow —
+  weekly, on manual dispatch, and post-merge on `main` when a reader or the
+  processing chain changed. They need the network, so they are kept out of
+  the hermetic `ci.yml` gate and out of every pull request. Locally:
+  `python scripts/fetch_real_data.py --fetch all && pytest tests/test_real_data.py`.
+  Without the files those tests **skip** — that is the whole reason the
+  workflow runs `--verify` before pytest, so a run that fetched nothing
+  cannot pass green.
 
 ## Conventions
 - **Type hints**: PEP 604/585 (`int | None`, `tuple[int, int]`).
