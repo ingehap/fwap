@@ -31,7 +31,18 @@ the project uses [Semantic Versioning](https://semver.org/).
   over `c` in [2200, 3600] and `Im(k_z)` in [0, 1.5], with
   `max|ratio + 1| = 1.4e-14`.
 
-  **Still no leaky VTI driver and no leaky dispersion curve.** A
+  **No driver, and phase 5 found no open-hole mode for one to drive.**
+  Counted by the argument principle, the window `V_Sv < c < V_P0` at
+  `Im(k_z) > 0` holds no `n = 1` root — and none for the isotropic
+  determinant either, fast and slow formations alike, so this is a fact
+  about the open-hole dipole problem rather than a VTI gap. Real-axis
+  `Im(det)` sign changes suggest otherwise and are not roots: `|det|`
+  vanishes at none of them. Dog Creek shale is the one exception, with
+  a sharp zero over 12-14 kHz at `0.98 V_P0` — a narrow band against
+  the P cutoff with no isotropic counterpart, which is the signature
+  A.9 recorded for zeros that are not modes; it is not certified.
+
+  **Still no leaky VTI dispersion curve.** A
   complex `k_z` is refused only when no wave radiates, which describes
   a field decaying in `r` and growing along `z` — not a mode. The
   `n = 0` and bound `n = 1` determinants keep the original #134

@@ -2687,3 +2687,158 @@ def test_the_qp_qsv_ordering_is_on_the_squares_at_a_complex_kz_too():
     # The magnitude rule really does disagree over this window -- if it
     # did not, this test would be vacuous.
     assert disagreements >= 8, disagreements
+
+
+# ----------------------------------------------------------------------
+# A.11 phase 5: is there a leaky n=1 mode to drive?
+# ----------------------------------------------------------------------
+
+
+def _winding_number(fn, re_lo, re_hi, im_lo, im_hi, n=240):
+    """Roots of ``fn`` inside the rectangle, by the argument principle.
+
+    The loop is closed **before** unwrapping. Unwrapping first and then
+    summing differences around the closed cycle telescopes to exactly
+    zero for any input, which is a bug that looks like "no roots
+    anywhere" and is why the control below exists.
+    """
+    points = []
+    for t in np.linspace(0.0, 1.0, n, endpoint=False):
+        points.append(complex(re_lo + (re_hi - re_lo) * t, im_lo))
+    for t in np.linspace(0.0, 1.0, n, endpoint=False):
+        points.append(complex(re_hi, im_lo + (im_hi - im_lo) * t))
+    for t in np.linspace(0.0, 1.0, n, endpoint=False):
+        points.append(complex(re_hi + (re_lo - re_hi) * t, im_hi))
+    for t in np.linspace(0.0, 1.0, n, endpoint=False):
+        points.append(complex(re_lo, im_hi + (im_lo - im_hi) * t))
+    values = np.array([fn(z) for z in points])
+    if not np.all(np.isfinite(values)) or np.any(values == 0):
+        return None
+    phase = np.unwrap(np.angle(np.concatenate([values, values[:1]])))
+    return float((phase[-1] - phase[0]) / (2.0 * np.pi))
+
+
+def test_the_winding_instrument_finds_a_root_it_should():
+    """The control, without which a null survey means nothing.
+
+    A first version of this returned ``0`` for every input, including a
+    box drawn round a root whose location was already known -- and the
+    VTI survey below was briefly read as "no leaky mode exists" on the
+    strength of it.
+    """
+    from fwap import flexural_dispersion
+    from fwap.cylindrical_solver._n1_isotropic import (
+        _modal_determinant_n1_complex,
+    )
+
+    vp, vs, rho = 3658.0, 2032.0, 2350.0
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+    omega = 2.0 * np.pi * 8000.0
+    speed = (
+        1.0
+        / flexural_dispersion(
+            np.array([8000.0]), vp=vp, vs=vs, rho=rho, **fluid
+        ).slowness[0]
+    )
+    kz = omega / speed
+
+    def bound(z):
+        return complex(
+            _modal_determinant_n1_complex(
+                z, omega, vp=vp, vs=vs, rho=rho, **fluid, leaky_p=False, leaky_s=False
+            )
+        )
+
+    around = _winding_number(bound, kz - 0.6, kz + 0.6, -0.35, 0.35)
+    empty = _winding_number(bound, kz + 2.0, kz + 4.0, -0.35, 0.35)
+    assert around is not None and abs(around - 1.0) < 0.05, around
+    assert empty is not None and abs(empty) < 0.05, empty
+
+
+def test_the_open_hole_leaky_dipole_window_is_empty_isotropic_and_vti_alike():
+    """Phase 5's finding: there is no mode there for a driver to march.
+
+    Counted with the instrument the test above validates, the window
+    ``V_S < c < V_P`` at ``Im(k_z) > 0`` holds **no** ``n = 1`` root --
+    and it holds none for the *isotropic* determinant either, which is
+    the mature path. So this is a fact about the open-hole dipole
+    problem rather than something the VTI assembly is missing.
+
+    Real-axis ``Im(det)`` sign changes are not evidence against this.
+    Green River shows exactly one per frequency across 3-18 kHz, at
+    velocities that rise, jump, descend and split -- no coherent
+    branch, and no root: ``|det|`` never vanishes at any of them.
+
+    Where the repo *does* record leaky dipole modes is behind casing
+    (A.9), where the steel lifts the mode above a slow formation's
+    shear speed. That is the cased VTI path, which is not built.
+    """
+    from fwap.cylindrical_solver._leaky import _detect_leaky_branches
+    from fwap.cylindrical_solver._n1_isotropic import (
+        _modal_determinant_n1_complex,
+    )
+    from fwap.cylindrical_solver._vti import _modal_determinant_n1_vti_complex
+
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+
+    # Isotropic control, fast and slow.
+    for vp, vs, rho in ((3658.0, 2032.0, 2350.0), (2400.0, 900.0, 2100.0)):
+        for freq in (4000.0, 8000.0):
+            omega = 2.0 * np.pi * freq
+
+            def isotropic(z, omega=omega, vp=vp, vs=vs, rho=rho):
+                _, leaky_p, leaky_s = _detect_leaky_branches(
+                    z, omega, vp, vs, fluid["vf"]
+                )
+                return complex(
+                    _modal_determinant_n1_complex(
+                        z,
+                        omega,
+                        vp=vp,
+                        vs=vs,
+                        rho=rho,
+                        **fluid,
+                        leaky_p=leaky_p,
+                        leaky_s=leaky_s,
+                    )
+                )
+
+            count = _winding_number(
+                isotropic,
+                omega / (vp * 0.997),
+                omega / (vs * 1.003),
+                0.001,
+                1.5,
+            )
+            assert count is not None and abs(count) < 0.05, (vp, freq, count)
+
+    # VTI, on the media whose windows are widest.
+    for name in ("Green River shale", "Pierre shale"):
+        s = _thomsen_stiffness(_THOMSEN_TABLE_1[name])
+        v_sv = np.sqrt(s["c44"] / s["rho"])
+        v_p = np.sqrt(s["c33"] / s["rho"])
+        for freq in (4000.0, 8000.0):
+            omega = 2.0 * np.pi * freq
+
+            def vti(z, omega=omega, s=s, v_p=v_p, v_sv=v_sv):
+                _, leaky_p, leaky_s = _detect_leaky_branches(
+                    z, omega, v_p, v_sv, fluid["vf"]
+                )
+                return complex(
+                    _modal_determinant_n1_vti_complex(
+                        z,
+                        omega,
+                        **s,
+                        **fluid,
+                        radiating=(leaky_p, leaky_s, leaky_s),
+                    )
+                )
+
+            count = _winding_number(
+                vti,
+                omega / (v_p * 0.997),
+                omega / (v_sv * 1.003),
+                0.001,
+                1.5,
+            )
+            assert count is not None and abs(count) < 0.05, (name, freq, count)
