@@ -6,6 +6,44 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Groundwork for a second cased leaky branch** (roadmap A.13),
+  measured rather than assumed — and the measurement retired the
+  "branch-crossing marcher" framing it started from.
+
+  Only `V_P` is a branch transition. At `V_f` and the cement `V_S` the
+  flags do not change: the fluid branch is handled inside the
+  determinant without a flag, and a layer is a bounded annulus with no
+  radiation condition. Forcing identical flags across those two changes
+  the step not at all; across `V_P` it drops from 2.0-2.5 to 0.05-0.39.
+  One contour spanning `(805, 2400)` returns a clean `+2`; extended
+  past `V_P` it loses a root and returns `+1`, which is what produced
+  the impossible negative windings in the first survey.
+
+  The branch is coherent: `c` descends 2185.9 → 1657.5 m/s over
+  7-14 kHz with `Im(k_z)` falling 1.236 → 0.566, both monotone, `|det|`
+  to ~3e-15. Reaching it needs a higher ceiling and a way to tell two
+  roots apart, not crossing machinery.
+
+### Fixed
+- **A.9's note on its own ceiling carried the wrong diagnosis.** It
+  said reaching the branch above `V_f` "would need the fluid field
+  handled as oscillatory rather than evanescent". The fluid is already
+  handled — `scipy.special.iv` continues analytically to `i^n J_n` on a
+  complex argument, so above `V_f` the cased determinant evaluates
+  finitely and correctly. The ceiling is a search-window choice.
+
+  Raising it to the next bound would gain nothing either: the band
+  between `V_f` and the cement shear speed is empty at every frequency
+  by the argument principle. The roots that exist sit above the
+  *cement* shear speed — one in `(1605, 2400)` at 8, 11 and 13 kHz,
+  none at 3.0 or 5.5, which does not reproduce A.9's recorded claim.
+
+  The real obstacle is the branch flips at `V_S`, `V_f` and `V_P`,
+  across which the determinant is a different function: contour counts
+  straddling `V_P` came back at `-1`, which is not a root count.
+  Documentation and a test only; no solver behaviour changes.
+
 ### Fixed
 - **Two VTI traction rows were named the wrong way round.**
   `_modal_row3_at_a_n1_vti` carries `sigma_r_theta` and

@@ -3728,3 +3728,222 @@ def test_the_public_cased_vti_entry_point_validates_its_input():
         fwap.flexural_dispersion_layered_vti(np.ones((2, 2)) * 5000.0, **s, **fluid)
     with pytest.raises(ValueError, match="strictly positive"):
         fwap.flexural_dispersion_layered_vti(np.array([5000.0, -1.0]), **s, **fluid)
+
+
+def test_the_a9_ceiling_is_a_window_choice_not_a_fluid_limitation():
+    """A.9's note on its own ceiling is wrong about the cause.
+
+    It records that the branch between roughly 3 and 13 kHz sits above
+    ``V_f``, outside the searched window, and that reaching it "would
+    need the fluid field handled as oscillatory rather than
+    evanescent". The fluid is **already** handled: ``scipy.special.iv``
+    continues analytically to ``i^n J_n`` on a complex argument, so
+    above ``V_f``, where ``F_f^2 < 0``, the cased determinant evaluates
+    finitely and correctly. The ceiling is a choice of search window,
+    not an inability.
+
+    Raising it to the next natural bound would also buy nothing. The
+    band between ``V_f`` and the cement shear speed is **empty at every
+    frequency** -- the argument principle counts zero roots there.
+    """
+    from fwap.cylindrical_solver._cased import (
+        _modal_determinant_n1_cased_complex,
+    )
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+    from fwap.cylindrical_solver._leaky import _detect_leaky_branches
+
+    layers = (
+        BoreholeLayer(vp=5900.0, vs=3200.0, rho=7850.0, thickness=0.01),
+        BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02),
+    )
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10, layers=layers)
+    vp, vs, rho = 2500.0, 800.0, 2200.0
+
+    def det(z, omega):
+        _, leaky_p, leaky_s = _detect_leaky_branches(z, omega, vp, vs, 1500.0)
+        return complex(
+            _modal_determinant_n1_cased_complex(
+                z,
+                omega,
+                vp=vp,
+                vs=vs,
+                rho=rho,
+                **fluid,
+                leaky_p=leaky_p,
+                leaky_s=leaky_s,
+            )
+        )
+
+    # 1. Above V_f the fluid radial wavenumber squared is negative and
+    #    the determinant is still finite and non-zero.
+    omega = 2.0 * np.pi * 8000.0
+    for c in (1510.0, 1600.0, 1900.0, 2400.0):
+        kz = complex(omega / c, 0.1)
+        assert ((kz * kz).real - (omega / 1500.0) ** 2) < 0.0, c
+        value = det(kz, omega)
+        assert np.isfinite(value) and value != 0.0, (c, value)
+
+    # 2. And the band it would open is empty.
+    for freq in (3000.0, 8000.0, 13000.0):
+        omega = 2.0 * np.pi * freq
+        count = _winding_number(
+            lambda z, omega=omega: det(z, omega),
+            omega / 1595.0,
+            omega / 1505.0,
+            0.001,
+            3.0,
+            n=200,
+        )
+        assert count is not None, freq
+        assert abs(count) < 0.05, (freq, count)
+
+
+def test_only_vp_is_a_branch_transition_and_the_second_root_is_below_it():
+    """A.13 groundwork, and it retires the "branch-crossing" framing.
+
+    Three switches were assumed to sit between the current search
+    ceiling and the root above it -- ``V_f``, the cement ``V_S`` and
+    ``V_P``. Only ``V_P`` is one. At ``V_f`` and the cement shear speed
+    the flags ``_detect_leaky_branches`` returns do not change at all:
+    the fluid branch is handled inside the determinant without a flag,
+    and a layer is a bounded annulus with no radiation condition. So a
+    single contour spans the whole window below ``V_P`` and returns a
+    clean integer, while one extended past ``V_P`` loses a root to the
+    flag flip.
+
+    That means reaching the second branch needs **no branch-crossing
+    machinery** -- it sits entirely below the only real transition.
+    What it needs is a higher ceiling and a way to tell two roots
+    apart.
+    """
+    from fwap.cylindrical_solver._cased import (
+        _modal_determinant_n1_cased_complex,
+    )
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+    from fwap.cylindrical_solver._leaky import _detect_leaky_branches
+
+    layers = (
+        BoreholeLayer(vp=5900.0, vs=3200.0, rho=7850.0, thickness=0.01),
+        BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02),
+    )
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10, layers=layers)
+    vp, vs, rho = 2500.0, 800.0, 2200.0
+
+    def det(z, omega):
+        _, leaky_p, leaky_s = _detect_leaky_branches(z, omega, vp, vs, 1500.0)
+        return complex(
+            _modal_determinant_n1_cased_complex(
+                z,
+                omega,
+                vp=vp,
+                vs=vs,
+                rho=rho,
+                **fluid,
+                leaky_p=leaky_p,
+                leaky_s=leaky_s,
+            )
+        )
+
+    omega = 2.0 * np.pi * 8000.0
+
+    # The flags are unchanged across V_f and the cement V_S ...
+    for boundary in (1500.0, 1600.0):
+        below = _detect_leaky_branches(
+            complex(omega / (boundary * 0.999), 0.2), omega, vp, vs, 1500.0
+        )[1:]
+        above = _detect_leaky_branches(
+            complex(omega / (boundary * 1.001), 0.2), omega, vp, vs, 1500.0
+        )[1:]
+        assert below == above, (boundary, below, above)
+
+    # ... and changed across V_P.
+    below = _detect_leaky_branches(
+        complex(omega / (2500.0 * 0.999), 0.2), omega, vp, vs, 1500.0
+    )[1:]
+    above = _detect_leaky_branches(
+        complex(omega / (2500.0 * 1.001), 0.2), omega, vp, vs, 1500.0
+    )[1:]
+    assert below != above, (below, above)
+
+    # One contour spanning V_f and the cement V_S counts two roots
+    # cleanly; extended past V_P it loses one to the flip.
+    below_vp = _winding_number(
+        lambda z: det(z, omega), omega / 2400.0, omega / 805.0, 0.001, 3.0, n=280
+    )
+    past_vp = _winding_number(
+        lambda z: det(z, omega), omega / 2600.0, omega / 805.0, 0.001, 3.0, n=280
+    )
+    assert below_vp is not None and abs(below_vp - 2.0) < 0.05, below_vp
+    assert past_vp is not None and abs(past_vp - 1.0) < 0.05, past_vp
+
+
+def test_the_second_cased_branch_is_coherent_across_frequency():
+    """The second root is a dispersion branch, not an isolated zero.
+
+    Refined at each frequency it descends 2186 -> 1658 m/s over
+    7-14 kHz with ``Im(k_z)`` falling 1.24 -> 0.57, both monotone, and
+    ``|det|`` vanishes to ~3e-15 relative at every point. That is what
+    makes it worth a driver; an isolated sharp zero would not be.
+    """
+    from scipy import optimize
+
+    from fwap.cylindrical_solver._cased import (
+        _modal_determinant_n1_cased_complex,
+    )
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+    from fwap.cylindrical_solver._leaky import _detect_leaky_branches
+
+    layers = (
+        BoreholeLayer(vp=5900.0, vs=3200.0, rho=7850.0, thickness=0.01),
+        BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02),
+    )
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10, layers=layers)
+    vp, vs, rho = 2500.0, 800.0, 2200.0
+
+    def det(z, omega):
+        _, leaky_p, leaky_s = _detect_leaky_branches(z, omega, vp, vs, 1500.0)
+        return complex(
+            _modal_determinant_n1_cased_complex(
+                z,
+                omega,
+                vp=vp,
+                vs=vs,
+                rho=rho,
+                **fluid,
+                leaky_p=leaky_p,
+                leaky_s=leaky_s,
+            )
+        )
+
+    speeds, dampings = [], []
+    for freq in (8000.0, 10000.0, 12000.0, 14000.0):
+        omega = 2.0 * np.pi * freq
+        best = None
+        for guess in np.linspace(1700.0, 2350.0, 14):
+            for damping in (0.3, 0.9, 1.5):
+                solution = optimize.root(
+                    lambda x, omega=omega: [
+                        det(complex(x[0], x[1]), omega).real,
+                        det(complex(x[0], x[1]), omega).imag,
+                    ],
+                    [omega / guess, damping],
+                    method="hybr",
+                    tol=1e-13,
+                )
+                if not solution.success:
+                    continue
+                z = complex(solution.x[0], solution.x[1])
+                c = omega / z.real
+                if not (1620.0 < c < 2450.0 and 0.005 < z.imag < 3.0):
+                    continue
+                sharp = abs(det(z, omega)) / max(abs(det(z * 1.02, omega)), 1e-300)
+                if best is None or sharp < best[2]:
+                    best = (c, z.imag, sharp)
+        assert best is not None, freq
+        assert best[2] < 1e-10, (freq, best)
+        speeds.append(best[0])
+        dampings.append(best[1])
+
+    assert np.all(np.diff(speeds) < 0.0), speeds
+    assert np.all(np.diff(dampings) < 0.0), dampings
+    assert 1600.0 < speeds[-1] < speeds[0] < 2300.0, speeds
