@@ -6,6 +6,42 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Planted-truth round-trips for the rest of W1 group A** —
+  `attenuation`, `coherence`, `wavesep` and `picker`. The 19-of-184
+  count that motivated this turned out to be a poor proxy: two modules
+  already had the oracle spent, and one that looked comfortable had a
+  hole in the middle of it.
+
+  *`attenuation`.* `centroid_frequency_shift_Q`'s accuracy claim
+  attributes its error to "the non-Gaussianity of the Ricker source
+  spectrum and the finite window length". Removing both — a genuinely
+  Gaussian source, a window ten times the pulse — leaves the error
+  intact and **changing sign** with `Q`: +8.6 % at 25, +0.3 % at 200,
+  −9.1 % at 400. Neither stated cause can flip sign on a fixed source.
+  `diagnostic['sigma_f2']` reads 1.11–1.13× the planted source variance
+  and `Q` is proportional to it; substituting the true variance moves
+  the error to the other sign and grows it with `Q`, so the near-zero
+  total near Q ≈ 200 is two effects cancelling. Pinned as measured.
+
+  *`coherence`.* A three-mode gather recovers P, S and Stoneley each to
+  better than 0.2 %, invents no fourth slowness, and the documented
+  descending-coherence peak ordering is executed.
+
+  *`wavesep`.* "Isolates each mode" is quantified in both directions:
+  0.94 with the planted P against 0.14 with the Stoneley at a
+  190–260 µs/m passband, degrading monotonically to 0.85 / 0.26 as the
+  band widens.
+
+  *`picker`.* `track_modes` was the one entry point with no
+  planted-truth test, and the only one whose failure mode — carrying a
+  wrong branch down the log — a per-depth test cannot see. A formation
+  compacting 4500 → 3200 m/s over twelve frames is tracked at every
+  depth to 0.35 %, with a flat Stoneley held to 0.05 % as the control.
+
+  `lwd` needed nothing: its three round-trips already cover its three
+  functions.
+
 ### Fixed
 - **`phase_slowness_from_f_k`'s `spatial_unwrap` validity bound named
   the wrong length scale.** It said the method fails "above roughly

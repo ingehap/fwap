@@ -1943,3 +1943,99 @@ def test_joint_viterbi_also_resolves_the_confusion():
     assert picked_p == pytest.approx(52.0, rel=0.05)
     assert picked_s == pytest.approx(92.0, rel=0.05)
     assert picked_p < picked_s
+
+
+# ----------------------------------------------------------------------
+# W1 group A: the one picker entry point with no planted-truth test
+#
+# `viterbi_pick`, `viterbi_pick_joint`, `pick_modes` and
+# `track_to_log_curves` all have recovery tests. `track_modes` -- the
+# depth-tracking regulariser -- did not, and it is the one whose
+# characteristic failure is latching onto the wrong branch and carrying
+# it down the log, which a per-depth test cannot see.
+# ----------------------------------------------------------------------
+
+
+def test_track_modes_follows_a_formation_that_changes_with_depth():
+    """Plant a compacting formation and demand the trend back.
+
+    ``V_P`` runs 4500 -> 3200 m/s over twelve depth frames, a **40.6 %**
+    change in slowness, with ``V_S`` following at a fixed ratio and
+    Stoneley held flat. All three are tracked at every depth:
+
+        P         12/12,  max error 0.35 %,  trend +40.5 % vs +40.6 %
+        S         12/12,  max error 0.23 %,  trend +40.7 % vs +40.6 %
+        Stoneley  12/12,  max error 0.05 %,  trend  +0.0 % vs   +0.0 %
+
+    The flat Stoneley is the control: a tracker that let the continuity
+    regulariser drag one mode along with its neighbours would bend it,
+    and 0.05 % says it did not. The two moving modes are the converse --
+    a tracker that over-smoothed would flatten a real 40 % trend.
+    """
+    from fwap.coherence import stc
+    from fwap.picker import track_modes
+    from fwap.synthetic import ArrayGeometry, Mode, synthesize_gather
+
+    geom = ArrayGeometry(n_rec=8, tr_offset=3.0, dr=0.1524, dt=1.0e-5, n_samples=2048)
+    depths = np.arange(12) * 0.1524
+    vp = np.linspace(4500.0, 3200.0, depths.size)
+    vs = vp / 1.75
+    v_stoneley = np.full_like(vp, 1450.0)
+
+    results = []
+    for k in range(depths.size):
+        modes = [
+            Mode(
+                name="P",
+                slowness=1.0 / vp[k],
+                intercept=2.0e-4,
+                f0=10000.0,
+                amplitude=1.0,
+            ),
+            Mode(
+                name="S",
+                slowness=1.0 / vs[k],
+                intercept=4.0e-4,
+                f0=9000.0,
+                amplitude=1.2,
+            ),
+            Mode(
+                name="ST",
+                slowness=1.0 / v_stoneley[k],
+                intercept=7.0e-4,
+                f0=6000.0,
+                amplitude=1.5,
+            ),
+        ]
+        data = synthesize_gather(geom, modes, noise=0.02, seed=100 + k)
+        results.append(
+            stc(
+                data,
+                geom.dt,
+                geom.offsets,
+                slowness_range=(100.0e-6, 900.0e-6),
+                n_slowness=401,
+                window_length=4.0e-4,
+            )
+        )
+
+    tracks = track_modes(results, depths)
+    assert len(tracks) == depths.size
+
+    for name, truth in (
+        ("P", 1.0 / vp),
+        ("S", 1.0 / vs),
+        ("Stoneley", 1.0 / v_stoneley),
+    ):
+        picked = np.array(
+            [
+                frame.picks[name].slowness if name in frame.picks else np.nan
+                for frame in tracks
+            ]
+        )
+        assert np.all(np.isfinite(picked)), name
+        assert np.max(np.abs(picked - truth) / truth) < 0.005, name
+
+        planted_trend = (truth[-1] - truth[0]) / truth[0]
+        tracked_trend = (picked[-1] - picked[0]) / picked[0]
+        assert tracked_trend == pytest.approx(planted_trend, abs=0.005), name

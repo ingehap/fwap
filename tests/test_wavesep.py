@@ -310,3 +310,67 @@ def test_tau_p_forward_supports_non_uniform_offsets():
     panel = tau_p_forward(data, dt, offsets, slownesses)
     i_peak, _ = np.unravel_index(np.argmax(np.abs(panel)), panel.shape)
     assert abs(slownesses[i_peak] - p0) < 5e-7
+
+
+# ----------------------------------------------------------------------
+# W1 group A: how well the slowness filter separates, as a number
+# ----------------------------------------------------------------------
+
+
+def test_tau_p_filter_selectivity_is_quantified_in_both_directions():
+    """``test_tau_p_filter_isolates_each_mode_by_slowness`` says it
+    isolates. This says by how much, and that a wider window is worse.
+
+    The synthetic is exactly linear -- a two-mode gather equals the sum
+    of its one-mode gathers to ``0.0`` -- so each pure mode is available
+    as a reference and the filter's output can be correlated against
+    both.
+
+    Measured on P at 222 us/m against Stoneley at 690 us/m:
+
+        passband 190-260 us/m  ->  0.94 with P,  0.14 with Stoneley
+        passband 150-300 us/m  ->  0.88 with P,  0.20 with Stoneley
+        passband 120-350 us/m  ->  0.85 with P,  0.26 with Stoneley
+
+    Selectivity degrades monotonically as the band widens, which is the
+    slant stack's point-spread function showing up as a number rather
+    than as a caveat. The complementary band passes Stoneley (0.87) and
+    rejects P (0.23), so this is not a statement about one mode being
+    easier.
+    """
+    from fwap.synthetic import ArrayGeometry, Mode, synthesize_gather
+
+    geom = ArrayGeometry(n_rec=8, tr_offset=3.0, dr=0.1524, dt=1.0e-5, n_samples=2048)
+    fast = Mode(name="P", slowness=1.0 / 4500.0, intercept=2.0e-4, f0=10000.0)
+    slow = Mode(name="ST", slowness=1.0 / 1450.0, intercept=7.0e-4, f0=10000.0)
+
+    only_fast = synthesize_gather(geom, [fast], noise=0.0, seed=0)
+    only_slow = synthesize_gather(geom, [slow], noise=0.0, seed=0)
+    both = synthesize_gather(geom, [fast, slow], noise=0.0, seed=0)
+
+    # The reference the whole test rests on.
+    assert np.abs(both - (only_fast + only_slow)).max() == 0.0
+
+    def correlation(a: np.ndarray, b: np.ndarray) -> float:
+        return float(np.sum(a * b) / np.sqrt(np.sum(a**2) * np.sum(b**2)))
+
+    selectivity = {}
+    for lo, hi in ((190.0e-6, 260.0e-6), (150.0e-6, 300.0e-6), (120.0e-6, 350.0e-6)):
+        kept = tau_p_filter(both, geom.dt, geom.offsets, lo, hi)
+        selectivity[hi - lo] = (
+            correlation(kept, only_fast),
+            correlation(kept, only_slow),
+        )
+
+    widths = sorted(selectivity)
+    assert selectivity[widths[0]][0] > 0.93
+    assert selectivity[widths[0]][1] < 0.15
+    # Wider band, worse on both counts -- monotonically.
+    for narrow, wide in zip(widths, widths[1:]):
+        assert selectivity[wide][0] < selectivity[narrow][0]
+        assert selectivity[wide][1] > selectivity[narrow][1]
+
+    # The other side of the band works too.
+    kept_slow = tau_p_filter(both, geom.dt, geom.offsets, 600.0e-6, 780.0e-6)
+    assert correlation(kept_slow, only_slow) > 0.85
+    assert correlation(kept_slow, only_fast) < 0.25
