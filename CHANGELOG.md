@@ -7,6 +7,20 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Groundwork for a cased VTI solver** (roadmap A.12), measured rather
+  than assumed. A.9's isotropic cased leaky dipole converges 13/13 over
+  3-15 kHz on slow formations matching Thomsen's slow media, at
+  1.37-1.69 `V_S`. Bracketing a VTI answer by running that solver at
+  `V_Sv` and again at `V_Sh` gives **+1.6 % to +8.9 %** — an order of
+  magnitude above the 0.21-0.27 % at which the cased curves are tied to
+  Schmitt & Cheng figures 20 and 21.
+
+  Not built. The layered `n = 1` determinant needs formation continuity
+  in six quantities at `r = b`; A.11 phase 4 supplies the four the
+  open-hole problem needs, and `u_theta` / `u_z` for the qP/qSV/SH
+  columns do not exist in the codebase yet.
+
+### Added
 - **Radiating branches for the VTI formation columns** (roadmap A.11
   phase 4, partial). `_radial_wavenumbers_vti_complex` takes a per-wave
   `radiating=(qP, qSV, SH)` flag, and the row builders evaluate through

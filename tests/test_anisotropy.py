@@ -2842,3 +2842,56 @@ def test_the_open_hole_leaky_dipole_window_is_empty_isotropic_and_vti_alike():
                 1.5,
             )
             assert count is not None and abs(count) < 0.05, (name, freq, count)
+
+
+def test_the_cased_leaky_dipole_exists_and_anisotropy_would_move_it():
+    """A.12 groundwork: the target for a cased VTI solver is real.
+
+    Two things a cased VTI build depends on, measured before building
+    it. First, the mode exists: A.9's isotropic cased leaky dipole
+    converges across 3-15 kHz for slow formations matching the
+    vertical velocities of Thomsen's slow media, sitting well above
+    ``V_S`` with a real attenuation.
+
+    Second, anisotropy would move it by enough to matter. Running the
+    isotropic solver at ``V_Sv`` and again at ``V_Sh`` brackets where a
+    VTI answer must fall, and the bracket is **1.6 to 8.9 %** -- far
+    above the 0.21-0.27 % at which the cased curves are tied to Schmitt
+    & Cheng figures 20 and 21. A cased VTI solver would therefore be
+    resolving a real effect rather than a rounding difference.
+    """
+    from fwap import flexural_dispersion_layered
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+
+    steel = BoreholeLayer(vp=5900.0, vs=3200.0, rho=7850.0, thickness=0.01)
+    cement = BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02)
+    freq = np.arange(3000.0, 15001.0, 2000.0)
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+
+    spreads = []
+    for name in ("Pierre shale", "Dog Creek shale"):
+        vp0, vs0, rho, _, _, gamma = _THOMSEN_TABLE_1[name]
+        v_sh = vs0 * np.sqrt(1.0 + 2.0 * gamma)
+
+        curves = {}
+        for tag, vs in (("sv", vs0), ("sh", v_sh)):
+            result = flexural_dispersion_layered(
+                freq,
+                vp=vp0,
+                vs=vs,
+                rho=rho,
+                **fluid,
+                layers=(steel, cement),
+            )
+            slowness = np.asarray(result.slowness)
+            assert np.isfinite(slowness).all(), (name, tag, slowness)
+            curves[tag] = 1.0 / slowness
+
+        # The mode is leaky: comfortably above the formation shear speed.
+        assert (curves["sv"] > vs0 * 1.2).all(), (name, curves["sv"], vs0)
+        spreads.extend(100.0 * (curves["sh"] - curves["sv"]) / curves["sv"])
+
+    spreads = np.array(spreads)
+    assert (spreads > 0.0).all(), spreads
+    assert spreads.min() > 1.0, spreads.min()
+    assert spreads.max() > 6.0, spreads.max()
