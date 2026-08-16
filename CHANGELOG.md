@@ -7,6 +7,40 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **A shared root-counting instrument, and root-identity tests that use
+  it** (`tests/_root_identity.py`). The solver's characteristic failure
+  is a *real* root, sharp to 1e-13, that is the wrong one — a
+  branch-point degeneracy, a lower branch under a higher index, two
+  waves swapped. No root-quality check rejects any of those. The
+  argument principle can, because it counts what a contour encloses
+  independently of what a search converged on.
+
+  `winding_number` / `count_roots` / `assert_instrument_is_sound` are
+  lifted out of `tests/test_anisotropy.py`, which now imports them, and
+  carry the two traps hit while writing them: unwrapping before closing
+  the loop telescopes to exactly zero for any input (this once read a
+  whole survey as "no mode exists"), and a contour straddling a branch
+  switch returns a *negative* count.
+
+  Three tests: the instrument is controlled against a known root before
+  any null result from it is trusted; the bound flexural window holds
+  the number of modes the driver reports; the cased leaky window holds
+  exactly the branches A.13 reports. The second corrected its own
+  premise on first run — it was written asserting one root and the
+  count is **two** above ~10 kHz, where the higher trapped mode enters.
+  A 9 kHz observation about `trapped_pseudo_rayleigh_dispersion` is
+  recorded as measured rather than explained away.
+
+- **An oracle inventory** in `plans/roadmap.md`: regime → oracle →
+  strength for the cylindrical solver. The load-bearing rows are the
+  gaps. The conjugate-`alpha^2` VTI regime has **no** oracle and cannot
+  have the usual one — the isotropic Christoffel discriminant is
+  identically a perfect square, so the regime never arises in the limit
+  the rest of the table reduces to. Two other regimes have no *mode*
+  rather than no oracle, which is a different thing. A.11 phases 4-5
+  built a validated determinant for a window containing no mode; that
+  would have been visible in this table first.
+
 - **Groundwork for a second cased leaky branch** (roadmap A.13),
   measured rather than assumed — and the measurement retired the
   "branch-crossing marcher" framing it started from.

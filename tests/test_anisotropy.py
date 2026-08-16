@@ -2694,28 +2694,7 @@ def test_the_qp_qsv_ordering_is_on_the_squares_at_a_complex_kz_too():
 # ----------------------------------------------------------------------
 
 
-def _winding_number(fn, re_lo, re_hi, im_lo, im_hi, n=240):
-    """Roots of ``fn`` inside the rectangle, by the argument principle.
-
-    The loop is closed **before** unwrapping. Unwrapping first and then
-    summing differences around the closed cycle telescopes to exactly
-    zero for any input, which is a bug that looks like "no roots
-    anywhere" and is why the control below exists.
-    """
-    points = []
-    for t in np.linspace(0.0, 1.0, n, endpoint=False):
-        points.append(complex(re_lo + (re_hi - re_lo) * t, im_lo))
-    for t in np.linspace(0.0, 1.0, n, endpoint=False):
-        points.append(complex(re_hi, im_lo + (im_hi - im_lo) * t))
-    for t in np.linspace(0.0, 1.0, n, endpoint=False):
-        points.append(complex(re_hi + (re_lo - re_hi) * t, im_hi))
-    for t in np.linspace(0.0, 1.0, n, endpoint=False):
-        points.append(complex(re_lo, im_hi + (im_lo - im_hi) * t))
-    values = np.array([fn(z) for z in points])
-    if not np.all(np.isfinite(values)) or np.any(values == 0):
-        return None
-    phase = np.unwrap(np.angle(np.concatenate([values, values[:1]])))
-    return float((phase[-1] - phase[0]) / (2.0 * np.pi))
+from tests._root_identity import winding_number as _winding_number  # noqa: E402
 
 
 def test_the_winding_instrument_finds_a_root_it_should():
@@ -4071,3 +4050,161 @@ def test_the_branch_index_leaves_the_fundamental_bit_for_bit():
         theirs.slowness[both]
     )
     assert rel.max() < 1e-11, rel.max()
+
+
+# ----------------------------------------------------------------------
+# P1: root identity -- counting roots, not just finding them
+# ----------------------------------------------------------------------
+
+
+def _bound_flexural_determinant(vp, vs, rho, fluid, omega):
+    """``k_z -> det`` for the bound isotropic flexural problem."""
+    from fwap.cylindrical_solver._n1_isotropic import (
+        _modal_determinant_n1_complex,
+    )
+
+    def fn(z):
+        return complex(
+            _modal_determinant_n1_complex(
+                z,
+                omega,
+                vp=vp,
+                vs=vs,
+                rho=rho,
+                **fluid,
+                leaky_p=False,
+                leaky_s=False,
+            )
+        )
+
+    return fn
+
+
+def test_the_root_counter_is_sound_before_any_null_result_is_trusted():
+    """The control the shared helper exists to make routine.
+
+    The first version of this counter unwrapped the phase and then
+    summed differences around the closed cycle, which telescopes to
+    exactly zero for *any* input. It returned 0 for a box drawn around
+    a root whose position was already known, and a survey was briefly
+    read as "no mode exists" on that basis.
+
+    So the instrument is checked against a root the solver has already
+    reported, before any count from it is believed.
+    """
+    from fwap import flexural_dispersion
+    from tests._root_identity import assert_instrument_is_sound
+
+    vp, vs, rho = 3658.0, 2032.0, 2350.0
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+    omega = 2.0 * np.pi * 8000.0
+    speed = (
+        1.0
+        / flexural_dispersion(
+            np.array([8000.0]), vp=vp, vs=vs, rho=rho, **fluid
+        ).slowness[0]
+    )
+    fn = _bound_flexural_determinant(vp, vs, rho, fluid, omega)
+    assert_instrument_is_sound(fn, complex(omega / speed, 0.0), half_width=0.6)
+
+
+def test_the_bound_flexural_window_holds_the_number_of_modes_reported():
+    """Root *identity* for a shipped driver, and it corrected an
+    assumption on first run.
+
+    This was written asserting one root per frequency. The counter says
+    otherwise above ~10 kHz, and it is right: the higher trapped mode
+    enters the window, so ``flexural_dispersion`` and
+    ``trapped_pseudo_rayleigh_dispersion`` are then reporting two
+    genuinely distinct modes rather than one driver choosing among
+    candidates.
+
+    That is the point of counting. Every wrong-root defect in this
+    solver returned something sharp -- a branch-point degeneracy, a
+    lower branch under a higher index, two waves swapped -- and
+    sharpness cannot tell those from a mode. A count can.
+
+    **One observation left open**: at 9 kHz
+    ``trapped_pseudo_rayleigh_dispersion`` reports 1996.1 m/s, inside
+    the contour, while the count is still 1. Either that mode is a root
+    of a differently-flagged determinant, or it sits too near the
+    ``V_S`` edge for this contour. Not chased here, and asserted as
+    measured rather than explained away.
+    """
+    from fwap import flexural_dispersion
+    from tests._root_identity import count_roots
+
+    vp, vs, rho = 3658.0, 2032.0, 2350.0
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+    expected = {6000.0: 1, 9000.0: 1, 13000.0: 2, 15000.0: 2}
+
+    for freq, want in expected.items():
+        omega = 2.0 * np.pi * freq
+        reported = (
+            1.0
+            / flexural_dispersion(
+                np.array([freq]), vp=vp, vs=vs, rho=rho, **fluid
+            ).slowness[0]
+        )
+        assert np.isfinite(reported), freq
+
+        fn = _bound_flexural_determinant(vp, vs, rho, fluid, omega)
+        found = count_roots(
+            fn, omega / (vs * 0.999), omega / 1200.0, -0.02, 0.02, n=320
+        )
+        assert found == want, (freq, found, want)
+        # The driver's root lies inside the counted window.
+        assert 1200.0 < reported < vs, (freq, reported, vs)
+
+
+def test_the_cased_leaky_window_holds_exactly_the_branches_reported():
+    """The same check where it has actually caught things.
+
+    Over 7-13 kHz the slow cased window below ``V_P`` holds **two**
+    roots: the fundamental and the A.13 branch. Below ~7 kHz it holds
+    one. A driver that reported two branches where only one exists
+    would be relabelling -- which is precisely the defect A.13 fixed,
+    and which passed every root-quality check while it was live.
+    """
+    from fwap.cylindrical_solver._cased import (
+        _modal_determinant_n1_cased_complex,
+    )
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+    from fwap.cylindrical_solver._leaky import _detect_leaky_branches
+    from tests._root_identity import count_roots
+
+    layers = (
+        BoreholeLayer(vp=5900.0, vs=3200.0, rho=7850.0, thickness=0.01),
+        BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02),
+    )
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10, layers=layers)
+    vp, vs, rho = 2500.0, 800.0, 2200.0
+
+    def determinant(z, omega):
+        _, leaky_p, leaky_s = _detect_leaky_branches(z, omega, vp, vs, 1500.0)
+        return complex(
+            _modal_determinant_n1_cased_complex(
+                z,
+                omega,
+                vp=vp,
+                vs=vs,
+                rho=rho,
+                **fluid,
+                leaky_p=leaky_p,
+                leaky_s=leaky_s,
+            )
+        )
+
+    # Contours stay below V_P = 2500: across that switch the
+    # determinant is a different function and the count is not a count.
+    for freq, expected in ((5000.0, 1), (8000.0, 2), (11000.0, 2)):
+        omega = 2.0 * np.pi * freq
+        found = count_roots(
+            lambda z, omega=omega: determinant(z, omega),
+            omega / 2400.0,
+            omega / 805.0,
+            0.001,
+            3.0,
+            n=320,
+        )
+        assert found == expected, (freq, found, expected)
