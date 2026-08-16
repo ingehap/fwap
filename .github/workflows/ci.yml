@@ -63,25 +63,36 @@ jobs:
         # so the gate catches real regressions without going red on
         # interpreter differences. Raise it as coverage improves.
         #
-        # ``-n auto`` runs one worker per vCPU (4 on ubuntu-latest).
-        # Measured on a 4-core box, without coverage: 590 s serial ->
-        # 213 s, a 2.77x speedup, 1526 passed either way. This exact
-        # command, coverage included, lands at 325 s and still reports
-        # 96.10% -- pytest-cov combines the workers' data, so the gate
-        # below is unaffected.
+        # ``-n auto`` runs one worker per vCPU. **These runners have
+        # two**, not four: both matrix jobs print ``created: 2/2
+        # workers``. This comment claimed four until the first run was
+        # read, which also makes the ceiling 2x rather than 4x -- do not
+        # reason about this step's wall clock without that number.
         #
         # Two thirds of the serial time sits in ~50 root-finding tests,
         # so parallelism is the whole win here: no test got faster,
-        # they stopped queueing behind each other. The floor is the
-        # slowest single test (28 s), nowhere near binding yet.
+        # they stopped queueing behind each other.
         #
         # ``--dist loadfile`` keeps every test in a file on one worker.
-        # The default per-test distribution would be better balanced,
-        # but it also lets two tests from one module run at once, and
-        # that is a property this suite has never had to hold. Per-file
-        # is the conservative choice and there are enough files to fill
-        # four workers. If the balance ever becomes the bottleneck,
-        # measure before loosening it.
+        # Per-test would balance better, but it also lets two tests from
+        # one module run at once, and that is a property this suite has
+        # never had to hold. **Measured, on 4 cores forced to two
+        # workers**: loadfile 324.8 s, load 305.2 s -- per-file costs
+        # 6.4 %, and both pass 1526. Against 590 s serial that is 1.82x
+        # and 1.93x, so at two workers the 2x ceiling is nearly
+        # saturated either way and the safe choice is close to free.
+        #
+        # For reference on 4 cores: ``-n auto`` (4 workers) 213 s, a
+        # 2.77x speedup; this exact command with coverage 325 s at
+        # 96.10 % -- pytest-cov combines the workers, so the gate below
+        # is unaffected.
+        #
+        # **The matrix jobs differ by more than the interpreter.** Same
+        # command and same 2 workers gave 3.11 297.7 s and 3.12 496.4 s
+        # in one run, while an earlier serial run gave 3.11 621 s and
+        # 3.12 481 s -- a ~30-70 % spread whose sign is not stable. That
+        # is runner hardware, not Python and not this configuration; a
+        # single slow job here is not evidence of a regression.
         run: >-
           pytest -x -n auto --dist loadfile
           --cov=fwap --cov-report=term-missing --cov-fail-under=95

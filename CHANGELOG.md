@@ -6,6 +6,30 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Two wrong claims in the CI pytest comment**, caught by reading the
+  first run's logs rather than by reasoning about them.
+
+  It said `-n auto` gives "4 on ubuntu-latest". Both matrix jobs print
+  `created: 2/2 workers` — these runners have **two** vCPUs, so the
+  ceiling is 2×, not 4×. It also said the floor is "the slowest single
+  test (28 s)", which is not the right quantity under `--dist
+  loadfile`, where a worker cannot split a file.
+
+  Neither claim was idle: together they made a slow 3.12 job look like
+  a distribution problem. It is not. Measured on 4 cores forced to two
+  workers, `loadfile` costs **6.4 %** against per-test `load` (324.8 s
+  vs 305.2 s, both 1526 passed), which is 1.82× and 1.93× against 590 s
+  serial — at two workers the 2× ceiling is nearly saturated either
+  way, so the conservative per-file choice stands and is now justified
+  by a number.
+
+  What actually differs between the matrix jobs is the **runner**. Same
+  command, same two workers: 3.11 297.7 s, 3.12 496.4 s; an earlier
+  serial run gave 3.11 621 s and 3.12 481 s. The spread is 30–70 % and
+  its sign is not stable, so a single slow job is not evidence of a
+  regression.
+
 ### Changed
 - **`tests/test_cylindrical_solver.py` is split into six modules.** It
   had reached 26,376 lines and 741 test cases, which is past the point
