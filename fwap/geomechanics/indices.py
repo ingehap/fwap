@@ -32,11 +32,29 @@ from fwap.rockphysics import ElasticModuli
 
 UCSModel = Literal["lacy_sandstone"]
 
-# Default Rickman normalisation bounds, in SI units. The original
-# paper uses 1-8 Mpsi for E and 0.15-0.40 for nu; converted at
-# 1 Mpsi = 6.8948 GPa.
-RICKMAN_E_MIN_PA: float = 1.0e10  # ~1.45 Mpsi
-RICKMAN_E_MAX_PA: float = 8.0e10  # ~11.6 Mpsi
+# Default Rickman normalisation bounds, in SI units.
+#
+# ⚠ **These do not match the conversion stated beside them, and the
+# discrepancy is pinned as a defect rather than fixed** -- see
+# `test_the_rickman_bounds_disagree_with_their_own_stated_conversion`
+# in `tests/test_stated_conventions.py`, and the W1 oracle inventory in
+# `plans/roadmap.md`.
+#
+# The stated premise is "the original paper uses 1-8 Mpsi for E,
+# converted at 1 Mpsi = 6.8948 GPa". Applying that factor gives
+# 6.895e9 and 5.516e10 Pa. The values below are 1.0e10 and 8.0e10 --
+# the paper's *numerals* with "Mpsi" replaced by "1e10 Pa", so the
+# conversion was written down and then not performed. In Mpsi they are
+# 1.45 and 11.60, which is what the trailing comments record: someone
+# computed what the constants are without noticing they contradict the
+# source named two lines above.
+#
+# Fixing it moves every `brittleness_index` output, so it needs the
+# paper confirmed first (is Table 1 really 1-8 Mpsi?). That is a W1
+# task. Until then the wrong-but-shipped values stand and the test
+# fails loudly if they change.
+RICKMAN_E_MIN_PA: float = 1.0e10  # 1.45 Mpsi -- see above, not 1 Mpsi
+RICKMAN_E_MAX_PA: float = 8.0e10  # 11.60 Mpsi -- see above, not 8 Mpsi
 RICKMAN_NU_MIN: float = 0.15
 RICKMAN_NU_MAX: float = 0.40
 
@@ -87,8 +105,11 @@ def brittleness_index_rickman(
         Poisson's ratio (dimensionless).
     e_min_pa, e_max_pa : float
         Normalisation bounds for Young's modulus (Pa). Defaults are
-        :data:`RICKMAN_E_MIN_PA` and :data:`RICKMAN_E_MAX_PA`,
-        matching Rickman et al. (2008) Table 1 (1-8 Mpsi).
+        :data:`RICKMAN_E_MIN_PA` and :data:`RICKMAN_E_MAX_PA`, which
+        span **1.45 to 11.60 Mpsi** -- *not* the 1-8 Mpsi of Rickman
+        et al. (2008) Table 1 that they are meant to match. The
+        mismatch is a known defect, pinned rather than fixed; see the
+        comment on those constants.
     nu_min, nu_max : float
         Normalisation bounds for Poisson's ratio. Defaults are
         :data:`RICKMAN_NU_MIN` and :data:`RICKMAN_NU_MAX` (0.15-0.40).

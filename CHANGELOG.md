@@ -6,7 +6,44 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **An oracle inventory for everything outside the cylindrical solver**
+  (`plans/roadmap.md`, "Oracle inventory II — W1"). The accounting is
+  lopsided in a way no coverage number shows: all 48 digitised
+  reference curves are borehole dispersion papers, 694 of the 699
+  figure references in the suite sit in solver modules, and the other
+  ~14,000 lines of `fwap/` carry 6 literature citations across their
+  424 tests — while their *source* carries dozens.
+
+  The non-solver half turns out to be two different problems. The
+  **processing chain** (`dispersion`, `coherence`, `wavesep`,
+  `tomography`, `picker`, `lwd`, `attenuation`) inverts something, so
+  planted-truth round-trip is a strong oracle, is already available
+  from the solver plus `synthetic.py`, and is used by **19 of 184**
+  tests — nothing is blocked, the oracle is sitting unused. The
+  **empirical correlations** (`rockphysics`, `geomechanics`,
+  `stoneley` permeability) have nothing to invert, so it is a published
+  worked number or no oracle at all, and establishing which comes
+  before writing any test.
+
 ### Fixed
+- **Pinned: the Rickman brittleness bounds contradict their own stated
+  unit conversion** (`fwap/geomechanics/indices.py`), found by the W1
+  survey on the first module it looked at.
+
+  The comment states *"the original paper uses 1-8 Mpsi for E …
+  converted at 1 Mpsi = 6.8948 GPa"*. That factor gives 6.895e9 and
+  5.516e10 Pa; the shipped values are `1.0e10` and `8.0e10` — the
+  paper's numerals with "Mpsi" swapped for "1e10 Pa". Both bounds are
+  1.450× high, the same factor on each.
+
+  Nothing could have caught it: the constants are self-consistent,
+  `brittleness_index` is monotone and in `[0, 1]`, all 110 geomechanics
+  tests pass, and the trailing comments correctly describe the *wrong*
+  values. **Pinned rather than fixed** per `plans/learning.md` — the
+  correction moves every `brittleness_index` output and which side is
+  wrong depends on the paper. `test_the_rickman_bounds_disagree_with_
+  their_own_stated_conversion` fails if the constants move.
 - **Two wrong claims in the CI pytest comment**, caught by reading the
   first run's logs rather than by reasoning about them.
 
