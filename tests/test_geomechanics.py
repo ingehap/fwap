@@ -2215,3 +2215,68 @@ def test_tensile_strength_rejects_negative_ucs():
 
     with pytest.raises(ValueError, match="ucs"):
         tensile_strength_from_ucs(np.array([-1.0e6]))
+
+
+# ----------------------------------------------------------------------
+# W1 group B: the first external tie geomechanics has
+#
+# The oracle inventory marked the empirical correlations a **gap** --
+# forward formulas with nothing to invert, so either a published number
+# is reachable or there is no check at all. For Rickman it is reachable,
+# and finding it turned a pinned defect into a fix: the normalisation
+# bounds were 1.450x high because a unit conversion was written down
+# beside them and never performed.
+# ----------------------------------------------------------------------
+
+
+def test_the_rickman_bounds_are_the_published_ones_in_si():
+    """1-8 Mpsi and 0.15-0.40, converted once and correctly.
+
+    Rybacki, Meier & Dresen (2016) state them twice -- as "E max =
+    8 Mpsi (~55 GPa), nu min = 0.15, E min = 1 Mpsi (~7 GPa), nu max =
+    0.4 (Rickman et al., 2008)", and again as "the limits (E min =
+    7 GPa, E max = 55 GPa) suggested by Rickman et al. (2008)".
+
+    These constants read 1.0e10 and 8.0e10 until that was checked --
+    the paper's numerals with "Mpsi" swapped for "1e10 Pa", both 1.450x
+    high. Nothing local could catch it: the index stayed monotone and
+    inside [0, 1], and every other test here passed.
+    """
+    pa_per_mpsi = 6.894757e9
+
+    assert RICKMAN_E_MIN_PA / pa_per_mpsi == pytest.approx(1.0, rel=1e-6)
+    assert RICKMAN_E_MAX_PA / pa_per_mpsi == pytest.approx(8.0, rel=1e-6)
+    assert (RICKMAN_NU_MIN, RICKMAN_NU_MAX) == (0.15, 0.40)
+
+    # The GPa restatement, which is the independent half of the source.
+    assert RICKMAN_E_MIN_PA == pytest.approx(6.9e9, rel=0.01)
+    assert RICKMAN_E_MAX_PA == pytest.approx(55.0e9, rel=0.01)
+
+
+def test_brittleness_reproduces_the_published_linear_form():
+    """``B = 7.14 E - 200 nu + 72.9``, with ``E`` in Mpsi.
+
+    The linear form is quoted independently of the bounds themselves,
+    which makes it a genuine second check rather than a restatement:
+    the ``E`` coefficient fixes the span at 7 Mpsi, the ``nu``
+    coefficient fixes it at 0.25, and the constant then fixes
+    ``E_min = 1``. Only the published bounds satisfy all three.
+
+    Asserted across the whole ``(E, nu)`` plane the index is defined
+    on, not at one point, since a single point cannot separate a slope
+    error from an offset one.
+    """
+    pa_per_mpsi = 6.894757e9
+
+    for e_mpsi in (1.0, 2.5, 4.0, 6.0, 8.0):
+        for nu in (0.15, 0.22, 0.30, 0.40):
+            index = brittleness_index_rickman(e_mpsi * pa_per_mpsi, nu)
+            # Exactly 50/7, -200 and 510/7; the quoted 7.14 / 72.9 are
+            # these rounded to three figures.
+            published = (50.0 / 7.0) * e_mpsi - 200.0 * nu + 510.0 / 7.0
+            assert index * 100.0 == pytest.approx(published, abs=1e-9), (e_mpsi, nu)
+
+    # And the rounded coefficients people actually quote.
+    assert brittleness_index_rickman(4.0 * pa_per_mpsi, 0.25) * 100.0 == pytest.approx(
+        7.14 * 4.0 - 200.0 * 0.25 + 72.9, abs=0.05
+    )

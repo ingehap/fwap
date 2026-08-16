@@ -6,7 +6,38 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **⚠ `brittleness_index_rickman` output changes.** The Rickman
+  normalisation bounds were **1.450× too high on both ends** —
+  `RICKMAN_E_MIN_PA` and `RICKMAN_E_MAX_PA` read `1.0e10` and `8.0e10`,
+  the paper's numerals with "Mpsi" swapped for "1e10 Pa", beside a
+  comment stating the conversion (`1 Mpsi = 6.8948 GPa`) that was never
+  performed. Corrected to `6.894757e9` and `5.5158056e10` Pa, i.e. the
+  1–8 Mpsi of Rickman et al. (2008). Every value the function returns
+  moves.
+
+  This was pinned as a defect while the source was chased, since which
+  side was wrong depended on the paper. It is now settled: the premise
+  was right, the constants were wrong. SPE 115258 is paywalled, so the
+  bounds are confirmed from Rybacki, Meier & Dresen (2016), who state
+  them twice — as "E max = 8 Mpsi (~55 GPa), nu min = 0.15, E min =
+  1 Mpsi (~7 GPa), nu max = 0.4" and as "the limits (E min = 7 GPa,
+  E max = 55 GPa)". Independently, the quoted linear form
+  `B = 7.14 E - 200 nu + 72.9` uniquely pins them, and is now executed
+  as a test.
+
+  All 112 geomechanics tests pass with the corrected values and none
+  were re-baselined — nothing had encoded the old numbers. That is why
+  nothing caught it.
+
 ### Added
+- **Group B's first external oracle** (W1).
+  `test_brittleness_reproduces_the_published_linear_form` asserts
+  `brittleness_index_rickman` reproduces `B = 7.14 E - 200 nu + 72.9`
+  across the whole `(E, nu)` plane — not at one point, since a single
+  point cannot separate a slope error from an offset one — and
+  `test_the_rickman_bounds_are_the_published_ones_in_si` pins the
+  conversion itself.
 - **`tests/test_real_data.py` now actually runs**, in its own
   `.github/workflows/real-data.yml` (W1 item 3). These are the only
   tests in the repository that read files written by other software —

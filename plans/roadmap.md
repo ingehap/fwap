@@ -227,7 +227,8 @@ they pin, not by how many there are.
 | `rockphysics.py` (Gassmann 1951, Biot 1956) | exact closed-form limits: dry rock, fluid = mineral, Voigt = Reuss at one phase | **identity only** — real but weak |
 | `geomechanics/vertical.py` (Hubbert & Willis 1957) | closed-form fracture-initiation limit | identity only |
 | `geomechanics/pressures.py` (Eaton 1975, Bowers 1995) | published basin calibrations; *unconfirmed* whether a checkable worked curve is reachable | **gap** |
-| `geomechanics/indices.py` (Rickman 2008, Lacy 1997, Bratli & Risnes) | published tables and correlations; same uncertainty | **gap** |
+| `geomechanics/indices.py` — **Rickman 2008** | published bounds *and* the linear form they imply, both quoted in the secondary literature | **external** — found, and it caught a defect |
+| `geomechanics/indices.py` (Lacy 1997, Bratli & Risnes) | published correlations; same uncertainty | **gap** |
 | `geomechanics/inclined.py` (Kirsch/Hiramatsu-Oka, Fairhurst) | analytic stress solution at the wall | reachable, unused |
 | `stoneley.py` (Tang & Cheng, Winkler & Plumb) | its *input* dispersion inherits the solver's external tie; the permeability step does not | partial |
 
@@ -259,13 +260,37 @@ contradict the source named two lines above. Only checking a number
 against the citation printed beside it fails here, and that is the one
 check the non-solver half never does.
 
-It is **pinned, not fixed**, per `plans/learning.md`: fixing moves
-every `brittleness_index` output, and which side is wrong depends on
-the paper — if Table 1 really is 1-8 Mpsi the constants are wrong; if
-it is 1.45-11.6 Mpsi the stated premise is. Confirming that is W1 item
-1. `test_the_rickman_bounds_disagree_with_their_own_stated_conversion`
-fails if the constants move, and should be rewritten to assert the
-conversion *holds* once they are corrected.
+It was **pinned, not fixed**, per `plans/learning.md`, because which
+side was wrong depended on the paper. *That is now settled: the premise
+was right and the constants were wrong.* Fixed to 6.894757e9 and
+5.5158056e10 Pa.
+
+**How it was settled, since SPE 115258 is paywalled.** Rybacki, Meier &
+Dresen (2016, *J. Pet. Sci. Eng.* 144, 39-58) state the bounds twice —
+once as *"E max = 8 Mpsi (~55 GPa), nu min = 0.15, E min = 1 Mpsi
+(~7 GPa), nu max = 0.4 (Rickman et al., 2008)"*, and again, in the
+course of declining to use them, as *"the limits (E min = 7 GPa,
+E max = 55 GPa) suggested by Rickman et al. (2008)"*. Independent of
+that, the widely-quoted linear form `B = 7.14 E - 200 nu + 72.9`
+(E in Mpsi) **uniquely pins them**: the `E` coefficient fixes the span
+at 7 Mpsi, the `nu` coefficient fixes it at 0.25, and the constant then
+fixes `E_min = 1`. Deriving that form from 1-8 / 0.15-0.40 gives
+`7.1429 E - 200 nu + 72.857`, which is the quoted numbers to their
+stated precision.
+
+**This is Group B's first external oracle**, and it earned its place
+immediately: the tie is what turned a "which side is wrong?" into a
+fix. `test_brittleness_reproduces_the_published_linear_form` now
+executes the identity across the whole `(E, nu)` plane rather than at
+one point — a single point cannot separate a slope error from an offset
+one — and `test_the_rickman_bounds_are_the_published_ones_in_si`
+asserts the conversion holds, which is what the pinned test's docstring
+said to replace it with.
+
+**All 112 geomechanics tests pass with the corrected constants, none
+re-baselined.** Nothing had encoded the old numbers; they were used
+symbolically throughout. That is the same fact from both sides — no
+test had to change, and no test could have caught it.
 
 **Published constants sit in defaults with second-hand provenance.**
 `bowers_A = 14.02` is documented as "a commonly cited SI conversion of
