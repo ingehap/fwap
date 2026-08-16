@@ -2280,3 +2280,68 @@ def test_brittleness_reproduces_the_published_linear_form():
     assert brittleness_index_rickman(4.0 * pa_per_mpsi, 0.25) * 100.0 == pytest.approx(
         7.14 * 4.0 - 200.0 * 0.25 + 72.9, abs=0.05
     )
+
+
+def test_dynamic_moduli_overstate_brittleness_by_the_documented_amount():
+    """The static-vs-dynamic caveat, with its numbers executed.
+
+    ``brittleness_index_rickman`` documents that passing a
+    sonic-derived (dynamic) modulus overstates brittleness by 8.3 to
+    16.6 index points, across the 20-40 % static-dynamic gap Rybacki
+    et al. (2016) report. A caveat carrying a number should fail when
+    the number stops being true -- that is the whole reason to write
+    the number rather than "somewhat higher".
+
+    Also pinned: the bias is **one-signed**. That is what lets the
+    docstring say the depth-by-depth ranking survives while absolute
+    values do not, and it would stop being true if the clip at either
+    end started biting.
+    """
+    young_dynamic, poisson = 40.0e9, 0.25
+
+    brittle_dynamic = brittleness_index_rickman(young_dynamic, poisson)
+    assert brittle_dynamic * 100.0 == pytest.approx(64.3, abs=0.1)
+
+    expected = {0.20: 56.0, 0.30: 51.9, 0.40: 47.7}
+    for gap, percent in expected.items():
+        static = brittleness_index_rickman(young_dynamic * (1.0 - gap), poisson)
+        assert static * 100.0 == pytest.approx(percent, abs=0.1), gap
+        overstatement = (brittle_dynamic - static) * 100.0
+        assert overstatement > 0.0, gap
+
+    assert (
+        brittle_dynamic - brittleness_index_rickman(young_dynamic * 0.80, poisson)
+    ) * 100.0 == pytest.approx(8.3, abs=0.1)
+    assert (
+        brittle_dynamic - brittleness_index_rickman(young_dynamic * 0.60, poisson)
+    ) * 100.0 == pytest.approx(16.6, abs=0.1)
+
+    # One-signed across the band, not just at the three sampled gaps,
+    # and away from the clips at both ends.
+    gaps = np.linspace(0.0, 0.45, 40)
+    values = np.array(
+        [brittleness_index_rickman(young_dynamic * (1.0 - g), poisson) for g in gaps]
+    )
+    assert np.all(np.diff(values) < 0.0)
+    assert 0.0 < values.min() and values.max() < 1.0
+
+
+def test_the_e_normalisation_window_narrowed_when_the_bounds_were_corrected():
+    """Why the caveat costs more now than it did, as a number.
+
+    The shipped bounds were 1.0e10-8.0e10 Pa; the published ones are
+    6.895e9-5.516e10. The window is narrower, so the same modulus
+    normalises higher -- 0.686 against 0.429 at 40 GPa. The fix is
+    right and it raises the price of feeding in a dynamic modulus,
+    which is worth stating together rather than separately.
+    """
+    young = 40.0e9
+
+    def normalised(lo: float, hi: float) -> float:
+        return float((young - lo) / (hi - lo))
+
+    assert normalised(1.0e10, 8.0e10) == pytest.approx(0.429, abs=0.001)
+    assert normalised(RICKMAN_E_MIN_PA, RICKMAN_E_MAX_PA) == pytest.approx(
+        0.686, abs=0.001
+    )
+    assert RICKMAN_E_MAX_PA - RICKMAN_E_MIN_PA < 8.0e10 - 1.0e10

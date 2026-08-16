@@ -6,6 +6,27 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **`brittleness_index_rickman` now documents what feeding it a
+  dynamic modulus costs**, with the number rather than a caveat.
+  Rickman calibrated on *static* moduli — Rybacki et al. (2016) table
+  A3 records the equation's inputs as "E = static Young's modulus,
+  nu = static Poisson's ratio" — and static values run **20–40 %
+  below** dynamic ones (their sect. 4, after Yale & Jamieson 1994;
+  Britt & Schoeffler 2009; Sone & Zoback 2013a).
+
+  At `E = 40 GPa`, `nu = 0.25`, an ordinary sonic-derived pair, that
+  is an **8.3 to 16.6 index-point overstatement**. The range widened
+  when the bounds were corrected to Rickman's published 1–8 Mpsi: the
+  narrower window normalises the same modulus to 0.686 rather than
+  0.429, so the fix is right *and* raises the price of skipping the
+  conversion. Both facts are executed as tests rather than asserted in
+  prose.
+
+  The module header now carries the magnitude too — "the caller is
+  responsible" is not one — and Rybacki is added to its references,
+  noting it stands in for the paywalled SPE 115258.
+
 ### Fixed
 - **⚠ `brittleness_index_rickman` output changes.** The Rickman
   normalisation bounds were **1.450× too high on both ends** —
