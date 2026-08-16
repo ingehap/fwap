@@ -95,6 +95,119 @@ reason: they were placed by matching values into slots, which passes
 equally well with the two names exchanged, and they were in fact
 exchanged relative to their numbering for some time.
 
+## Oracle inventory II — outside the solver (W1)
+
+The P3 table covers the cylindrical solver. This one covers everything
+else, and it was written because the accounting is lopsided in a way no
+coverage number shows. All 48 digitised reference curves are borehole
+dispersion papers — Sinha & Asvadurov, Schmitt & Cheng, Tubman, Claro,
+Ellefsen, Yang & Lv, Paillet — and **694 of the 699 figure references
+in the test suite sit in solver modules**; the other five are in
+`test_validation.py`, which tests the reference-curve *loader*. The
+other ~14,000 lines of `fwap/` carry 6 literature citations across
+their 424 tests, while their *source* carries dozens — Eaton, Bowers,
+Lacy, Rickman, Gassmann, Tang & Cheng, Kimball, Tarantola. Published
+methods implemented, then checked against themselves.
+
+Coverage does not see this. The package sits at 96.10 % and
+`geomechanics/vertical.py` at 100 %; every one of those tests runs the
+line it covers.
+
+**The non-solver half is two different oracle problems, not one.**
+
+### Group A — the processing chain: a strong oracle exists and is barely used
+
+| module | oracle | strength | round-trip / known-value tests |
+|---|---|---|---|
+| `dispersion.py` (Kimball 1998, Sinha & Kostek) | planted dispersion curve → `synthetic` waveforms → recover it | **strong, internal** | 2 / 21 |
+| `coherence.py` (Kimball & Marzetta, Neidell & Taner) | planted slowness in a synthetic gather | strong, internal | 1 / 9 |
+| `wavesep.py` (Yilmaz) | planted separable wavefields | strong, internal | 2 / 15 |
+| `tomography.py` (Coppens & Mari, Tarantola) | planted slowness field → forward → invert | strong, internal | 3 / 21 |
+| `picker/*` | planted arrivals | strong, internal | 6 / 94 |
+| `lwd.py` (Tang & Cheng) | reduction to the solver's collar-free case | strong, internal | 3 / 18 |
+| `attenuation.py` (Quan & Harris) | planted `Q` → synthetic → recover | strong, internal | 2 / 6 |
+
+**19 of 184.** These modules invert something, so planted truth is
+available, cheap, and decisive — and `fwap` can already generate the
+inputs, because the solver produces the dispersion curves and
+`synthetic.py` the waveforms. The remaining 165 tests are endpoints,
+monotonicity, broadcasting and input rejection. Nothing here is
+blocked; the oracle is sitting unused.
+
+### Group B — empirical correlations: no round-trip exists at all
+
+| module | oracle | strength |
+|---|---|---|
+| `rockphysics.py` (Gassmann 1951, Biot 1956) | exact closed-form limits: dry rock, fluid = mineral, Voigt = Reuss at one phase | **identity only** — real but weak |
+| `geomechanics/vertical.py` (Hubbert & Willis 1957) | closed-form fracture-initiation limit | identity only |
+| `geomechanics/pressures.py` (Eaton 1975, Bowers 1995) | published basin calibrations; *unconfirmed* whether a checkable worked curve is reachable | **gap** |
+| `geomechanics/indices.py` (Rickman 2008, Lacy 1997, Bratli & Risnes) | published tables and correlations; same uncertainty | **gap** |
+| `geomechanics/inclined.py` (Kirsch/Hiramatsu-Oka, Fairhurst) | analytic stress solution at the wall | reachable, unused |
+| `stoneley.py` (Tang & Cheng, Winkler & Plumb) | its *input* dispersion inherits the solver's external tie; the permeability step does not | partial |
+
+**15 of 191.** These are forward correlations: there is nothing to
+invert, so the Group A technique does not transfer. Either a published
+worked number is reachable or there is no oracle — and **which of those
+holds is exactly what W1 must establish before any test is written.**
+This is the A.11 lesson: phases 4-5 built a validated determinant for a
+window that turned out to contain no mode, because nobody drew the
+table first.
+
+### What the survey already turned up
+
+**A live defect, on the first module looked at.** The Rickman
+brittleness bounds in `geomechanics/indices.py` state their own
+premise — *"the original paper uses 1-8 Mpsi for E … converted at
+1 Mpsi = 6.8948 GPa"* — and then do not perform the conversion. That
+factor gives 6.895e9 and 5.516e10 Pa. The shipped values are `1.0e10`
+and `8.0e10`: the paper's **numerals** with "Mpsi" swapped for
+"1e10 Pa". Both bounds are 1.450x high, the same factor on each, which
+is the tell that it is a units slip and not a recalibration.
+
+Nothing in the suite could have caught it. The constants are
+self-consistent; `brittleness_index` is monotone and lands in `[0, 1]`;
+all 110 geomechanics tests pass; and the trailing comments
+(`# ~1.45 Mpsi`, `# ~11.6 Mpsi`) correctly describe the **wrong**
+values — someone computed what the constants are without noticing they
+contradict the source named two lines above. Only checking a number
+against the citation printed beside it fails here, and that is the one
+check the non-solver half never does.
+
+It is **pinned, not fixed**, per `plans/learning.md`: fixing moves
+every `brittleness_index` output, and which side is wrong depends on
+the paper — if Table 1 really is 1-8 Mpsi the constants are wrong; if
+it is 1.45-11.6 Mpsi the stated premise is. Confirming that is W1 item
+1. `test_the_rickman_bounds_disagree_with_their_own_stated_conversion`
+fails if the constants move, and should be rewritten to assert the
+conversion *holds* once they are corrected.
+
+**Published constants sit in defaults with second-hand provenance.**
+`bowers_A = 14.02` is documented as "a commonly cited SI conversion of
+the Gulf of Mexico shale calibration" — not as a value from Bowers
+(1995). `bowers_B = 0.673`, `unloading_exponent = 3.13`,
+`mudline_velocity = 1524.0` and the Rickman bounds (1-8 Mpsi,
+`nu` 0.15-0.40) are attributed directly. Confirming the first against
+the paper is a W1 task in its own right, and cheaper than any test.
+
+**The strongest external tie outside the solver is off by default.**
+`tests/test_real_data.py` runs against third-party files written by
+other software — including an eight-receiver IODP DSI gather under CC0.
+It is the only thing in the package that can catch a convention the
+readers failed to anticipate, and it skips unless
+`scripts/fetch_real_data.py` has run, which is where the 11 skips in
+every CI run come from. Hermetic CI is the right default; leaving it
+*never* exercised is not the same decision, and it has not been taken
+deliberately.
+
+### Reading order for W1
+
+1. Confirm or refute the Group B oracles, paper by paper. A "none"
+   answer is a result, and it retires the work rather than deferring it.
+2. Spend Group A's cheap round-trips — highest consequence first
+   (`tomography`, `dispersion`), since those feed everything downstream.
+3. Decide what exercises `test_real_data.py`, given CI must stay
+   hermetic.
+
 ## Where things stand
 
 Most of what the original roadmap was written to track has shipped. The book's
