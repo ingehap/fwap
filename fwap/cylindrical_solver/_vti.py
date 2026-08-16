@@ -3114,19 +3114,27 @@ def _modal_row3_at_a_n1_vti(
     ``sigma_rtheta^{(s)}(a) = 0`` (sin sector, dipole order).
     Returns the four post-rescale coefficients in column order
     ``[A | B_qP, C_qSV, D_SH]``. A column is identically zero
-    because the fluid carries no shear; the other three columns
-    all scale linearly with C66 (pure shear stress, no Lame
-    replacement).
+    because the fluid carries no shear.
+
+    ``c66`` is an outer factor on the **qP and qSV** columns, which
+    therefore scale linearly with it (pure shear stress, no Lame
+    replacement). It is *not* an outer factor on the SH column: ``c66``
+    also sets the SH Christoffel root, ``alpha_SH^2 = (c44 k_z^2 -
+    rho omega^2) / c66``, so that column moves with it non-linearly --
+    measured 3.03x for a 2x change where the other two move 2.00x.
+    This docstring claimed all three scaled linearly until A.11
+    phase 6, when `tests/test_stated_conventions.py` executed it.
 
     Parameters
     ----------
     kz, omega : float
         Axial wavenumber and angular frequency.
     c11, c13, c33, c44, c66 : float
-        VTI stiffness tensor entries (Pa). Only ``c66`` enters
-        the matrix entries directly (as the outer factor on every
-        non-zero column); ``c11, c13, c33, c44`` enter indirectly
-        via the Christoffel roots.
+        VTI stiffness tensor entries (Pa). ``c66`` enters the qP and
+        qSV entries directly, as their outer factor; ``c11, c13, c33,
+        c44`` enter only indirectly, via the Christoffel roots.
+        ``c66`` does both -- outer factor on qP / qSV, and the SH
+        root as well.
     rho : float
         Formation density (kg/m^3).
     vf, rho_f : float

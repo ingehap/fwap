@@ -65,6 +65,36 @@ built a validated determinant for a window that turned out to contain
 no mode; A.11 phase 3 opened a regime whose oracle did not exist. Both
 would have been visible here first.
 
+## Stated conventions (P2)
+
+`tests/test_stated_conventions.py` executes the prose claims that a
+numerical test cannot reach: which root is qP, which row is which
+traction, which end of a sorted list is index 0. These are the claims
+this solver gets wrong most quietly, because the code can be right
+while the label is wrong and nothing in a determinant, a residual or a
+dispersion comparison touches a label.
+
+Five such claims were found wrong by hand across A.11-A.13. Writing
+the module found two more, and the instructive part is that **both had
+already survived a hand fix**:
+
+* The substep H.b header in `_bessel.py` said `alpha_qP` was the
+  smaller root, justified by `p < s`. Both halves are backwards. A.11
+  phase 1 corrected the same error in the function docstring 200 lines
+  below and reported it fixed "in two places" — there was a third,
+  because the fix was made by reading and reading cannot fail.
+* `_modal_row3_at_a_n1_vti` claimed all three non-fluid columns "scale
+  linearly with C66". qP and qSV do, exactly. SH does not: `c66` also
+  sets the SH Christoffel root, so that column moves 3.03x for a 2x
+  change.
+
+Where a claim has a plausible opposite — two rows exchanged, a sort
+reversed — the tests check that the opposite is *detectably* wrong, not
+just that the stated version works. The A.12 traction rows are the
+reason: they were placed by matching values into slots, which passes
+equally well with the two names exchanged, and they were in fact
+exchanged relative to their numbering for some time.
+
 ## Where things stand
 
 Most of what the original roadmap was written to track has shipped. The book's

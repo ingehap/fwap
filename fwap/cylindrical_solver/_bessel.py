@@ -369,9 +369,17 @@ def _layered_n0_bessel_pack(
 # the modal-matrix entries in H.c / H.d.
 #
 # The qP / qSV ordering follows substep H.a.3: ``alpha_qP`` is the
-# smaller root (faster wave / smaller decay), ``alpha_qSV`` is the
-# larger root. This convention agrees with the isotropic limit
-# ``alpha_qP -> p < s -> alpha_qSV`` by inspection.
+# LARGER root (faster wave, and therefore *faster* radial decay),
+# ``alpha_qSV`` is the smaller. The isotropic limit is
+# ``alpha_qP -> p > s -> alpha_qSV``, since ``V_P > V_S`` makes
+# ``k_z^2 - (omega/V_P)^2`` the larger of the two.
+#
+# This block said the exact opposite -- both the ordering and the
+# ``p < s`` that was offered as its justification -- until A.11
+# phase 6, two phases after the same error was corrected in the
+# function docstring below. The fix then was made by reading, and
+# reading missed a third copy 200 lines up. What catches it is
+# `tests/test_stated_conventions.py`, which executes the claim.
 #
 # Out-of-regime behaviour: NaN is returned for any of the three
 # decay rates whose square would be negative. Matches the F.1 /

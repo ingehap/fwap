@@ -6,7 +6,44 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **Two false convention claims in docstrings**, found by executing
+  them (`tests/test_stated_conventions.py`).
+
+  The substep H.b header in `_bessel.py` said `alpha_qP` was the
+  *smaller* Christoffel root and offered `alpha_qP -> p < s ->
+  alpha_qSV` as the reason. Both halves are backwards — `V_P > V_S`
+  makes `k_z^2 - (omega/V_P)^2` the larger — and the code has always
+  taken `max`. The same error was corrected in the function docstring
+  200 lines below during A.11 phase 1 and reported fixed "in two
+  places"; this was a third copy, missed because that fix was made by
+  reading.
+
+  `_modal_row3_at_a_n1_vti` said its three non-fluid columns "all
+  scale linearly with C66". qP and qSV do, exactly. SH does not:
+  `c66` also sets the SH Christoffel root `alpha_SH^2 = (c44 k_z^2 -
+  rho omega^2) / c66`, so that column moves 3.03x for a 2x change.
+
 ### Added
+- **Conventions executed rather than read**
+  (`tests/test_stated_conventions.py`). Ordering and direction claims
+  — which root is qP, which row is `sigma_rz`, which end of a sorted
+  list is index 0 — can be false while every numerical test passes,
+  because the code is right and only the label is wrong. Ten tests,
+  each quoting one stated claim and its location: the qP/qSV ordering
+  and the isotropic-limit inequality behind it; the SH column's exact
+  zero in `u_z`; the A.12 traction rows checked against the
+  constitutive law by finite difference rather than against their
+  numbering; the shear rows' identically-zero fluid column; the `c66`
+  scaling above; the cased state-vector row order, which exchanges
+  `u_z` and `u_theta` relative to the displacement helper; leaky `n=0`
+  roots fundamental-first; `_microannulus_stable_roots` fastest-first;
+  and reference curves sorted by frequency on load.
+
+  Where a claim has a plausible opposite, the tests assert the
+  opposite is *detectably* wrong — a test that only confirms the code
+  works does not pin which of two labels belongs to it.
+
 - **A shared root-counting instrument, and root-identity tests that use
   it** (`tests/_root_identity.py`). The solver's characteristic failure
   is a *real* root, sharp to 1e-13, that is the wrong one — a
