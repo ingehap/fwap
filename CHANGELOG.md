@@ -6,7 +6,43 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **`phase_slowness_from_f_k`'s `spatial_unwrap` validity bound named
+  the wrong length scale.** It said the method fails "above roughly
+  `1 / (2 * aperture * s)` Hz". The onset is `1 / (2 * dr * s)`, set by
+  the spacing between adjacent receivers, not by the array's length —
+  5965 Hz rather than 852 for a standard 8 × 6 in array, so the stated
+  bound understated the usable band **sevenfold**.
+
+  The discriminator is holding `dr` fixed and changing `n_rec`, which
+  moves the aperture and not the spacing: from 8 receivers to 4 the
+  aperture bound goes 852 → 1988 Hz and the measured onset does not
+  move at all. Measured onsets track `1 / (2 * dr * s)` to better than
+  0.6 % over `dr` of 0.076–0.305 m. Documentation only — the code was
+  right throughout.
+
 ### Added
+- **Planted-truth round-trips for `tomography` and `dispersion`** (W1
+  group A), and both changed what the inventory claimed.
+
+  *Tomography.* The naive round-trip turns out to be impossible: the
+  intercept-time design matrix is rank-deficient by exactly three at
+  every grid length tested, and sixty columns are never touched at all
+  — a count fixed by the tool geometry, not the log. `mean_delay_zero`
+  removes two of the three. So the pre-existing test's mean-slowness
+  check was not caution; a per-cell assertion would have asserted
+  something the data does not determine. What replaces it: plant a
+  varying profile with **distinct** source and receiver delays, invert
+  unregularised, and split the error against the null space — the
+  identifiable component vanishes to 1.7e-13 of the total, and the
+  nameable delay-swap ambiguity is *exactly* null.
+
+  *Dispersion.* The solver's flexural curve, planted through
+  `_dispersive_arrival` and recovered by `frequency_unwrap`, returns to
+  better than 1e-3 relative across 1.5–6 kHz with 20 % of shape in it.
+  This is the path by which the untied half of the package inherits the
+  solver's published-figure validation, and nothing existing could
+  distinguish a dispersion estimator from one returning the band mean.
 - **An oracle inventory for everything outside the cylindrical solver**
   (`plans/roadmap.md`, "Oracle inventory II — W1"). The accounting is
   lopsided in a way no coverage number shows: all 48 digitised

@@ -398,3 +398,196 @@ def test_altered_zone_estimate_per_depth_thickness_anchor():
     expected_contrast = delay / (2.0 * h)
     assert np.allclose(est.slowness_contrast, expected_contrast)
     assert np.allclose(est.thickness, h)
+
+
+# ----------------------------------------------------------------------
+# W1 group A: what a planted-truth round-trip can and cannot pin here
+#
+# The oracle inventory listed the intercept-time inversion under "planted
+# slowness field -> forward -> invert, strong, internal". Building it
+# showed that the naive form of that -- plant a model, invert, compare --
+# **cannot work**: the design matrix is rank-deficient, so the planted
+# model is not the only one fitting its own data. The tests below
+# establish the deficiency, then use it to state the round-trip in the
+# form that is actually true.
+# ----------------------------------------------------------------------
+
+
+def _intercept_time_geometry(n_depth: int = 80, n_rec: int = 8, dz: float = 0.1524):
+    """A realistic array-sonic acquisition, in the midpoint convention.
+
+    Eight receivers at ``dz`` spacing behind a 3 m transmitter-receiver
+    offset -- the geometry ``_build_synthetic_picks`` uses, assembled
+    directly so the forward model and the design matrix cannot disagree.
+    """
+    z = np.arange(n_depth) * dz
+    offsets = 3.0 + np.arange(n_rec) * dz
+    src, rec, off = [], [], []
+    for j in range(n_depth):
+        for x in offsets:
+            k = int(round((z[j] + x - z[0]) / dz))
+            if 0 <= k < n_depth:
+                src.append(j)
+                rec.append(k)
+                off.append(x)
+    return z, np.array(src), np.array(rec), np.array(off)
+
+
+def _null_dimension(matrix: np.ndarray) -> int:
+    singular = np.linalg.svd(matrix, compute_uv=False)
+    return int((singular < singular.max() * 1.0e-10).sum())
+
+
+def test_the_intercept_time_geometry_is_rank_deficient_by_exactly_three():
+    """The fact that decides what any round-trip here can asserted.
+
+    Two separate things limit it, and they are worth not conflating.
+
+    **Edge cells are never touched.** A source at cell ``j`` sees
+    receivers at ``j + 20`` to ``j + 27``, so the top cells never act as
+    receivers, the bottom cells never as sources, and no midpoint ever
+    lands in either margin. Sixty of the ``3 * n_depth`` columns are
+    identically zero -- and that count does *not* grow with the grid,
+    because it is set by the tool, not the log.
+
+    **What remains is still deficient, by exactly three.** Measured at
+    40, 80, 160 and 320 depth cells: always three, so this is structural
+    rather than a small-problem artefact.
+
+    Together these are why ``test_solve_intercept_time_recovers_
+    background_slowness`` checks only the *mean* slowness. It is not
+    being cautious; a per-cell assertion would be asserting something
+    the data does not determine.
+    """
+    deficiencies = {}
+    for n_depth in (40, 80, 160):
+        z, src, rec, off = _intercept_time_geometry(n_depth)
+        design, _ = build_design_matrix(np.zeros(off.size), off, src, rec, n_depth)
+
+        touched = np.abs(design).sum(axis=0) > 0
+        assert 3 * n_depth - int(touched.sum()) == 60, n_depth
+
+        deficiencies[n_depth] = _null_dimension(design[:, touched])
+
+    assert set(deficiencies.values()) == {3}, deficiencies
+
+
+def test_the_constant_delay_swap_is_exactly_null():
+    """The ambiguity that is nameable, and it is exact.
+
+    Every observation reads ``S[mid] * offset + d_src[j] + d_rec[k]``,
+    so adding a constant to one delay block and subtracting it from the
+    other changes no datum at all. Not "to rounding" -- the residual is
+    identically ``0.0``, because the two contributions cancel term by
+    term before any arithmetic on them.
+
+    An inversion that reported source and receiver delays without a
+    constraint pinning this would be reporting an arbitrary split.
+    """
+    n_depth = 80
+    _, src, rec, off = _intercept_time_geometry(n_depth)
+    design, _ = build_design_matrix(np.zeros(off.size), off, src, rec, n_depth)
+
+    swap = np.zeros(3 * n_depth)
+    swap[n_depth : 2 * n_depth] = 1.0
+    swap[2 * n_depth :] = -1.0
+
+    assert np.abs(design @ swap).max() == 0.0
+
+
+def test_mean_delay_zero_removes_two_of_the_three_ambiguities():
+    """How much the constraint buys, measured rather than assumed.
+
+    ``mean_delay_zero=True`` adds two rows -- each delay block sums to
+    zero. It removes the constant swap above *and* one more, taking the
+    deficiency from three to **one**.
+
+    The surviving direction is the reason regularisation is not
+    optional in this solver, and the reason the round-trip below has to
+    be stated modulo a null space rather than as an equality.
+    """
+    n_depth = 80
+    _, src, rec, off = _intercept_time_geometry(n_depth)
+    design, _ = build_design_matrix(np.zeros(off.size), off, src, rec, n_depth)
+    touched = np.abs(design).sum(axis=0) > 0
+
+    constraints = np.zeros((2, 3 * n_depth))
+    constraints[0, n_depth : 2 * n_depth] = 1.0
+    constraints[1, 2 * n_depth :] = 1.0
+
+    plain = _null_dimension(design[:, touched])
+    constrained = _null_dimension(
+        np.vstack([design[:, touched], constraints[:, touched]])
+    )
+
+    assert plain == 3
+    assert constrained == 1
+
+
+def test_the_planted_model_is_recovered_in_every_identifiable_direction():
+    """The round-trip, in the form that is true.
+
+    Plant a depth-varying slowness profile and **distinct** source and
+    receiver delays, forward-model them exactly, invert with no
+    regularisation, and split the error against the null space. The
+    component the data can determine must vanish to machine precision;
+    the rest is the null space and is not a defect.
+
+    Measured: ``|error| = 2.06e-04``, of which ``3.5e-17`` lies outside
+    the null space -- a ratio of 1.7e-13. That is a far sharper
+    statement than "the mean slowness is within 2 %", and it is the
+    strongest oracle this method admits.
+
+    **The delays are deliberately different from each other.** The
+    existing ``_build_synthetic_picks`` adds the *same* array at the
+    source and the receiver, so a solver that swapped the two blocks
+    would reproduce its data exactly. The last assertion here fails on
+    that swap.
+    """
+    n_depth = 80
+    z, src, rec, off = _intercept_time_geometry(n_depth)
+    design, _ = build_design_matrix(np.zeros(off.size), off, src, rec, n_depth)
+    touched = np.where(np.abs(design).sum(axis=0) > 0)[0]
+
+    span = np.ptp(z)
+    slowness = (1.0 / 4500.0) * (
+        1.0 + 0.12 * np.exp(-0.5 * ((z - z.mean()) / (6 * 0.1524)) ** 2)
+    )
+    delay_src = 1.5e-5 * np.sin(2.0 * np.pi * z / span)
+    delay_rec = 9.0e-6 * np.cos(3.0 * np.pi * z / span)
+    delay_src -= delay_src.mean()
+    delay_rec -= delay_rec.mean()
+    planted = np.concatenate([slowness, delay_src, delay_rec])
+
+    observed = design @ planted
+    result = solve_intercept_time(
+        observed,
+        off,
+        src,
+        rec,
+        n_depth,
+        depth_axis=z,
+        mean_delay_zero=True,
+        smooth_s=0.0,
+        smooth_src=0.0,
+        smooth_rec=0.0,
+        delay_l2=0.0,
+        method="midpoint",
+    )
+    recovered = np.nan_to_num(
+        np.concatenate([result.slowness, result.delay_src, result.delay_rec])
+    )
+
+    assert result.rms_residual < 1.0e-12
+
+    error = (recovered - planted)[touched]
+    _, singular, right = np.linalg.svd(design[:, touched], full_matrices=False)
+    null = right[singular < singular.max() * 1.0e-10]
+    identifiable = error - null.T @ (null @ error)
+
+    assert np.linalg.norm(identifiable) / np.linalg.norm(error) < 1.0e-10
+
+    # The two delay blocks are distinguishable, so a solver that
+    # exchanged them could not fit this data.
+    swapped = np.concatenate([slowness, delay_rec, delay_src])
+    assert np.abs(design @ swapped - observed).max() > 1.0e-6
