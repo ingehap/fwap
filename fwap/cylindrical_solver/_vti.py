@@ -2335,6 +2335,115 @@ def _modal_determinant_n1_cased_vti_complex(
     )
 
 
+def _fill_slow_cased_leaky_n1_vti(
+    freq: np.ndarray,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    vf: float,
+    rho_f: float,
+    a: float,
+    layers: tuple[BoreholeLayer, ...],
+) -> tuple[np.ndarray, np.ndarray] | None:
+    r"""
+    Follow the slow-formation leaky cased dipole branch, VTI formation.
+
+    The A.12 driver, and a mirror of the isotropic
+    ``_fill_slow_cased_leaky_n1`` rather than a second search: it
+    builds the same determinant closure, applies the same
+    ``_detect_leaky_branches`` classification, and hands both to the
+    shared ``_march_leaky_cased_branch``, so the VTI and isotropic
+    branches cannot drift apart in seeding, stepping or the
+    degeneracy exclusions.
+
+    Only the formation differs -- the determinant is
+    :func:`_modal_determinant_n1_cased_vti_complex`, whose formation
+    half-space carries qP / qSV / SH columns with radiating branches
+    while everything inside ``r = b`` stays isotropic.
+
+    The window is A.9's: above ``V_Sv``, where the mode radiates shear
+    into the formation, and below ``min(V_f, min layer V_S)``, which is
+    the ceiling the fluid treatment imposes rather than a physical
+    edge. Returns ``None`` when the formation is not slow, since then
+    there is no leaky branch of this kind to follow.
+
+    Parameters
+    ----------
+    freq : ndarray, shape (n_f,)
+        Frequency grid (Hz), strictly positive.
+    c11, c13, c33, c44, c66 : float
+        Formation VTI stiffnesses (Pa). The relevant speeds are
+        ``V_Sv = sqrt(C44 / rho)`` and ``V_P0 = sqrt(C33 / rho)``.
+    rho : float
+        Formation density (kg / m^3).
+    vf, rho_f : float
+        Borehole-fluid velocity (m / s) and density (kg / m^3).
+    a : float
+        Borehole radius (m).
+    layers : tuple of BoreholeLayer
+        Casing and annulus, innermost first. At least one is required.
+
+    Returns
+    -------
+    tuple of ndarray, or None
+        ``(slowness, attenuation_per_meter)`` in s/m and 1/m, NaN where
+        the branch was not found; ``None`` when the configuration
+        admits no such branch.
+
+    Notes
+    -----
+    A.9's ceiling applies unchanged: between roughly 3 and 13 kHz the
+    branch can sit above ``V_f``, outside the window searched here, and
+    no amount of seeding reaches it. Raising it needs the fluid field
+    handled as oscillatory rather than evanescent, which is isotropic
+    work this inherits rather than adds.
+    """
+    from fwap.cylindrical_solver._leaky import (
+        _detect_leaky_branches,
+        _march_leaky_cased_branch,
+    )
+
+    if not layers:
+        return None
+    v_sv = float(np.sqrt(c44 / rho))
+    v_p0 = float(np.sqrt(c33 / rho))
+    ceiling = min(vf, min(layer.vs for layer in layers))
+    if not ceiling > v_sv:
+        return None
+
+    def _det(kz: complex, omega: float) -> complex:
+        # Classified on the vertical speeds: qSV radiates where the
+        # trial velocity is above V_Sv, qP where it is above V_P0.
+        _, leaky_p, leaky_s = _detect_leaky_branches(kz, omega, v_p0, v_sv, vf)
+        return _modal_determinant_n1_cased_vti_complex(
+            kz,
+            omega,
+            c11=c11,
+            c13=c13,
+            c33=c33,
+            c44=c44,
+            c66=c66,
+            rho=rho,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
+            layers=layers,
+            radiating=(leaky_p, leaky_s, leaky_s),
+        )
+
+    return _march_leaky_cased_branch(
+        _det,
+        freq,
+        vs=v_sv,
+        ceiling=ceiling,
+        exclude=tuple(layer.vs for layer in layers),
+    )
+
+
 def _fluid_bessels_n1_vti(
     kz: complex,
     omega: float,

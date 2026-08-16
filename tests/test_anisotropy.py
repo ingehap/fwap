@@ -3532,3 +3532,129 @@ def test_the_cased_formation_block_rejects_a_wrong_shape():
             layers=layers,
             formation_block=np.zeros((3, 6), dtype=complex),
         )
+
+
+def test_the_cased_vti_driver_reproduces_the_isotropic_driver():
+    """The strongest check on the driver: same branch, same numbers.
+
+    `_fill_slow_cased_leaky_n1_vti` mirrors the isotropic
+    ``_fill_slow_cased_leaky_n1`` -- same determinant closure shape,
+    same `_detect_leaky_branches` classification, same shared
+    `_march_leaky_cased_branch` -- so at isotropic stiffnesses it must
+    return the isotropic branch, seeding and stepping included.
+    """
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+    from fwap.cylindrical_solver._n1_layered import _fill_slow_cased_leaky_n1
+    from fwap.cylindrical_solver._vti import _fill_slow_cased_leaky_n1_vti
+
+    layers = (
+        BoreholeLayer(vp=5900.0, vs=3200.0, rho=7850.0, thickness=0.01),
+        BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02),
+    )
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+    freq = np.arange(3000.0, 15001.0, 2000.0)
+
+    vp, vs, rho = 2500.0, 800.0, 2200.0
+    c44, c11 = rho * vs * vs, rho * vp * vp
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+
+    mine = _fill_slow_cased_leaky_n1_vti(freq, **iso, **fluid, layers=layers)
+    assert mine is not None
+    mine_slowness, mine_attenuation = np.asarray(mine[0]), np.asarray(mine[1])
+
+    # The isotropic driver fills its ``slowness`` argument **in place**
+    # and returns the attenuation, so both have to be read out.
+    theirs_slowness = np.full(freq.shape, np.nan)
+    theirs_attenuation = _fill_slow_cased_leaky_n1(
+        theirs_slowness,
+        freq,
+        vp=vp,
+        vs=vs,
+        rho=rho,
+        **fluid,
+        layers=layers,
+    )
+    assert theirs_attenuation is not None
+
+    for mine_side, theirs_side, label in (
+        (mine_slowness, theirs_slowness, "slowness"),
+        (mine_attenuation, np.asarray(theirs_attenuation), "attenuation"),
+    ):
+        both = np.isfinite(mine_side) & np.isfinite(theirs_side)
+        assert both.sum() >= 4, (label, mine_side, theirs_side)
+        rel = np.abs(mine_side[both] - theirs_side[both]) / np.maximum(
+            np.abs(theirs_side[both]), 1e-300
+        )
+        assert rel.max() < 1e-9, (label, rel.max())
+
+
+def test_the_cased_vti_branch_lands_inside_the_predicted_bracket():
+    """The payoff, against a prediction made before the solver existed.
+
+    A.12 bracketed where a VTI answer must fall by running the
+    isotropic cased solver at ``V_Sv`` and again at ``V_Sh``, and put
+    the spread at +1.6 % to +8.9 %. The branch computed with a genuine
+    VTI formation lands inside that bracket at 13 of 14 points across
+    two Thomsen media, with a physically sensible attenuation that
+    falls with frequency.
+
+    **The bracket is a heuristic, not a bound**, which the one
+    excursion illustrates: it varies only the shear speeds, while
+    anisotropy also moves ``C11``, ``C13`` and ``C33`` through
+    ``epsilon`` and ``delta``. Pierre at 3 kHz sits 0.55 % below the
+    ``V_Sv`` end -- the lowest frequency, where the mode reaches
+    deepest into the formation and the P-wave anisotropy the bracket
+    ignores matters most. Treated as a sanity envelope, not a test of
+    correctness; the isotropic-limit test above is what pins the
+    numbers.
+    """
+    from fwap import flexural_dispersion_layered
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+    from fwap.cylindrical_solver._vti import _fill_slow_cased_leaky_n1_vti
+
+    layers = (
+        BoreholeLayer(vp=5900.0, vs=3200.0, rho=7850.0, thickness=0.01),
+        BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02),
+    )
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+    freq = np.arange(3000.0, 15001.0, 2000.0)
+
+    inside_total, points_total = 0, 0
+    for name in ("Pierre shale", "Dog Creek shale"):
+        vp0, vs0, rho, _, _, gamma = _THOMSEN_TABLE_1[name]
+        s = _thomsen_stiffness(_THOMSEN_TABLE_1[name])
+        v_sh = vs0 * np.sqrt(1.0 + 2.0 * gamma)
+
+        result = _fill_slow_cased_leaky_n1_vti(freq, **s, **fluid, layers=layers)
+        assert result is not None, name
+        slowness, attenuation = np.asarray(result[0]), np.asarray(result[1])
+        live = np.isfinite(slowness)
+        assert live.sum() >= 6, (name, slowness)
+        speeds = 1.0 / slowness[live]
+
+        # Leaky: above V_Sv, and losing energy.
+        assert (speeds > vs0).all(), (name, speeds, vs0)
+        assert (attenuation[live] > 0.0).all(), (name, attenuation)
+        assert attenuation[live][0] > attenuation[live][-1], name
+
+        low = 1.0 / np.asarray(
+            flexural_dispersion_layered(
+                freq, vp=vp0, vs=vs0, rho=rho, **fluid, layers=layers
+            ).slowness
+        )
+        high = 1.0 / np.asarray(
+            flexural_dispersion_layered(
+                freq, vp=vp0, vs=v_sh, rho=rho, **fluid, layers=layers
+            ).slowness
+        )
+        inside = (speeds >= low[live] - 1e-6) & (speeds <= high[live] + 1e-6)
+        inside_total += int(inside.sum())
+        points_total += int(live.sum())
+        # Never far outside, even where it steps out.
+        excursion = np.maximum(
+            (low[live] - speeds) / low[live], (speeds - high[live]) / high[live]
+        ).max()
+        assert excursion < 0.02, (name, excursion)
+
+    assert points_total >= 13, points_total
+    assert inside_total >= points_total - 1, (inside_total, points_total)

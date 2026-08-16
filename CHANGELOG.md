@@ -81,8 +81,25 @@ the project uses [Semantic Versioning](https://semver.org/).
   up to 1.0 and `leaky_s` active, `max |ratio - 1| = 2.9e-14` against
   the isotropic determinant.
 
-  **Still no driver** — seeding, marching and continuation are not
-  written, so there is no cased VTI dispersion curve.
+- **`_fill_slow_cased_leaky_n1_vti`** — the driver, and with it the
+  first cased VTI leaky dipole dispersion curve. It mirrors the
+  isotropic `_fill_slow_cased_leaky_n1` rather than being a second
+  search: same determinant closure, same `_detect_leaky_branches`
+  classification, same shared `_march_leaky_cased_branch`, so the two
+  branches cannot drift apart in seeding, stepping or degeneracy
+  exclusions. At isotropic stiffnesses it reproduces the isotropic
+  branch to <1e-9 in both slowness and attenuation.
+
+  It lands inside the envelope predicted before the solver existed —
+  the isotropic cased solver run at `V_Sv` and at `V_Sh` — at 13 of 14
+  points across Pierre and Dog Creek over 3-15 kHz, with attenuation
+  falling 2.8 → 0.82 /m. That envelope is a heuristic, not a bound: it
+  varies only the shear speeds while anisotropy also moves `C11`,
+  `C13`, `C33`, and Pierre at 3 kHz sits 0.55 % below its `V_Sv` end.
+
+  A.9's ceiling is inherited unchanged: a branch above `V_f` between
+  roughly 3 and 13 kHz is outside the searched window. The driver is
+  private; no public entry point is exposed yet.
 
 ### Added
 - **Groundwork for a cased VTI solver** (roadmap A.12), measured rather
