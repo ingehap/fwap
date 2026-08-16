@@ -215,3 +215,58 @@ def test_stc_is_scale_invariant_across_the_float_range():
         assert scaled.amplitude / scale == pytest.approx(
             reference.amplitude, rel=1.0e-9
         ), scale
+
+
+# ----------------------------------------------------------------------
+# W1 group A: all the planted modes, not one of them
+# ----------------------------------------------------------------------
+
+
+def test_stc_recovers_every_planted_slowness_on_a_three_mode_gather():
+    """``test_stc_peak_at_formation_p_slowness`` plants one mode.
+
+    A gather with three carries information the single-mode case does
+    not: whether the surface resolves them *as three*, and whether each
+    lands on its own slowness rather than on a compromise between
+    neighbours. Planted P, S and Stoneley at 4500 / 2600 / 1450 m/s are
+    each recovered to **better than 0.2 %**.
+
+    The peak list is also checked to hold no fourth slowness above
+    threshold. A slant stack smears every arrival across neighbouring
+    slownesses, so "found the three" is only meaningful alongside
+    "and invented no others".
+    """
+    from fwap.synthetic import ArrayGeometry, Mode, synthesize_gather
+
+    geom = ArrayGeometry(n_rec=8, tr_offset=3.0, dr=0.1524, dt=1.0e-5, n_samples=2048)
+    planted = {"P": 1.0 / 4500.0, "S": 1.0 / 2600.0, "Stoneley": 1.0 / 1450.0}
+    modes = [
+        Mode(name=name, slowness=slow, intercept=t0, f0=10000.0, amplitude=1.0)
+        for (name, slow), t0 in zip(planted.items(), (2.0e-4, 4.0e-4, 7.0e-4))
+    ]
+    data = synthesize_gather(geom, modes, noise=0.0, seed=0)
+
+    result = stc(
+        data,
+        geom.dt,
+        geom.offsets,
+        slowness_range=(100.0e-6, 800.0e-6),
+        n_slowness=351,
+        window_length=4.0e-4,
+    )
+    peaks = find_peaks(result, threshold=0.4)
+
+    for name, truth in planted.items():
+        nearest = peaks[np.argmin(np.abs(peaks[:, 0] - truth))]
+        assert abs(nearest[0] - truth) / truth < 2.0e-3, (name, nearest[0], truth)
+
+    # Distinct slownesses among the peaks, to the grid's own resolution.
+    grid_step = (800.0e-6 - 100.0e-6) / 350.0
+    distinct = []
+    for slow in np.sort(peaks[:, 0]):
+        if not distinct or slow - distinct[-1] > 5.0 * grid_step:
+            distinct.append(slow)
+    assert len(distinct) == 3, distinct
+
+    # `find_peaks` documents "sorted by descending coherence".
+    assert np.all(np.diff(peaks[:, 2]) <= 1.0e-12)

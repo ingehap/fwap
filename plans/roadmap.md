@@ -169,6 +169,57 @@ and dropping `n_rec` from 8 to 4 moves the aperture bound 852 → 1988 Hz
 and the measured onset not at all. Corrected in place; no behaviour
 change, the code was right throughout.
 
+**The rest of group A, and the 19/184 count turns out to be a poor
+proxy.** Three modules had real gaps and now have round-trips; two
+already had them, and manufacturing more would have been counting
+rather than testing.
+
+*`attenuation` — the accuracy claim attributes the error to the wrong
+thing.* The existing test allows a factor of two and blames "the
+non-Gaussianity of the Ricker source spectrum and the finite window
+length". Remove both — plant a source whose spectrum *is* Gaussian, use
+a window ten times the pulse — and the error stays: **+8.6 % at Q=25,
++0.3 % at Q=200, −9.1 % at Q=400.** A sign change rules out both stated
+causes, since neither can flip with `Q` on a fixed source. The
+proximate cause is `diagnostic['sigma_f2']`, which reads **1.11–1.13×**
+the planted source variance nearly independently of `Q`, and `Q` is
+proportional to it. Substituting the true variance moves the error to
+the other sign and makes it *grow* with `Q` (−2.5 % at 25, −20 % at
+400) — so the near-zero total around Q ≈ 200 is two systematic effects
+cancelling, not either being small. A validation quoted at one `Q`
+would look excellent and generalise to nothing.
+
+*`coherence`.* The single-mode peak test could not see resolution. A
+three-mode gather recovers P, S and Stoneley each to better than 0.2 %,
+with no fourth slowness invented, and the documented
+descending-coherence ordering executed.
+
+*`wavesep`.* "Isolates each mode" is now a number, in both directions:
+passband 190–260 µs/m gives 0.94 correlation with the planted P and
+0.14 with the Stoneley, degrading monotonically to 0.85 / 0.26 as the
+band widens. The complementary band passes Stoneley at 0.87 and rejects
+P at 0.23. The synthetic is exactly linear (`0.0`), which is what makes
+each pure mode usable as a reference.
+
+*`picker` — one genuine gap out of five entry points.* `viterbi_pick`,
+`viterbi_pick_joint`, `pick_modes` and `track_to_log_curves` already
+had recovery tests. `track_modes` did not, and it is the one whose
+characteristic failure — latching onto a branch and carrying it down
+the log — no per-depth test can see. Planted: `V_P` 4500 → 3200 m/s
+over twelve frames, a 40.6 % slowness change, with Stoneley held flat
+as the control. All three tracked at every depth, max error 0.35 %,
+trend recovered as +40.5 % against +40.6 %, and the flat mode stays
+flat to 0.05 % rather than being dragged by its neighbours.
+
+*`lwd` — already spent.* Its three round-trips cover collar rejection,
+quadrupole stacking and picking, which is its three functions. Nothing
+added.
+
+**The count was the misleading part.** 3/18 looked thin and is in fact
+complete coverage of the entry points; `picker`'s 6/94 looked
+comfortable and had a hole in the middle of it. Count tests by what
+they pin, not by how many there are.
+
 ### Group B — empirical correlations: no round-trip exists at all
 
 | module | oracle | strength |

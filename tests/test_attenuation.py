@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from fwap.attenuation import centroid_frequency_shift_Q, spectral_ratio_Q
 from fwap.synthetic import ArrayGeometry, ricker
@@ -226,3 +227,132 @@ def test_causality_changes_the_recovered_q_materially():
     q_acausal = estimate(acausal, geom_a)
     q_causal = estimate(causal, geom_c)
     assert abs(q_causal / q_acausal - 1.0) > 0.10, (q_acausal, q_causal)
+
+
+# ----------------------------------------------------------------------
+# W1 group A: what the centroid estimator does on its own ideal input
+#
+# `test_centroid_Q_recovers_order_of_magnitude` allows a factor of two
+# and attributes the error to "the non-Gaussianity of the Ricker source
+# spectrum and the finite window length". Both halves of that are
+# testable by removing them: plant a source whose spectrum *is*
+# Gaussian, and use a window ten times the pulse. The error does not go
+# away, so the stated explanation is not the cause.
+# ----------------------------------------------------------------------
+
+
+def _gaussian_source_gather(
+    q_true: float,
+    vp: float = 4000.0,
+    fc0: float = 15000.0,
+    sigma_f: float = 4000.0,
+    t0: float = 2.0e-3,
+    n_samples: int = 8192,
+):
+    """A gather satisfying the centroid method's assumptions exactly.
+
+    The source spectrum is Gaussian -- not Ricker -- and the only thing
+    applied along the array is ``exp(-pi f t / Q)``, which is the
+    constant-``Q`` model the closed form is derived from. For this
+    input ``fc(t) = fc0 - pi sigma_f^2 t / Q`` holds analytically, so a
+    faithful implementation should return ``q_true``.
+    """
+    geom = ArrayGeometry(
+        n_rec=12, tr_offset=3.0, dr=0.1524, dt=1.0e-5, n_samples=n_samples
+    )
+    freqs = np.fft.rfftfreq(n_samples, d=geom.dt)
+    envelope = np.exp(-((freqs - fc0) ** 2) / (2.0 * sigma_f**2))
+    data = np.zeros((geom.n_rec, n_samples))
+    for i, offset in enumerate(geom.offsets):
+        travel = offset / vp
+        spec = (
+            envelope
+            * np.exp(-2j * np.pi * freqs * (t0 + travel))
+            * np.exp(-np.pi * freqs * travel / q_true)
+        )
+        data[i] = np.fft.irfft(spec, n=n_samples)
+    return geom, data, t0, vp, sigma_f
+
+
+def _centroid_on_gaussian(q_true: float, window_length: float = 4.0e-3):
+    geom, data, t0, vp, _ = _gaussian_source_gather(q_true)
+    return centroid_frequency_shift_Q(
+        data,
+        dt=geom.dt,
+        offsets=geom.offsets,
+        slowness=1.0 / vp,
+        window_length=window_length,
+        f_range=(1000.0, 40000.0),
+        pick_intercept=t0,
+    )
+
+
+def test_the_centroid_bias_is_not_the_ricker_and_is_not_the_window():
+    """Remove both stated causes; the error stays.
+
+    With a genuinely Gaussian source and a 4 ms window -- ten times the
+    0.4 ms the other test uses, and long past where the answer stops
+    moving -- the recovered ``Q`` is still wrong, by an amount that
+    depends on ``Q`` and changes sign:
+
+        Q =  25 -> +8.6 %
+        Q =  50 -> +8.2 %
+        Q = 100 -> +5.7 %
+        Q = 200 -> +0.3 %
+        Q = 400 -> -9.1 %
+
+    A sign change rules out both stated explanations. Non-Gaussianity
+    and truncation are one-directional biases on a fixed source; they
+    cannot flip with ``Q`` when the source is held constant.
+
+    Asserted as measured. These are the numbers to re-baseline against
+    if the estimator is ever corrected.
+    """
+    measured = {25.0: 0.086, 50.0: 0.082, 100.0: 0.057, 200.0: 0.003, 400.0: -0.091}
+    for q_true, expected in measured.items():
+        result = _centroid_on_gaussian(q_true)
+        bias = (result.q - q_true) / q_true
+        assert bias == pytest.approx(expected, abs=0.004), (q_true, bias)
+
+    # And it is converged in window length, so it is not truncation.
+    short = _centroid_on_gaussian(50.0, window_length=4.0e-3)
+    long = _centroid_on_gaussian(50.0, window_length=6.0e-2)
+    assert (long.q - short.q) / short.q == pytest.approx(0.0, abs=0.001)
+
+
+def test_the_variance_estimate_carries_most_of_the_centroid_bias():
+    """Where the error actually enters, since ``Q`` is proportional to it.
+
+    ``Q = -pi sigma_f^2 / slope``, so an error in ``sigma_f^2`` passes
+    straight through. Against a planted source variance of
+    ``4000^2 = 1.6e7``, the estimator reports **1.11 to 1.13 times**
+    that, near enough independent of ``Q`` -- a systematic +12 %.
+
+    Substituting the true variance into the same fitted slope does not
+    fix things, it moves the error to the other side and makes it grow
+    with ``Q``: -2.5 % at 25, -20 % at 400. So there are two systematic
+    effects here of opposite sign, and the near-zero total near
+    ``Q ~ 200`` is them cancelling rather than either being small.
+
+    That is worth stating plainly because a single number quoted from a
+    validation at one ``Q`` would look excellent and generalise to
+    nothing.
+    """
+    planted_variance = 4000.0**2
+
+    ratios, substituted = {}, {}
+    for q_true in (25.0, 50.0, 100.0, 200.0, 400.0):
+        result = _centroid_on_gaussian(q_true)
+        variance = float(result.diagnostic["sigma_f2"])
+        slope = float(result.diagnostic["slope"])
+        ratios[q_true] = variance / planted_variance
+        substituted[q_true] = (-np.pi * planted_variance / slope - q_true) / q_true
+
+    assert all(1.10 < r < 1.14 for r in ratios.values()), ratios
+    assert np.ptp(list(ratios.values())) < 0.02, ratios
+
+    # The residual, with the variance error removed, is one-signed and
+    # grows -- the opposite sense to the total bias above.
+    assert substituted[25.0] == pytest.approx(-0.025, abs=0.01)
+    assert substituted[400.0] == pytest.approx(-0.195, abs=0.02)
+    assert substituted[400.0] < substituted[25.0]
