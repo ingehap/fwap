@@ -29,13 +29,15 @@ both had already survived a hand fix:
   linearly with C66". The qP and qSV columns do. The SH column does
   not, because ``c66`` also sets the SH Christoffel root.
 
-A third was found by the W1 oracle survey, outside the solver: the
-Rickman brittleness bounds in ``fwap/geomechanics/indices.py`` write
-down a unit conversion and then do not perform it. That one is a
-**defect pinned as a defect**, per the house rule in
-``plans/learning.md`` -- fixing it moves a shipped output, so it waits
-on the paper being confirmed. The test below fails if the constants
-move, which is the intended behaviour when someone fixes them.
+A third was found by the W1 oracle survey, outside the solver, and it
+was a live defect rather than a wrong label: the Rickman brittleness
+bounds in ``fwap/geomechanics/indices.py`` wrote down a unit conversion
+and then did not perform it, leaving both bounds 1.450x high. It was
+pinned here per ``plans/learning.md`` while the source was chased, and
+is now fixed -- the test that recorded the discrepancy has been
+replaced by the positive assertion its own docstring called for, which
+lives in ``tests/test_geomechanics.py`` beside the function it
+constrains.
 """
 
 from __future__ import annotations
@@ -354,70 +356,3 @@ def test_reference_curves_are_sorted_by_frequency_on_load(tmp_path):
     # sorted independently.
     assert curve.slowness[0] == pytest.approx(0.00051)
     assert curve.slowness[-1] == pytest.approx(0.00038)
-
-
-# ----------------------------------------------------------------------
-# Units: a stated conversion that was written down and not performed
-# ----------------------------------------------------------------------
-
-
-def test_the_rickman_bounds_disagree_with_their_own_stated_conversion():
-    """``fwap/geomechanics/indices.py``, pinned as a defect.
-
-    The constants carry their own premise:
-
-        "The original paper uses 1-8 Mpsi for E and 0.15-0.40 for nu;
-        converted at 1 Mpsi = 6.8948 GPa."
-
-    Apply that factor to 1 and 8 Mpsi and you get 6.895e9 and 5.516e10
-    Pa. The shipped values are 1.0e10 and 8.0e10 -- the paper's
-    *numerals* with "Mpsi" swapped for "1e10 Pa". The conversion is
-    stated and then not performed, and the bottom of the window is
-    45 % high as a result.
-
-    Nothing else could catch this. The constants are self-consistent,
-    the brittleness index they feed is monotone and lands in [0, 1],
-    every geomechanics test passes, and the trailing comments
-    (``# 1.45 Mpsi``, ``# 11.60 Mpsi``) correctly describe the *wrong*
-    values -- someone computed what the constants are without noticing
-    they contradict the source named two lines above. Only checking a
-    number against the citation beside it fails here.
-
-    **Pinned, not fixed**, per ``plans/learning.md``: "defects found by
-    an oracle should be pinned as defects, not fixed silently". Fixing
-    moves every ``brittleness_index`` output, so it needs Rickman et
-    al. (2008) Table 1 confirmed first -- if the paper is really
-    1-8 Mpsi the constants are wrong; if it is 1.45-11.6 Mpsi the
-    stated premise is. That is a W1 task.
-
-    **When it is fixed this test must fail**, and should then be
-    rewritten to assert the conversion holds rather than that it does
-    not.
-    """
-    from fwap.geomechanics import (
-        RICKMAN_E_MAX_PA,
-        RICKMAN_E_MIN_PA,
-        RICKMAN_NU_MAX,
-        RICKMAN_NU_MIN,
-    )
-
-    pa_per_mpsi = 6.8948e9  # the factor the module states
-
-    # What the module says the paper is, carried through its own factor.
-    assert 1.0 * pa_per_mpsi == pytest.approx(6.895e9, rel=1e-4)
-    assert 8.0 * pa_per_mpsi == pytest.approx(5.516e10, rel=1e-4)
-
-    # What is actually shipped, and by how much it misses.
-    assert RICKMAN_E_MIN_PA == 1.0e10
-    assert RICKMAN_E_MAX_PA == 8.0e10
-    assert RICKMAN_E_MIN_PA / (1.0 * pa_per_mpsi) == pytest.approx(1.450, rel=1e-3)
-    assert RICKMAN_E_MAX_PA / (8.0 * pa_per_mpsi) == pytest.approx(1.450, rel=1e-3)
-
-    # Both bounds are off by the same factor, which is the tell that
-    # this is a units slip and not a recalibration: a deliberate change
-    # of window would not preserve the ratio exactly.
-    assert (RICKMAN_E_MIN_PA / 1.0e10) == (RICKMAN_E_MAX_PA / 8.0e10)
-
-    # Poisson's ratio is dimensionless, needs no conversion, and is
-    # right -- which is why the slip is only in the E pair.
-    assert (RICKMAN_NU_MIN, RICKMAN_NU_MAX) == (0.15, 0.40)

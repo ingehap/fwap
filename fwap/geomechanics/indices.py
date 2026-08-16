@@ -32,29 +32,31 @@ from fwap.rockphysics import ElasticModuli
 
 UCSModel = Literal["lacy_sandstone"]
 
-# Default Rickman normalisation bounds, in SI units.
+# Default Rickman normalisation bounds, in SI units. Rickman et al.
+# (2008) use E in 1-8 Mpsi and nu in 0.15-0.40; converted at
+# 1 Mpsi = 6.894757 GPa.
 #
-# ⚠ **These do not match the conversion stated beside them, and the
-# discrepancy is pinned as a defect rather than fixed** -- see
-# `test_the_rickman_bounds_disagree_with_their_own_stated_conversion`
-# in `tests/test_stated_conventions.py`, and the W1 oracle inventory in
-# `plans/roadmap.md`.
+# **These were wrong until the source was checked**, by a factor of
+# 1.450 on both E bounds. They read 1.0e10 and 8.0e10 -- the paper's
+# *numerals* with "Mpsi" swapped for "1e10 Pa", so the conversion was
+# written down beside them and then not performed. The mistake shipped
+# because everything around it was self-consistent: the index stayed
+# monotone and inside [0, 1], and the trailing comments correctly
+# described the wrong numbers.
 #
-# The stated premise is "the original paper uses 1-8 Mpsi for E,
-# converted at 1 Mpsi = 6.8948 GPa". Applying that factor gives
-# 6.895e9 and 5.516e10 Pa. The values below are 1.0e10 and 8.0e10 --
-# the paper's *numerals* with "Mpsi" replaced by "1e10 Pa", so the
-# conversion was written down and then not performed. In Mpsi they are
-# 1.45 and 11.60, which is what the trailing comments record: someone
-# computed what the constants are without noticing they contradict the
-# source named two lines above.
-#
-# Fixing it moves every `brittleness_index` output, so it needs the
-# paper confirmed first (is Table 1 really 1-8 Mpsi?). That is a W1
-# task. Until then the wrong-but-shipped values stand and the test
-# fails loudly if they change.
-RICKMAN_E_MIN_PA: float = 1.0e10  # 1.45 Mpsi -- see above, not 1 Mpsi
-RICKMAN_E_MAX_PA: float = 8.0e10  # 11.60 Mpsi -- see above, not 8 Mpsi
+# The bounds are confirmed three ways, none of them SPE 115258 itself
+# (paywalled). Rybacki et al. (2016) state them twice, once as
+# "E max = 8 Mpsi (~55 GPa), nu min = 0.15, E min = 1 Mpsi (~7 GPa),
+# nu max = 0.4 (Rickman et al., 2008)" and again as "the limits
+# (E min = 7 GPa, E max = 55 GPa) suggested by Rickman et al. (2008)".
+# Independently, these bounds are the *only* ones that reproduce the
+# widely-quoted linear form ``B = 7.14 E - 200 nu + 72.9`` (E in Mpsi):
+# the E coefficient fixes the span at 7 Mpsi, the nu coefficient fixes
+# it at 0.25, and the constant then fixes ``E_min = 1``. That identity
+# is executed in `test_brittleness_reproduces_the_published_linear_form`
+# -- the first external tie geomechanics has.
+RICKMAN_E_MIN_PA: float = 6.894757e9  # 1 Mpsi
+RICKMAN_E_MAX_PA: float = 5.5158056e10  # 8 Mpsi
 RICKMAN_NU_MIN: float = 0.15
 RICKMAN_NU_MAX: float = 0.40
 
@@ -105,11 +107,11 @@ def brittleness_index_rickman(
         Poisson's ratio (dimensionless).
     e_min_pa, e_max_pa : float
         Normalisation bounds for Young's modulus (Pa). Defaults are
-        :data:`RICKMAN_E_MIN_PA` and :data:`RICKMAN_E_MAX_PA`, which
-        span **1.45 to 11.60 Mpsi** -- *not* the 1-8 Mpsi of Rickman
-        et al. (2008) Table 1 that they are meant to match. The
-        mismatch is a known defect, pinned rather than fixed; see the
-        comment on those constants.
+        :data:`RICKMAN_E_MIN_PA` and :data:`RICKMAN_E_MAX_PA`, the
+        **1 to 8 Mpsi** (6.89 to 55.2 GPa) of Rickman et al. (2008).
+        These were 1.45-11.60 Mpsi until the source was checked -- an
+        unperformed unit conversion, 1.450x on both bounds, which
+        moved every value this function returns.
     nu_min, nu_max : float
         Normalisation bounds for Poisson's ratio. Defaults are
         :data:`RICKMAN_NU_MIN` and :data:`RICKMAN_NU_MAX` (0.15-0.40).
