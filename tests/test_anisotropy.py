@@ -2364,3 +2364,807 @@ def test_the_qsv_column_is_the_qp_column_conjugated_and_scaled():
         checked += 1
     assert checked >= 4, checked
     assert worst < 1e-12, worst
+
+
+# ----------------------------------------------------------------------
+# A.11 phase 4: radiating branches, and the oracle that checks them
+# ----------------------------------------------------------------------
+
+
+def test_the_leaky_window_keeps_the_qp_qsv_pair_separable():
+    """A.11 phase 0 deferred this; the open window makes it answerable.
+
+    Phase 0 measured the branch-exchange region over a scan reaching
+    ``1.6 V_P`` and found ``Re(disc)`` sign changes on three media, but
+    could not say whether they mattered: the window a leaky search
+    visits is ``(V_Sv, V_P0)``, and on two media the solver could not
+    even reach it. It does now, and the pair stays well separated
+    there on all six -- so continuity assignment suffices and no
+    polarisation criterion is needed.
+    """
+    for name, entry in _THOMSEN_TABLE_1.items():
+        s = _thomsen_stiffness(entry)
+        v_sv = np.sqrt(s["c44"] / s["rho"])
+        v_p = np.sqrt(s["c33"] / s["rho"])
+        worst = np.inf
+        for freq in (4000.0, 8000.0, 14000.0):
+            omega = 2.0 * np.pi * freq
+            for c in np.linspace(v_sv * 1.002, v_p * 0.998, 40):
+                for damping in (0.0, 0.3, 0.7, 1.0):
+                    disc = _christoffel_discriminant(omega / c + 1j * damping, omega, s)
+                    scale = abs((s["c11"] + s["c44"]) * s["rho"] * omega**2) ** 2
+                    worst = min(worst, abs(disc) / scale)
+        assert worst > 1e-6, (name, worst)
+
+
+def test_the_radiating_branch_is_per_wave_and_does_not_reorder_the_pair():
+    """qP and qSV share a quadratic but not a sheet.
+
+    Over ``V_Sv < c < V_P`` the qSV wave radiates while qP is still
+    evanescent -- the ordinary leaky configuration -- so the flags must
+    be independent. And the labelling must survive it: ``alpha_qP`` is
+    the larger ``alpha^2``, which in this window means the *positive*
+    square even though the other root has the larger ``|alpha|``.
+    Ordering on ``alpha`` instead silently swaps the two waves, which
+    is what this did until phase 4 reached the window.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti_complex
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Green River shale"])
+    v_sv = np.sqrt(s["c44"] / s["rho"])
+    omega = 2.0 * np.pi * 8000.0
+
+    for c in (1200.0, 1600.0, 1900.0, 2200.0, 2600.0, 3000.0, 3200.0):
+        leaky = c > v_sv
+        qp, qsv, sh = _radial_wavenumbers_vti_complex(
+            omega / c, omega, **s, radiating=(False, leaky, leaky)
+        )
+        assert (qp**2).real >= (qsv**2).real - 1e-6, (c, qp, qsv)
+        if leaky:
+            assert qsv.imag > 0.0, (c, qsv)
+            assert abs(qp.imag) < 1e-12, (c, qp)
+
+    # Flagging one wave leaves the others exactly alone.
+    for c in (2200.0, 3000.0):
+        base = _radial_wavenumbers_vti_complex(omega / c, omega, **s)
+        split = _radial_wavenumbers_vti_complex(
+            omega / c, omega, **s, radiating=(False, True, False)
+        )
+        assert base[0] == split[0], (c, base[0], split[0])
+        assert base[2] == split[2], (c, base[2], split[2])
+
+
+def test_the_leaky_vti_determinant_reproduces_the_isotropic_one():
+    """The oracle for phase 4, and it is a real one.
+
+    Unlike the conjugate regime -- which the isotropic limit cannot
+    reach at all -- the *leaky* regime is reachable isotropically, so
+    the VTI determinant with radiating branches can be checked against
+    `_modal_determinant_n1_complex`, an independent implementation.
+
+    They agree exactly, up to the recombination's own Jacobian: the
+    column change of basis scales the determinant by ``-1/(split k_z)``
+    with ``split = alpha_qP - alpha_qSV``, which is non-vanishing here
+    and so moves no root. Dividing it out leaves a ratio of exactly
+    ``-1`` at every sampled velocity.
+
+    This test caught two real errors while being written: the branch
+    flags were mapped in the wrong order (`_detect_leaky_branches`
+    returns ``(leaky_F, leaky_p, leaky_s)`` -- fluid first), and the
+    qP/qSV labels were swapping above ``V_Sv``.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti_complex
+    from fwap.cylindrical_solver._leaky import _detect_leaky_branches
+    from fwap.cylindrical_solver._n1_isotropic import (
+        _modal_determinant_n1_complex,
+    )
+    from fwap.cylindrical_solver._vti import _modal_matrix_n1_vti
+
+    vp, vs, rho = 3658.0, 2032.0, 2350.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.10
+    c44, c11 = rho * vs * vs, rho * vp * vp
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+    omega = 2.0 * np.pi * 9000.0
+
+    ratios = []
+    for c in (2200.0, 2500.0, 2800.0, 3100.0, 3400.0, 3600.0):
+        kz = complex(omega / c)
+        _, leaky_p, leaky_s = _detect_leaky_branches(kz, omega, vp, vs, vf)
+        assert (leaky_p, leaky_s) == (False, True), (c, leaky_p, leaky_s)
+        qp, qsv, _ = _radial_wavenumbers_vti_complex(
+            kz, omega, **iso, radiating=(leaky_p, leaky_s, leaky_s)
+        )
+        matrix = _modal_matrix_n1_vti(
+            kz.real,
+            omega,
+            **iso,
+            vf=vf,
+            rho_f=rho_f,
+            a=a,
+            radiating=(leaky_p, leaky_s, leaky_s),
+        )
+        vti = complex(np.linalg.det(matrix))
+        isotropic = complex(
+            _modal_determinant_n1_complex(
+                kz,
+                omega,
+                vp=vp,
+                vs=vs,
+                rho=rho,
+                vf=vf,
+                rho_f=rho_f,
+                a=a,
+                leaky_p=leaky_p,
+                leaky_s=leaky_s,
+            )
+        )
+        ratios.append(vti / isotropic * (qp - qsv) * kz)
+
+    adjusted = np.array(ratios)
+    assert np.allclose(adjusted, -1.0, rtol=1e-9, atol=1e-9), adjusted
+
+
+def test_a_complex_kz_is_refused_only_when_no_wave_radiates():
+    """The refusal narrowed rather than disappeared.
+
+    This used to reject every complex ``k_z``, naming the fluid column
+    as the gap. The fluid column now takes one, so what is left is the
+    genuinely meaningless case: a complex ``k_z`` with every wave on
+    the bound branch describes a field that decays in ``r`` and grows
+    along ``z``, which is not a mode. That is still refused, and
+    saying which waves radiate is what makes the call well posed.
+    """
+    import pytest
+
+    from fwap.cylindrical_solver._vti import _modal_matrix_n1_vti
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Green River shale"])
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+    omega = 2.0 * np.pi * 8000.0
+
+    with pytest.raises(NotImplementedError, match="radiating"):
+        _modal_matrix_n1_vti(complex(20.0, 0.3), omega, **s, **fluid)
+
+    # Naming a radiating wave makes it well posed, and it answers.
+    matrix = _modal_matrix_n1_vti(
+        complex(20.0, 0.3), omega, **s, **fluid, radiating=(False, True, True)
+    )
+    assert matrix.shape == (4, 4)
+    assert np.isfinite(matrix).all()
+    assert abs(complex(np.linalg.det(matrix))) > 0.0
+
+    # A real k_z is unaffected either way.
+    bound = _modal_matrix_n1_vti(20.0, omega, **s, **fluid)
+    assert np.isfinite(bound).all()
+
+
+def test_the_fluid_column_needs_no_outgoing_form_and_takes_a_complex_kz():
+    """The fluid was the last blocker, and it wanted a smaller fix.
+
+    "Write the outgoing fluid form" was the wrong framing. The fluid
+    occupies ``0 <= r <= a``, so its condition is regularity at the
+    origin rather than radiation at infinity, and ``I_n`` -- entire for
+    integer ``n`` -- supplies that at any complex argument. All the
+    leaky case needed was for ``F_f^2`` to be allowed to go complex.
+
+    The branch of ``F_f`` does not matter to the modes either: the
+    fluid enters only rows 1 and 2, as ``(F_f I_0 - I_1/a)`` and
+    ``-I_1``, and ``I_0`` is even in its argument while ``I_1`` is odd,
+    so both combinations are odd in ``F_f``. Flipping the branch
+    negates the whole column, and with it the determinant, moving no
+    root.
+    """
+    from scipy import special
+
+    from fwap.cylindrical_solver._vti import _fluid_bessels_n1_vti
+
+    omega, vf, a = 2.0 * np.pi * 9000.0, 1500.0, 0.10
+
+    # The real path is bit-identical to what it was.
+    for c in (900.0, 1200.0, 1499.0, 1501.0, 1800.0, 2400.0):
+        real = _fluid_bessels_n1_vti(omega / c, omega, vf, a)
+        via_complex = _fluid_bessels_n1_vti(complex(omega / c, 0.0), omega, vf, a)
+        assert real == via_complex, (c, real, via_complex)
+
+    for c in (1200.0, 2400.0):
+        for damping in (0.05, 0.5, 1.5):
+            F_f, i0, i1 = _fluid_bessels_n1_vti(
+                complex(omega / c, damping), omega, vf, a
+            )
+            assert np.isfinite(complex(F_f))
+            assert np.isfinite(complex(i0)) and np.isfinite(complex(i1))
+
+            # I_0 even, I_1 odd, so each row entry flips sign with the
+            # branch and the column flips as a whole.
+            i0_flipped = complex(special.iv(0, -F_f * a))
+            i1_flipped = complex(special.iv(1, -F_f * a))
+            assert abs(i0_flipped - i0) < 1e-9 * max(abs(i0), 1.0)
+            assert abs(i1_flipped + i1) < 1e-9 * max(abs(i1), 1.0)
+
+            row1 = F_f * i0 - i1 / a
+            row1_flipped = (-F_f) * i0_flipped - i1_flipped / a
+            assert abs(row1_flipped + row1) < 1e-9 * max(abs(row1), 1.0)
+
+
+def test_the_leaky_vti_determinant_matches_the_isotropic_one_at_complex_kz():
+    """Phase 4's oracle, now over the regime a driver would search.
+
+    The real-``k_z`` version of this test passed while the labelling
+    was still swapping qP and qSV at a complex ``k_z``, so it did not
+    on its own establish the leaky path. This does: over ``c`` in
+    [2200, 3600] and ``Im(k_z)`` in [0, 1.5] the VTI determinant
+    reproduces `_modal_determinant_n1_complex` up to the recombination
+    Jacobian, to ~1e-14.
+
+    It fails at ``3.4`` rather than ``1e-14`` if the qP/qSV ordering
+    reverts to ``|alpha|``: above roughly ``1.2 V_Sv`` the radiating
+    root has the larger magnitude, so the two waves swap.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti_complex
+    from fwap.cylindrical_solver._leaky import _detect_leaky_branches
+    from fwap.cylindrical_solver._n1_isotropic import (
+        _modal_determinant_n1_complex,
+    )
+    from fwap.cylindrical_solver._vti import _modal_matrix_n1_vti
+
+    vp, vs, rho = 3658.0, 2032.0, 2350.0
+    vf, rho_f, a = 1500.0, 1000.0, 0.10
+    c44, c11 = rho * vs * vs, rho * vp * vp
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+    omega = 2.0 * np.pi * 9000.0
+
+    ratios = []
+    for c in (2200.0, 2600.0, 3000.0, 3400.0, 3600.0):
+        for damping in (0.0, 0.02, 0.10, 0.35, 0.80, 1.5):
+            kz = complex(omega / c, damping)
+            _, leaky_p, leaky_s = _detect_leaky_branches(kz, omega, vp, vs, vf)
+            qp, qsv, _ = _radial_wavenumbers_vti_complex(
+                kz, omega, **iso, radiating=(leaky_p, leaky_s, leaky_s)
+            )
+            matrix = _modal_matrix_n1_vti(
+                kz,
+                omega,
+                **iso,
+                vf=vf,
+                rho_f=rho_f,
+                a=a,
+                radiating=(leaky_p, leaky_s, leaky_s),
+            )
+            isotropic = complex(
+                _modal_determinant_n1_complex(
+                    kz,
+                    omega,
+                    vp=vp,
+                    vs=vs,
+                    rho=rho,
+                    vf=vf,
+                    rho_f=rho_f,
+                    a=a,
+                    leaky_p=leaky_p,
+                    leaky_s=leaky_s,
+                )
+            )
+            ratios.append(complex(np.linalg.det(matrix)) / isotropic * (qp - qsv) * kz)
+
+    assert len(ratios) == 30
+    assert np.abs(np.array(ratios) + 1.0).max() < 1e-11, ratios
+
+
+def test_the_qp_qsv_ordering_is_on_the_squares_at_a_complex_kz_too():
+    """The rule is exact, not a heuristic.
+
+    In the isotropic limit ``alpha_p^2 - alpha_s^2`` is
+    ``(omega/V_s)^2 - (omega/V_p)^2`` -- a positive real constant that
+    does not depend on ``k_z`` at all -- so ordering the pair on
+    ``Re(alpha^2)`` labels them correctly for a complex ``k_z`` exactly
+    as for a real one. Ordering on ``|alpha|`` agrees only below about
+    ``1.2 V_Sv``, which is why the real-window tests missed it.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti_complex
+
+    vp, vs, rho = 3658.0, 2032.0, 2350.0
+    c44, c11 = rho * vs * vs, rho * vp * vp
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+    omega = 2.0 * np.pi * 9000.0
+
+    disagreements = 0
+    for c in (2200.0, 2600.0, 3000.0, 3400.0):
+        for damping in (0.02, 0.35, 0.80):
+            kz = complex(omega / c, damping)
+            qp, qsv, _ = _radial_wavenumbers_vti_complex(
+                kz, omega, **iso, radiating=(False, True, True)
+            )
+            p = np.sqrt(complex(kz**2 - (omega / vp) ** 2))
+            if p.real < 0:
+                p = -p
+            s = np.sqrt(complex(kz**2 - (omega / vs) ** 2))
+            if s.imag < 0:
+                s = -s
+            assert abs(qp - p) < 1e-9 * max(abs(p), 1.0), (c, damping, qp, p)
+            assert abs(qsv - s) < 1e-9 * max(abs(s), 1.0), (c, damping, qsv, s)
+            if abs(qp) < abs(qsv):
+                disagreements += 1
+    # The magnitude rule really does disagree over this window -- if it
+    # did not, this test would be vacuous.
+    assert disagreements >= 8, disagreements
+
+
+# ----------------------------------------------------------------------
+# A.11 phase 5: is there a leaky n=1 mode to drive?
+# ----------------------------------------------------------------------
+
+
+def _winding_number(fn, re_lo, re_hi, im_lo, im_hi, n=240):
+    """Roots of ``fn`` inside the rectangle, by the argument principle.
+
+    The loop is closed **before** unwrapping. Unwrapping first and then
+    summing differences around the closed cycle telescopes to exactly
+    zero for any input, which is a bug that looks like "no roots
+    anywhere" and is why the control below exists.
+    """
+    points = []
+    for t in np.linspace(0.0, 1.0, n, endpoint=False):
+        points.append(complex(re_lo + (re_hi - re_lo) * t, im_lo))
+    for t in np.linspace(0.0, 1.0, n, endpoint=False):
+        points.append(complex(re_hi, im_lo + (im_hi - im_lo) * t))
+    for t in np.linspace(0.0, 1.0, n, endpoint=False):
+        points.append(complex(re_hi + (re_lo - re_hi) * t, im_hi))
+    for t in np.linspace(0.0, 1.0, n, endpoint=False):
+        points.append(complex(re_lo, im_hi + (im_lo - im_hi) * t))
+    values = np.array([fn(z) for z in points])
+    if not np.all(np.isfinite(values)) or np.any(values == 0):
+        return None
+    phase = np.unwrap(np.angle(np.concatenate([values, values[:1]])))
+    return float((phase[-1] - phase[0]) / (2.0 * np.pi))
+
+
+def test_the_winding_instrument_finds_a_root_it_should():
+    """The control, without which a null survey means nothing.
+
+    A first version of this returned ``0`` for every input, including a
+    box drawn round a root whose location was already known -- and the
+    VTI survey below was briefly read as "no leaky mode exists" on the
+    strength of it.
+    """
+    from fwap import flexural_dispersion
+    from fwap.cylindrical_solver._n1_isotropic import (
+        _modal_determinant_n1_complex,
+    )
+
+    vp, vs, rho = 3658.0, 2032.0, 2350.0
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+    omega = 2.0 * np.pi * 8000.0
+    speed = (
+        1.0
+        / flexural_dispersion(
+            np.array([8000.0]), vp=vp, vs=vs, rho=rho, **fluid
+        ).slowness[0]
+    )
+    kz = omega / speed
+
+    def bound(z):
+        return complex(
+            _modal_determinant_n1_complex(
+                z, omega, vp=vp, vs=vs, rho=rho, **fluid, leaky_p=False, leaky_s=False
+            )
+        )
+
+    around = _winding_number(bound, kz - 0.6, kz + 0.6, -0.35, 0.35)
+    empty = _winding_number(bound, kz + 2.0, kz + 4.0, -0.35, 0.35)
+    assert around is not None and abs(around - 1.0) < 0.05, around
+    assert empty is not None and abs(empty) < 0.05, empty
+
+
+def test_the_open_hole_leaky_dipole_window_is_empty_isotropic_and_vti_alike():
+    """Phase 5's finding: there is no mode there for a driver to march.
+
+    Counted with the instrument the test above validates, the window
+    ``V_S < c < V_P`` at ``Im(k_z) > 0`` holds **no** ``n = 1`` root --
+    and it holds none for the *isotropic* determinant either, which is
+    the mature path. So this is a fact about the open-hole dipole
+    problem rather than something the VTI assembly is missing.
+
+    Real-axis ``Im(det)`` sign changes are not evidence against this.
+    Green River shows exactly one per frequency across 3-18 kHz, at
+    velocities that rise, jump, descend and split -- no coherent
+    branch, and no root: ``|det|`` never vanishes at any of them.
+
+    Where the repo *does* record leaky dipole modes is behind casing
+    (A.9), where the steel lifts the mode above a slow formation's
+    shear speed. That is the cased VTI path, which is not built.
+    """
+    from fwap.cylindrical_solver._leaky import _detect_leaky_branches
+    from fwap.cylindrical_solver._n1_isotropic import (
+        _modal_determinant_n1_complex,
+    )
+    from fwap.cylindrical_solver._vti import _modal_determinant_n1_vti_complex
+
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+
+    # Isotropic control, fast and slow.
+    for vp, vs, rho in ((3658.0, 2032.0, 2350.0), (2400.0, 900.0, 2100.0)):
+        for freq in (4000.0, 8000.0):
+            omega = 2.0 * np.pi * freq
+
+            def isotropic(z, omega=omega, vp=vp, vs=vs, rho=rho):
+                _, leaky_p, leaky_s = _detect_leaky_branches(
+                    z, omega, vp, vs, fluid["vf"]
+                )
+                return complex(
+                    _modal_determinant_n1_complex(
+                        z,
+                        omega,
+                        vp=vp,
+                        vs=vs,
+                        rho=rho,
+                        **fluid,
+                        leaky_p=leaky_p,
+                        leaky_s=leaky_s,
+                    )
+                )
+
+            count = _winding_number(
+                isotropic,
+                omega / (vp * 0.997),
+                omega / (vs * 1.003),
+                0.001,
+                1.5,
+            )
+            assert count is not None and abs(count) < 0.05, (vp, freq, count)
+
+    # VTI, on the media whose windows are widest.
+    for name in ("Green River shale", "Pierre shale"):
+        s = _thomsen_stiffness(_THOMSEN_TABLE_1[name])
+        v_sv = np.sqrt(s["c44"] / s["rho"])
+        v_p = np.sqrt(s["c33"] / s["rho"])
+        for freq in (4000.0, 8000.0):
+            omega = 2.0 * np.pi * freq
+
+            def vti(z, omega=omega, s=s, v_p=v_p, v_sv=v_sv):
+                _, leaky_p, leaky_s = _detect_leaky_branches(
+                    z, omega, v_p, v_sv, fluid["vf"]
+                )
+                return complex(
+                    _modal_determinant_n1_vti_complex(
+                        z,
+                        omega,
+                        **s,
+                        **fluid,
+                        radiating=(leaky_p, leaky_s, leaky_s),
+                    )
+                )
+
+            count = _winding_number(
+                vti,
+                omega / (v_p * 0.997),
+                omega / (v_sv * 1.003),
+                0.001,
+                1.5,
+            )
+            assert count is not None and abs(count) < 0.05, (name, freq, count)
+
+
+def test_the_cased_leaky_dipole_exists_and_anisotropy_would_move_it():
+    """A.12 groundwork: the target for a cased VTI solver is real.
+
+    Two things a cased VTI build depends on, measured before building
+    it. First, the mode exists: A.9's isotropic cased leaky dipole
+    converges across 3-15 kHz for slow formations matching the
+    vertical velocities of Thomsen's slow media, sitting well above
+    ``V_S`` with a real attenuation.
+
+    Second, anisotropy would move it by enough to matter. Running the
+    isotropic solver at ``V_Sv`` and again at ``V_Sh`` brackets where a
+    VTI answer must fall, and the bracket is **1.6 to 8.9 %** -- far
+    above the 0.21-0.27 % at which the cased curves are tied to Schmitt
+    & Cheng figures 20 and 21. A cased VTI solver would therefore be
+    resolving a real effect rather than a rounding difference.
+    """
+    from fwap import flexural_dispersion_layered
+    from fwap.cylindrical_solver._dataclasses import BoreholeLayer
+
+    steel = BoreholeLayer(vp=5900.0, vs=3200.0, rho=7850.0, thickness=0.01)
+    cement = BoreholeLayer(vp=2800.0, vs=1600.0, rho=1900.0, thickness=0.02)
+    freq = np.arange(3000.0, 15001.0, 2000.0)
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+
+    spreads = []
+    for name in ("Pierre shale", "Dog Creek shale"):
+        vp0, vs0, rho, _, _, gamma = _THOMSEN_TABLE_1[name]
+        v_sh = vs0 * np.sqrt(1.0 + 2.0 * gamma)
+
+        curves = {}
+        for tag, vs in (("sv", vs0), ("sh", v_sh)):
+            result = flexural_dispersion_layered(
+                freq,
+                vp=vp0,
+                vs=vs,
+                rho=rho,
+                **fluid,
+                layers=(steel, cement),
+            )
+            slowness = np.asarray(result.slowness)
+            assert np.isfinite(slowness).all(), (name, tag, slowness)
+            curves[tag] = 1.0 / slowness
+
+        # The mode is leaky: comfortably above the formation shear speed.
+        assert (curves["sv"] > vs0 * 1.2).all(), (name, curves["sv"], vs0)
+        spreads.extend(100.0 * (curves["sh"] - curves["sv"]) / curves["sv"])
+
+    spreads = np.array(spreads)
+    assert (spreads > 0.0).all(), spreads
+    assert spreads.min() > 1.0, spreads.min()
+    assert spreads.max() > 6.0, spreads.max()
+
+
+# ----------------------------------------------------------------------
+# A.12: the u_theta / u_z derivation the cased stack needs
+# ----------------------------------------------------------------------
+
+
+def test_the_vti_polarisation_ratio_has_the_right_isotropic_limits():
+    """The sharp analytic check on ``gamma``.
+
+    ``gamma`` is fixed by the axial equation of motion. Two isotropic
+    limits pin it with no freedom at all: at the P root it must be
+    exactly ``1``, recovering ``u = grad phi``; at the S root exactly
+    ``alpha^2 / k_z^2``, which is the Hansen form ``u = curl curl(chi
+    z)`` the isotropic assembly already uses. A sign error, or the
+    wrong stiffness in the numerator, breaks one or both.
+    """
+    from fwap.cylindrical_solver._vti import _vti_polarisation_ratio
+
+    vp, vs, rho = 3658.0, 2032.0, 2350.0
+    mu = rho * vs * vs
+    lam = rho * vp * vp - 2 * mu
+    stiff = dict(c13=lam, c33=lam + 2 * mu, c44=mu, rho=rho)
+
+    for freq in (4000.0, 9000.0, 16000.0):
+        omega = 2.0 * np.pi * freq
+        for c in (1200.0, 1700.0, 2400.0):
+            kz = omega / c
+            alpha_p = np.sqrt(complex(kz**2 - (omega / vp) ** 2))
+            alpha_s = np.sqrt(complex(kz**2 - (omega / vs) ** 2))
+
+            gamma_p = _vti_polarisation_ratio(alpha_p, kz, omega, **stiff)
+            assert abs(gamma_p - 1.0) < 1e-12, (freq, c, gamma_p)
+
+            gamma_s = _vti_polarisation_ratio(alpha_s, kz, omega, **stiff)
+            expected = alpha_s**2 / kz**2
+            assert abs(gamma_s - expected) < 1e-12 * max(abs(expected), 1.0), (
+                freq,
+                c,
+                gamma_s,
+                expected,
+            )
+
+
+def test_the_formation_displacement_columns_reproduce_the_validated_row():
+    """The tie to code that is already trusted.
+
+    ``u_r`` is the one component the open-hole assembly already had, in
+    ``_modal_row1_at_a_n1_vti``. The new columns must reproduce those
+    entries exactly, which is what makes ``u_theta`` and ``u_z`` -- the
+    two the layered stack needs and which never existed here -- an
+    extension rather than a reimplementation.
+
+    It also pins the per-column normalisation: qP carries ``-1``, qSV
+    ``-k_z`` and SH ``+i``. Those are conventions of the existing
+    assembly, applied to whole columns, so they cancel out of any
+    determinant.
+    """
+    from fwap.cylindrical_solver._vti import (
+        _formation_displacements_n1_vti,
+        _modal_row1_at_a_n1_vti,
+    )
+
+    a = 0.10
+    for name in ("Green River shale", "Mesaverde sandstone", "Dog Creek shale"):
+        s = _thomsen_stiffness(_THOMSEN_TABLE_1[name])
+        for freq in (5000.0, 11000.0):
+            omega = 2.0 * np.pi * freq
+            for c in (1100.0, 1500.0):
+                kz = omega / c
+                row = _modal_row1_at_a_n1_vti(
+                    kz, omega, **s, vf=1500.0, rho_f=1000.0, a=a
+                )
+                columns = _formation_displacements_n1_vti(kz, omega, **s, r=a)
+                if not np.isfinite(columns).all():
+                    continue
+                for j in range(3):
+                    assert abs(columns[0, j] - row[j + 1]) < 1e-9 * max(
+                        abs(row[j + 1]), 1.0
+                    ), (name, freq, c, j, columns[0, j], row[j + 1])
+
+            # SH is curl(psi z): purely horizontal, no axial component.
+            columns = _formation_displacements_n1_vti(omega / 1300.0, omega, **s, r=a)
+            assert columns[2, 2] == 0.0, (name, freq, columns[2, 2])
+
+
+def test_the_formation_columns_satisfy_the_vti_equations_of_motion():
+    """The independent physics check: the columns are solutions.
+
+    ``div sigma + rho omega^2 u`` is formed from the returned
+    displacements by fourth-order finite differences in ``r``, with the
+    strains, VTI constitutive law and cylindrical divergence written
+    out here rather than taken from the module. Nothing in this test
+    shares algebra with the code it checks, so agreement is evidence
+    rather than a tautology.
+    """
+    from fwap.cylindrical_solver._vti import _formation_displacements_n1_vti
+
+    n = 1
+    r0, h = 0.12, 0.12e-4
+
+    def residual(s, kz, omega, column):
+        c11, c13, c33 = s["c11"], s["c13"], s["c33"]
+        c44, c66, rho = s["c44"], s["c66"], s["rho"]
+        c12 = c11 - 2 * c66
+
+        def u(r):
+            return _formation_displacements_n1_vti(kz, omega, **s, r=r)[:, column]
+
+        def stress(r):
+            ur, ut, uz = u(r)
+            d = (-u(r + 2 * h) + 8 * u(r + h) - 8 * u(r - h) + u(r - 2 * h)) / (12 * h)
+            e_rr, e_tt, e_zz = d[0], ur / r + (1j * n / r) * ut, 1j * kz * uz
+            e_rt = (1j * n / r) * ur + d[1] - ut / r
+            e_rz = 1j * kz * ur + d[2]
+            e_tz = (1j * n / r) * uz + 1j * kz * ut
+            return np.array(
+                [
+                    c11 * e_rr + c12 * e_tt + c13 * e_zz,
+                    c12 * e_rr + c11 * e_tt + c13 * e_zz,
+                    c13 * (e_rr + e_tt) + c33 * e_zz,
+                    c66 * e_rt,
+                    c44 * e_rz,
+                    c44 * e_tz,
+                ]
+            )
+
+        sig = stress(r0)
+        dsig = (
+            -stress(r0 + 2 * h)
+            + 8 * stress(r0 + h)
+            - 8 * stress(r0 - h)
+            + stress(r0 - 2 * h)
+        ) / (12 * h)
+        s_rr, s_tt, s_zz, s_rt, s_rz, s_tz = sig
+        ur, ut, uz = u(r0)
+        res = (
+            abs(
+                dsig[0]
+                + (1j * n / r0) * s_rt
+                + 1j * kz * s_rz
+                + (s_rr - s_tt) / r0
+                + rho * omega**2 * ur
+            ),
+            abs(
+                dsig[3]
+                + (1j * n / r0) * s_tt
+                + 1j * kz * s_tz
+                + 2 * s_rt / r0
+                + rho * omega**2 * ut
+            ),
+            abs(
+                dsig[4]
+                + (1j * n / r0) * s_tz
+                + 1j * kz * s_zz
+                + s_rz / r0
+                + rho * omega**2 * uz
+            ),
+        )
+        scale = max(abs(dsig[0]), abs(s_rr / r0), abs(rho * omega**2 * ur), 1e-300)
+        return max(res) / scale
+
+    checked = 0
+    for name in ("Green River shale", "Mesaverde sandstone", "Dog Creek shale"):
+        s = _thomsen_stiffness(_THOMSEN_TABLE_1[name])
+        omega = 2.0 * np.pi * 8000.0
+        for c in (1200.0, 1600.0):
+            kz = omega / c
+            if not np.isfinite(
+                _formation_displacements_n1_vti(kz, omega, **s, r=r0)
+            ).all():
+                continue
+            for column in range(3):
+                assert residual(s, kz, omega, column) < 1e-6, (name, c, column)
+                checked += 1
+    assert checked >= 12, checked
+
+
+def test_the_n0_real_reduction_was_already_a_valid_basis():
+    """Recorded because it looked like a bug and was not.
+
+    The ``n = 0`` determinant reduces over ``M.real`` while the qP /
+    qSV columns carry imaginary parts of the same order as the real
+    ones -- 44 % of them on Mesaverde shale(5) where the Stoneley mode
+    sits. That reads as throwing away half of two independent
+    solutions, which is exactly the defect A.11 phase 3 fixed at
+    ``n = 1``.
+
+    It is not the same defect. At ``n = 0`` the two columns are
+    proportional, ``col_qSV = lambda conj(col_qP)``, so taking real
+    parts still spans their plane whenever ``Im(lambda) != 0``, and the
+    two determinants differ by exactly the scalar
+    ``Im(lambda) Im(alpha_qP)``. The roots never moved. This pins that
+    identity so the reasoning is not re-litigated from the 44 % alone.
+    """
+    from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti_complex
+    from fwap.cylindrical_solver._vti import (
+        _modal_row1_at_a_vti,
+        _modal_row2_at_a_vti,
+        _modal_row3_at_a_vti,
+        _recombine_conjugate_columns_n0,
+    )
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Mesaverde shale(5)"])
+    kw = dict(**s, vf=1500.0, rho_f=1000.0, a=0.10)
+    omega = 2.0 * np.pi * 8000.0
+
+    checked = 0
+    for c in (1150.0, 1250.0, 1350.0, 1430.0, 1500.0):
+        kz = omega / c
+        alpha_qP, _, _ = _radial_wavenumbers_vti_complex(kz, omega, **s)
+        matrix = np.vstack(
+            [
+                _modal_row1_at_a_vti(kz, omega, **kw),
+                _modal_row2_at_a_vti(kz, omega, **kw),
+                _modal_row3_at_a_vti(kz, omega, **kw),
+            ]
+        )
+        if not np.isfinite(matrix).all() or alpha_qP.imag == 0.0:
+            continue
+
+        column, other = matrix[:, 1], matrix[:, 2]
+        conjugate = np.conj(column)
+        pivot = int(np.argmax(np.abs(conjugate)))
+        lam = other[pivot] / conjugate[pivot]
+        # Proportional to machine precision -- this is what makes the
+        # real reduction a change of basis rather than a loss.
+        assert np.allclose(other, lam * conjugate, rtol=1e-12, atol=0.0)
+        # And genuinely complex, so the 44 % is real, not noise.
+        assert np.max(np.abs(matrix.imag)) > 0.1 * np.max(np.abs(matrix.real))
+
+        recombined = _recombine_conjugate_columns_n0(matrix, alpha_qP)
+        assert not np.array_equal(recombined, matrix)
+        ratio = float(np.linalg.det(matrix.real)) / float(
+            np.linalg.det(recombined.real)
+        )
+        predicted = lam.imag * alpha_qP.imag
+        assert abs(ratio - predicted) < 1e-8 * max(abs(predicted), 1.0), (
+            c,
+            ratio,
+            predicted,
+        )
+        assert abs(predicted) > 1e-3, (c, predicted)
+        checked += 1
+
+    assert checked >= 4, checked
+
+
+def test_the_vti_stoneley_curve_is_unchanged_by_the_n0_recombination():
+    """The consequence of the identity above, stated as a regression.
+
+    Since the two determinants differ by a non-zero scalar, the
+    ``n = 0`` VTI dispersion curve must be exactly what it was, and the
+    isotropic limit must still reproduce `stoneley_dispersion` to the
+    bit.
+    """
+    from fwap import stoneley_dispersion, stoneley_dispersion_vti
+
+    freq = np.arange(3000.0, 16001.0, 1000.0)
+    fluid = dict(vf=1500.0, rho_f=1000.0, a=0.10)
+
+    s = _thomsen_stiffness(_THOMSEN_TABLE_1["Mesaverde shale(5)"])
+    speeds = 1.0 / stoneley_dispersion_vti(freq, **s, **fluid).slowness
+    assert np.isfinite(speeds).all(), speeds
+    assert abs(speeds.min() - 1410.71) < 0.05, speeds.min()
+    assert abs(speeds.max() - 1448.76) < 0.05, speeds.max()
+
+    vp, vs, rho = 3658.0, 2032.0, 2350.0
+    c44, c11 = rho * vs * vs, rho * vp * vp
+    iso = dict(c11=c11, c13=c11 - 2 * c44, c33=c11, c44=c44, c66=c44, rho=rho)
+    a = stoneley_dispersion_vti(freq, **iso, **fluid).slowness
+    b = stoneley_dispersion(freq, vp=vp, vs=vs, rho=rho, **fluid).slowness
+    assert np.array_equal(a, b), np.nanmax(np.abs(a - b))

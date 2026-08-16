@@ -6,7 +6,121 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **The `n = 0` VTI determinant puts its conjugate qP/qSV columns on an
+  explicit real basis** before reducing over `M.real`
+  (`_recombine_conjugate_columns_n0`). **No dispersion value changes**,
+  and the previous form was not wrong: because
+  `col_qSV = lambda conj(col_qP)`, taking real parts already spanned
+  the same plane, and the two determinants differ by exactly the
+  non-zero scalar `Im(lambda) Im(alpha_qP)` — verified to 1e-8 across
+  the band. The Stoneley roots were always right.
+
+  This was investigated as a suspected regression, on the strength of
+  the qP/qSV columns carrying imaginary parts at 44 % of the real ones
+  on Mesaverde shale(5). That reasoning was wrong and the identity
+  above is now pinned by a test so it is not re-litigated from the
+  44 % alone. What the change buys is conditioning: the real basis no
+  longer rests on `Im(lambda) != 0`, which nothing was checking.
+
+- **`flexural_dispersion_vti`'s docstring** said the formation
+  qP/qSV/SH wavenumbers "stay real". Since A.11 phase 3 they are a
+  complex-conjugate pair wherever the Christoffel discriminant turns
+  negative — the case that recovered 77 %/57 % of the bound window.
+  Corrected, along with a note that there is no leaky VTI curve and why.
+
+### Added
+- **Groundwork for a cased VTI solver** (roadmap A.12), measured rather
+  than assumed. A.9's isotropic cased leaky dipole converges 13/13 over
+  3-15 kHz on slow formations matching Thomsen's slow media, at
+  1.37-1.69 `V_S`. Bracketing a VTI answer by running that solver at
+  `V_Sv` and again at `V_Sh` gives **+1.6 % to +8.9 %** — an order of
+  magnitude above the 0.21-0.27 % at which the cased curves are tied to
+  Schmitt & Cheng figures 20 and 21.
+
+- **`_vti_polarisation_ratio` and `_formation_displacements_n1_vti`** —
+  the `u_theta` and `u_z` formation columns a layered VTI stack needs
+  and the open-hole problem never did. The coupled qP/qSV pair takes
+  `u_r = d(phi)/dr`, `u_theta = (i n / r) phi`, `u_z = i k_z gamma phi`
+  with `phi = K_n(alpha r)`, and the axial equation of motion fixes
+  `gamma = -alpha^2 (C13 + C44) / (rho omega^2 + C44 alpha^2 - C33
+  k_z^2)`; SH is decoupled, so its `u_z` is identically zero.
+
+  Checked three ways, none circular: the isotropic limit gives `gamma`
+  exactly 1 at the P root and exactly `alpha^2 / k_z^2` at the S root
+  (the Hansen form already in use), to 1e-12; the `u_r` row reproduces
+  the validated `_modal_row1_at_a_n1_vti` entries exactly; and the full
+  field satisfies the VTI equations of motion to ~1e-9 relative under
+  fourth-order finite differences written out independently of the
+  module.
+
+  Still not a cased VTI solver: the 10x10 assembly, the recombination
+  at `r = b`, the radiating branches and the driver all remain.
+
+### Added
+- **Radiating branches for the VTI formation columns** (roadmap A.11
+  phase 4, partial). `_radial_wavenumbers_vti_complex` takes a per-wave
+  `radiating=(qP, qSV, SH)` flag, and the row builders evaluate through
+  `_k_or_hankel` rather than `K_n`. The flags are independent: over
+  `V_Sv < c < V_P` the qSV wave radiates while qP stays evanescent.
+
+  **Validated against an independent implementation.** Unlike the
+  conjugate regime, the leaky regime *is* reachable isotropically, so
+  the VTI determinant is checked against `_modal_determinant_n1_complex`
+  and agrees exactly — `det_vti * (alpha_qP - alpha_qSV) * k_z /
+  det_iso = -1` at every sampled velocity, the factor being the column
+  recombination's own non-vanishing Jacobian.
+
+  The fluid column takes a complex `k_z` too. It needed no outgoing
+  form: the fluid occupies `0 <= r <= a`, so its condition is
+  regularity at the origin rather than radiation at infinity, and `I_n`
+  is entire. The branch of `F_f` is immaterial — the fluid enters only
+  two rows, both odd in `F_f`, so flipping it negates the column and
+  the determinant without moving a root.
+
+  The oracle holds over the regime a driver would search: 30 samples
+  over `c` in [2200, 3600] and `Im(k_z)` in [0, 1.5], with
+  `max|ratio + 1| = 1.4e-14`.
+
+  **No driver, and phase 5 found no open-hole mode for one to drive.**
+  Counted by the argument principle, the window `V_Sv < c < V_P0` at
+  `Im(k_z) > 0` holds no `n = 1` root — and none for the isotropic
+  determinant either, fast and slow formations alike, so this is a fact
+  about the open-hole dipole problem rather than a VTI gap. Real-axis
+  `Im(det)` sign changes suggest otherwise and are not roots: `|det|`
+  vanishes at none of them. Dog Creek shale is the one exception, with
+  a sharp zero over 12-14 kHz at `0.98 V_P0` — a narrow band against
+  the P cutoff with no isotropic counterpart, which is the signature
+  A.9 recorded for zeros that are not modes; it is not certified.
+
+  **Still no leaky VTI dispersion curve.** A
+  complex `k_z` is refused only when no wave radiates, which describes
+  a field decaying in `r` and growing along `z` — not a mode. The
+  `n = 0` and bound `n = 1` determinants keep the original #134
+  contract: they reduce over `M.real` and have no radiating branch.
+  `complex(kz, 0.0)` is still coerced to the real path bit-for-bit.
+
 ### Fixed
+- **`_radial_wavenumbers_vti_complex` was swapping qP and qSV twice
+  over** (A.11 phase 4), in the same line, for two different reasons.
+  Above `V_Sv` at a real `k_z` it ordered on `Re(alpha)`, but
+  once a root's square goes negative — which is exactly the leaky
+  window — that `alpha` is imaginary and the comparison picks the wrong
+  wave. Ordering is now on `alpha^2`, whatever the signs. The bug was
+  introduced with the function in phase 2 and never surfaced because
+  its tests sampled only the bound window; the isotropic limit goes
+  from 23.1 to 2.1e-14 across the leaky window on the fix.
+
+  At a complex `k_z` neither the real nor the conjugate rule applied
+  and it fell to a `|alpha|` fallback — where, above roughly
+  `1.2 V_Sv`, the radiating root has the larger magnitude and the two
+  waves swap again. The real-`k_z` oracle passed throughout, which is
+  why this needed its own test. Ordering is now on `Re(alpha^2)`
+  everywhere, which is exact: in the isotropic limit
+  `alpha_p^2 - alpha_s^2 = (omega/V_s)^2 - (omega/V_p)^2`, a positive
+  real constant independent of `k_z`. The complex-`k_z` oracle goes
+  from `max|ratio + 1| = 3.4` to `1.4e-14`.
+
 - **The bound VTI flexural window is no longer truncated** (roadmap
   A.11 phase 3). `flexural_dispersion_vti` returned `NaN` wherever the
   Christoffel discriminant went negative, which cost **77 % of the

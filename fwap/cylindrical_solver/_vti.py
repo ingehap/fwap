@@ -14,6 +14,7 @@ from scipy import optimize, special
 from fwap._common import logger
 from fwap.cylindrical_solver._bessel import (
     _as_real_kz,
+    _k_or_hankel,
     _radial_wavenumbers_vti_complex,
 )
 from fwap.cylindrical_solver._dataclasses import BoreholeMode
@@ -390,9 +391,29 @@ def flexural_dispersion_vti(
     signal-part measurement and branch marcher the isotropic
     fast-formation path uses. There ``F_f^2 < 0`` over the part of
     the band where the phase velocity exceeds ``V_f``, so the fluid
-    Bessels are oscillatory; the formation qP / qSV / SH
-    wavenumbers stay real and ``k_z`` stays real, so the root is a
-    genuine bound mode rather than a leaky one.
+    Bessels are oscillatory, and ``k_z`` stays real, so the root is
+    a genuine bound mode rather than a leaky one.
+
+    The qP / qSV wavenumbers do **not** always stay real, and this
+    said they did until roadmap A.11 phase 3. Where the Christoffel
+    discriminant turns negative they are a complex-conjugate pair --
+    an inhomogeneous qP / qSV pair, which is a real feature of a TI
+    medium rather than an error state. The solve used to return
+    ``NaN`` there, which silently truncated the bound window by
+    **77 % on Thomsen (1986) Mesaverde shale(5) and 57 % on
+    Mesaverde sandstone**. The pair is now carried through
+    :func:`_radial_wavenumbers_vti_complex`, and its two columns are
+    put back on a real basis by
+    :func:`_recombine_conjugate_columns`, so the mode is still bound
+    and the determinant is still real. ``k_z`` remains real
+    throughout; nothing here is a leaky path.
+
+    There is no leaky VTI dispersion curve. The determinant accepts a
+    complex ``k_z`` and is validated against the isotropic one
+    (A.11 phase 4), but A.11 phase 5 found no open-hole ``n = 1``
+    root in ``V_Sv < c < V_P0`` to march -- and none for the
+    isotropic determinant either, so that is a property of the
+    open-hole dipole problem rather than a gap here.
 
     Parameters and validation rules: identical to
     :func:`stoneley_dispersion_vti`.
@@ -1126,6 +1147,7 @@ def _modal_row1_at_a_vti(
     vf: float,
     rho_f: float,
     a: float,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
 ) -> np.ndarray:
     r"""
     Row 1 of the n=0 VTI Stoneley modal determinant evaluated at
@@ -1178,11 +1200,12 @@ def _modal_row1_at_a_vti(
         c44=c44,
         c66=c66,
         rho=rho,
+        radiating=radiating,
     )
 
     I1_Ff_a = float(special.iv(1, F_f * a))
-    K1_qP_a = complex(special.kv(1, alpha_qP * a))
-    K1_qSV_a = complex(special.kv(1, alpha_qSV * a))
+    _, K1_qP_a = _k_or_hankel(0, alpha_qP, a, leaky=radiating[0])
+    _, K1_qSV_a = _k_or_hankel(0, alpha_qSV, a, leaky=radiating[1])
 
     row: np.ndarray = np.zeros(3, dtype=complex)
     # A column: fluid u_r contribution (matches M11 at any C-matrix).
@@ -1317,6 +1340,7 @@ def _modal_row2_at_a_vti(
     vf: float,
     rho_f: float,
     a: float,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
 ) -> np.ndarray:
     r"""
     Row 2 of the n=0 VTI Stoneley modal determinant at ``r = a``.
@@ -1369,13 +1393,12 @@ def _modal_row2_at_a_vti(
         c44=c44,
         c66=c66,
         rho=rho,
+        radiating=radiating,
     )
 
     I0_Ff_a = float(special.iv(0, F_f * a))
-    K0_qP_a = complex(special.kv(0, alpha_qP * a))
-    K1_qP_a = complex(special.kv(1, alpha_qP * a))
-    K0_qSV_a = complex(special.kv(0, alpha_qSV * a))
-    K1_qSV_a = complex(special.kv(1, alpha_qSV * a))
+    K0_qP_a, K1_qP_a = _k_or_hankel(0, alpha_qP, a, leaky=radiating[0])
+    K0_qSV_a, K1_qSV_a = _k_or_hankel(0, alpha_qSV, a, leaky=radiating[1])
 
     rho_omega_sq = rho * omega * omega
     # Stress factor Q_qX = (C44 (C11 alpha_qX^2 + C13 kz^2) - C13 rho omega^2)
@@ -1464,6 +1487,7 @@ def _modal_row3_at_a_vti(
     vf: float,
     rho_f: float,
     a: float,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
 ) -> np.ndarray:
     r"""
     Row 3 of the n=0 VTI Stoneley modal determinant at ``r = a``.
@@ -1511,9 +1535,10 @@ def _modal_row3_at_a_vti(
         c44=c44,
         c66=c66,
         rho=rho,
+        radiating=radiating,
     )
-    K1_qP_a = complex(special.kv(1, alpha_qP * a))
-    K1_qSV_a = complex(special.kv(1, alpha_qSV * a))
+    _, K1_qP_a = _k_or_hankel(0, alpha_qP, a, leaky=radiating[0])
+    _, K1_qSV_a = _k_or_hankel(0, alpha_qSV, a, leaky=radiating[1])
 
     rho_omega_sq = rho * omega * omega
     # Stress factor P_qX = C11 alpha_qX^2 + C13 kz^2 + rho omega^2.
@@ -1658,9 +1683,15 @@ def _modal_determinant_n0_vti(
         ),
     ]
     M = np.vstack(rows)
-    # Each row is real-valued post-rescale; imaginary parts are
-    # zero to floating-point precision in the bound regime. Take
-    # the real part to discard sub-machine-epsilon imaginary noise.
+    alpha_qP, _, _ = _radial_wavenumbers_vti_complex(
+        kz, omega, c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho
+    )
+    M = _recombine_conjugate_columns_n0(M, alpha_qP)
+    # Post-recombination every column is real, so `.real` discards
+    # only sub-machine-epsilon noise. It was already safe without the
+    # recombination -- the two determinants differ by the non-zero
+    # scalar Im(lambda) Im(alpha_qP) -- but only because Im(lambda)
+    # happened to be non-zero, which nothing checked.
     return float(np.linalg.det(M.real))
 
 
@@ -1713,8 +1744,168 @@ def _modal_determinant_n0_vti(
 # pre-rescale C entry. Columns A and D are not rescaled.
 
 
+def _vti_polarisation_ratio(
+    alpha: complex,
+    kz: complex,
+    omega: float,
+    *,
+    c13: float,
+    c33: float,
+    c44: float,
+    rho: float,
+) -> complex:
+    r"""
+    The ``gamma`` that fixes a qP / qSV column's axial displacement.
+
+    For fields going as ``e^{i(n theta + k_z z)}`` the coupled qP / qSV
+    pair admits the potential form
+
+        ``u_r = d(phi)/dr``,  ``u_theta = (i n / r) phi``,
+        ``u_z = i k_z gamma phi``,     ``phi = K_n(alpha r)``,
+
+    and substituting it into the axial equation of motion leaves a
+    single condition, whose solution is
+
+        ``gamma = -alpha^2 (C13 + C44)
+                  / (rho omega^2 + C44 alpha^2 - C33 k_z^2)``.
+
+    The isotropic limit is the check that this is the right object.
+    With ``C11 = C33 = lambda + 2 mu``, ``C44 = mu``, ``C13 = lambda``
+    it returns exactly ``1`` at the P root -- recovering ``u = grad
+    phi`` -- and exactly ``alpha^2 / k_z^2`` at the S root, which is
+    the Hansen form ``u = curl curl(chi z)`` the isotropic assembly
+    already uses. Both are reproduced to floating point.
+
+    Parameters
+    ----------
+    alpha : complex
+        Radial wavenumber of the column (rad / m), from
+        :func:`_radial_wavenumbers_vti_complex`.
+    kz : complex
+        Axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    c13, c33, c44 : float
+        VTI stiffnesses (Pa).
+    rho : float
+        Formation density (kg / m^3).
+
+    Returns
+    -------
+    complex
+        ``gamma``, dimensionless.
+    """
+    numerator = -(complex(alpha) ** 2) * (c13 + c44)
+    denominator = (
+        rho * omega * omega + c44 * complex(alpha) ** 2 - c33 * complex(kz) ** 2
+    )
+    return complex(numerator / denominator)
+
+
+def _formation_displacements_n1_vti(
+    kz: complex,
+    omega: float,
+    *,
+    c11: float,
+    c13: float,
+    c33: float,
+    c44: float,
+    c66: float,
+    rho: float,
+    r: float,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
+) -> np.ndarray:
+    r"""
+    The three formation displacement columns at radius ``r``, ``n = 1``.
+
+    Returns ``u_r``, ``u_theta`` and ``u_z`` for the qP, qSV and SH
+    columns. The open-hole assembly never needed the last two: its
+    boundary conditions at ``r = a`` are ``u_r`` continuity with the
+    fluid plus three tractions. A **layered** stack needs continuity of
+    all six quantities across ``r = b``, which is what this supplies
+    (roadmap A.12).
+
+    qP and qSV come from the potential form in
+    :func:`_vti_polarisation_ratio`; SH is decoupled and carries
+    ``u = curl(psi z)``, so ``u_z`` is identically zero for it.
+
+    **Normalisation matches the existing rows**, so these columns
+    compose with them rather than needing a rescale: the qP column
+    carries ``-1``, the qSV column ``-k_z`` and the SH column ``+i``,
+    which is what ``_modal_row1_at_a_n1_vti`` already uses. Applied per
+    column, so all three components of one column share one factor and
+    the physics is untouched.
+
+    Parameters
+    ----------
+    kz : complex
+        Axial wavenumber (rad / m).
+    omega : float
+        Angular frequency (rad / s).
+    c11, c13, c33, c44, c66 : float
+        VTI stiffnesses (Pa).
+    rho : float
+        Formation density (kg / m^3).
+    r : float
+        Radius at which to evaluate (m) -- ``a`` for an open hole, the
+        outermost layer radius ``b`` for a cased stack.
+    radiating : tuple of bool
+        Per-wave ``(qP, qSV, SH)`` outgoing-branch selection, as for
+        :func:`_radial_wavenumbers_vti_complex`.
+
+    Returns
+    -------
+    ndarray
+        ``(3, 3)`` complex array. Rows are ``(u_r, u_theta, u_z)``;
+        columns are ``(qP, qSV, SH)``.
+
+    Notes
+    -----
+    Verified two ways. The full field satisfies the VTI equations of
+    motion in cylindrical coordinates to ~1e-9 relative under
+    fourth-order finite differences, at ``n = 1`` and ``n = 2`` across
+    three Thomsen media; and its ``u_r`` row reproduces the already
+    validated ``_modal_row1_at_a_n1_vti`` formation entries exactly.
+    """
+    n = 1
+    alpha_qP, alpha_qSV, alpha_SH = _radial_wavenumbers_vti_complex(
+        kz,
+        omega,
+        c11=c11,
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c66,
+        rho=rho,
+        radiating=radiating,
+    )
+
+    def _pair(alpha: complex, leaky: bool) -> tuple[complex, complex]:
+        """``(K_n(alpha r), dK_n/dr)`` on the column's own branch."""
+        k_n, k_n1 = _k_or_hankel(n, alpha, r, leaky=leaky)
+        return k_n, alpha * (-k_n1 + (n / (alpha * r)) * k_n)
+
+    columns = []
+    for alpha, leaky, scale in (
+        (alpha_qP, radiating[0], -1.0 + 0.0j),
+        (alpha_qSV, radiating[1], -complex(kz)),
+    ):
+        phi, dphi = _pair(alpha, leaky)
+        gamma = _vti_polarisation_ratio(
+            alpha, kz, omega, c13=c13, c33=c33, c44=c44, rho=rho
+        )
+        columns.append(
+            scale * np.array([dphi, (1j * n / r) * phi, 1j * complex(kz) * gamma * phi])
+        )
+
+    psi, dpsi = _pair(alpha_SH, radiating[2])
+    columns.append(1j * np.array([(1j * n / r) * psi, -dpsi, 0.0 + 0.0j]))
+
+    return np.column_stack(columns)
+
+
 def _fluid_bessels_n1_vti(
-    kz: float,
+    kz: complex,
     omega: float,
     vf: float,
     a: float,
@@ -1743,10 +1934,30 @@ def _fluid_bessels_n1_vti(
     At exactly ``F_f^2 == 0`` the bound branch is taken; ``I_n(0)`` is
     finite (1 and 0), so this is continuous.
 
+    **Complex ``k_z``** (A.11 phase 4) needs no third branch, and in
+    particular no outgoing form. The fluid occupies ``0 <= r <= a``,
+    so its boundary condition is regularity at the origin rather than
+    radiation at infinity, and ``I_n`` -- entire for integer ``n`` --
+    supplies that for any complex argument. What the leaky case adds
+    is only that ``F_f^2`` is now complex rather than real of either
+    sign.
+
+    The sign of ``F_f`` is immaterial to the modes. The fluid column
+    enters the ``n = 1`` matrix in two rows, ``(F_f I_0 - I_1 / a)``
+    and ``-I_1``, and both are **odd** in ``F_f`` (``I_0`` is even,
+    ``I_1`` odd), so flipping the branch negates the whole column and
+    multiplies the determinant by ``-1`` without moving a root. The
+    principal root is nonetheless the right one to take: over the
+    leaky search region ``Im(k_z) >= 0`` with ``c > V_f`` the argument
+    ``F_f^2`` sits in the closed upper half plane, where the principal
+    square root is continuous, and its value on the negative real axis
+    (``Im(k_z) = 0``) is the limit from above. So the determinant does
+    not pick up a spurious sign flip anywhere the search goes.
+
     Parameters
     ----------
-    kz : float
-        Trial axial wavenumber (rad / m).
+    kz : complex
+        Trial axial wavenumber (rad / m). Real or complex.
     omega : float
         Angular frequency (rad / s).
     vf : float
@@ -1760,15 +1971,15 @@ def _fluid_bessels_n1_vti(
         ``(F_f, I_0(F_f a), I_1(F_f a))``. Real-valued (zero imaginary
         part) in the bound regime; genuinely complex otherwise.
     """
-    arg2 = kz * kz - (omega / vf) ** 2
-    if arg2 >= 0.0:
-        F_f = float(np.sqrt(arg2))
+    arg2 = complex(kz) * complex(kz) - (omega / vf) ** 2
+    if arg2.imag == 0.0 and arg2.real >= 0.0:
+        F_f = float(np.sqrt(arg2.real))
         return (
             F_f,
             float(special.iv(0, F_f * a)),
             float(special.iv(1, F_f * a)),
         )
-    F_f_c = np.sqrt(complex(arg2))
+    F_f_c = np.sqrt(arg2)
     return (
         complex(F_f_c),
         complex(special.iv(0, F_f_c * a)),
@@ -1777,7 +1988,7 @@ def _fluid_bessels_n1_vti(
 
 
 def _modal_row1_at_a_n1_vti(
-    kz: float,
+    kz: complex,
     omega: float,
     *,
     c11: float,
@@ -1789,6 +2000,7 @@ def _modal_row1_at_a_n1_vti(
     vf: float,
     rho_f: float,
     a: float,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
 ) -> np.ndarray:
     r"""
     Row 1 of the n=1 VTI flexural modal determinant evaluated at
@@ -1838,13 +2050,12 @@ def _modal_row1_at_a_n1_vti(
         c44=c44,
         c66=c66,
         rho=rho,
+        radiating=radiating,
     )
 
-    K0_qP_a = complex(special.kv(0, alpha_qP * a))
-    K1_qP_a = complex(special.kv(1, alpha_qP * a))
-    K0_qSV_a = complex(special.kv(0, alpha_qSV * a))
-    K1_qSV_a = complex(special.kv(1, alpha_qSV * a))
-    K1_SH_a = complex(special.kv(1, alpha_SH * a))
+    K0_qP_a, K1_qP_a = _k_or_hankel(0, alpha_qP, a, leaky=radiating[0])
+    K0_qSV_a, K1_qSV_a = _k_or_hankel(0, alpha_qSV, a, leaky=radiating[1])
+    _, K1_SH_a = _k_or_hankel(0, alpha_SH, a, leaky=radiating[2])
 
     row: np.ndarray = np.zeros(4, dtype=complex)
     # A column: fluid u_r contribution (matches M11 at any C-matrix).
@@ -1935,7 +2146,7 @@ def _modal_row1_at_a_n1_vti(
 
 
 def _modal_row2_at_a_n1_vti(
-    kz: float,
+    kz: complex,
     omega: float,
     *,
     c11: float,
@@ -1947,6 +2158,7 @@ def _modal_row2_at_a_n1_vti(
     vf: float,
     rho_f: float,
     a: float,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
 ) -> np.ndarray:
     r"""
     Row 2 of the n=1 VTI flexural modal determinant evaluated at
@@ -2001,14 +2213,12 @@ def _modal_row2_at_a_n1_vti(
         c44=c44,
         c66=c66,
         rho=rho,
+        radiating=radiating,
     )
 
-    K0_qP_a = complex(special.kv(0, alpha_qP * a))
-    K1_qP_a = complex(special.kv(1, alpha_qP * a))
-    K0_qSV_a = complex(special.kv(0, alpha_qSV * a))
-    K1_qSV_a = complex(special.kv(1, alpha_qSV * a))
-    K0_SH_a = complex(special.kv(0, alpha_SH * a))
-    K1_SH_a = complex(special.kv(1, alpha_SH * a))
+    K0_qP_a, K1_qP_a = _k_or_hankel(0, alpha_qP, a, leaky=radiating[0])
+    K0_qSV_a, K1_qSV_a = _k_or_hankel(0, alpha_qSV, a, leaky=radiating[1])
+    K0_SH_a, K1_SH_a = _k_or_hankel(0, alpha_SH, a, leaky=radiating[2])
 
     rho_omega_sq = rho * omega * omega
     # Q_qX = (C44 (C11 alpha_qX^2 + C13 kz^2) - C13 rho omega^2)
@@ -2101,7 +2311,7 @@ def _modal_row2_at_a_n1_vti(
 
 
 def _modal_row3_at_a_n1_vti(
-    kz: float,
+    kz: complex,
     omega: float,
     *,
     c11: float,
@@ -2113,6 +2323,7 @@ def _modal_row3_at_a_n1_vti(
     vf: float,
     rho_f: float,
     a: float,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
 ) -> np.ndarray:
     r"""
     Row 3 of the n=1 VTI flexural modal determinant evaluated at
@@ -2165,14 +2376,12 @@ def _modal_row3_at_a_n1_vti(
         c44=c44,
         c66=c66,
         rho=rho,
+        radiating=radiating,
     )
 
-    K0_qP_a = complex(special.kv(0, alpha_qP * a))
-    K1_qP_a = complex(special.kv(1, alpha_qP * a))
-    K0_qSV_a = complex(special.kv(0, alpha_qSV * a))
-    K1_qSV_a = complex(special.kv(1, alpha_qSV * a))
-    K0_SH_a = complex(special.kv(0, alpha_SH * a))
-    K1_SH_a = complex(special.kv(1, alpha_SH * a))
+    K0_qP_a, K1_qP_a = _k_or_hankel(0, alpha_qP, a, leaky=radiating[0])
+    K0_qSV_a, K1_qSV_a = _k_or_hankel(0, alpha_qSV, a, leaky=radiating[1])
+    K0_SH_a, K1_SH_a = _k_or_hankel(0, alpha_SH, a, leaky=radiating[2])
 
     row: np.ndarray = np.zeros(4, dtype=complex)
     # A column: fluid carries no shear at the wall.
@@ -2250,7 +2459,7 @@ def _modal_row3_at_a_n1_vti(
 
 
 def _modal_row4_at_a_n1_vti(
-    kz: float,
+    kz: complex,
     omega: float,
     *,
     c11: float,
@@ -2262,6 +2471,7 @@ def _modal_row4_at_a_n1_vti(
     vf: float,
     rho_f: float,
     a: float,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
 ) -> np.ndarray:
     r"""
     Row 4 of the n=1 VTI flexural modal determinant evaluated at
@@ -2319,13 +2529,12 @@ def _modal_row4_at_a_n1_vti(
         c44=c44,
         c66=c66,
         rho=rho,
+        radiating=radiating,
     )
 
-    K0_qP_a = complex(special.kv(0, alpha_qP * a))
-    K1_qP_a = complex(special.kv(1, alpha_qP * a))
-    K0_qSV_a = complex(special.kv(0, alpha_qSV * a))
-    K1_qSV_a = complex(special.kv(1, alpha_qSV * a))
-    K1_SH_a = complex(special.kv(1, alpha_SH * a))
+    K0_qP_a, K1_qP_a = _k_or_hankel(0, alpha_qP, a, leaky=radiating[0])
+    K0_qSV_a, K1_qSV_a = _k_or_hankel(0, alpha_qSV, a, leaky=radiating[1])
+    _, K1_SH_a = _k_or_hankel(0, alpha_SH, a, leaky=radiating[2])
 
     rho_omega_sq = rho * omega * omega
     p_qP = c11 * alpha_qP * alpha_qP + c13 * kz * kz + rho_omega_sq
@@ -2449,6 +2658,92 @@ def _modal_determinant_n1_vti(
     return float(np.linalg.det(M.real))
 
 
+def _recombine_conjugate_columns_n0(M: np.ndarray, alpha_qP: complex) -> np.ndarray:
+    r"""
+    Put the ``n = 0`` qP / qSV columns on a real basis.
+
+    The ``n = 1`` sister, :func:`_recombine_conjugate_columns`, divides
+    the qSV column by ``k_z`` because at that order the two builders
+    share a functional form and differ by exactly that factor. **At
+    ``n = 0`` the factor is different** -- a complex constant that
+    varies with ``(k_z, omega)`` -- so that helper cannot be reused,
+    and using it would rescale by the wrong thing.
+
+    What survives is the property the change of basis actually needs:
+    where the roots are a conjugate pair the two columns satisfy
+    ``col_qSV = lambda conj(col_qP)`` for a single non-zero constant
+    ``lambda``, so they span the same plane as ``Re(col_qP)`` and
+    ``Im(col_qP)``. Replacing them by that real pair changes the
+    determinant by a non-zero factor and moves no root, and it is the
+    proportionality rather than the value of ``lambda`` that matters --
+    so ``lambda`` is never formed. The proportionality is **checked**
+    here rather than assumed, and the matrix is returned untouched if
+    it does not hold.
+
+    **This does not fix a wrong answer, and it was written believing
+    it did.** The ``n = 0`` determinant reduces over ``M.real`` while
+    the qP / qSV columns carry imaginary parts of the same order as the
+    real ones -- 44 % on Thomsen (1986) Mesaverde shale(5) at the
+    velocity where the Stoneley mode sits -- which looks like it must
+    be discarding half of two independent solutions. It is not.
+    Because ``col_qSV = lambda conj(col_qP)``, taking real parts gives
+    ``Re(col_qSV) = Re(lambda) Re(col_qP) + Im(lambda) Im(col_qP)``,
+    which still spans the same plane as long as ``Im(lambda) != 0`` --
+    and the two determinants differ by exactly the non-zero scalar
+    ``Im(lambda) Im(alpha_qP)``, verified to 1e-8 across the band. The
+    Stoneley roots were always right.
+
+    What this buys is conditioning rather than correctness: the real
+    basis is explicit instead of resting on ``Im(lambda) != 0``, which
+    nothing was checking and which no test would have caught failing.
+
+    Parameters
+    ----------
+    M : ndarray
+        ``(3, 3)`` assembled ``n = 0`` matrix; columns 1 and 2 are qP
+        and qSV.
+    alpha_qP : complex
+        The qP radial wavenumber, whose imaginary part normalises the
+        second column.
+
+    Returns
+    -------
+    ndarray
+        ``M`` unchanged where the roots are real or the proportionality
+        fails, otherwise with columns 1 and 2 replaced by a
+        real-spanning pair.
+
+    Notes
+    -----
+    Unlike the ``n = 1`` path this does **not** use a divided
+    difference, so it does not stay conditioned as the two roots merge:
+    at the branch point ``Im(alpha_qP) -> 0`` and the second column
+    degenerates. The ``n = 0`` modes sampled here sit far from that
+    boundary -- the Stoneley root is at ~1430 m/s where the conjugate
+    region reaches 1760 -- but a mode approaching it would need the
+    symmetric treatment the ``n = 1`` helper uses.
+    """
+    imag = complex(alpha_qP).imag
+    if imag == 0.0:
+        return M
+    column = M[:, 1].copy()
+    other = M[:, 2]
+    if not (np.all(np.isfinite(column)) and np.all(np.isfinite(other))):
+        return M
+    conjugate = np.conj(column)
+    scale = np.abs(conjugate)
+    pivot = int(np.argmax(scale))
+    if scale[pivot] == 0.0:
+        return M
+    lam = other[pivot] / conjugate[pivot]
+    if not np.allclose(other, lam * conjugate, rtol=1e-9, atol=0.0):
+        return M
+    out = M.copy()
+    out[:, 1] = column.real
+    out[:, 2] = column.imag / imag
+    return out
+
+
 def _recombine_conjugate_columns(
     M: np.ndarray,
     kz: complex,
@@ -2460,6 +2755,7 @@ def _recombine_conjugate_columns(
     c44: float,
     c66: float,
     rho: float,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
 ) -> np.ndarray:
     r"""
     Put the qP / qSV columns on a real basis when their radial
@@ -2507,7 +2803,15 @@ def _recombine_conjugate_columns(
         conjugate.
     """
     alpha_qP, alpha_qSV, _ = _radial_wavenumbers_vti_complex(
-        kz, omega, c11=c11, c13=c13, c33=c33, c44=c44, c66=c66, rho=rho
+        kz,
+        omega,
+        c11=c11,
+        c13=c13,
+        c33=c33,
+        c44=c44,
+        c66=c66,
+        rho=rho,
+        radiating=radiating,
     )
     split = alpha_qP - alpha_qSV
     if split == 0.0 or kz == 0.0:
@@ -2533,6 +2837,7 @@ def _modal_matrix_n1_vti(
     vf: float,
     rho_f: float,
     a: float,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
 ) -> np.ndarray:
     """
     Assemble the 4x4 n=1 VTI flexural modal matrix.
@@ -2547,7 +2852,19 @@ def _modal_matrix_n1_vti(
     ndarray
         ``(4, 4)`` complex array.
     """
-    kz = _as_real_kz(kz, caller="_modal_matrix_n1_vti")
+    if complex(kz).imag == 0.0:
+        # A complex with zero imaginary part is a real number, and #134
+        # guarantees it takes the real path bit-for-bit. Leaving it
+        # complex would route the rows through complex arithmetic and
+        # shift the determinant by an ulp or two.
+        kz = float(complex(kz).real)
+    elif not any(radiating):
+        raise NotImplementedError(
+            "_modal_matrix_n1_vti: a genuinely complex k_z needs "
+            "radiating=... naming which of (qP, qSV, SH) leave on the "
+            "outgoing branch. With every wave bound the columns all "
+            "decay while the field grows along z, which is not a mode."
+        )
     kw = dict(
         c11=c11,
         c13=c13,
@@ -2561,16 +2878,17 @@ def _modal_matrix_n1_vti(
     )
     M = np.vstack(
         [
-            _modal_row1_at_a_n1_vti(kz, omega, **kw),
-            _modal_row2_at_a_n1_vti(kz, omega, **kw),
-            _modal_row3_at_a_n1_vti(kz, omega, **kw),
-            _modal_row4_at_a_n1_vti(kz, omega, **kw),
+            _modal_row1_at_a_n1_vti(kz, omega, **kw, radiating=radiating),
+            _modal_row2_at_a_n1_vti(kz, omega, **kw, radiating=radiating),
+            _modal_row3_at_a_n1_vti(kz, omega, **kw, radiating=radiating),
+            _modal_row4_at_a_n1_vti(kz, omega, **kw, radiating=radiating),
         ]
     )
     return _recombine_conjugate_columns(
         M,
         kz,
         omega,
+        radiating=radiating,
         c11=c11,
         c13=c13,
         c33=c33,
@@ -2584,6 +2902,7 @@ def _modal_determinant_n1_vti_complex(
     kz: complex,
     omega: float,
     *,
+    radiating: tuple[bool, bool, bool] = (False, False, False),
     c11: float,
     c13: float,
     c33: float,
@@ -2645,7 +2964,6 @@ def _modal_determinant_n1_vti_complex(
         floating-point precision and the real part equals
         :func:`_modal_determinant_n1_vti`.
     """
-    kz = _as_real_kz(kz, caller="_modal_determinant_n1_vti_complex")
     M = _modal_matrix_n1_vti(
         kz,
         omega,
@@ -2658,5 +2976,6 @@ def _modal_determinant_n1_vti_complex(
         vf=vf,
         rho_f=rho_f,
         a=a,
+        radiating=radiating,
     )
     return complex(np.linalg.det(M))

@@ -26328,23 +26328,22 @@ def test_the_vti_determinants_accept_a_complex_with_zero_imaginary_part():
 
 
 def test_a_genuinely_complex_kz_is_refused_with_an_explanation():
-    """No leaky VTI path, and the error says so.
+    """The refusal narrowed when A.11 phase 4 landed, and stayed honest.
 
-    This is deliberately not made to work. The VTI stack is real-``k_z``
-    by construction rather than by convention: ``_radial_wavenumbers_vti``
-    returns ``tuple[float, float, float]`` and every row builder casts
-    its formation Bessels with ``float(special.kv(...))``. Supporting a
-    complex ``k_z`` means continuing the qP, qSV and SH columns onto
-    radiating branches -- a per-wave choice the isotropic path spells
-    out as explicit ``leaky_p`` / ``leaky_s`` flags, and one that on
-    this codebase has three times produced a determinant with no root
-    where the wrong branch was picked. Silently continuing on the
-    principal branch would be the plausible-looking version of that
-    mistake.
+    Written for #134, when the VTI stack was real-``k_z`` by
+    construction and every path refused a complex one. Phase 4 gave the
+    ``n = 1`` columns radiating branches, so ``_modal_determinant_
+    n1_vti_complex`` now answers -- but only when the caller says which
+    waves radiate. With every wave bound, a complex ``k_z`` describes a
+    field decaying in ``r`` while growing along ``z``, which is not a
+    mode, and that is still refused.
 
-    So the contract is enforced where it can be seen, with a message
-    that names what is missing rather than surfacing a comparison
-    failure from a helper the caller never invoked.
+    The ``n = 0`` and bound ``n = 1`` determinants keep the original
+    contract: they reduce over ``M.real`` and have no radiating branch,
+    so a complex ``k_z`` has no reading there at all.
+
+    Either way the message names what is missing rather than surfacing
+    a comparison failure from a helper the caller never invoked.
     """
     from fwap.cylindrical_solver._bessel import _radial_wavenumbers_vti
     from fwap.cylindrical_solver._vti import _modal_determinant_n1_vti_complex
@@ -26354,13 +26353,20 @@ def test_a_genuinely_complex_kz_is_refused_with_an_explanation():
     omega = 2.0 * np.pi * 6000.0
     kz = complex(omega / 1700.0, 0.05)
 
-    for det in (
-        _modal_determinant_n0_vti,
-        _modal_determinant_n1_vti,
-        _modal_determinant_n1_vti_complex,
-    ):
+    for det in (_modal_determinant_n0_vti, _modal_determinant_n1_vti):
         with pytest.raises(NotImplementedError, match="k_z must be real"):
             det(kz, omega, **stiffness)
+
+    # The complex determinant refuses only for want of the flags ...
+    with pytest.raises(NotImplementedError, match="radiating"):
+        _modal_determinant_n1_vti_complex(kz, omega, **stiffness)
+
+    # ... and answers once they are given.
+    value = _modal_determinant_n1_vti_complex(
+        kz, omega, **stiffness, radiating=(False, True, True)
+    )
+    assert np.isfinite(complex(value))
+    assert abs(complex(value)) > 0.0
 
     with pytest.raises(NotImplementedError, match="leaky_p"):
         _radial_wavenumbers_vti(
